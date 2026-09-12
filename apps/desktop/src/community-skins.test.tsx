@@ -59,6 +59,9 @@ function client(overrides: Partial<CommunitySkinClient> = {}): CommunitySkinClie
   return {
     list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
     detail: vi.fn().mockImplementation(async id => skin(id, "详情皮肤")),
+    download: vi.fn().mockResolvedValue({ skin: skin("10000000-0000-4000-8000-000000000099", "下载皮肤"), trial: { id: "trial", name: "下载皮肤" } }),
+    rate: vi.fn().mockResolvedValue(undefined),
+    finishTrial: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -145,4 +148,73 @@ test("community failures use stable messages and never expose backend details", 
   render(<CommunitySkinsPage client={communitySkins} theme="dark" />);
   expect((await screen.findByRole("alert")).textContent).toBe("请求过于频繁，请稍后再试。");
   expect(screen.queryByText(/private backend detail/)).toBeNull();
+});
+
+test("downloads enter a recoverable trial and can restore the previous skin", async () => {
+  const original = skin("10000000-0000-4000-8000-000000000007", "可试用皮肤");
+  const downloaded = { ...original, design: { ...design, background: 0x123456 } };
+  const download = vi.fn().mockResolvedValue({
+    skin: downloaded,
+    trial: { id: "20000000-0000-4000-8000-000000000001", name: original.name },
+  });
+  const finishTrial = vi.fn().mockResolvedValue(undefined);
+  render(<CommunitySkinsPage client={client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+    detail: vi.fn().mockResolvedValue(original), download, finishTrial,
+  })} theme="dark" />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: "下载并试用" }));
+  await waitFor(() => expect(download).toHaveBeenCalledWith(original.id, original.name));
+  expect(await screen.findByText(`正在试用：${original.name}`)).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "恢复原皮肤" }));
+  await waitFor(() => expect(finishTrial).toHaveBeenCalledWith(
+    "20000000-0000-4000-8000-000000000001", false,
+  ));
+  expect(await screen.findByText("已恢复试用前的皮肤。")).not.toBeNull();
+});
+
+test("leaving an active trial restores it and keeping it suppresses later recovery", async () => {
+  const original = skin("10000000-0000-4000-8000-000000000008", "退出恢复皮肤");
+  const finishTrial = vi.fn().mockResolvedValue(undefined);
+  const communitySkins = client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+    detail: vi.fn().mockResolvedValue(original),
+    download: vi.fn().mockResolvedValue({
+      skin: original,
+      trial: { id: "20000000-0000-4000-8000-000000000002", name: original.name },
+    }),
+    finishTrial,
+  });
+  const view = render(<CommunitySkinsPage client={communitySkins} theme="light" />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: "下载并试用" }));
+  await screen.findByRole("button", { name: "保留使用" });
+  view.unmount();
+  await waitFor(() => expect(finishTrial).toHaveBeenCalledWith(
+    "20000000-0000-4000-8000-000000000002", false,
+  ));
+});
+
+test("rating refreshes detail while owned skins omit rating controls", async () => {
+  const original = skin("10000000-0000-4000-8000-000000000009", "评分皮肤");
+  const rated = { ...original, my_rating: 4, rating_count: 3, rating_average: 4.3 };
+  const detail = vi.fn().mockResolvedValueOnce(original).mockResolvedValueOnce(rated);
+  const rate = vi.fn().mockResolvedValue(undefined);
+  const view = render(<CommunitySkinsPage client={client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }), detail, rate,
+  })} theme="dark" />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: "评 4 星" }));
+  await waitFor(() => expect(rate).toHaveBeenCalledWith(original.id, 4));
+  expect(await screen.findByText("我的评分：4 星")).not.toBeNull();
+  view.unmount();
+
+  const owned = { ...original, id: "10000000-0000-4000-8000-000000000010", owned: true };
+  render(<CommunitySkinsPage client={client({
+    list: vi.fn().mockResolvedValue({ skins: [owned], has_more: false }),
+    detail: vi.fn().mockResolvedValue(owned),
+  })} theme="dark" />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${owned.name}` }));
+  await screen.findByRole("heading", { name: owned.name });
+  expect(screen.queryByRole("button", { name: "评 4 星" })).toBeNull();
 });

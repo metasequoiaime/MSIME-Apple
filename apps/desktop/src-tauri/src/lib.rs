@@ -12,6 +12,7 @@ use msime_client_core::custom_skin_library::{
     CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore,
     SavedTouchKeyboardSkin,
 };
+use msime_client_core::keyboard_skin_trial::KeyboardSkinTrialStore;
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
 };
@@ -3163,7 +3164,12 @@ pub fn run() {
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            let keyboard_skin_trials =
+                KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
+            #[cfg(target_os = "android")]
+            let _ = keyboard_skin_trials.restore_pending();
             app.manage(CustomSkinLibraryStore::new(&directory));
+            app.manage(keyboard_skin_trials);
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
@@ -3371,6 +3377,12 @@ pub fn run() {
             android_account::community_skin_list,
             #[cfg(target_os = "android")]
             android_account::community_skin_detail,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_download,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_rate,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_finish_trial,
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");

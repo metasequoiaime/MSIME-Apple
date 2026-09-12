@@ -22,7 +22,7 @@ import { AccountPage, type AccountClient } from "./account-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export { AccountPage, type AccountChallenge, type AccountClient, type AccountProfile, type AccountProviders, type AccountUser } from "./account-page";
-export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinPage } from "./community-skins";
+export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";

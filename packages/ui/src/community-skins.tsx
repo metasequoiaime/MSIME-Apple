@@ -22,9 +22,18 @@ export type CommunitySkinPage = {
   has_more: boolean;
 };
 
+export type CommunitySkinTrial = { id: string; name: string };
+export type CommunitySkinDownload = {
+  skin: { id: string; name: string; design: TouchKeyboardSkinDesign };
+  trial: CommunitySkinTrial;
+};
+
 export interface CommunitySkinClient {
   list(offset: number, search: string): Promise<CommunitySkinPage>;
   detail(id: string): Promise<CommunitySkin>;
+  download(id: string, name: string): Promise<CommunitySkinDownload>;
+  rate(id: string, stars: number): Promise<void>;
+  finishTrial(id: string, keep: boolean): Promise<void>;
 }
 
 function communityMessage(error: unknown): string {
@@ -36,6 +45,10 @@ function communityMessage(error: unknown): string {
       case "community_rate_limited": return "请求过于频繁，请稍后再试。";
       case "community_cancelled": return "账号状态已变化，请重新加载。";
       case "community_storage": return "无法安全读取登录状态，请检查设备安全设置。";
+      case "community_skin_library_full": return "最多保存 12 套皮肤，请先删除不需要的设计。";
+      case "community_skin_invalid_name": return "无法保存这款皮肤：名称无效。";
+      case "community_skin_duplicate_name": return "无法保存这款皮肤：名称重复。";
+      case "community_trial_format": return "无法安全保存试用状态，请稍后重试。";
     }
   }
   return "社区暂时不可用，请稍后重试。";
@@ -80,10 +93,14 @@ export function CommunitySkinsPage({ client, theme }: {
   const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CommunitySkin | null>(null);
+  const [trial, setTrial] = useState<CommunitySkinTrial | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionNotice, setActionNotice] = useState("");
   const listGeneration = useRef(0);
   const detailGeneration = useRef(0);
   const nextOffset = useRef(0);
   const activeSearch = useRef("");
+  const trialRef = useRef<CommunitySkinTrial | null>(null);
 
   const requestList = async (query: string, append: boolean) => {
     const generation = ++listGeneration.current;
@@ -109,6 +126,9 @@ export function CommunitySkinsPage({ client, theme }: {
     return () => {
       listGeneration.current += 1;
       detailGeneration.current += 1;
+      const pending = trialRef.current;
+      trialRef.current = null;
+      if (pending) void client.finishTrial(pending.id, false).catch(() => undefined);
     };
   }, [client]);
 
@@ -126,15 +146,79 @@ export function CommunitySkinsPage({ client, theme }: {
     });
   };
 
-  const closeDetail = () => {
+  const closeDetail = async () => {
+    if (actionBusy) return;
+    if (trial) {
+      setActionBusy(true);
+      try {
+        await client.finishTrial(trial.id, false);
+        trialRef.current = null;
+        setTrial(null);
+      } catch (actionError) {
+        setError(communityMessage(actionError));
+        setActionBusy(false);
+        return;
+      }
+      setActionBusy(false);
+    }
     detailGeneration.current += 1;
     setSelected(null);
     setDetailBusy(false);
     setError("");
   };
 
+  const download = async () => {
+    if (!selected || actionBusy) return;
+    setActionBusy(true);
+    setActionNotice("");
+    setError("");
+    try {
+      const result = await client.download(selected.id, selected.name);
+      setSelected(current => current ? { ...current, design: result.skin.design } : current);
+      trialRef.current = result.trial;
+      setTrial(result.trial);
+      setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
+    } catch (actionError) {
+      setError(communityMessage(actionError));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const finishTrial = async (keep: boolean) => {
+    if (!trial || actionBusy) return;
+    const pending = trial;
+    setActionBusy(true);
+    setError("");
+    try {
+      await client.finishTrial(pending.id, keep);
+      trialRef.current = null;
+      setTrial(null);
+      setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
+    } catch (actionError) {
+      setError(communityMessage(actionError));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const rateSkin = async (stars: number) => {
+    if (!selected || actionBusy) return;
+    setActionBusy(true);
+    setError("");
+    try {
+      await client.rate(selected.id, stars);
+      setSelected(await client.detail(selected.id));
+      setActionNotice(`已评分：${stars} 星。`);
+    } catch (actionError) {
+      setError(communityMessage(actionError));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   if (selected) return <div className="community-page community-detail-page">
-    <button type="button" className="community-back" onClick={closeDetail} aria-label="返回社区">← 社区</button>
+    <button type="button" className="community-back" disabled={actionBusy} onClick={() => void closeDetail()} aria-label="返回社区">← 社区</button>
     {error && <p role="alert" className="error">{error}</p>}
     <section className="section community-detail">
       <div className="community-detail-preview"><ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} /></div>
@@ -143,7 +227,10 @@ export function CommunitySkinsPage({ client, theme }: {
       <p className="community-detail-metrics">{selected.downloads.toLocaleString("zh-CN")} 人下载 · {rating(selected)} · {selected.rating_count.toLocaleString("zh-CN")} 人评分</p>
       {selected.my_rating > 0 && <p className="community-my-rating">我的评分：{selected.my_rating} 星</p>}
       {detailBusy && <p role="status">正在读取皮肤详情…</p>}
-      <p className="community-readonly-note">当前版本支持浏览和预览；下载试用、评分及发布将在后续版本开放。</p>
+      {actionNotice && <p role="status" className="community-action-notice">{actionNotice}</p>}
+      {!trial && <button type="button" className="primary community-action" disabled={actionBusy || detailBusy} onClick={() => void download()}>下载并试用</button>}
+      {trial && <div className="community-trial-actions" aria-label="皮肤试用"><p>正在试用：{trial.name}</p><button type="button" className="secondary" disabled={actionBusy} onClick={() => void finishTrial(false)}>恢复原皮肤</button><button type="button" className="primary" disabled={actionBusy} onClick={() => void finishTrial(true)}>保留使用</button></div>}
+      {!selected.owned && <div className="community-rating-actions" aria-label="我的评分"><p>我的评分（下载后可评，可重新选择）</p><div>{[1, 2, 3, 4, 5].map(stars => <button key={stars} type="button" className="secondary" disabled={actionBusy} aria-label={`评 ${stars} 星`} onClick={() => void rateSkin(stars)}>{stars} 星</button>)}</div></div>}
     </section>
   </div>;
 

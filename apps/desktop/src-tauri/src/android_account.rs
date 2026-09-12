@@ -5,6 +5,12 @@ use msime_client_core::account::{
 use msime_client_core::community_skin::{
     BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
 };
+use msime_client_core::custom_skin_library::{
+    CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
+};
+use msime_client_core::keyboard_skin_trial::{
+    KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -200,6 +206,41 @@ where
         .map_err(community_error)
 }
 
+fn custom_skin_error(error: CustomSkinLibraryError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            CustomSkinLibraryError::Full => "community_skin_library_full",
+            CustomSkinLibraryError::InvalidName => "community_skin_invalid_name",
+            CustomSkinLibraryError::DuplicateName => "community_skin_duplicate_name",
+            CustomSkinLibraryError::NotFound => "community_skin_not_found",
+            CustomSkinLibraryError::Json(_) | CustomSkinLibraryError::Invalid => {
+                "community_skin_library_format"
+            }
+            CustomSkinLibraryError::Io(_) => "community_storage",
+        },
+    }
+}
+
+fn trial_error(error: KeyboardSkinTrialError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            KeyboardSkinTrialError::Io(_) | KeyboardSkinTrialError::Preferences(_) => {
+                "community_storage"
+            }
+            KeyboardSkinTrialError::Json(_) | KeyboardSkinTrialError::Invalid => {
+                "community_trial_format"
+            }
+        },
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunitySkinDownloadResponse {
+    skin: SavedTouchKeyboardSkin,
+    trial: KeyboardSkinTrial,
+}
+
 #[tauri::command]
 pub async fn community_skin_list(
     state: State<'_, AccountState>,
@@ -218,6 +259,68 @@ pub async fn community_skin_detail(
         code: "community_invalid",
     })?;
     community_call(state, move |service| service.detail(id)).await
+}
+
+#[tauri::command]
+pub async fn community_skin_download(
+    state: State<'_, AccountState>,
+    library: State<'_, CustomSkinLibraryStore>,
+    trials: State<'_, KeyboardSkinTrialStore>,
+    id: String,
+    name: String,
+) -> Result<CommunitySkinDownloadResponse, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    let service = Arc::clone(&state.community);
+    let library = library.inner().clone();
+    let trials = trials.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let design = service.download(id).map_err(community_error)?;
+        let (trial, _) = trials.begin(&name, design.clone()).map_err(trial_error)?;
+        let skin = match library.import_download(id, &name, design) {
+            Ok(skin) => skin,
+            Err(error) => {
+                let _ = trials.finish(trial.id, false);
+                return Err(custom_skin_error(error));
+            }
+        };
+        Ok(CommunitySkinDownloadResponse { skin, trial })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "community_unavailable",
+    })?
+}
+
+#[tauri::command]
+pub async fn community_skin_rate(
+    state: State<'_, AccountState>,
+    id: String,
+    stars: u8,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.rate(id, stars)).await
+}
+
+#[tauri::command]
+pub async fn community_skin_finish_trial(
+    trials: State<'_, KeyboardSkinTrialStore>,
+    id: String,
+    keep: bool,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    let trials = trials.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
+        .map_err(trial_error)
 }
 
 #[tauri::command]

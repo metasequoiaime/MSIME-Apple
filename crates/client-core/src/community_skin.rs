@@ -38,6 +38,18 @@ pub struct CommunitySkinPage {
     pub has_more: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommunitySkinDownload {
+    design: TouchKeyboardSkinDesign,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommunitySkinRating {
+    stars: u8,
+}
+
 pub trait CommunitySkinApi: Send + Sync + 'static {
     fn community_skins(
         &self,
@@ -46,6 +58,12 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError>;
     fn community_skin(&self, id: Uuid, token: Option<&str>) -> Result<CommunitySkin, AccountError>;
+    fn download_community_skin(
+        &self,
+        id: Uuid,
+        token: &str,
+    ) -> Result<TouchKeyboardSkinDesign, AccountError>;
+    fn rate_community_skin(&self, id: Uuid, stars: u8, token: &str) -> Result<(), AccountError>;
 }
 
 impl CommunitySkinApi for BackendAccountClient {
@@ -74,6 +92,41 @@ impl CommunitySkinApi for BackendAccountClient {
         }
         Ok(skin)
     }
+
+    fn download_community_skin(
+        &self,
+        id: Uuid,
+        token: &str,
+    ) -> Result<TouchKeyboardSkinDesign, AccountError> {
+        let path = format!("/v1/community/skins/{}/download", id.hyphenated());
+        let result =
+            self.json::<CommunitySkinDownload, ()>(Method::POST, &path, Some(token), None)?;
+        if !result.design.validate() {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(result.design.normalized())
+    }
+
+    fn rate_community_skin(&self, id: Uuid, stars: u8, token: &str) -> Result<(), AccountError> {
+        if !(1..=5).contains(&stars) {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct RatingRequest {
+            stars: u8,
+        }
+        let path = format!("/v1/community/skins/{}/rating", id.hyphenated());
+        let result = self.json::<CommunitySkinRating, _>(
+            Method::PUT,
+            &path,
+            Some(token),
+            Some(&RatingRequest { stars }),
+        )?;
+        if result.stars != stars {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(())
+    }
 }
 
 pub struct BackendCommunitySkinService<A: AccountApi, S: AccountSessionStorage> {
@@ -94,15 +147,33 @@ where
 {
     pub fn list(&self, offset: usize, search: &str) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
-        self.request(|api, token| api.community_skins(offset, search, token))
+        self.request(false, |api, token| {
+            api.community_skins(offset, search, token)
+        })
     }
 
     pub fn detail(&self, id: Uuid) -> Result<CommunitySkin, AccountError> {
-        self.request(|api, token| api.community_skin(id, token))
+        self.request(false, |api, token| api.community_skin(id, token))
+    }
+
+    pub fn download(&self, id: Uuid) -> Result<TouchKeyboardSkinDesign, AccountError> {
+        self.request(true, |api, token| {
+            api.download_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
+        })
+    }
+
+    pub fn rate(&self, id: Uuid, stars: u8) -> Result<(), AccountError> {
+        if !(1..=5).contains(&stars) {
+            return Err(AccountError::Invalid);
+        }
+        self.request(true, |api, token| {
+            api.rate_community_skin(id, stars, token.ok_or(AccountError::Unauthorized)?)
+        })
     }
 
     fn request<T>(
         &self,
+        authenticated: bool,
         operation: impl Fn(&A, Option<&str>) -> Result<T, AccountError>,
     ) -> Result<T, AccountError> {
         let identity = if self.session.status()?.is_some() {
@@ -110,6 +181,9 @@ where
         } else {
             None
         };
+        if authenticated && identity.is_none() {
+            return Err(AccountError::Unauthorized);
+        }
         let mut active_token = identity.as_ref().map(|value| value.1.clone());
         let result = match operation(&self.api, active_token.as_deref()) {
             Err(AccountError::Unauthorized) if identity.is_some() => {
@@ -317,6 +391,21 @@ mod tests {
             value.id = id;
             Ok(value)
         }
+        fn download_community_skin(
+            &self,
+            _: Uuid,
+            bearer: &str,
+        ) -> Result<TouchKeyboardSkinDesign, AccountError> {
+            self.skin_calls.fetch_add(1, Ordering::SeqCst);
+            if bearer == token(b'a') {
+                return Err(AccountError::Unauthorized);
+            }
+            Ok(TouchKeyboardSkinDesign::default())
+        }
+        fn rate_community_skin(&self, _: Uuid, _: u8, _: &str) -> Result<(), AccountError> {
+            self.skin_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
     }
 
     #[test]
@@ -342,6 +431,31 @@ mod tests {
         let service = BackendCommunitySkinService::new(api, session);
         assert_eq!(service.detail(skin().id).unwrap().name, "合成皮肤");
         assert!(storage.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn writes_require_login_refresh_once_and_validate_stars() {
+        let storage = MemoryStorage::default();
+        let api = FakeApi::default();
+        let session = Arc::new(BackendAccountSession::new(api.clone(), storage.clone()));
+        let service = BackendCommunitySkinService::new(api.clone(), session);
+        assert_eq!(service.download(skin().id), Err(AccountError::Unauthorized));
+        assert_eq!(service.rate(skin().id, 0), Err(AccountError::Invalid));
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 0);
+
+        *storage.0.lock().unwrap() = Some(SavedAccountSession {
+            tokens: tokens(b'a', b'b'),
+            expires_at_unix_ms: u64::MAX,
+        });
+        let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
+        let service = BackendCommunitySkinService::new(api.clone(), session);
+        assert_eq!(
+            service.download(skin().id).unwrap(),
+            TouchKeyboardSkinDesign::default()
+        );
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 2);
+        service.rate(skin().id, 5).unwrap();
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]
@@ -395,5 +509,55 @@ mod tests {
             .recv()
             .unwrap()
             .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1"));
+    }
+
+    #[test]
+    fn transport_uses_authenticated_write_contracts() {
+        fn server(response: Vec<u8>) -> (String, mpsc::Receiver<String>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let (sent, received) = mpsc::channel();
+            std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 4096];
+                let length = stream.read(&mut request).unwrap();
+                sent.send(String::from_utf8_lossy(&request[..length]).into_owned())
+                    .unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
+                    response.len()
+                )
+                .unwrap();
+                stream.write_all(&response).unwrap();
+            });
+            (origin, received)
+        }
+
+        let id = skin().id;
+        let (origin, received) = server(
+            serde_json::to_vec(&serde_json::json!({
+                "design": TouchKeyboardSkinDesign::default()
+            }))
+            .unwrap(),
+        );
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        client.download_community_skin(id, &token(b'a')).unwrap();
+        let request = received.recv().unwrap();
+        assert!(request.starts_with(&format!(
+            "POST /v1/community/skins/{}/download HTTP/1.1",
+            id.hyphenated()
+        )));
+        assert!(request.contains("authorization: Bearer "));
+
+        let (origin, received) = server(br#"{"stars":4}"#.to_vec());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        client.rate_community_skin(id, 4, &token(b'b')).unwrap();
+        let request = received.recv().unwrap();
+        assert!(request.starts_with(&format!(
+            "PUT /v1/community/skins/{}/rating HTTP/1.1",
+            id.hyphenated()
+        )));
+        assert!(request.ends_with("\r\n\r\n{\"stars\":4}"));
     }
 }

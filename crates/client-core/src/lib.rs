@@ -10,6 +10,7 @@ pub mod community_skin;
 pub mod custom_skin_library;
 pub mod dictionary_access;
 mod file_lock;
+pub mod keyboard_skin_trial;
 pub mod panels;
 pub mod preferences;
 pub mod resources;

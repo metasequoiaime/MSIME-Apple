@@ -132,6 +132,36 @@ impl CustomSkinLibraryStore {
         Ok(items)
     }
 
+    /// Import a community download under its stable publication id. Repeated
+    /// downloads refresh the design without renaming the user's local copy.
+    pub fn import_download(
+        &self,
+        id: Uuid,
+        name: &str,
+        design: TouchKeyboardSkinDesign,
+    ) -> Result<SavedTouchKeyboardSkin, CustomSkinLibraryError> {
+        let _lock = self.lock()?;
+        let mut items = self.read_locked()?;
+        if let Some(item) = items.iter_mut().find(|item| item.id == id) {
+            item.design = design.normalized();
+            let imported = item.clone();
+            self.write_locked(&items)?;
+            return Ok(imported);
+        }
+        if items.len() >= MAXIMUM_ITEMS {
+            return Err(CustomSkinLibraryError::Full);
+        }
+        let name = unique_import_name(&items, normalized_name(name)?)?;
+        let imported = SavedTouchKeyboardSkin {
+            id,
+            name,
+            design: design.normalized(),
+        };
+        items.push(imported.clone());
+        self.write_locked(&items)?;
+        Ok(imported)
+    }
+
     fn lock(&self) -> Result<File, CustomSkinLibraryError> {
         fs::create_dir_all(&self.directory)?;
         if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
@@ -217,6 +247,28 @@ fn reject_duplicate_name(
     Ok(())
 }
 
+fn unique_import_name(
+    items: &[SavedTouchKeyboardSkin],
+    name: String,
+) -> Result<String, CustomSkinLibraryError> {
+    if !items.iter().any(|item| item.name == name) {
+        return Ok(name);
+    }
+    for index in 2..=MAXIMUM_ITEMS + 1 {
+        let suffix = format!(" ({index})");
+        let prefix_length = MAXIMUM_NAME_GRAPHEMES.saturating_sub(suffix.graphemes(true).count());
+        let candidate = format!(
+            "{}{}",
+            name.graphemes(true).take(prefix_length).collect::<String>(),
+            suffix
+        );
+        if !items.iter().any(|item| item.name == candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(CustomSkinLibraryError::DuplicateName)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +335,41 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(store.load().unwrap().is_empty());
+    }
+
+    #[test]
+    fn community_downloads_use_stable_ids_and_collision_safe_names() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CustomSkinLibraryStore::new(root.path());
+        store
+            .mutate(create("星空", TouchKeyboardSkinDesign::default()))
+            .unwrap();
+        let publication = Uuid::parse_str("10000000-0000-4000-8000-000000000042").unwrap();
+        let first = store
+            .import_download(
+                publication,
+                "星空",
+                TouchKeyboardSkinDesign {
+                    background: 0x112233,
+                    ..TouchKeyboardSkinDesign::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(first.id, publication);
+        assert_eq!(first.name, "星空 (2)");
+        let refreshed = store
+            .import_download(
+                publication,
+                "服务端新名称",
+                TouchKeyboardSkinDesign {
+                    background: 0x445566,
+                    ..TouchKeyboardSkinDesign::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(refreshed.name, "星空 (2)");
+        assert_eq!(refreshed.design.background, 0x445566);
+        assert_eq!(store.load().unwrap().len(), 2);
     }
 
     #[test]

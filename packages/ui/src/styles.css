@@ -222,6 +222,14 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .community-description { margin: 0; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .community-detail-metrics, .community-my-rating, .community-readonly-note { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .community-readonly-note { padding-top: 14px; border-top: 1px solid var(--divider-color); }
+.community-action { align-self: stretch; min-height: 42px; }
+.community-action-notice { margin: 0; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--text-secondary); font-size: 12px; }
+.community-trial-actions, .community-rating-actions { padding-top: 14px; border-top: 1px solid var(--divider-color); }
+.community-trial-actions p, .community-rating-actions p { margin: 0 0 10px; color: var(--text-secondary); font-size: 12px; }
+.community-trial-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.community-trial-actions p { grid-column: 1 / -1; }
+.community-rating-actions > div { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.community-rating-actions button { min-width: 0; padding-inline: 5px; }
 .statistics-availability p { margin: 8px 0 0; color: var(--text-secondary); line-height: 1.6; }
 .error { color: var(--danger-text); background: var(--surface-raised); padding: 12px; border-radius: 8px; }
 .notice { color: var(--text-secondary); }
