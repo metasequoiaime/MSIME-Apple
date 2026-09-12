@@ -399,7 +399,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       if (typeof result.enabled === "boolean") setEnabled(result.enabled);
       setNotice("云剪贴板已刷新");
     } catch { if (revision === refreshRevision.current) setNotice("无法访问云剪贴板服务"); }
-    finally { setBusy(false); }
+    finally { if (revision === refreshRevision.current) setBusy(false); }
   }
 
   useEffect(() => {
