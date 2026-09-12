@@ -484,6 +484,9 @@ show_selected_bar = true
     assert([loaded.skinID isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].id == "synthetic");
     NSDictionary *before = [[controller valueForKey:@"view"] copy];
     [controller setValue:external forKey:@"appearance"];
+    MSIMEFloatingToolbarPanel *toolbar = [MSIMEFloatingToolbarPanel new];
+    [toolbar setFrameAutosaveName:@""];
+    [controller setValue:toolbar forKey:@"toolbar"];
     MetasequoiaSkinSettingsView *cards = (id)[external skinCatalogController].window.contentView.subviews.firstObject;
     NSArray<NSSwitch *> *skinSwitches = [cards valueForKey:@"switches"];
     assert([skinSwitches.lastObject.identifier isEqual:@"synthetic"]);
@@ -502,6 +505,9 @@ show_selected_bar = true
         for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
             panel.appearance = [NSAppearance appearanceNamed:theme];
             [controller appearanceChanged:nil];
+            [toolbar applyThemePreferences:@{@"theme": [theme isEqual:NSAppearanceNameDarkAqua] ? @"dark" : @"light"}];
+            NSColor *toolbarFill = [[toolbar valueForKey:@"chrome"] valueForKey:@"fillColor"];
+            assert([toolbarFill isEqual:SkinColor([external resolvedSkinForDark:[theme isEqual:NSAppearanceNameDarkAqua]].tokens.surface)]);
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
             NSImageView *decoration = (id)chrome.subviews.lastObject;
             assert([decoration isKindOfClass:NSImageView.class] && decoration.image);
