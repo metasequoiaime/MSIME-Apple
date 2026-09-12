@@ -68,7 +68,10 @@ impl ClipboardHistoryStore {
         if !valid(&text) {
             return Ok(false);
         }
-        let mut next = self.entries.clone();
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open(&self.path);
+        latest.load()?;
+        let mut next = latest.entries;
         next.retain(|item| item != &text);
         next.insert(0, text);
         next.truncate(MAX_ENTRIES);
@@ -78,6 +81,7 @@ impl ClipboardHistoryStore {
     }
 
     pub fn clear(&mut self) -> std::io::Result<()> {
+        let _lock = self.lock_writer()?;
         match fs::remove_file(&self.path) {
             Ok(()) => {
                 self.entries.clear();
@@ -89,6 +93,42 @@ impl ClipboardHistoryStore {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Remove by content, not by a stale host's row index.
+    pub fn remove(&mut self, text: &str) -> std::io::Result<bool> {
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open(&self.path);
+        latest.load()?;
+        let old_length = latest.entries.len();
+        latest.entries.retain(|entry| entry != text);
+        let removed = old_length != latest.entries.len();
+        if removed {
+            self.persist(&latest.entries)?;
+        }
+        self.entries = latest.entries;
+        Ok(removed)
+    }
+
+    fn lock_writer(&self) -> std::io::Result<fs::File> {
+        let parent = self.path.parent().filter(|p| !p.as_os_str().is_empty());
+        if let Some(parent) = parent {
+            fs::create_dir_all(parent)?;
+        }
+        // Keep this sidecar stable across atomic replacement and clear. Removing
+        // it would let another process lock a different inode at the same path.
+        let mut lock_path = self.path.as_os_str().to_owned();
+        lock_path.push(".lock");
+        let mut options = fs::OpenOptions::new();
+        options.create(true).truncate(false).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock = options.open(lock_path)?;
+        crate::file_lock::exclusive(&lock)?;
+        Ok(lock)
     }
 
     fn persist(&self, entries: &[String]) -> std::io::Result<()> {
@@ -120,6 +160,83 @@ fn valid(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_writers_preserve_new_records_and_do_not_resurrect_cleared_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut first = ClipboardHistoryStore::open(&path);
+        let mut stale = ClipboardHistoryStore::open(&path);
+        first.push("synthetic first".into()).unwrap();
+        stale.push("synthetic second".into()).unwrap();
+        assert_eq!(stale.entries(), &["synthetic second", "synthetic first"]);
+        stale.clear().unwrap();
+        first.push("synthetic after clear".into()).unwrap();
+        assert_eq!(first.entries(), &["synthetic after clear"]);
+    }
+
+    #[test]
+    fn removal_uses_latest_history_and_preserves_corrupt_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut first = ClipboardHistoryStore::open(&path);
+        let mut stale = ClipboardHistoryStore::open(&path);
+        first.push("synthetic first".into()).unwrap();
+        stale.load().unwrap();
+        first.push("synthetic second".into()).unwrap();
+        assert!(stale.remove("synthetic first").unwrap());
+        assert_eq!(stale.entries(), &["synthetic second"]);
+        assert!(!first.remove("synthetic absent").unwrap());
+        assert_eq!(first.entries(), &["synthetic second"]);
+        fs::write(&path, b"broken synthetic document").unwrap();
+        assert!(first.remove("synthetic second").is_err());
+        assert!(first.push("synthetic rejected".into()).is_err());
+        assert_eq!(first.entries(), &["synthetic second"]);
+        assert_eq!(fs::read(&path).unwrap(), b"broken synthetic document");
+    }
+
+    // Invoked by separate test processes below; no real clipboard data involved.
+    #[test]
+    fn process_writer() {
+        let Some(path) = std::env::var_os("MSIME_TEST_CLIPBOARD_TRANSACTION_PATH") else {
+            return;
+        };
+        let id = std::env::var("MSIME_TEST_CLIPBOARD_TRANSACTION_ID").unwrap();
+        let mut store = ClipboardHistoryStore::open(path);
+        for index in 0..8 {
+            store.push(format!("synthetic-{id}-{index}")).unwrap();
+        }
+    }
+
+    #[test]
+    fn independent_processes_preserve_all_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let executable = std::env::current_exe().unwrap();
+        let children: Vec<_> = (0..4)
+            .map(|id| {
+                std::process::Command::new(&executable)
+                    .args(["--exact", "clipboard::tests::process_writer"])
+                    .env("MSIME_TEST_CLIPBOARD_TRANSACTION_PATH", &path)
+                    .env("MSIME_TEST_CLIPBOARD_TRANSACTION_ID", id.to_string())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for mut child in children {
+            assert!(child.wait().unwrap().success());
+        }
+        let mut store = ClipboardHistoryStore::open(&path);
+        store.load().unwrap();
+        assert_eq!(store.entries().len(), 32);
+        for id in 0..4 {
+            for index in 0..8 {
+                assert!(store.entries().contains(&format!("synthetic-{id}-{index}")));
+            }
+        }
+    }
 
     #[test]
     fn persists_deduplicates_and_clears() {
@@ -203,7 +320,8 @@ mod tests {
         assert!(store.clear().is_err());
         assert_eq!(store.entries(), &["synthetic-kept"]);
         assert_eq!(fs::read(&backup).unwrap(), br#"["synthetic-kept"]"#);
-        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+        // Backup, failed destination directory and persistent writer-lock sidecar.
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 3);
     }
 
     #[test]
