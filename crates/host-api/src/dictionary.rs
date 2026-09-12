@@ -157,6 +157,13 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             replacement,
             request_id,
         } => {
+            for entry in previous.iter().chain(replacement.iter()) {
+                if matches!(entry.kind, Kind::QuickPhrase)
+                    && entry.value.encode_utf16().count() > 199
+                {
+                    return Err("quick phrase too long".into());
+                }
+            }
             let previous = previous.map(DictionaryEntry::from);
             let replacement = replacement.map(DictionaryEntry::from);
             edit_personal_dictionary(
