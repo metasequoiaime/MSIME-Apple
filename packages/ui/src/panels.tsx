@@ -211,11 +211,21 @@ function appendInkPoint(points: Point[], point: Point): Point[] {
   return [...points.filter((_, index) => index % 2 === 0), last, next];
 }
 
-function pointFromEvent(event: PointerEvent<SVGSVGElement>): Point {
-  const rect = event.currentTarget.getBoundingClientRect();
+function pointFromCoordinates(canvas: SVGSVGElement, event: { clientX: number; clientY: number }): Point {
+  const rect = canvas.getBoundingClientRect();
   const width = rect.width || 420;
   const height = rect.height || 420;
   return { x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)), y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)) };
+}
+
+function appendPointerSamples(points: Point[], event: PointerEvent<SVGSVGElement>): Point[] {
+  let next = points;
+  for (const sample of event.nativeEvent.getCoalescedEvents?.() ?? []) {
+    if (sample.pointerId === event.pointerId) {
+      next = appendInkPoint(next, pointFromCoordinates(event.currentTarget, sample));
+    }
+  }
+  return appendInkPoint(next, pointFromCoordinates(event.currentTarget, event));
 }
 
 export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
@@ -265,7 +275,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognitionRevision.current++;
     setCandidates([]);
     setNotice("书写中，松开后自动识别");
-    const points = appendInkPoint([], pointFromEvent(event));
+    const points = appendPointerSamples([], event);
     if (!points.length) return;
     activeStroke.current = { pointerId: event.pointerId, canvas: event.currentTarget, points };
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -274,7 +284,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   function move(event: PointerEvent<SVGSVGElement>) {
     const active = activeStroke.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    active.points = appendInkPoint(active.points, pointFromEvent(event));
+    active.points = appendPointerSamples(active.points, event);
     setDrawing(active.points);
   }
   function recognizeRemaining(nextStrokes: InkStroke[]) {
@@ -285,8 +295,8 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   function end(event: PointerEvent<SVGSVGElement>) {
     const active = activeStroke.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    active.points = appendInkPoint(active.points, pointFromEvent(event));
-    const nextStrokes = active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
+    active.points = appendPointerSamples(active.points, event);
+    const nextStrokes = active.points.length > 0 ? [...strokes, { points: active.points }] : strokes;
     releaseStroke();
     setStrokes(nextStrokes);
     setDrawing([]);
@@ -338,7 +348,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
-      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
+      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
       <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}><button type="button" className="handwriting-candidate-submit" disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>{client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}</div>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
