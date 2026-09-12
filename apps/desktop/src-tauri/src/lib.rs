@@ -2364,6 +2364,44 @@ fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }
 
+#[cfg(target_os = "linux")]
+fn visible_panel_position(
+    window: &tauri::WebviewWindow,
+    position: tauri::Position,
+    width: f64,
+    height: f64,
+) -> tauri::Position {
+    // X11 geometry is physical. Do not reinterpret Sway's logical coordinates
+    // using a monitor scale factor from a different coordinate space.
+    let tauri::Position::Physical(point) = position else { return position; };
+    let Ok(monitors) = window.available_monitors() else { return position; };
+    let x = f64::from(point.x);
+    let y = f64::from(point.y);
+    let distance = |monitor: &tauri::Monitor| {
+        let area = monitor.work_area();
+        let left = f64::from(area.position.x);
+        let top = f64::from(area.position.y);
+        let dx = x - x.clamp(left, left + f64::from(area.size.width));
+        let dy = y - y.clamp(top, top + f64::from(area.size.height));
+        dx * dx + dy * dy
+    };
+    let Some(monitor) = monitors.iter()
+        .filter(|monitor| monitor.work_area().size.width > 0 && monitor.work_area().size.height > 0)
+        .min_by(|left, right| distance(left).total_cmp(&distance(right)))
+    else { return position; };
+    let scale = monitor.scale_factor();
+    if !scale.is_finite() || scale <= 0.0 { return position; }
+    let area = monitor.work_area();
+    let left = f64::from(area.position.x);
+    let top = f64::from(area.position.y);
+    let right = left + (f64::from(area.size.width) - width * scale).max(0.0);
+    let bottom = top + (f64::from(area.size.height) - height * scale).max(0.0);
+    tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x.clamp(left, right).round() as i32,
+        y.clamp(top, bottom).round() as i32,
+    ))
+}
+
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -2386,6 +2424,8 @@ fn open_panel_window(
         if let Some(window) = app.get_webview_window(label) {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some(position) = position {
+                #[cfg(target_os = "linux")]
+                let position = visible_panel_position(&window, position, width, height);
                 let _ = window.set_position(position);
             }
             window
@@ -2423,6 +2463,8 @@ fn open_panel_window(
                 code: "unavailable",
             })?;
         if let Some(position) = position {
+            #[cfg(target_os = "linux")]
+            let position = visible_panel_position(&window, position, width, height);
             let _ = window.set_position(position);
         }
         window
