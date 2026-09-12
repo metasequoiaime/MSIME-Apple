@@ -827,7 +827,9 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
         action.property, PROP_TYPE_NORMAL,
         ibus_text_new_from_static_string(action.label), "",
         ibus_text_new_from_static_string(action.label),
-        s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr));
+        s.focused && !s.blocked &&
+            (std::string(action.property) != "DesktopTools/Voice" || s.voice_enabled),
+        TRUE, PROP_STATE_UNCHECKED, nullptr));
   }
   ibus_prop_list_append(items, ibus_property_new(
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
