@@ -1,5 +1,21 @@
 import SwiftUI
 
+struct MacEmojiDetailSection<Content: View>: View {
+  let title: String
+  let palette: MacEmojiPalette
+  @ViewBuilder let content: () -> Content
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(title).font(.system(size: 18 * 2 / 3, weight: .semibold))
+        .foregroundStyle(MacEmojiPalette.color(palette.text)).lineLimit(1)
+        .frame(height: MacEmojiSymbolSections.titleHeight)
+        .padding(.leading, 4 * 2 / 3)
+        .frame(maxWidth: .infinity, alignment: .leading).clipped()
+      content()
+    }.padding(.bottom, MacEmojiSymbolSections.bottomPadding)
+  }
+}
+
 struct MacEmojiSymbolSection {
   struct Identity: Hashable { let start: Int }
   let title: String
@@ -39,16 +55,11 @@ struct MacEmojiSymbolSectionsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(MacEmojiSymbolSections.split(items), id: \.id) { section in
-        VStack(alignment: .leading, spacing: 0) {
-          Text(section.title).font(.system(size: 18 * 2 / 3, weight: .semibold))
-            .foregroundStyle(MacEmojiPalette.color(palette.text)).lineLimit(1)
-            .frame(height: MacEmojiSymbolSections.titleHeight)
-            .padding(.leading, 4 * 2 / 3)
-            .frame(maxWidth: .infinity, alignment: .leading).clipped()
+        MacEmojiDetailSection(title: section.title, palette: palette) {
           MacEmojiGrid(items: section.items, palette: palette,
             selected: { selectedIndex == section.start + $0 },
             identity: { section.start + $0 }, copy: { copy(section.start + $0) })
-        }.padding(.bottom, MacEmojiSymbolSections.bottomPadding)
+        }
       }
     }.frame(width: MacEmojiGridMetrics.width, alignment: .leading)
   }

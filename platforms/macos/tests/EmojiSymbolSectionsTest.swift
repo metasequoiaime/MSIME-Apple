@@ -28,6 +28,18 @@ import SwiftUI
     _ = NSApplication.shared
     for light in [false, true] {
       let palette = MacEmojiPalette(light: light)
+      for title in ["Recent", "All", "Synthetic group"] {
+        for count in [0, 1, 7] {
+          let detail = ImageRenderer(content: MacEmojiDetailSection(title: title, palette: palette) {
+            MacEmojiGrid(items: items("fixture", count), palette: palette,
+              selected: { $0 == 0 }, identity: { $0 }, copy: { _ in })
+          }.frame(width: MacEmojiGridMetrics.width))
+          detail.scale = 3
+          guard let rendered = detail.cgImage else { fatalError("Detail section rendering unavailable") }
+          assert(rendered.width == 1008)
+          assert(rendered.height == Int((44 + MacEmojiGridMetrics.height(count: count)) * 3))
+        }
+      }
       let renderer = ImageRenderer(content: MacEmojiSymbolSectionsView(items: Array(source.prefix(9)),
         palette: palette, selectedIndex: 7, copy: { _ in }).background(Color.white))
       renderer.scale = 3
