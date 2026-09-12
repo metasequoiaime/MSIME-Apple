@@ -1652,7 +1652,7 @@ Json voice_provider_options(const Json &preferences) {
   }
   constexpr const char *string_keys[] = {
       "commit_mode", "asr_provider", "asr_model", "polish_provider",
-      "polish_model",
+      "polish_model", "doubao_boosting_table_id",
       "polish_prompt_id", "polish_prompt"};
   for (const auto *key : string_keys) {
     if (!voice.contains(key) || !voice.at(key).is_string())
