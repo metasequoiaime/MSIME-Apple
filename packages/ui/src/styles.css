@@ -522,3 +522,10 @@ html[data-theme="light"] .window-close:active .window-icon { filter: none; }
 .emoji-panel[data-panel-theme="light"] .emoji-panel-categories button:hover,
 .emoji-panel[data-panel-theme="light"] .emoji-panel-categories button:focus-visible,
 .emoji-panel[data-panel-theme="light"] .emoji-panel-categories button[aria-pressed="true"] { background: #eceef3; color: #202124; }
+
+.emoji-panel-activation { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 4px 24px; color: #b8b8c0; font-size: 12px; }
+.emoji-panel-activation button { padding: 5px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+.emoji-panel-activation button[aria-pressed="true"] { border-color: #d88bde; background: #303038; color: #f5f5f7; }
+.emoji-panel-activation button:disabled, .emoji-panel-item:disabled { opacity: .55; cursor: wait; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-activation { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-activation button[aria-pressed="true"] { background: #eceef3; color: #202124; }
