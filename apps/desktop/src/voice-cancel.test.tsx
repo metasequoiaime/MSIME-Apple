@@ -13,7 +13,7 @@ test("voice panel stops an in-flight recognition request", async () => {
   fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
   fireEvent.click(screen.getByRole("button", { name: "停止录音" }));
   expect(cancelVoice).toHaveBeenCalledOnce();
-  expect(screen.getByRole("button", { name: "开始录音" })).toBeEnabled();
+  expect((screen.getByRole("button", { name: "开始录音" }) as HTMLButtonElement).disabled).toBe(false);
   await act(async () => resolve({ text: "过期结果" }));
   expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe("");
 });
