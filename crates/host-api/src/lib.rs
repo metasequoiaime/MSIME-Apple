@@ -543,6 +543,41 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
     })
 }
 
+/// Save host-sampled text only while shared history is enabled.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_capture_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 131072 {
+            return Err("invalid history capture buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Capture {
+            directory: String,
+            text: String,
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let capture: Capture =
+            serde_json::from_slice(bytes).map_err(|_| "invalid history capture document")?;
+        if !std::path::Path::new(&capture.directory).is_absolute()
+            || capture.directory.len() > 16384
+            || capture.text.len() > 4096
+        {
+            return Err("invalid history capture parameters".into());
+        }
+        let captured = PreferencesStore::new(&capture.directory)
+            .capture_clipboard_text(capture.text)
+            .map_err(|_| "clipboard history capture failed")?;
+        Ok(json!({"captured": captured}))
+    })
+}
+
 /// Remove one saved history entry by exact content, without touching the clipboard.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
@@ -2281,6 +2316,35 @@ mod tests {
         assert_eq!(
             read(unsafe { msime_client_remove_clipboard_history(b"{".as_ptr(), 1) })["ok"],
             false
+        );
+    }
+
+    #[test]
+    fn history_capture_bridge_validates_and_returns_no_text() {
+        let directory = tempfile::tempdir().unwrap();
+        let capture = |request: Value| {
+            let bytes = serde_json::to_vec(&request).unwrap();
+            read(unsafe { msime_client_capture_clipboard_history(bytes.as_ptr(), bytes.len()) })
+        };
+        let request = json!({"directory": directory.path(), "text": "synthetic capture"});
+        assert_eq!(capture(request.clone())["value"], json!({"captured": true}));
+        assert_eq!(
+            capture(json!({"directory": "relative", "text": "synthetic"}))["ok"],
+            false
+        );
+        assert_eq!(
+            capture(json!({"directory": directory.path(), "text": "x".repeat(4097)}))["ok"],
+            false
+        );
+        assert_eq!(capture(json!({"directory": directory.path()}))["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_capture_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
+        assert_eq!(
+            capture(request)["error"],
+            "clipboard history capture failed"
         );
     }
 

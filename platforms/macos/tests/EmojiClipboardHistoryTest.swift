@@ -1,6 +1,14 @@
 import Foundation
 
 @objc(MSIMEClientSession) final class HistorySessionStub: NSObject {
+  @objc class func captureClipboardHistoryRequest(_ request: NSDictionary) -> NSDictionary {
+    precondition(request["directory"] as? String == "/synthetic-state")
+    switch request["text"] as? String {
+    case "synthetic capture": return ["captured": true]
+    case "synthetic disabled": return ["captured": false]
+    default: return ["error": true]
+    }
+  }
   @objc class func enableClipboardHistoryRequest(_ directory: String) -> NSDictionary {
     directory == "/synthetic-state" ? ["enabled": true] : ["error": true]
   }
@@ -20,6 +28,12 @@ import Foundation
 
 @main struct EmojiClipboardHistoryTest {
   static func main() throws {
+    let captured = try MacEmojiClipboardHistory.capture(directory: "/synthetic-state", text: "synthetic capture")
+    precondition(captured)
+    let disabledCapture = try MacEmojiClipboardHistory.capture(directory: "/synthetic-state", text: "synthetic disabled")
+    precondition(!disabledCapture)
+    do { _ = try MacEmojiClipboardHistory.capture(directory: "/synthetic-state", text: "synthetic error"); preconditionFailure("capture error accepted") }
+    catch { }
     try MacEmojiClipboardHistory.enable(directory: "/synthetic-state")
     for directory in ["relative", "/synthetic-error"] {
       do { try MacEmojiClipboardHistory.enable(directory: directory); preconditionFailure("invalid enable accepted") }

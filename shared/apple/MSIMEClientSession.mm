@@ -66,6 +66,15 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = [self handwritingProviderRequest:request error:&error];
     return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
++ (NSDictionary *)captureClipboardHistoryRequest:(NSDictionary<NSString *, id> *)request {
+    if (![NSJSONSerialization isValidJSONObject:request]) return @{ @"error": @YES };
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:&error];
+    if (!data || data.length > 131072) return @{ @"error": @YES };
+    NSDictionary *result = decode(msime_client_capture_clipboard_history(
+        static_cast<const uint8_t *>(data.bytes), data.length), &error);
+    return result ?: @{ @"error": @YES };
+}
 + (NSDictionary *)removeClipboardHistoryRequest:(NSDictionary<NSString *, id> *)request {
     if (![NSJSONSerialization isValidJSONObject:request]) return @{ @"error": @YES };
     NSError *error = nil;
