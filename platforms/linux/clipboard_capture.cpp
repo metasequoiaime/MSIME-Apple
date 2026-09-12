@@ -7,7 +7,7 @@
 
 int main(int argc, char **argv) {
   if (argc != 2 || argv[1][0] != '/') return 2;
-  std::array<char, 4097> input;
+  std::array<char, 12001> input;
   std::cin.read(input.data(), input.size());
   const auto size = static_cast<size_t>(std::cin.gcount());
   if (std::cin.bad() || size == 0 || size == input.size()) return 2;

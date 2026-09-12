@@ -656,7 +656,7 @@ std::vector<std::string> clipboard_items(const std::string &path) {
       if (items.size() == 50) break;
       if (!entry.is_string()) continue;
       auto text = entry.get<std::string>();
-      if (text.size() > 4096) continue;
+      if (text.size() > 12000) continue;
       if (!text.empty()) items.push_back(std::move(text));
     }
   } catch (...) {}

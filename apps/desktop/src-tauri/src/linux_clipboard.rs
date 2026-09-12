@@ -5,10 +5,11 @@ use std::io::{ErrorKind, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const MAX_TEXT_BYTES: usize = 4096;
+use msime_client_core::clipboard::{normalize_text, MAX_TEXT_BYTES};
 
 pub fn read_text(program: &str, arguments: &[&str]) -> Option<String> {
-    crate::linux_process::read_text(program, arguments, MAX_TEXT_BYTES, Duration::from_secs(1))
+    crate::linux_process::read_text_prefix(program, arguments, MAX_TEXT_BYTES, Duration::from_secs(1))
+        .map(|text| normalize_text(&text))
 }
 
 pub fn write_text(program: &str, arguments: &[&str], text: &str) -> bool {

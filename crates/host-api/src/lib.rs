@@ -707,7 +707,7 @@ pub unsafe extern "C" fn msime_client_capture_clipboard_history(
             serde_json::from_slice(bytes).map_err(|_| "invalid history capture document")?;
         if !std::path::Path::new(&capture.directory).is_absolute()
             || capture.directory.len() > 16384
-            || capture.text.len() > 4096
+            || capture.text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES
         {
             return Err("invalid history capture parameters".into());
         }
@@ -744,7 +744,7 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
         if !path.is_absolute() || removal.directory.len() > 16384 {
             return Err("invalid history directory".into());
         }
-        if removal.text.is_empty() || removal.text.len() > 4096 {
+        if removal.text.is_empty() || removal.text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES {
             return Err("invalid history entry".into());
         }
         if !PreferencesStore::new(path)

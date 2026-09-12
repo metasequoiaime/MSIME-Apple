@@ -2104,7 +2104,7 @@ async fn paste_clipboard_text(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     {
-        if text.is_empty() || text.len() > 4096 || text.contains('\0') {
+        if text.is_empty() || text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES || text.contains('\0') {
             return Err(HostActionError { code: "invalid_text" });
         }
         let target = state

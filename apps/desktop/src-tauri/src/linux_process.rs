@@ -5,6 +5,14 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub fn read_text(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration) -> Option<String> {
+    read_text_bounded(program, arguments, max_bytes, timeout, false)
+}
+
+pub fn read_text_prefix(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration) -> Option<String> {
+    read_text_bounded(program, arguments, max_bytes, timeout, true)
+}
+
+fn read_text_bounded(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration, prefix: bool) -> Option<String> {
     let mut child = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
@@ -30,6 +38,17 @@ pub fn read_text(program: &str, arguments: &[&str], max_bytes: usize, timeout: D
                     Ok(0) => eof = true,
                     Ok(count) => {
                         bytes.extend_from_slice(&buffer[..count]);
+                        if prefix && bytes.len() >= max_bytes {
+                            bytes.truncate(max_bytes);
+                            let end = match std::str::from_utf8(&bytes) {
+                                Ok(_) => bytes.len(),
+                                Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                                Err(_) => return None,
+                            };
+                            bytes.truncate(end);
+                            let text = String::from_utf8(bytes).ok()?;
+                            return (!text.contains('\0')).then_some(text);
+                        }
                         if bytes.len() > max_bytes {
                             return None;
                         }
@@ -54,7 +73,7 @@ pub fn read_text(program: &str, arguments: &[&str], max_bytes: usize, timeout: D
     })();
     // Reap the process on every path, including a full pipe, failed decoding or
     // timeout. Nonblocking reads also cover descendants holding stdout open.
-    if result.is_none() {
+    if result.is_none() || prefix {
         let _ = child.kill();
     }
     let _ = child.wait();

@@ -5,7 +5,19 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 const MAX_ENTRIES: usize = 50;
-const MAX_TEXT_BYTES: usize = 4096;
+pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
+pub const MAX_TEXT_BYTES: usize = MAX_TEXT_UTF16_UNITS * 3;
+
+/// Match the Windows history length without splitting Unicode characters.
+pub fn normalize_text(text: &str) -> String {
+    let text = text.trim_end_matches(['\0', '\r']);
+    let mut units = 0;
+    let end = text.char_indices().find_map(|(index, character)| {
+        units += character.len_utf16();
+        (units > MAX_TEXT_UTF16_UNITS).then_some(index)
+    }).unwrap_or(text.len());
+    text[..end].to_owned()
+}
 // JSON may escape every input byte as six ASCII bytes.
 const MAX_HISTORY_BYTES: u64 = (MAX_ENTRIES * (MAX_TEXT_BYTES * 6 + 3) + 2) as u64;
 
@@ -42,6 +54,7 @@ impl ClipboardHistoryStore {
                 })?;
                 let mut entries = Vec::new();
                 for value in values {
+                    let value = normalize_text(&value);
                     if valid(&value) && !entries.contains(&value) {
                         entries.push(value);
                         if entries.len() == MAX_ENTRIES {
@@ -65,12 +78,17 @@ impl ClipboardHistoryStore {
     }
 
     pub fn push(&mut self, text: String) -> std::io::Result<bool> {
+        let text = normalize_text(&text);
         if !valid(&text) {
             return Ok(false);
         }
         let _lock = self.lock_writer()?;
         let mut latest = Self::open(&self.path);
         latest.load()?;
+        if latest.entries.first() == Some(&text) {
+            self.entries = latest.entries;
+            return Ok(true);
+        }
         let mut next = latest.entries;
         next.retain(|item| item != &text);
         next.insert(0, text);
@@ -261,7 +279,6 @@ mod tests {
         assert!(store.push("line\nfeed\tvalue".into()).unwrap());
         assert!(!store.push("line\0feed".into()).unwrap());
         assert!(!store.push("line\u{0007}feed".into()).unwrap());
-        assert!(!store.push("x".repeat(MAX_TEXT_BYTES + 1)).unwrap());
         assert_eq!(store.entries(), &["line\nfeed\tvalue"]);
         assert!(path.exists());
     }
