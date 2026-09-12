@@ -304,3 +304,12 @@ Chinese names, equivalent escaped/plain spellings, escaped punctuation,
 name-only variables, timing overrides and blocked remote fallbacks.
 This supersedes the non-ASCII/escaped variable-name limitation, not fragment
 substitution, fonts, imports or native-platform visual acceptance.
+
+Root selector mapping now happens on browser-parsed CSSStyleRule selectors,
+not by replacing text throughout the source. Actual :root pseudo-classes become
+:scope, while quoted attribute values, escaped class-name colons, custom values,
+content and animation names remain untouched. Browser-canonical escaped root
+pseudo-classes and root rules nested under supported conditions work too.
+Unit and Chromium regressions cover exact token matching, escaped/quoted text,
+conditional variable inheritance, scoped computed styles and cleanup. Existing
+animation, resource and native-platform limitations are unchanged.

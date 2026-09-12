@@ -47,6 +47,15 @@ with sync_playwright() as playwright:
       if (getComputedStyle(document.querySelector('.card1')).getPropertyValue('--skin-test').trim() !== '7') throw Error('root mapping failed');
       if (getComputedStyle(document.body).display === 'none' || getComputedStyle(first).backgroundImage !== 'none') throw Error('toolbar escape or resource rule retained');
       toolbar.remove();
+      first.setAttribute('data-root-label', ':root');
+      first.classList.add('literal:root');
+      const rootSelectors = installToolbarCss('card1', ':r\\6f ot { --root-label: ":root"; } [data-root-label=":root"] { padding-left:7px; } .literal\\:root { border-left:3px solid black; } @media screen { :root { --nested-label: ":root"; } } .sample::before {content:":root";}');
+      if (rootSelectors.partial || getComputedStyle(first).getPropertyValue('--root-label').trim() !== '":root"' || getComputedStyle(first).getPropertyValue('--nested-label').trim() !== '":root"') throw Error('root selector mapping changed declaration values or lost conditional inheritance');
+      if (getComputedStyle(first).paddingLeft !== '7px' || getComputedStyle(first).borderLeftWidth !== '3px' || getComputedStyle(first, '::before').content !== '":root"') throw Error('root mapping changed quoted attributes, escaped classes or content');
+      if (getComputedStyle(second).getPropertyValue('--root-label')) throw Error('root variables escaped scope');
+      rootSelectors.remove();
+      first.removeAttribute('data-root-label');
+      first.classList.remove('literal:root');
       if (document.adoptedStyleSheets.length || getComputedStyle(first).color !== baseline) throw Error('toolbar cleanup failed');
       const nested = installToolbarCss('card1', '.sample { color: rgb(10, 20, 30); & { color: rgb(30, 40, 50); } color: rgb(50, 60, 70); @media screen { & { border-left: 5px solid black; } } @supports (display: block) { padding-right: 6px; } }');
       if (nested.partial || getComputedStyle(first).color !== 'rgb(50, 60, 70)') throw Error('nested declaration order lost');
