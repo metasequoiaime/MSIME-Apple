@@ -118,11 +118,12 @@ function isImeCommitKey(virtualKey: number) {
 
 export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
   const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
-    const saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null;
+    let saved: string | null = null;
+    try { saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null; } catch { /* restricted webviews may deny storage */ }
     return saved === "nine_key" || saved === "twenty_six_key" ? saved : layout;
   });
   function switchLayout() {
-    setActiveLayout(value => { const next = value === "nine_key" ? "twenty_six_key" : "nine_key"; window.localStorage.setItem("msime.keyboard.layout", next); return next; });
+    setActiveLayout(value => { const next = value === "nine_key" ? "twenty_six_key" : "nine_key"; try { window.localStorage.setItem("msime.keyboard.layout", next); } catch { /* preference is optional */ } return next; });
   }
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
