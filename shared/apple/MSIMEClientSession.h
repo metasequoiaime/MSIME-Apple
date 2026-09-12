@@ -37,6 +37,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;
 /// Copied enabled translation query, or nil when no candidates are eligible.
 - (nullable NSDictionary *)translationQueryWithError:(NSError **)error;
+/// Pure descriptor construction. Contains optional credentials; never log it.
++ (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Parse only a successful HTTP response; nil without error means no usable translation.
++ (nullable NSString *)parseCustomTranslationResponse:(NSData *)body error:(NSError **)error;
 /// Offline dictionary lookup; may run on a worker with copied {generation,candidates:[{text,source}]}.
 + (nullable NSDictionary *)candidateGlossRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error;
 /// Apply on the originating session/thread only. A stale generation is ignored.

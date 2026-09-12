@@ -1003,6 +1003,86 @@ pub unsafe extern "C" fn msime_client_voice_apply(
     })
 }
 
+/// Build a DeepLX-compatible request for a host-owned HTTP transport. No I/O.
+/// # Safety
+/// `request` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_custom_translation_http_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 16384 {
+            return Err("invalid custom translation request buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            config: msime_input_runtime::TranslationProviderConfig,
+            text: String,
+            source_language: String,
+            target_language: String,
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "invalid custom translation request")?;
+        if !request.config.enabled {
+            return Ok(Value::Null);
+        }
+        let valid_language = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 16
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
+        };
+        if !msime_client_core::translation::is_supported_endpoint(&request.config.endpoint)
+            || request.config.api_key.len() > 4096
+            || request.config.api_key.chars().any(char::is_control)
+            || request.text.is_empty()
+            || request.text.chars().count() > 40
+            || !valid_language(&request.source_language)
+            || !valid_language(&request.target_language)
+        {
+            return Err("invalid custom translation parameters".into());
+        }
+        let mut headers = json!({"Content-Type": "application/json"});
+        if !request.config.api_key.is_empty() {
+            headers["Authorization"] = Value::String(format!("Bearer {}", request.config.api_key));
+        }
+        Ok(json!({
+            "url": request.config.endpoint,
+            "method": "POST",
+            "headers": headers,
+            "body": {"text": request.text, "source_lang": request.source_language.to_ascii_uppercase(),
+                "target_lang": request.target_language.to_ascii_uppercase()},
+            "timeout_ms": 2500,
+            "max_response_bytes": 1048576,
+        }))
+    })
+}
+
+/// Parse a bounded provider document; malformed/no-result documents return null.
+/// # Safety
+/// `body` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_parse_custom_translation_response(
+    body: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if body.is_null() || length > 1048576 {
+            return Err("invalid custom translation response buffer".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(body, length) };
+        let result = std::str::from_utf8(bytes)
+            .ok()
+            .and_then(msime_client_core::translation::parse_translation_response)
+            .filter(|text| !text.is_empty() && text.len() <= 4096);
+        Ok(result.map(Value::String).unwrap_or(Value::Null))
+    })
+}
+
 /// Apply asynchronous candidate translations for an exact candidate generation.
 /// The buffer is a JSON array of `{text, translation}` objects and is not retained.
 ///
@@ -3559,6 +3639,84 @@ mod tests {
         );
         read(msime_client_destroy(other));
         read(msime_client_destroy(handle));
+    }
+    #[test]
+    fn custom_translation_http_bridge_is_bounded_and_pure() {
+        let build = |request: Value| {
+            let bytes = serde_json::to_vec(&request).unwrap();
+            read(unsafe {
+                msime_client_custom_translation_http_request(bytes.as_ptr(), bytes.len())
+            })
+        };
+        let request = json!({"config":{"enabled":true,"endpoint":"https://translation.invalid/api","api_key":"synthetic"},
+            "text":"hello","source_language":"en","target_language":"zh"});
+        let value = build(request.clone());
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["method"], "POST");
+        assert_eq!(
+            value["value"]["headers"]["Authorization"],
+            "Bearer synthetic"
+        );
+        assert_eq!(
+            value["value"]["body"],
+            json!({"text":"hello","source_lang":"EN","target_lang":"ZH"})
+        );
+        assert_eq!(value["value"]["timeout_ms"], 2500);
+        assert_eq!(value["value"]["max_response_bytes"], 1048576);
+        let mut disabled = request.clone();
+        disabled["config"]["enabled"] = json!(false);
+        assert!(build(disabled)["value"].is_null());
+        let mut keyless = request.clone();
+        keyless["config"]["api_key"] = json!("");
+        assert!(build(keyless)["value"]["headers"]
+            .get("Authorization")
+            .is_none());
+        for (field, value) in [
+            ("text", "x".repeat(41)),
+            ("source_language", "en\r\n".into()),
+        ] {
+            let mut invalid = request.clone();
+            invalid[field] = json!(value);
+            assert_eq!(
+                build(invalid)["error"],
+                "invalid custom translation parameters"
+            );
+        }
+        for (field, value) in [
+            ("endpoint", "file:///synthetic"),
+            ("api_key", "synthetic\r\nheader"),
+        ] {
+            let mut invalid = request.clone();
+            invalid["config"][field] = json!(value);
+            assert_eq!(
+                build(invalid)["error"],
+                "invalid custom translation parameters"
+            );
+        }
+        let parse = |body: &[u8]| {
+            read(unsafe {
+                msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+            })
+        };
+        assert_eq!(parse(br#"{"data":"translated"}"#)["value"], "translated");
+        for body in [
+            b"invalid".as_slice(),
+            br#"{"code":500,"data":"ignored"}"#,
+            b"\xff",
+        ] {
+            assert!(parse(body)["value"].is_null());
+        }
+        assert!(parse(json!({"data":"x".repeat(4097)}).to_string().as_bytes())["value"].is_null());
+        assert_eq!(
+            read(unsafe { msime_client_custom_translation_http_request(std::ptr::null(), 0) })
+                ["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_parse_custom_translation_response(b"x".as_ptr(), 1048577) })
+                ["ok"],
+            false
+        );
     }
     #[test]
     fn invalid_buffers_and_commands_return_owned_errors() {
