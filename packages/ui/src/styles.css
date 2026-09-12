@@ -248,8 +248,8 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .keyboard-panel .native-panel-header button:hover { background: var(--kb-hover); color: var(--kb-text); }
 .keyboard-panel-body { flex: 1; min-height: 0; padding: 0 7px 7px; }
 .keyboard-panel-notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kb-heading); font-size: 12px; }
-.keyboard-layout { display: flex; flex-direction: column; height: 100%; gap: 4px; }
-.keyboard-row { display: flex; flex: 1; min-height: 0; gap: 4px; }
+.keyboard-layout { display: flex; flex-direction: column; height: 100%; gap: var(--keyboard-row-gap, 4px); }
+.keyboard-row { display: flex; flex: 1; min-height: 0; gap: var(--keyboard-key-gap, 4px); }
 .keyboard-key { flex: 1 1 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 5px; background: var(--kb-key); color: var(--kb-text); font-size: 15px; }
 .keyboard-key:hover { background: var(--kb-hover); }
 .keyboard-key.active { background: var(--kb-active); }

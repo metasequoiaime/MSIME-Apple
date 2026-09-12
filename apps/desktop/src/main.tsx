@@ -66,6 +66,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   keyboard: {
     beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "keyboard-panel" }),
+    openVoice: () => invoke("open_voice_panel"),
     rememberInputTarget: () => invoke("remember_input_target"),
     sendKey: request => invoke("send_key", { request }),
   },

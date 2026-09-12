@@ -31,5 +31,8 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
   }, [preferences]);
   const theme = useCandidatePreviewTheme(snapshot?.preferences.theme, snapshot?.preferences.screen_keyboard_theme);
   const layout = snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
-  return <KeyboardPanel client={client} theme={theme} layout={layout} />;
+  const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
+  const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
+  const voiceShortcut = snapshot?.preferences.touch_voice_shortcut === true;
+  return <KeyboardPanel client={client} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} />;
 }
