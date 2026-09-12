@@ -16,6 +16,7 @@ public:
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
+  void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
   FloatingToolbarWindow(const FloatingToolbarWindow &) = delete;
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
   void refresh(bool enabled);
@@ -38,6 +39,7 @@ private:
   Reader reader_;
   Click click_;
   Action settings_action_;
+  Action emoji_action_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   bool failed_ = false;
