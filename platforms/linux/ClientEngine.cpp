@@ -158,6 +158,7 @@ struct State {
   bool ctrl_down = false;
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
+  bool mode_chord_held = false;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
     pure_shift_candidate = false;
@@ -167,12 +168,12 @@ struct State {
     right_ctrl_down = false;
     left_ctrl_down = false;
     modifier_toggle_deadline = 0;
+    mode_chord_held = false;
   }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
   bool mode_ctrl_alt_space_enabled = true;
   bool character_set_shortcut_enabled = true;
-  bool mode_chord_held = false;
   bool number_row_selection = true;
   std::optional<bool> number_row_override;
   char last_smart_punctuation = 0;
@@ -302,7 +303,6 @@ struct State {
     voice_space_consumed = false;
     voice_space_locked = false;
     reset_mode_modifiers();
-    mode_chord_held = false;
     voice_worker.cancel_async();
     invalidate_providers();
     ++clipboard_generation;
@@ -3662,15 +3662,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (flags & IBUS_SHIFT_MASK) == 0;
     return FALSE;
   }
-  if (key == IBUS_space && release && s.mode_chord_held) {
-    const bool ctrl_alt_space =
-        (chord_modifiers & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
-            (IBUS_CONTROL_MASK | IBUS_MOD1_MASK) &&
-        (chord_modifiers & ~(IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) == 0;
-    s.mode_chord_held = false;
-    if (ctrl_alt_space) {
-      return TRUE;
-    }
+  // Own the complete consumed Space stroke. Modifier release order and
+  // preference changes must not reinterpret repeats as another shortcut.
+  if (key == IBUS_space && s.mode_chord_held) {
+    if (release) s.mode_chord_held = false;
+    return TRUE;
   }
   if (flags & IBUS_RELEASE_MASK) {
     if (key == IBUS_space && s.voice_space_consumed) {
@@ -3859,10 +3855,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (mode_toggle) {
-      if (ctrl_alt_space && s.mode_chord_held) {
-        handled = true;
-        return;
-      }
       if (ctrl_alt_space)
         s.mode_chord_held = true;
       toggle_input_mode(engine);
