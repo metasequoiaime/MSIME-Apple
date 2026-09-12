@@ -3142,6 +3142,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
+  const bool maintenance_exit_key =
+      (key == IBUS_t || key == IBUS_T) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+  if (!release && maintenance_exit_key && s.focused && !s.blocked) {
+    // Match the Windows maintenance shortcut: stop this user-owned IBus
+    // preview process without touching another IBus daemon or input source.
+    ibus_quit();
+    return TRUE;
+  }
   const bool dedicated_english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
