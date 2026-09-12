@@ -1,8 +1,13 @@
+#if __has_include(<metasequoia/handwriting_candidates.h>)
 #include <metasequoia/handwriting_candidates.h>
+#define MSIME_HAS_HANDWRITING_CANDIDATES 1
+#else
+#define MSIME_HAS_HANDWRITING_CANDIDATES 0
+#endif
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && MSIME_HAS_HANDWRITING_CANDIDATES
 #include <metasequoia/handwriting.h>
 #endif
 #include <algorithm>
@@ -26,8 +31,12 @@ rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::Str
     std::vector<std::string> input;
     for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));
     rust::Vec<rust::String> output;
+#if MSIME_HAS_HANDWRITING_CANDIDATES
     for (const auto &candidate : metasequoia::handwriting::order_candidates(input))
         output.push_back(rust::String(candidate));
+#else
+    for (const auto &candidate : input) output.push_back(rust::String(candidate));
+#endif
     return output;
 }
 
@@ -784,6 +793,10 @@ rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
                                                float width, float height) {
     if (model_path.empty() || points.empty())
         return {};
+#if !MSIME_HAS_HANDWRITING_CANDIDATES
+    (void)model_path; (void)points; (void)width; (void)height;
+    return {};
+#else
     std::vector<metasequoia::handwriting::Stroke> strokes;
     std::uint32_t stroke_count = 0;
     for (const auto &point : points)
@@ -797,6 +810,7 @@ rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
     for (const auto &candidate : candidates)
         result.push_back(rust::String(candidate));
     return result;
+#endif
 }
 #endif
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {

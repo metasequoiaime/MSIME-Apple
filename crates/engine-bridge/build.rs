@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMAKE_PREFIX_PATH");
     let mut config = cmake::Config::new("native");
     let mut android_include = None;
+    let mut windows_include = None;
     let android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
     let windows_gnu = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
@@ -28,6 +29,7 @@ fn main() {
             .define("CMAKE_FIND_ROOT_PATH_MODE_LIBRARY", "ONLY")
             .define("CMAKE_FIND_ROOT_PATH_MODE_INCLUDE", "ONLY")
             .define("CMAKE_FIND_ROOT_PATH_MODE_PACKAGE", "ONLY");
+        windows_include = Some(prefix.join("include"));
     }
     for name in ["MSIME_ANDROID_NDK", "MSIME_ANDROID_DEPS"] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -76,6 +78,9 @@ fn main() {
         .include(&engine)
         .include(engine.join("include"));
     if let Some(include) = android_include {
+        bridge.include(include);
+    }
+    if let Some(include) = windows_include {
         bridge.include(include);
     }
     bridge.std("c++17").compile("msime-engine-cxx");

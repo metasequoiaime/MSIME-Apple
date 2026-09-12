@@ -10,12 +10,12 @@ else()
 endif()
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/MSIME-Engine" engine)
 option(MSIME_ENGINE_BRIDGE_HANDWRITING "Build the optional Engine handwriting recognizer" ON)
-if(MSIME_ENGINE_BRIDGE_HANDWRITING)
+if(MSIME_ENGINE_BRIDGE_HANDWRITING AND TARGET MetasequoiaHandwriting)
     # The bridge links the engine statically. Without this the vendored zinnia
     # header resolves to __declspec(dllimport) on Windows and the archive cannot
     # be linked.
     target_compile_definitions(MetasequoiaHandwriting PUBLIC ZINNIA_STATIC_LIBRARY)
-else()
+elseif(TARGET MetasequoiaHandwriting)
     # Mobile hosts inject their platform recognizer and must not ship a second,
     # unreachable zinnia implementation just because the shared Engine exports one.
     set_target_properties(MetasequoiaHandwriting PROPERTIES EXCLUDE_FROM_ALL TRUE)
