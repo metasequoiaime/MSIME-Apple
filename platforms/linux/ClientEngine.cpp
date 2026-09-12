@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1832,7 +1832,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
       ibus_text_new_from_static_string("在中文方案中补充英文候选"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       english_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto english_mode = ibus_property_new(
       "EnglishMode", PROP_TYPE_TOGGLE,
@@ -1887,13 +1887,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "EmojiCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("Emoji 候选"), "",
       ibus_text_new_from_static_string("在中文方案中补充 Emoji 候选"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       emoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto kaomoji = ibus_property_new(
       "KaomojiCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("颜文字候选"), "",
       ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   const bool clipboard_available = s.clipboard_enabled && s.input_enabled &&
                                    !s.clipboard_history_path.empty();
@@ -2350,7 +2350,7 @@ void sync_global_input_mode(IBusEngine *engine) {
                                            : s.kaomoji_override;
     auto property = ibus_property_new(
         name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
+        ibus_text_new_from_static_string("在中文方案中补充表达候选"), !menu_save_pending, TRUE,
         value(override_value, key, fallback) ? PROP_STATE_CHECKED
                                               : PROP_STATE_UNCHECKED,
         nullptr);
@@ -3567,6 +3567,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
       if (setting_override.value_or(configured.at("preferences").at("mixed_input").value(key, false)) == enabled)
         return;
+      if (menu_save_pending) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, std::string(name) == "EmojiCandidates" ? MenuPreference::EmojiCandidates : MenuPreference::KaomojiCandidates, enabled);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3582,6 +3588,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.english_override.value_or(
               configured.at("preferences").at("mixed_input").value("english", false)) == enabled)
         return;
+      if (menu_save_pending) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::EnglishCandidates, enabled);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4818,6 +4830,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->autocorrect_transposition_override.reset();
           if (request.preference == MenuPreference::AutocorrectNeighbor)
             self->state->autocorrect_neighbor_override.reset();
+          if (request.preference == MenuPreference::EnglishCandidates)
+            self->state->english_override.reset();
+          if (request.preference == MenuPreference::EmojiCandidates)
+            self->state->emoji_override.reset();
+          if (request.preference == MenuPreference::KaomojiCandidates)
+            self->state->kaomoji_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4871,6 +4889,15 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::AutocorrectNeighbor:
             snapshot["preferences"]["quanpin"]["autocorrect_neighbor"] = request.value;
+            break;
+          case MenuPreference::EnglishCandidates:
+            snapshot["preferences"]["mixed_input"]["english"] = request.value;
+            break;
+          case MenuPreference::EmojiCandidates:
+            snapshot["preferences"]["mixed_input"]["emoji"] = request.value;
+            break;
+          case MenuPreference::KaomojiCandidates:
+            snapshot["preferences"]["mixed_input"]["kaomoji"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
