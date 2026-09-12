@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1857,14 +1857,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("辅助码"), "",
       ibus_text_new_from_static_string("启用候选辅助码提示"),
       s.focused && !s.blocked && s.input_enabled &&
-          (active_scheme == "quanpin" || active_scheme == "shuangpin"), TRUE,
+          (active_scheme == "quanpin" || active_scheme == "shuangpin") && !menu_save_pending, TRUE,
       helpcode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_schema = ibus_property_new(
       "HelpcodeSchema", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("辅助码方案"), "",
       ibus_text_new_from_static_string("选择辅助码编码方案"),
       s.focused && !s.blocked && s.input_enabled &&
-          (active_scheme == "quanpin" || active_scheme == "shuangpin"), TRUE,
+          (active_scheme == "quanpin" || active_scheme == "shuangpin") && !menu_save_pending, TRUE,
       PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_schema_menu = ibus_prop_list_new();
   const auto schema = s.helpcode_schema_override.value_or(
@@ -1878,7 +1878,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("切换辅助码方案"), TRUE, TRUE,
+        ibus_text_new_from_static_string("切换辅助码方案"), !menu_save_pending, TRUE,
         schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(helpcode_schema_menu, item);
   }
@@ -3266,6 +3266,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
               configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
                   .value("schema", "ziranma")) == selected)
         return;
+      if (menu_save_pending || value != PROP_STATE_CHECKED) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, active_scheme == "quanpin" ? MenuPreference::QuanpinHelpcodeSchema
+                                                                : MenuPreference::ShuangpinHelpcodeSchema, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3653,6 +3660,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
               .value("enabled", true));
       if (current == enabled)
         return;
+      if (menu_save_pending) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, active_scheme == "quanpin" ? MenuPreference::QuanpinHelpcode
+                                                                : MenuPreference::ShuangpinHelpcode, enabled);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4836,6 +4850,18 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->emoji_override.reset();
           if (request.preference == MenuPreference::KaomojiCandidates)
             self->state->kaomoji_override.reset();
+          if (request.preference == MenuPreference::QuanpinHelpcode &&
+              self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "quanpin")
+            self->state->helpcode_override.reset();
+          if (request.preference == MenuPreference::QuanpinHelpcodeSchema &&
+              self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "quanpin")
+            self->state->helpcode_schema_override.reset();
+          if (request.preference == MenuPreference::ShuangpinHelpcode &&
+              self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "shuangpin")
+            self->state->helpcode_override.reset();
+          if (request.preference == MenuPreference::ShuangpinHelpcodeSchema &&
+              self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "shuangpin")
+            self->state->helpcode_schema_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4898,6 +4924,18 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::KaomojiCandidates:
             snapshot["preferences"]["mixed_input"]["kaomoji"] = request.value;
+            break;
+          case MenuPreference::QuanpinHelpcode:
+            snapshot["preferences"]["quanpin_helpcode"]["enabled"] = request.value;
+            break;
+          case MenuPreference::QuanpinHelpcodeSchema:
+            snapshot["preferences"]["quanpin_helpcode"]["schema"] = request.value;
+            break;
+          case MenuPreference::ShuangpinHelpcode:
+            snapshot["preferences"]["shuangpin_helpcode"]["enabled"] = request.value;
+            break;
+          case MenuPreference::ShuangpinHelpcodeSchema:
+            snapshot["preferences"]["shuangpin_helpcode"]["schema"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
