@@ -6,6 +6,7 @@ python3 platforms/linux/tests/provider_config_discovery.py
 python3 platforms/linux/tests/tencent_credential_normalization.py
 python3 platforms/linux/tests/custom_translation_config.py
 python3 platforms/linux/tests/clipboard_capture_destination.py
+python3 platforms/linux/tests/clipboard_watch_lifecycle.py
 cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
