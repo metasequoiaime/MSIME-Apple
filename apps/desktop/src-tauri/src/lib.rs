@@ -2497,6 +2497,31 @@ fn list_clipboard_history_blocking(
 }
 
 #[tauri::command]
+async fn remove_clipboard_history(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .remove(&text)
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[tauri::command]
 async fn clear_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
 ) -> Result<(), HostActionError> {
@@ -2889,6 +2914,7 @@ pub fn run() {
             save_preferences,
             list_clipboard_history,
             clear_clipboard_history,
+            remove_clipboard_history,
             sync_clipboard_history,
             copy_text,
             remember_input_target,

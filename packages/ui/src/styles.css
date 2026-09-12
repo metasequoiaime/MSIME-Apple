@@ -498,3 +498,11 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 html[data-theme="light"] .window-icon { filter: invert(1) brightness(0.2); }
 html[data-theme="light"] .window-close:hover .window-icon,
 html[data-theme="light"] .window-close:active .window-icon { filter: none; }
+
+.clipboard-panel-actions { display: flex; gap: 8px; }
+.clipboard-panel-row { display: flex; align-items: stretch; gap: 6px; }
+.clipboard-panel-row .clipboard-panel-item { flex: 1; min-width: 0; }
+.clipboard-panel-delete { flex: 0 0 auto; border: 1px solid #3a3a44; border-radius: 8px; padding: 8px; background: #2b2b33; color: #f5f5f7; font: inherit; }
+.clipboard-panel-delete:hover, .clipboard-panel-delete:focus-visible { border-color: #d88bde; }
+.emoji-panel[data-panel-theme="light"] .clipboard-panel-delete { border-color: #c8ccd5; background: #fff; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .clipboard-panel-delete:hover, .emoji-panel[data-panel-theme="light"] .clipboard-panel-delete:focus-visible { border-color: #9a62ad; }
