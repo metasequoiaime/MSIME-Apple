@@ -72,6 +72,14 @@ int main(int argc, const char **argv) {
                     preferences.pageSize = size.unsignedIntegerValue;
                     for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;
+                        NSFont *candidateFont = [NSFont systemFontOfSize:font.doubleValue];
+                        NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, font.doubleValue - 3.0)];
+                        CGFloat preeditHeight = MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
+                        CGFloat rowHeight = ceil(candidateFont.ascender - candidateFont.descender + candidateFont.leading) + 8.0;
+                        NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
+                        CGFloat footerHeight = vertical.boolValue && size.integerValue > 5 ? 18.0 : 0.0;
+                        CGFloat expectedHeight = 10 + 16 + 4 + 6 + preeditHeight + rows * rowHeight + footerHeight + 6 + 14;
+                        assert(std::abs(preview.previewContentHeight - expectedHeight) < .01);
                         assert(preview.previewSkin.id == skin.UTF8String);
                         NSString *expected = [NSString stringWithFormat:@"%@，%@ 个候选，%@ pt", vertical.boolValue ? @"纵向列表" : @"横向排列", size, font];
                         assert([preview.accessibilityValue isEqual:expected]);
@@ -95,6 +103,8 @@ int main(int argc, const char **argv) {
             if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
         }
         assert(layout);
+        // Showcase uses compact fonts; compare the layouts at the standard size.
+        preferences.fontSize = 18;
         [layout selectItemAtIndex:0];
         [NSApp sendAction:layout.action to:layout.target from:layout];
         CGFloat horizontal = preview.previewContentHeight;
