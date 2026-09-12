@@ -2594,6 +2594,20 @@ std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
   default: return std::nullopt;
   }
 }
+std::optional<char> keypad_punctuation(guint key) {
+  switch (key) {
+  case IBUS_KP_Decimal:
+    return '.';
+  case IBUS_KP_Subtract:
+    return '-';
+  case IBUS_KP_Add:
+    return '+';
+  case IBUS_KP_Divide:
+    return '/';
+  default:
+    return std::nullopt;
+  }
+}
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active)
@@ -2864,6 +2878,27 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
             id.at("index").get<size_t>()));
         return;
       }
+    }
+    if (const auto keypad = keypad_punctuation(key)) {
+      const auto &editing_text = s.view.at("editing_text").get<std::string>();
+      const auto &candidates = s.view.at("candidates");
+      const bool has_composition = !editing_text.empty() ||
+                                   (candidates.is_array() && !candidates.empty());
+      if (*keypad == '.' || has_composition) {
+        handled = apply(engine, msime_client_punctuation_ascii(
+            s.session, static_cast<uint8_t>(*keypad)));
+        if (!handled && *keypad == '.') {
+          ibus_engine_commit_text(
+              engine, ibus_text_new_from_static_string("."));
+          handled = true;
+        }
+      } else {
+        // Arithmetic keypad marks keep the normal Engine punctuation policy
+        // while remaining outside the configurable minus/equal paging keys.
+        handled = apply(engine, msime_client_punctuation(
+            s.session, static_cast<uint8_t>(*keypad)));
+      }
+      return;
     }
     if (s.chinese_punctuation && s.paired_punctuation &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&

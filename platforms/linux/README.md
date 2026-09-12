@@ -139,3 +139,5 @@ IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS
 九键歧义拼音：Engine 返回 `nine_key_spellings` 时，IBus 属性菜单显示当前代次的拼音选项（如 `ni`、`mi`）。选择菜单项通过 Host API 携带会话和 generation 调用 `choose_nine_key_spelling`；组合已变化或失焦后，旧菜单项会被忽略，不会改写新组合。
 
 本地输入模式：属性菜单中的“本地输入模式”提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼和临时英文/日文模式的会话级开关。切换会结束当前组合并重建 Engine 会话，开关只覆盖当前输入上下文；共享 Preferences 和设置页中的持久化开关仍作为新会话默认值。
+
+小键盘标点：`KP_Decimal` 始终提交 ASCII `.`；`KP_Subtract`、`KP_Add` 和 `KP_Divide` 映射为 `-`、`+`、`/`。候选或组合活动时，宿主先通过 Host API 提交高亮候选，再追加对应 ASCII 标点；空闲时算术键仍遵循 Engine 的标点策略，且不会触发减号/等号候选翻页绑定。
