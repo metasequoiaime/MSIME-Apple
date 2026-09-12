@@ -199,7 +199,7 @@ int wmain(int argc, wchar_t **argv) {
     const auto shell = shell_executable(executable_directory(),
                                         configured_shell_command());
     toolbar.set_settings_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::Settings);
+      const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
       if (shell && request) (void)launch_shell_surface(*shell, *request);
     });
     toolbar.set_emoji_action([&] {
