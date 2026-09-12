@@ -1100,6 +1100,91 @@ static void TestModifierTaps() {
     [defaults removePersistentDomainForName:suite];
 }
 
+@interface ApplicationShortcutClient : ShortcutClient
+@property(nonatomic, copy) NSString *bundleIdentifier;
+@end
+@implementation ApplicationShortcutClient
+@end
+
+static void TestInputModePolicy() {
+    NSString *suite = [@"msime.mode-policy." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert([prefs.defaultImeMode isEqual:@"chinese"] && [prefs.imeModeScope isEqual:@"app"]);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"default_ime_mode"]);
+    NSDictionary *shared = @{@"default_ime_mode":@"english", @"ime_mode_scope":@"global"};
+    assert([[prefs sharedPreferencesByMerging:shared][@"default_ime_mode"] isEqual:@"english"]);
+    [prefs applySharedInputPreferences:shared];
+    assert([prefs.defaultImeMode isEqual:@"english"] && [prefs.imeModeScope isEqual:@"global"]);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode":@YES, @"ime_mode_scope":@"invalid"}];
+    assert([prefs.defaultImeMode isEqual:@"english"] && [prefs.imeModeScope isEqual:@"global"]);
+    NSPopUpButton *mode = (id)PreferenceControl(prefs, NSSelectorFromString(@"defaultImeModeChanged:"));
+    NSPopUpButton *scope = (id)PreferenceControl(prefs, NSSelectorFromString(@"imeModeScopeChanged:"));
+    assert(mode.indexOfSelectedItem == 1 && scope.indexOfSelectedItem == 1);
+    [mode selectItemAtIndex:0];
+    assert([NSApp sendAction:mode.action to:mode.target from:mode]);
+    [scope selectItemAtIndex:0];
+    assert([NSApp sendAction:scope.action to:scope.target from:scope]);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert([reopened.defaultImeMode isEqual:@"chinese"] && [reopened.imeModeScope isEqual:@"app"]);
+    NSDictionary *patch = [prefs sharedPreferencesByMerging:@{}];
+    assert([patch[@"default_ime_mode"] isEqual:@"chinese"] && [patch[@"ime_mode_scope"] isEqual:@"app"]);
+    prefs.defaultImeMode = @"invalid"; prefs.imeModeScope = @"invalid";
+    assert([prefs.defaultImeMode isEqual:@"chinese"] && [prefs.imeModeScope isEqual:@"app"]);
+
+    // Before the first key, the initial asynchronous preference load can seed
+    // the default; after the first key, refreshes cannot change the active mode.
+    [prefs activateInputModeForApplication:@"org.example.fixture-a"];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode":@"english"}];
+    assert(prefs.englishMode);
+    [prefs lockActiveInputMode];
+    [prefs applySharedInputPreferences:@{@"default_ime_mode":@"chinese"}];
+    assert(prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.fixture-b"];
+    assert(!prefs.englishMode);
+    [prefs lockActiveInputMode];
+    [prefs activateInputModeForApplication:@"org.example.fixture-a"];
+    assert(prefs.englishMode);
+    [prefs applySharedInputPreferences:@{@"ime_mode_scope":@"global"}];
+    assert(prefs.englishMode); // Scope changes are deferred to activation.
+    [prefs activateInputModeForApplication:@"org.example.fixture-a"];
+    assert(!prefs.englishMode);
+    prefs.englishMode = YES;
+    [prefs activateInputModeForApplication:@"org.example.fixture-b"];
+    assert(prefs.englishMode);
+    NSMutableDictionary *cloud = [[prefs cloudSettingsSnapshot] mutableCopy];
+    assert([cloud[@"platform.macos.english_input_mode"] isEqual:@YES]);
+    cloud[@"platform.macos.english_input_mode"] = @NO;
+    assert([prefs applyCloudSettingsSnapshot:cloud] && !prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.fixture-a"];
+    assert(!prefs.englishMode);
+    // Per-app choices survive changing scope, but do not leak into fresh preferences.
+    prefs.imeModeScope = @"app";
+    [prefs activateInputModeForApplication:@"org.example.fixture-a"];
+    assert(prefs.englishMode);
+    [reopened activateInputModeForApplication:@"org.example.fixture-a"];
+    assert(!reopened.englishMode);
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ApplicationShortcutClient *a = [ApplicationShortcutClient new], *b = [ApplicationShortcutClient new];
+    a.bundleIdentifier = @"org.example.fixture-a"; b.bundleIdentifier = @"org.example.fixture-b";
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:a]);
+    assert(prefs.englishMode && session.asciiCalls == 0);
+    [controller handleEvent:ModeKey(0, 0, NO) client:b];
+    assert(!prefs.englishMode && session.asciiCalls == 1);
+    [prefs applySharedInputPreferences:@{@"default_ime_mode":@"english"}];
+    assert(!prefs.englishMode);
+    [controller handleEvent:ModeKey(0, 0, NO) client:a];
+    assert(prefs.englishMode && session.asciiCalls == 1);
+    // App identities are memory-only; no per-app state is exported or persisted.
+    assert([defaults objectForKey:a.bundleIdentifier] == nil);
+    assert(![prefs sharedPreferencesByMerging:@{}][a.bundleIdentifier]);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestControlOptionSpace() {
     NSString *suite = [@"msime.control-option-space." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -2069,6 +2154,7 @@ int main() {
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         TestControlOptionSpace();
+        TestInputModePolicy();
         TestModifierTaps();
         TestStaleClientDeactivation();
         TestFullWidth(defaults, appearance);

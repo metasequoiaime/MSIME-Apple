@@ -53,6 +53,8 @@ static NSArray<NSArray<NSString *> *> *NavigationControls() {
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
+static NSString *const DefaultImeModeKey = @"MSIMEClientDefaultImeMode";
+static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
@@ -79,6 +81,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
+    NSString *_sharedDefaultImeMode;
+    NSString *_sharedImeModeScope;
+    NSString *_activeModeApplication;
+    BOOL _activeModeGlobal;
+    NSMutableDictionary<NSString *, NSNumber *> *_applicationInputModes;
+    NSNumber *_globalInputMode;
+    NSPopUpButton *_defaultImeModeButton;
+    NSPopUpButton *_imeModeScopeButton;
     NSNumber *_sharedToolbarEnabled;
     NSNumber *_sharedShiftTapShortcut;
     NSNumber *_sharedControlTapShortcut;
@@ -173,6 +183,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
+    if ([_defaults objectForKey:DefaultImeModeKey] != nil) merged[@"default_ime_mode"] = self.defaultImeMode;
+    if ([_defaults objectForKey:ImeModeScopeKey] != nil) merged[@"ime_mode_scope"] = self.imeModeScope;
     for (NSArray *entry in @[@[ShiftTapShortcutKey, @"switch_language_shift", @(self.shiftTapShortcut)],
                             @[ControlTapShortcutKey, @"switch_language_ctrl", @(self.controlTapShortcut)]]) {
         if ([_defaults objectForKey:entry[0]] == nil) continue;
@@ -295,6 +307,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSString *pagingKey = preset == 0 ? @"minus_equal" : preset == 1 ? @"brackets" : @"page_up_down";
     if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:pagingKey]) return NO;
     if (!MSIMEApplyCloudAppearance(values, _defaults)) return NO;
+    [self rememberActiveInputMode:[values[@"platform.macos.english_input_mode"] boolValue]];
     [self applyNavigationPreset:preset];
     // Invalidate only fields represented by the legacy platform cloud snapshot.
     // Newer family, color, preedit-size and per-scheme assistance choices survive.
@@ -314,6 +327,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     // Shared preferences can be effective without being mirrored into defaults.
     // Export the same values the native controls and host currently consume.
     NSMutableDictionary *snapshot = [MSIMECloudAppearanceSnapshot(_defaults) mutableCopy];
+    snapshot[@"platform.macos.english_input_mode"] = @(self.englishMode);
     snapshot[@"platform.macos.candidate_font_size"] = @(self.fontSize);
     snapshot[@"platform.macos.candidate_page_size"] = @(self.pageSize);
     snapshot[@"platform.macos.candidate_panel_style"] = @(self.vertical ? 1 : 0);
@@ -419,6 +433,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
+    if ([@[@"chinese", @"english"] containsObject:defaultMode]) _sharedDefaultImeMode = defaultMode;
+    if ([@[@"app", @"global"] containsObject:scope]) _sharedImeModeScope = scope;
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
         if (LocalModeBoolean(keys[@"switch_language_shift"])) _sharedShiftTapShortcut = keys[@"switch_language_shift"];
@@ -440,7 +457,45 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     [self refreshControls];
 }
-- (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
+- (NSString *)defaultImeMode {
+    NSString *value = _sharedDefaultImeMode ?: [_defaults stringForKey:DefaultImeModeKey];
+    return [value isEqual:@"english"] ? @"english" : @"chinese";
+}
+- (void)setDefaultImeMode:(NSString *)value {
+    if (![@[@"chinese", @"english"] containsObject:value]) return;
+    _sharedDefaultImeMode = nil;
+    [_defaults setObject:value forKey:DefaultImeModeKey];
+    [self preferencesChanged];
+}
+- (NSString *)imeModeScope {
+    NSString *value = _sharedImeModeScope ?: [_defaults stringForKey:ImeModeScopeKey];
+    return [value isEqual:@"global"] ? @"global" : @"app";
+}
+- (void)setImeModeScope:(NSString *)value {
+    if (![@[@"app", @"global"] containsObject:value]) return;
+    _sharedImeModeScope = nil;
+    [_defaults setObject:value forKey:ImeModeScopeKey];
+    [self preferencesChanged];
+}
+- (void)activateInputModeForApplication:(NSString *)identifier {
+    _activeModeApplication = [identifier isKindOfClass:NSString.class] && identifier.length ? [identifier copy] : nil;
+    // Scope changes take effect on activation, never in the middle of typing.
+    _activeModeGlobal = [self.imeModeScope isEqual:@"global"];
+}
+- (BOOL)englishMode {
+    if (!_activeModeApplication) return [_defaults boolForKey:EnglishKey];
+    NSNumber *mode = _activeModeGlobal ? _globalInputMode : _applicationInputModes[_activeModeApplication];
+    return mode ? mode.boolValue : [self.defaultImeMode isEqual:@"english"];
+}
+- (void)rememberActiveInputMode:(BOOL)english {
+    if (!_activeModeApplication) return;
+    if (_activeModeGlobal) _globalInputMode = @(english);
+    else {
+        if (!_applicationInputModes) _applicationInputModes = [NSMutableDictionary dictionary];
+        _applicationInputModes[_activeModeApplication] = @(english);
+    }
+}
+- (void)lockActiveInputMode { [self rememberActiveInputMode:self.englishMode]; }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
@@ -469,6 +524,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)setEnglishMode:(BOOL)value {
+    [self rememberActiveInputMode:value];
     [_defaults setBool:value forKey:EnglishKey];
     [self preferencesChanged];
 }
@@ -711,6 +767,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     for (NSString *key in @[@"minus_equal", @"brackets", @"page_up_down"]) _sharedNavigation[key] = navigation[key];
 }
 - (void)refreshControls {
+    [_defaultImeModeButton selectItemAtIndex:[self.defaultImeMode isEqual:@"english"] ? 1 : 0];
+    [_imeModeScopeButton selectItemAtIndex:[self.imeModeScope isEqual:@"global"] ? 1 : 0];
     NSDictionary *wordCharacter = [self wordCharacterOptions];
     _wordCharacterButton.state = [wordCharacter[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     [_wordCharacterKeys selectItemAtIndex:[wordCharacter[@"keys"] isEqual:@"minus_equal"] ? 1 : 0];
@@ -890,6 +948,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
+    _defaultImeModeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_defaultImeModeButton addItemsWithTitles:@[@"中文", @"英文"]];
+    _defaultImeModeButton.target = self; _defaultImeModeButton.action = @selector(defaultImeModeChanged:);
+    _imeModeScopeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_imeModeScopeButton addItemsWithTitles:@[@"按应用", @"全局"]];
+    _imeModeScopeButton.target = self; _imeModeScopeButton.action = @selector(imeModeScopeChanged:);
+    _imeModeScopeButton.toolTip = @"下一次激活时生效；中英文状态仅在当前输入法进程内记忆";
     _shiftTapShortcutButton = [NSButton checkboxWithTitle:@"单按 Shift 切换中英文" target:self action:@selector(shiftTapShortcutChanged:)];
     _controlTapShortcutButton = [NSButton checkboxWithTitle:@"单按 Control 切换中英文" target:self action:@selector(controlTapShortcutChanged:)];
     _controlOptionSpaceShortcutButton = [NSButton checkboxWithTitle:@"Control + Option + 空格切换中英文" target:self action:@selector(controlOptionSpaceShortcutChanged:)];
@@ -907,6 +972,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"输入方案"], _schemeButton],
+        @[[NSTextField labelWithString:@"默认输入模式"], _defaultImeModeButton],
+        @[[NSTextField labelWithString:@"模式作用范围"], _imeModeScopeButton],
         @[[NSTextField labelWithString:@"双拼键盘"], _profileButton],
         @[[NSTextField labelWithString:@"双拼预编辑"], _preeditButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
@@ -1022,6 +1089,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
+- (void)defaultImeModeChanged:(NSPopUpButton *)sender { self.defaultImeMode = sender.indexOfSelectedItem == 1 ? @"english" : @"chinese"; }
+- (void)imeModeScopeChanged:(NSPopUpButton *)sender { self.imeModeScope = sender.indexOfSelectedItem == 1 ? @"global" : @"app"; }
 - (void)shiftTapShortcutChanged:(NSButton *)sender { self.shiftTapShortcut = sender.state == NSControlStateValueOn; }
 - (void)controlTapShortcutChanged:(NSButton *)sender { self.controlTapShortcut = sender.state == NSControlStateValueOn; }
 - (void)controlOptionSpaceShortcutChanged:(NSButton *)sender { self.controlOptionSpaceShortcut = sender.state == NSControlStateValueOn; }
