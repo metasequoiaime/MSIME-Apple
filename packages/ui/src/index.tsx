@@ -130,6 +130,7 @@ export type Preferences = {
   candidate_skin?: string;
   learning: boolean;
   autocorrect?: boolean;
+  diagnostic_log?: { server?: boolean; tsf?: boolean };
   quanpin?: {
     autocorrect_transposition?: boolean;
     autocorrect_neighbor?: boolean;
@@ -589,6 +590,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? draft?.autocorrect ?? true,
   };
   const clipboardHistory = draft?.clipboard_history ?? false;
+  const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
@@ -984,6 +986,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(platformLicenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
           {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
+        </div>
+        <div className="section" role="group" aria-label="诊断日志">
+          <label className="section-header"><span className="section-title">Server 端日志<small>排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。</small></span><input aria-label="Server 端日志" className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">

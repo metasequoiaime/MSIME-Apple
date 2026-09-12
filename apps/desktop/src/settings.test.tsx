@@ -504,6 +504,24 @@ test("dictionary manager pages through entries instead of loading the whole dict
   expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", false);
 });
+
+test("diagnostic logging starts off and each host is saved separately", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const server = await screen.findByLabelText("Server 端日志") as HTMLInputElement;
+  const tsf = screen.getByLabelText("TSF 端日志") as HTMLInputElement;
+  // A configuration that never mentioned diagnostics must not start logging.
+  expect(server.checked).toBe(false);
+  expect(tsf.checked).toBe(false);
+  fireEvent.click(server);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, diagnostic_log: { server: true, tsf: false } });
+  expect(server.checked).toBe(true);
+  expect(tsf.checked).toBe(false);
+});
+
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use legacy defaults", async () => {
