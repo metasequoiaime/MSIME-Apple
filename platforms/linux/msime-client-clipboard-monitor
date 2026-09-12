@@ -187,7 +187,11 @@ def main():
                     if watcher is None:
                         text = clipboard_text()
                         identity = (str(directory), text)
-                        if text is not None and identity != last:
+                        # Reading the selection can block while runtime options
+                        # or preferences change. Match watch-mode revalidation
+                        # before delivering text to the capture process.
+                        if (text is not None and identity != last and
+                                history_directory(args.options) == directory):
                             result = subprocess.run([str(capture), str(directory)], input=text.encode(),
                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                                     timeout=2)
