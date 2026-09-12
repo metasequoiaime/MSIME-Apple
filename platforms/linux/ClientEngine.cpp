@@ -3292,8 +3292,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                                    static_cast<uint8_t>('0' + key - IBUS_KP_0),
                                    false));
       } else {
+        const auto input_value =
+            (flags & IBUS_SHIFT_MASK) && key >= 'a' && key <= 'z'
+                ? key - 'a' + 'A'
+                : key;
         handled = apply(engine, msime_client_character(
-            s.session, static_cast<uint8_t>(key),
+            s.session, static_cast<uint8_t>(input_value),
             (flags & IBUS_SHIFT_MASK) != 0));
       }
       return;
