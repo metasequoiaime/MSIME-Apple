@@ -3760,9 +3760,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // IBus exposes the same interaction as key events; consume both halves of
   // the Space stroke so it cannot leak into the focused editor while voice
   // recognition is active. With the option disabled, Space follows the
-  // regular editor/Engine path.
-  if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
-      (modifiers == 0 || voice_hold_hotkey(s, s.voice_hotkey_consumed_key, modifiers))) {
+  // regular editor/Engine path. Menu and Ctrl+F9 recordings have no held
+  // shortcut, and recognition/polishing can no longer be locked.
+  if (s.voice_active && !s.voice_stopping && s.voice_hotkey_hold_space_lock &&
+      key == IBUS_space &&
+      voice_hold_hotkey(s, s.voice_hotkey_consumed_key, modifiers)) {
     s.voice_space_consumed = true;
     s.voice_space_locked = true;
     return TRUE;
