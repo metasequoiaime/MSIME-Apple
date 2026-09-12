@@ -1750,22 +1750,30 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  const bool clipboard_available = s.clipboard_enabled && s.input_enabled &&
+                                   !s.clipboard_history_path.empty();
   auto clipboard = ibus_property_new(
       "ClipboardHistory", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("剪贴板历史"), "",
       ibus_text_new_from_static_string("浏览、提交和管理最近 50 条历史文本"),
-      s.clipboard_enabled && s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
+      s.focused && !s.blocked,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
+  auto open_clipboard = ibus_property_new(
+      "ClipboardHistory/OpenPanel", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("打开历史面板"), "",
+      ibus_text_new_from_static_string("搜索、管理或主动开启本地剪贴板历史"),
+      TRUE, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(clipboard_menu, open_clipboard);
   const auto &items = s.clipboard_items_cache;
   auto refresh_clipboard = ibus_property_new(
       "ClipboardHistory/Refresh", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("刷新历史"), "",
       ibus_text_new_from_static_string("重新加载本地历史列表"),
-      !s.clipboard_loading, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_available && !s.clipboard_loading, TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, refresh_clipboard);
   IBusPropList *page = nullptr;
-  for (size_t index = 0; index < items.size(); ++index) {
+  for (size_t index = 0; clipboard_available && index < items.size(); ++index) {
     if (index % 10 == 0) {
       page = ibus_prop_list_new();
       const auto label = std::to_string(index + 1) + "–" +
@@ -1778,6 +1786,10 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_prop_list_append(clipboard_menu, group);
     }
     auto preview = items[index];
+    for (char &character : preview) {
+      if (character == '\r' || character == '\n' || character == '\t')
+        character = ' ';
+    }
     msime_clipboard_truncate(preview, 48);
     const auto label = std::to_string(index + 1) + ". " + preview;
     const auto identity = std::to_string(s.clipboard_generation) + "/" + std::to_string(index);
@@ -1799,7 +1811,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("清空历史"), "",
       ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
-      !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
@@ -2809,6 +2821,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   }
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
+  if (property_name == "ClipboardHistory/OpenPanel") {
+    if (s.focused && !s.blocked && !launch_desktop_panel("clipboard"))
+      g_warning("Cannot start MSIME clipboard panel launcher");
+    return;
+  }
   if (property_name.rfind("DesktopTools/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
