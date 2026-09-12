@@ -226,6 +226,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_tencentTranslationConfig;
     NSArray<NSDictionary *> *_customResults;
     uint64_t _customEpoch;
+    MSIMECustomTranslationBatch *_aiBatch;
+    NSTimer *_aiTimer;
+    NSDictionary *_aiQuery;
+    uint64_t _aiEpoch;
+}
+
+- (void)cancelAITranslations {
+    ++_aiEpoch;
+    [_aiTimer invalidate]; _aiTimer = nil;
+    [_aiBatch cancel]; _aiBatch = nil;
+    _aiQuery = nil;
 }
 
 - (void)cancelCustomTranslations {
@@ -240,6 +251,42 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)cancelCandidateTranslations {
     [self cancelCandidateGloss];
     [self cancelCustomTranslations];
+    [self cancelAITranslations];
+}
+
+- (void)synchronizeAITranslations {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
+        (_appearance && !_appearance.candidateTranslations)) { [self cancelAITranslations]; return; }
+    NSDictionary *online = [_session onlineQueryWithError:nil];
+    NSDictionary *config = online[@"ai_assistant"];
+    NSArray *segments = online[@"segmented_pinyin"];
+    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
+        ![segments isKindOfClass:NSArray.class] || !segments.count) { [self cancelAITranslations]; return; }
+    NSDictionary *query = @{ @"online": online, @"config": config };
+    if ([_aiQuery isEqual:query]) return;
+    [self cancelAITranslations]; _aiQuery = query;
+    NSDictionary *input = @{ @"segmented_pinyin": segments, @"context": online[@"context"] ?: @"",
+        @"candidate_limit": config[@"candidate_limit"] ?: @3 };
+    NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{ @"config": config, @"input": input } error:nil];
+    if (!descriptor) return;
+    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor } ];
+    uint64_t epoch = _aiEpoch; MSIMEClientSession *session = _session; id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    _aiTimer = [NSTimer scheduledTimerWithTimeInterval:0.65 repeats:NO block:^(NSTimer *timer) {
+        MSIMEInputController *owner = weakSelf;
+        if (!owner || owner->_aiEpoch != epoch || owner->_aiTimer != timer || owner->_session != session || owner->_activeClient != client) return;
+        owner->_aiTimer = nil;
+        owner->_aiBatch = [[MSIMECustomTranslationBatch alloc] initWithAIItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:^(NSArray *results) {
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_aiEpoch != epoch || current->_session != session || current->_activeClient != client || ![current->_aiQuery isEqual:query]) return;
+            current->_aiBatch = nil;
+            NSMutableArray *texts = [NSMutableArray array];
+            for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
+            NSDictionary *transition = [session applyOnlineCandidates:texts source:1 query:query[@"online"] error:nil];
+            if (transition) [current apply:transition];
+        }];
+        [owner->_aiBatch start];
+    }];
 }
 - (NSDictionary *)currentCustomTranslationRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
@@ -974,6 +1021,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self synchronizeCloudCandidates];
         [self synchronizeCandidateGloss];
         [self synchronizeCustomTranslations];
+        [self synchronizeAITranslations];
     }
 }
 
@@ -1293,6 +1341,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self synchronizeCloudCandidates];
     [self synchronizeCandidateGloss];
     [self synchronizeCustomTranslations];
+    [self synchronizeAITranslations];
 }
 
 - (void)updateKeymapPanel {
