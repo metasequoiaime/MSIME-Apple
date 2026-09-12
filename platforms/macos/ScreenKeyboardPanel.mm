@@ -195,6 +195,14 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     return self;
 }
 - (BOOL)canBecomeKeyWindow { return NO; }
+- (void)applyThemePreferences:(NSDictionary *)preferences {
+    id surface = preferences[@"screen_keyboard_theme"];
+    id global = preferences[@"theme"];
+    id resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : global;
+    if ([resolved isEqual:@"light"]) self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if ([resolved isEqual:@"system"]) self.appearance = nil;
+    else self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+}
 - (BOOL)canBecomeMainWindow { return NO; }
 - (void)layoutKeys:(NSSize)size {
     NSUInteger index = 0;

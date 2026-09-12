@@ -423,6 +423,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
     [_toolbar applyThemePreferences:preferences];
     [_toolbar applySizingPreferences:preferences];
     NSDictionary *toolbar = preferences[@"floating_toolbar"];

@@ -45,6 +45,16 @@ int main() {
             ++sends; lastCode = code; lastFlags = flags; return accepted;
         }];
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        [panel applyThemePreferences:@{}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light", @"screen_keyboard_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"screen_keyboard_theme": @"light", @"toolbar_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"system", @"screen_keyboard_theme": @"follow"}];
+        assert(panel.appearance == nil && !panel.visible);
         assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0);
         const std::vector<unsigned short> codes = {
             50,18,19,20,21,23,22,26,28,25,29,27,24,51,
