@@ -203,7 +203,8 @@ export function aiCredentialOrigin(endpoint: string): string | null {
   } catch { return null; }
 }
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
-export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type ExternalSkinCatalog = { scanned: boolean; directory?: string; revision?: number; packages: Array<{ id: string; title: string; description?: string; valid?: boolean }> ; issues?: string[] };
+export type Snapshot = { format_version: number; revision: number; preferences: Preferences; candidate_skin_catalog?: ExternalSkinCatalog };
 export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 export type DictionaryEntry = { kind: LocalDictionaryKind; key: string; value: string; weight: number };
@@ -756,6 +757,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
         <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。</div>
+        {snapshot?.candidate_skin_catalog && <div className="skin-catalog-status" role="status">外部皮肤目录：{snapshot.candidate_skin_catalog.scanned ? `已扫描（${snapshot.candidate_skin_catalog.packages.length} 个）` : "尚未扫描"}{snapshot.candidate_skin_catalog.issues?.length ? `，${snapshot.candidate_skin_catalog.issues.length} 个问题` : ""}</div>}
         <div className="skin-grid">
           {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
             <div className="skin-card-header">
@@ -934,6 +936,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
         </div>}
+        {linuxPlatform && <div className="section" role="group" aria-label="Linux 面板快捷键">
+          <div className="section-title">Linux 面板快捷键</div>
+          <small>桌面环境转发 Super 组合键时可从当前输入上下文打开面板。</small>
+          <div className="shortcut-list">
+            <div className="shortcut-row"><span>打开屏幕键盘</span><kbd>Ctrl+Shift+Super+K</kbd></div>
+          </div>
+        </div>}
         <div className="section shortcut-section">
           <div className="section-title">候选操作</div>
           <small>输入和选取候选词时使用</small>
@@ -953,7 +962,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <small>{linuxPlatform ? "当前 IBus 会话中的候选维护与服务重启" : "程序运行时全局生效；用于维护与调试"}</small>
           <div className="shortcut-list">
             <div className="shortcut-row"><span>删除当前候选窗口中的第 1–8 项</span><kbd>Ctrl+Shift+Alt+1–8</kbd></div>
-            {linuxPlatform && <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>}
+            {linuxPlatform && <>
+              <div className="shortcut-row"><span>清除当前输入法会话的 Engine 缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
+              <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
+            </>}
             {!linuxPlatform && <>
               <div className="shortcut-row"><span>清除输入法引擎缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
               <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>

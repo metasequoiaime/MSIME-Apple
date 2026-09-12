@@ -81,6 +81,9 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine("Engine cache reset is unsupported".into()))
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -136,6 +139,10 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+        Session::reset_cache(self);
+        Ok(())
+    }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
@@ -1027,6 +1034,7 @@ impl OnlineProviderWorker {
 }
 
 pub enum Action {
+    ResetCache,
     Character {
         value: u8,
         shift: bool,
@@ -1562,6 +1570,15 @@ impl<E: InputEngine> Runtime<E> {
             local_mode: self.cached.local_mode.clone(),
         };
         let result = match action {
+            Action::ResetCache => {
+                self.engine.reset_cache()?;
+                Ok(EngineResult {
+                    handled: true,
+                    has_commit: false,
+                    commit: String::new(),
+                    diagnostic: String::new(),
+                })
+            }
             Action::Punctuation(value) => self.punctuation(value),
             Action::PunctuationAscii(value) => self.punctuation_ascii(value),
             Action::Finish => self.engine.finish(self.highlighted),

@@ -28,6 +28,12 @@ private struct MacInkCanvas: NSViewRepresentable {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
       NSColor.controlBackgroundColor.setFill(); dirtyRect.fill()
+      if strokes.isEmpty && active.isEmpty {
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor]
+        let text = NSString(string: "请在这里书写")
+        let size = text.size(withAttributes: attributes)
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2), withAttributes: attributes)
+      }
       NSColor.labelColor.setStroke()
       for stroke in strokes + (active.isEmpty ? [] : [MacInkStroke(points: active)]) {
         guard stroke.points.count > 1 else { continue }
@@ -48,9 +54,18 @@ struct MacHandwritingCanvasView: View {
   var onCandidate: (String) -> Void = { text in NotificationCenter.default.post(name: .msimeHandwritingCandidateSelected, object: nil, userInfo: ["text": text]) }
   var body: some View {
     VStack(spacing: 8) {
-      MacInkCanvas(strokes: $strokes).frame(minHeight: 180).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
-      if !candidates.isEmpty { ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(candidates, id: \.self) { candidate in Button(candidate) { onCandidate(candidate) }.buttonStyle(.bordered) } } } }
-      HStack { Button("撤销") { _ = strokes.popLast() }.disabled(strokes.isEmpty); Button("清空") { strokes.removeAll() }.disabled(strokes.isEmpty); Spacer(); Button("识别") { onSubmit(strokes) }.disabled(strokes.isEmpty) }
+      HStack(alignment: .top, spacing: 28) {
+        MacInkCanvas(strokes: $strokes).frame(width: 250, height: 250).background(.background).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+        VStack(alignment: .leading, spacing: 10) {
+          Text("识别结果").font(.title3.weight(.semibold))
+          LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            ForEach(candidates, id: \.self) { candidate in
+              Button(candidate) { onCandidate(candidate) }.font(.system(size: 24)).frame(maxWidth: .infinity, minHeight: 52)
+            }
+          }
+        }
+      }
+      HStack { Button("↶  撤销") { _ = strokes.popLast(); onSubmit(strokes) }.disabled(strokes.isEmpty); Button("×  重写") { strokes.removeAll(); onSubmit([]) }.disabled(strokes.isEmpty); Spacer() }
     }
   }
 }
@@ -67,16 +82,14 @@ struct MacHandwritingToolView: View {
   @State private var pending: Task<Void, Never>?
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("手写输入").font(.title2)
-      Text("需配置可用的本机识别服务；当前尚未完成 macOS 原生识别验收。")
-        .font(.caption).foregroundStyle(.secondary)
+      Text("水杉手写识别板").font(.headline)
       TextField("provider socket 路径", text: $socketPath).disabled(busy)
       MacHandwritingCanvasView(strokes: $strokes, onSubmit: recognize, candidates: candidates)
         .disabled(busy)
       if busy { ProgressView("正在识别…") }
       if let message { Text(message).foregroundStyle(.secondary) }
-    }.padding(20).frame(width: 560, height: 400)
-    .onChange(of: strokes.count) { _ in candidates = [] }
+    }.padding(20).frame(width: 640, height: 460)
+    .onChange(of: strokes.count) { _ in candidates = []; if !strokes.isEmpty { recognize(strokes) } }
     .onChange(of: socketPath) { _ in candidates = []; message = nil }
     .onDisappear { pending?.cancel(); pending = nil; candidates = []; strokes = [] }
   }

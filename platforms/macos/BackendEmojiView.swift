@@ -337,14 +337,26 @@ struct MacEmojiView: View {
 
 private struct MacEmojiCloseButton: NSViewRepresentable {
   func makeNSView(context: Context) -> NSButton {
-    let button = CloseButton(title: "×", target: nil, action: nil)
+    let button = CloseButton(title: "", target: nil, action: nil)
     button.target = button; button.action = #selector(CloseButton.closePanel)
-    button.isBordered = false; button.font = .systemFont(ofSize: 20)
+    button.isBordered = false
+    button.addSubview(CloseIcon(frame: .zero))
     button.setAccessibilityLabel("关闭表情面板"); button.toolTip = "关闭"
     return button
   }
   func updateNSView(_ button: NSButton, context: Context) {}
   final class CloseButton: NSButton {
+    override func layout() { super.layout(); subviews.first?.frame = bounds.insetBy(dx: 2, dy: 2) }
     @objc func closePanel() { window?.close() }
+  }
+  final class CloseIcon: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+      guard let context = NSGraphicsContext.current?.cgContext else { return }
+      let half = min(bounds.width, bounds.height) * 0.19
+      let width = max(min(bounds.width, bounds.height) * 0.055, 1)
+      context.setStrokeColor(NSColor.labelColor.cgColor); context.setLineWidth(width)
+      context.move(to: CGPoint(x: bounds.midX - half, y: bounds.midY - half)); context.addLine(to: CGPoint(x: bounds.midX + half, y: bounds.midY + half))
+      context.move(to: CGPoint(x: bounds.midX + half, y: bounds.midY - half)); context.addLine(to: CGPoint(x: bounds.midX - half, y: bounds.midY + half)); context.strokePath()
+    }
   }
 }

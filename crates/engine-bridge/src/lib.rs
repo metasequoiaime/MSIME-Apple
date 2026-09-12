@@ -175,6 +175,7 @@ mod ffi {
         fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
+        fn reset_cache(self: Pin<&mut EngineSession>);
         fn apply_online_candidate(
             self: Pin<&mut EngineSession>,
             query: &OnlineQuerySnapshot,
@@ -432,6 +433,9 @@ impl Session {
     }
     pub fn online_query(&self) -> Result<OnlineQuerySnapshot, cxx::Exception> {
         self.inner.online_query()
+    }
+    pub fn reset_cache(&mut self) {
+        self.inner.pin_mut().reset_cache()
     }
     pub fn apply_online_candidate(
         &mut self,

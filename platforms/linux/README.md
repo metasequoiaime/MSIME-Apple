@@ -54,9 +54,11 @@ IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCand
 
 IBus 属性面板另提供 `EnglishMode` 独立英文输入模式。Ctrl+Shift+E 或属性开关调用 Engine 的 dedicated English 模式，保留中文输入法会话和 IBus 输入源边界；它与 `EnglishCandidates` 混输候选开关相互独立。状态按当前 IBus 会话保留，切换时由 Engine 清理正在进行的组合。
 
+Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主只在当前输入上下文获得焦点且不是密码等受限字段时消费该组合，并通过现有桌面面板启动器打开键盘；Super 组合是否能到达 IBus 仍由桌面环境的全局快捷键策略决定。
+
 IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本通过系统 ICU 的 `Simplified-Traditional` 转换器转换为繁体；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。这个开关只覆盖当前 IBus 会话，偏好文件中的 `traditional_chinese_output` 作为新会话默认值。
 
-当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。Windows 的全局清缓存和退出服务快捷键不映射到 IBus。
+当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
 Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工具栏”入口，不创建脱离输入上下文的伪悬浮窗口。启用后，菜单按偏好显示中英文模式、独立英文输入模式、全角字符、中文标点、繁体输出、Emoji、屏幕键盘和设置动作；模式动作复用当前 IBus 会话，面板动作通过 `msime-client-settings` 启动已有 Tauri 面板，并把当前输入目标交给面板保存。关闭工具栏或单独关闭组件后，入口会在配置热重载时同步隐藏。
 

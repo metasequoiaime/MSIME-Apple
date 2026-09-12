@@ -1468,7 +1468,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto skin_property = ibus_property_new(
       "CandidateSkin", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选皮肤"), "",
-      ibus_text_new_from_static_string("选择候选窗口内置皮肤"),
+      ibus_text_new_from_static_string("选择候选窗口皮肤"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto skin_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> skin_options[] = {
@@ -1478,8 +1478,31 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidateSkin/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选窗口内置皮肤"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择候选窗口皮肤"), TRUE, TRUE,
         skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(skin_menu, item);
+  }
+  if (const auto catalog = configured.find("candidate_skin_catalog");
+      catalog != configured.end() && catalog->is_object()) {
+    if (const auto packages = catalog->find("packages");
+        packages != catalog->end() && packages->is_array()) {
+      for (const auto &package : *packages) {
+        const auto id = package.value("id", std::string{});
+        if (id.empty() || id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+        const auto title = package.value("title", id);
+        ibus_prop_list_append(skin_menu, ibus_property_new(
+            id.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
+            ibus_text_new_from_static_string("外部候选皮肤"), TRUE, FALSE,
+            skin == id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+      }
+    }
+  }
+  if (skin != "fluent" && skin != "wechat" && skin != "graphite" && skin != "willow_green") {
+    auto item = ibus_property_new(
+        (std::string("CandidateSkin/") + skin).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string((std::string("外部：") + skin).c_str()), "",
+        ibus_text_new_from_static_string("当前配置的外部候选皮肤"), TRUE, TRUE,
+        PROP_STATE_CHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
   ibus_property_set_sub_props(skin_property, skin_menu);
@@ -2973,11 +2996,27 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const bool screen_keyboard_key =
+      (key == IBUS_k || key == IBUS_K) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);
+  if (!release && screen_keyboard_key && s.focused && !s.blocked)
+    return launch_desktop_panel("keyboard") ? TRUE : FALSE;
   const bool maintenance_restart_key =
       (key == IBUS_r || key == IBUS_R) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_restart_key && s.focused && !s.blocked)
     return restart_ibus_service() ? TRUE : FALSE;
+  const bool maintenance_clear_cache_key =
+      (key == IBUS_c || key == IBUS_C) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+  if (!release && maintenance_clear_cache_key && s.focused && !s.blocked) {
+    guarded(engine, "reset_engine_cache", [&] {
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_reset_cache(s.session));
+    });
+    return TRUE;
+  }
   const bool dedicated_english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);

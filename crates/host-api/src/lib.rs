@@ -899,6 +899,11 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
 }
 
 #[no_mangle]
+pub extern "C" fn msime_client_reset_cache(handle: u64) -> *mut c_char {
+    dispatch(handle, Action::ResetCache)
+}
+
+#[no_mangle]
 pub extern "C" fn msime_client_voice_start(handle: u64) -> *mut c_char {
     response(|| with_session(handle, |session| Ok(json!(session.voice.start()))))
 }
