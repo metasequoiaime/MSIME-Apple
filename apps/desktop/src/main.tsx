@@ -71,6 +71,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     rememberInputTarget: () => invoke("remember_input_target"),
     recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
     onVoiceUpdate: listener => listen<{ text: string; final: boolean }>("voice-update", event => listener(event.payload)),
+    cancelVoice: () => invoke("cancel_voice"),
     sendText: text => invoke("send_text", { text }),
   },
   cloudClipboard: {

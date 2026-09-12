@@ -1285,10 +1285,49 @@ async fn recognize_voice(
     #[cfg(not(unix))]
     {
         let _ = (request, options);
+    Err(HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[tauri::command]
+fn cancel_voice(
+    options: tauri::State<'_, DictionaryHostOptions>,
+) -> Result<(), HostActionError> {
+    #[cfg(unix)]
+    {
+        let path = serde_json::from_str::<Value>(&options.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("voice_provider_socket")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                    .and_then(|value| value.into_string().ok())
+            })
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        if UnixSocketProvider::new(path).voice_cancel(1) {
+            return Ok(());
+        }
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = options;
         Err(HostActionError {
             code: "unavailable",
         })
     }
+}
 }
 
 #[tauri::command]
@@ -2152,6 +2191,7 @@ pub fn run() {
             send_text,
             recognize_handwriting,
             recognize_voice,
+            cancel_voice,
             submit_handwriting_candidate,
             open_external_url,
             open_keyboard_panel,

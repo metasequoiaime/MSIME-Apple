@@ -26,6 +26,7 @@ export interface PanelClient {
 export interface VoicePanelClient extends PanelClient {
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
+  cancelVoice?(): Promise<void>;
 }
 
 export type CloudClipboardAction =
@@ -279,8 +280,15 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     }
   }
 
+  async function close() {
+    if (busy && client.cancelVoice) {
+      try { await client.cancelVoice(); } catch { /* close even if provider is gone */ }
+    }
+    await client.close();
+  }
+
   return <main className="native-panel voice-panel" aria-label="语音输入">
-    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>
