@@ -13,5 +13,8 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/MSIME-Engine" engi
 # header resolves to __declspec(dllimport) on Windows and the archive cannot
 # be linked.
 target_compile_definitions(MetasequoiaHandwriting PUBLIC ZINNIA_STATIC_LIBRARY)
-install(TARGETS MetasequoiaImeEngine MetasequoiaHandwriting ARCHIVE DESTINATION lib)
+install(TARGETS MetasequoiaImeEngine ARCHIVE DESTINATION lib)
+if(TARGET MetasequoiaHandwriting)
+    install(TARGETS MetasequoiaHandwriting ARCHIVE DESTINATION lib)
+endif()
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sqlite-path.txt" CONTENT "$<TARGET_FILE:${METASEQUOIA_SQLITE_TARGET}>" )
