@@ -693,8 +693,11 @@ impl HelpcodeSchema {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HelpcodePreferences {
+    #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
+    #[serde(default = "enabled_by_default")]
+    pub show_in_candidate_window: bool,
 }
 
 impl Default for HelpcodePreferences {
@@ -702,6 +705,7 @@ impl Default for HelpcodePreferences {
         Self {
             enabled: true,
             schema: HelpcodeSchema::default(),
+            show_in_candidate_window: true,
         }
     }
 }
@@ -1409,6 +1413,7 @@ mod tests {
                 quanpin_helpcode: HelpcodePreferences {
                     enabled: false,
                     schema,
+                    show_in_candidate_window: true,
                 },
                 ..Preferences::default()
             };

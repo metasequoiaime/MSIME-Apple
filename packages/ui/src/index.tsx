@@ -19,8 +19,8 @@ export { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
-export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };
-const defaultHelpcode: HelpcodePreferences = { enabled: true, schema: "ziranma" };
+export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema; show_in_candidate_window?: boolean };
+const defaultHelpcode: HelpcodePreferences = { enabled: true, schema: "ziranma", show_in_candidate_window: true };
 export type KeybindingPreferences = {
   switch_language_shift: boolean;
   switch_language_ctrl: boolean;
@@ -787,12 +787,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {
-          const value = draft[key] ?? defaultHelpcode;
+          const value = { ...defaultHelpcode, ...(draft[key] ?? {}) } as Required<HelpcodePreferences>;
           return <div className="section" key={key}>
             <label className="section-header"><span className="section-title">{label}辅助码</span><input className="toggle" type="checkbox" checked={value.enabled} onChange={event => setDraft({ ...draft, [key]: { ...value, enabled: event.target.checked } })} /></label>
             <label className="section-header helpcode-schema"><span className="section-title">{label}辅助码方案</span><select disabled={!value.enabled} value={value.schema} onChange={event => setDraft({ ...draft, [key]: { ...value, schema: event.target.value as HelpcodeSchema } })}>
               {helpcodeSchemas.map(([schema, name]) => <option key={schema} value={schema}>{name}</option>)}
             </select></label>
+            <label className="section-header"><span className="section-title">在候选窗口显示辅助码</span><input className="toggle" type="checkbox" checked={value.show_in_candidate_window} onChange={event => setDraft({ ...draft, [key]: { ...value, show_in_candidate_window: event.target.checked } })} /></label>
           </div>;
         })}
       </fieldset>

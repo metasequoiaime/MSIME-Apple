@@ -1835,10 +1835,12 @@ mod tests {
             quanpin_helpcode: HelpcodePreferences {
                 enabled: false,
                 schema: HelpcodeSchema::Xiaohe,
+                show_in_candidate_window: true,
             },
             shuangpin_helpcode: HelpcodePreferences {
                 enabled: true,
                 schema: HelpcodeSchema::Shouyou2,
+                show_in_candidate_window: true,
             },
             ..Preferences::default()
         };

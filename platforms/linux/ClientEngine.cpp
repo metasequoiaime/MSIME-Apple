@@ -65,6 +65,7 @@ struct State {
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<bool> punctuation_override, autocorrect_override, helpcode_override;
+  bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
   std::optional<bool> smart_punctuation_override, smart_repeat_override, paired_punctuation_override;
   std::optional<std::string> punctuation_lock_override;
@@ -193,6 +194,11 @@ struct State {
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
       if (helpcode_schema_override) preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+      show_helpcode_in_candidate_window = preferences.value(
+          active_scheme + "_helpcode", Json::object())
+          .value("show_in_candidate_window", true);
+    } else {
+      show_helpcode_in_candidate_window = true;
     }
     clipboard_history_path = options.value("clipboard_history_path", std::string{});
     online_provider_socket = options.value("online_provider_socket", std::string{});
@@ -341,6 +347,14 @@ struct State {
     candidate_preedit_style = preferences.value("candidate_preedit_style", "pinyin");
     if (candidate_preedit_style != "empty")
       candidate_preedit_style = "pinyin";
+    const auto active_scheme = scheme_override.value_or(
+        preferences.value("scheme", "quanpin"));
+    if (active_scheme == "quanpin" || active_scheme == "shuangpin")
+      show_helpcode_in_candidate_window = preferences.value(
+          active_scheme + "_helpcode", Json::object())
+          .value("show_in_candidate_window", true);
+    else
+      show_helpcode_in_candidate_window = true;
     const auto voice = preferences.value("voice_input", Json::object());
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
@@ -1558,7 +1572,7 @@ void render(IBusEngine *engine, const Json &view) {
     default: break;
     }
     const auto annotation = candidate.value("annotation", std::string{});
-    if (!annotation.empty()) {
+    if (!annotation.empty() && state(engine).show_helpcode_in_candidate_window) {
       value += "  ";
       value += annotation;
     }
