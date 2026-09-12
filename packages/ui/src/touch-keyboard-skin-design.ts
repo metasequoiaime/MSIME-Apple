@@ -27,6 +27,23 @@ export type TouchKeyboardSkinDesign = {
   photoPosition?: number;
 };
 
+export type SavedTouchKeyboardSkin = {
+  id: string;
+  name: string;
+  design: TouchKeyboardSkinDesign;
+};
+
+export type CustomSkinLibraryAction =
+  | { operation: "create"; name: string; design: TouchKeyboardSkinDesign }
+  | { operation: "rename"; id: string; name: string }
+  | { operation: "update"; id: string; design: TouchKeyboardSkinDesign }
+  | { operation: "delete"; id: string };
+
+export type CustomSkinLibraryClient = {
+  load(): Promise<SavedTouchKeyboardSkin[]>;
+  mutate(action: CustomSkinLibraryAction): Promise<SavedTouchKeyboardSkin[]>;
+};
+
 export const defaultTouchKeyboardSkinDesign: TouchKeyboardSkinDesign = {
   background: 0xE8F0EB,
   keyBackground: 0xFFFFFF,

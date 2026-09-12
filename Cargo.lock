@@ -2095,6 +2095,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "unicode-general-category",
  "unicode-segmentation",
+ "uuid",
 ]
 
 [[package]]

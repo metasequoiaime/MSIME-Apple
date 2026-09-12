@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod cloud;
 pub mod cloud_dictionary;
 pub mod cloud_transport;
+pub mod custom_skin_library;
 pub mod dictionary_access;
 mod file_lock;
 pub mod panels;

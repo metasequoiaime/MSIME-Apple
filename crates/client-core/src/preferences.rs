@@ -117,7 +117,7 @@ impl Default for TouchKeyboardSkinDesign {
 }
 
 impl TouchKeyboardSkinDesign {
-    fn validate(&self) -> bool {
+    pub(crate) fn validate(&self) -> bool {
         let colors = [
             Some(self.background),
             Some(self.key_background),
@@ -152,6 +152,47 @@ impl TouchKeyboardSkinDesign {
             return false;
         };
         bytes.len() <= 512_000 && supported_skin_photo(&bytes)
+    }
+
+    /// Apple-compatible normalization used when a named design is loaded from its library.
+    pub fn normalized(mut self) -> Self {
+        self.background &= 0xFFFFFF;
+        self.key_background &= 0xFFFFFF;
+        self.key_foreground &= 0xFFFFFF;
+        self.accent &= 0xFFFFFF;
+        self.action_background &= 0xFFFFFF;
+        self.corner_radius = normalized_number(self.corner_radius, 0.0, 20.0, 8.0);
+        self.border_width = normalized_number(self.border_width, 0.0, 2.0, 0.0);
+        self.shadow = normalized_number(self.shadow, 0.0, 0.4, 0.0);
+        if self.pattern > 3 {
+            self.pattern = 0;
+        }
+        self.key_opacity = self
+            .key_opacity
+            .map(|value| normalized_number(value, 0.25, 1.0, 1.0));
+        self.gradient_end = self.gradient_end.map(|color| color & 0xFFFFFF);
+        self.pattern_opacity = self
+            .pattern_opacity
+            .map(|value| normalized_number(value, 0.0, 0.5, 0.15));
+        self.custom_border_color = self.custom_border_color.map(|color| color & 0xFFFFFF);
+        self.photo_shade = self
+            .photo_shade
+            .map(|value| normalized_number(value, 0.0, 0.8, 0.25));
+        self.photo_position = self
+            .photo_position
+            .map(|value| normalized_number(value, 0.0, 1.0, 0.5));
+        if self.photo.is_some() && !self.validate() {
+            self.photo = None;
+        }
+        self
+    }
+}
+
+fn normalized_number(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(minimum, maximum)
+    } else {
+        fallback
     }
 }
 

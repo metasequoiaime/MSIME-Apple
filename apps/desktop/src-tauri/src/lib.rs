@@ -6,6 +6,10 @@ mod linux_audio_devices;
 mod linux_clipboard;
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
+use msime_client_core::custom_skin_library::{
+    CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore,
+    SavedTouchKeyboardSkin,
+};
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
 };
@@ -402,6 +406,21 @@ impl From<PreferencesError> for CommandError {
     }
 }
 
+fn custom_skin_library_error(value: CustomSkinLibraryError) -> CommandError {
+    CommandError {
+        code: match value {
+            CustomSkinLibraryError::Full => "custom_skin_full",
+            CustomSkinLibraryError::InvalidName => "custom_skin_invalid_name",
+            CustomSkinLibraryError::DuplicateName => "custom_skin_duplicate_name",
+            CustomSkinLibraryError::NotFound => "custom_skin_not_found",
+            CustomSkinLibraryError::Json(_) | CustomSkinLibraryError::Invalid => {
+                "custom_skin_format"
+            }
+            CustomSkinLibraryError::Io(_) => "storage",
+        },
+    }
+}
+
 #[tauri::command]
 async fn load_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -431,6 +450,31 @@ async fn save_preferences(
         sync_linux_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
         Ok(snapshot)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn load_custom_skin_library(
+    store: tauri::State<'_, CustomSkinLibraryStore>,
+) -> Result<Vec<SavedTouchKeyboardSkin>, CommandError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.load().map_err(custom_skin_library_error)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn mutate_custom_skin_library(
+    store: tauri::State<'_, CustomSkinLibraryStore>,
+    action: CustomSkinLibraryAction,
+) -> Result<Vec<SavedTouchKeyboardSkin>, CommandError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.mutate(action).map_err(custom_skin_library_error)
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -2945,6 +2989,7 @@ pub fn run() {
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            app.manage(CustomSkinLibraryStore::new(&directory));
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
@@ -3089,6 +3134,8 @@ pub fn run() {
             initial_settings_page,
             list_font_families,
             load_preferences,
+            load_custom_skin_library,
+            mutate_custom_skin_library,
             load_typing_statistics,
             set_typing_statistics_enabled,
             reset_typing_statistics,

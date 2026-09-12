@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** Drive the actual React DOM and Tauri IPC, then observe a separate system editor. */
@@ -43,9 +44,14 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         + "tab.textContent?.trim() === '设计')";
     private static final String CUSTOM_SKIN_TEMPLATE =
         "document.querySelector('[aria-label=\"皮肤模板 奶油桃桃\"]')";
+    private static final String CUSTOM_SKIN_BLUEPRINT_TEMPLATE =
+        "document.querySelector('[aria-label=\"皮肤模板 工程蓝图\"]')";
+    private static final String CUSTOM_SKIN_MY_TAB =
+        "Array.from(document.querySelectorAll('[role=tab]')).find(tab => "
+        + "tab.textContent?.trim() === '我的')";
     private WebView web;
     @Override protected String successDescription() {
-        return "React save, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+        return "React save, named custom skin CRUD, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
@@ -54,6 +60,12 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         if (!directory.toPath().startsWith(root.getCanonicalFile().toPath())) throw new AssertionError("Preferences escaped the preview sandbox");
         File preferences = new File(directory, "preferences.json");
         byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        File skinLibrary = new File(directory, "CustomSkins/library.json");
+        if (!skinLibrary.getCanonicalFile().toPath().startsWith(directory.toPath())
+                || skinLibrary.getCanonicalFile().equals(preferences.getCanonicalFile()))
+            throw new AssertionError("Custom skin library is not independent from preferences");
+        byte[] originalSkinLibrary = skinLibrary.exists() ? Files.readAllBytes(skinLibrary.toPath()) : null;
+        Files.deleteIfExists(skinLibrary.toPath());
         long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
         Activity activity = null;
         try {
@@ -98,7 +110,76 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             js("(" + CUSTOM_SKIN_TEMPLATE + ").click(); true");
             awaitJs("document.querySelector('[data-preview-skin=\"custom\"]')?.getAttribute('data-key-shape') === 'pebble'");
             awaitJs("document.querySelector('[data-preview-skin=\"custom\"]')?.getAttribute('data-key-material') === 'raised'");
-            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '使用皮肤').click(); true");
+            stage = "React named custom skin create";
+            awaitJs("!Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存设计').disabled");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存设计').click(); true");
+            awaitJs("!!document.querySelector('[aria-label=\"皮肤名称\"]')");
+            setReactInput("document.querySelector('[aria-label=\"皮肤名称\"]')", "设备验收样例");
+            awaitJs("!Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '确认保存').disabled");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '确认保存').click(); true");
+            awaitJs("!!document.querySelector('[aria-label=\"应用已保存皮肤 设备验收样例\"]')");
+            awaitJs("document.querySelector('[aria-label=\"屏幕键盘皮肤 我的皮肤\"]')?.getAttribute('aria-checked') === 'true'");
+            JSONArray createdLibrary = readSkinLibrary(skinLibrary);
+            if (createdLibrary.length() != 1
+                    || !"设备验收样例".equals(createdLibrary.getJSONObject(0).getString("name"))
+                    || !"pebble".equals(createdLibrary.getJSONObject(0).getJSONObject("design").getString("keyShape")))
+                throw new AssertionError("Named custom skin create did not reach its independent library");
+            if (original == null ? preferences.exists()
+                    : !java.util.Arrays.equals(original, Files.readAllBytes(preferences.toPath())))
+                throw new AssertionError("Named custom skin mutation changed hot-path preferences");
+
+            stage = "React named custom skin rename through Tauri IPC";
+            String createdId = createdLibrary.getJSONObject(0).getString("id");
+            js("window.__TAURI_INTERNALS__.invoke('mutate_custom_skin_library',{action:{operation:'rename',id:'"
+                + createdId + "',name:'设备验收样例1'}});true");
+            awaitSkinLibraryName(skinLibrary, "设备验收样例1");
+
+            stage = "React named custom skin reload";
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '完成').click(); true");
+            awaitJs("!document.querySelector('[aria-label=\"自定义皮肤编辑器\"]')");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '设计我的皮肤').click(); true");
+            awaitJs("!!(" + CUSTOM_SKIN_MY_TAB + ")");
+            js("(" + CUSTOM_SKIN_MY_TAB + ").click(); true");
+            awaitJs("!!document.querySelector('[aria-label=\"应用已保存皮肤 设备验收样例1\"]')");
+            stage = "React named custom skin rename persisted";
+            if (!"设备验收样例1".equals(readSkinLibrary(skinLibrary).getJSONObject(0).getString("name")))
+                throw new AssertionError("Named custom skin rename did not persist");
+
+            stage = "React named custom skin update";
+            js("(" + CUSTOM_SKIN_DESIGN_TAB + ").click(); true");
+            awaitJs("!!(" + CUSTOM_SKIN_BLUEPRINT_TEMPLATE + ")");
+            js("(" + CUSTOM_SKIN_BLUEPRINT_TEMPLATE + ").click(); true");
+            js("(" + CUSTOM_SKIN_MY_TAB + ").click(); true");
+            awaitJs("document.querySelector('[aria-label=\"用当前设计更新 设备验收样例1\"]')?.disabled === false");
+            js("document.querySelector('[aria-label=\"用当前设计更新 设备验收样例1\"]').click(); true");
+            awaitJs("!!document.querySelector('[role=alertdialog]')");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '确认更新').click(); true");
+            awaitJs("!document.querySelector('[role=alertdialog]')");
+            JSONObject updatedDesign = readSkinLibrary(skinLibrary).getJSONObject(0).getJSONObject("design");
+            if (!"glass".equals(updatedDesign.getString("keyMaterial"))
+                    || updatedDesign.getInt("pattern") != 2)
+                throw new AssertionError("Named custom skin update did not persist");
+
+            stage = "React named custom skin apply";
+            js("(" + CUSTOM_SKIN_DESIGN_TAB + ").click(); true");
+            js("(" + CUSTOM_SKIN_TEMPLATE + ").click(); true");
+            js("(" + CUSTOM_SKIN_MY_TAB + ").click(); true");
+            js("document.querySelector('[aria-label=\"应用已保存皮肤 设备验收样例1\"]').click(); true");
+            awaitJs("document.querySelector('.touch-skin-editor-preview [data-preview-skin=\"custom\"]')?.getAttribute('data-key-material') === 'glass'");
+
+            stage = "React named custom skin delete";
+            awaitJs("document.querySelector('[aria-label=\"删除 设备验收样例1\"]')?.disabled === false");
+            js("document.querySelector('[aria-label=\"删除 设备验收样例1\"]').click(); true");
+            awaitJs("!!document.querySelector('[role=alertdialog]')");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '确认删除').click(); true");
+            awaitJs("!document.querySelector('[aria-label=\"应用已保存皮肤 设备验收样例1\"]')");
+            if (readSkinLibrary(skinLibrary).length() != 0)
+                throw new AssertionError("Named custom skin delete did not persist");
+
+            stage = "React restore current custom skin design";
+            js("(" + CUSTOM_SKIN_DESIGN_TAB + ").click(); true");
+            js("(" + CUSTOM_SKIN_TEMPLATE + ").click(); true");
+            js("const use=Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '使用皮肤');if(use)use.click();true");
             stage = "React keyboard height setting";
             js("const slider=" + KEYBOARD_HEIGHT + ";"
                 + "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'24');"
@@ -166,6 +247,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         } finally {
             shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
+            if (originalSkinLibrary == null) Files.deleteIfExists(skinLibrary.toPath());
+            else { skinLibrary.getParentFile().mkdirs(); publish(skinLibrary, originalSkinLibrary); }
         }
     }
     private void assertSharedSchemePicker() throws Exception {
@@ -231,6 +314,27 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do { if ("true".equals(js(condition))) return; SystemClock.sleep(100); } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Expected React state was not observed");
+    }
+    private void setReactInput(String selector, String value) throws Exception {
+        js("const input=" + selector + ";"
+            + "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'" + value + "');"
+            + "input.dispatchEvent(new Event('input',{bubbles:true}));true");
+        SystemClock.sleep(150);
+    }
+    private void awaitSkinLibraryName(File file, String expected) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            if (file.exists()) {
+                JSONArray items = readSkinLibrary(file);
+                if (items.length() == 1 && expected.equals(items.getJSONObject(0).getString("name")))
+                    return;
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Named custom skin command did not persist");
+    }
+    private JSONArray readSkinLibrary(File file) throws Exception {
+        return new JSONArray(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
     }
     private void shell(String command) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {

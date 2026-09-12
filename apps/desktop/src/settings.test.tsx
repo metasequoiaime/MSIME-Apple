@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type SettingsClient, type Snapshot } from "@msime/ui";
+import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -879,6 +879,86 @@ test("Android custom skin editor applies Apple templates, undo, materials and sh
       keyOpacity: .45, cornerRadius: 18, pattern: 3,
     }),
   })));
+});
+
+const savedSkinDesign = (patch: Partial<TouchKeyboardSkinDesign> = {}): TouchKeyboardSkinDesign => ({
+  background: 0xE8F0EB, keyBackground: 0xFFFFFF, keyForeground: 0x17251D,
+  accent: 0x185C47, actionBackground: 0x185C47, cornerRadius: 8,
+  borderWidth: 0, shadow: 0, pattern: 0, monospaced: false, ...patch,
+});
+
+test("Android named skin library loads and completes create, apply, update, rename and delete", async () => {
+  let saved: SavedTouchKeyboardSkin[] = [{
+    id: "11111111-1111-4111-8111-111111111111", name: "雾光样例",
+    design: savedSkinDesign({ keyShape: "ticket", keyMaterial: "paper" }),
+  }];
+  const load = vi.fn(async () => saved);
+  const mutate = vi.fn(async (action: CustomSkinLibraryAction) => {
+    if (action.operation === "create") saved = [...saved, { id: "22222222-2222-4222-8222-222222222222", name: action.name, design: action.design }];
+    if (action.operation === "rename") saved = saved.map(item => item.id === action.id ? { ...item, name: action.name } : item);
+    if (action.operation === "update") saved = saved.map(item => item.id === action.id ? { ...item, design: action.design } : item);
+    if (action.operation === "delete") saved = saved.filter(item => item.id !== action.id);
+    return saved;
+  });
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true, customSkinLibrary: { load, mutate } }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  fireEvent.click(within(editor).getByRole("tab", { name: "我的" }));
+  await within(editor).findByRole("button", { name: "应用已保存皮肤 雾光样例" });
+
+  fireEvent.click(within(editor).getByRole("button", { name: "应用已保存皮肤 雾光样例" }));
+  expect(within(editor).getByRole("img", { name: "屏幕键盘完整布局预览" }).getAttribute("data-key-shape")).toBe("ticket");
+
+  fireEvent.click(within(editor).getByRole("tab", { name: "设计" }));
+  fireEvent.click(within(editor).getByRole("button", { name: "皮肤模板 奶油桃桃" }));
+  fireEvent.click(within(editor).getByRole("tab", { name: "我的" }));
+  fireEvent.click(within(editor).getByRole("button", { name: "用当前设计更新 雾光样例" }));
+  fireEvent.click(within(editor).getByRole("button", { name: "确认更新" }));
+  await waitFor(() => expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+    operation: "update", id: "11111111-1111-4111-8111-111111111111",
+    design: expect.objectContaining({ keyShape: "pebble", keyMaterial: "raised" }),
+  })));
+
+  fireEvent.click(within(editor).getByRole("button", { name: "重命名 雾光样例" }));
+  fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "桃色样例" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "确认重命名" }));
+  await within(editor).findByRole("button", { name: "应用已保存皮肤 桃色样例" });
+  expect(mutate).toHaveBeenCalledWith({ operation: "rename", id: "11111111-1111-4111-8111-111111111111", name: "桃色样例" });
+
+  fireEvent.click(within(editor).getByRole("button", { name: "删除 桃色样例" }));
+  fireEvent.click(within(editor).getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(within(editor).queryByRole("button", { name: "应用已保存皮肤 桃色样例" })).toBeNull());
+  expect(mutate).toHaveBeenCalledWith({ operation: "delete", id: "11111111-1111-4111-8111-111111111111" });
+
+  fireEvent.click(within(editor).getByRole("button", { name: "保存设计" }));
+  fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "新建样例" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "确认保存" }));
+  await within(editor).findByRole("button", { name: "应用已保存皮肤 新建样例" });
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ operation: "create", name: "新建样例" }));
+  expect(screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked")).toBe("true");
+});
+
+test("Android named skin library reports duplicate names and concurrent twelve-item limits", async () => {
+  const mutate = vi.fn()
+    .mockRejectedValueOnce({ code: "custom_skin_duplicate_name" })
+    .mockRejectedValueOnce({ code: "custom_skin_full" });
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true,
+    customSkinLibrary: { load: async () => [], mutate } }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  const saveDesign = within(editor).getByRole("button", { name: "保存设计" }) as HTMLButtonElement;
+  await waitFor(() => expect(saveDesign.disabled).toBe(false));
+  fireEvent.click(saveDesign);
+  fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "重复样例" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "确认保存" }));
+  await within(editor).findByText("已经有同名皮肤，请换一个名称。");
+  fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "容量样例" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "确认保存" }));
+  await within(editor).findByText("最多保存 12 套皮肤，请先删除不需要的设计。");
+  expect(mutate).toHaveBeenCalledTimes(2);
 });
 
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
