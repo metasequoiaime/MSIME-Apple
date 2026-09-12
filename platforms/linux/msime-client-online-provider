@@ -222,9 +222,12 @@ def tencent_translation(config, texts, source, target, timeout):
                    ", SignedHeaders=" + signed_headers + ", Signature=" + signature}
     result = fetch("https://tmt.tencentcloudapi.com/", timeout, payload, extra_headers=headers)
     values = result["Response"]["TargetTextList"]
-    if not isinstance(values, list) or len(values) != len(texts):
+    if not isinstance(values, list):
         return [None] * len(texts)
-    return [translation_gloss(value) for value in values]
+    # Keep positional correspondence even when the provider returns only part
+    # of the batch or an unusable entry, matching Windows TextTranslateBatch.
+    return [translation_gloss(values[index]) if index < len(values) else None
+            for index in range(len(texts))]
 
 
 def translations(query, server):
