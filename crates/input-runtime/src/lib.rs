@@ -982,7 +982,9 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
-        self.engine.set_dedicated_english(enabled)
+        self.advance()?;
+        self.engine.set_dedicated_english(enabled)?;
+        self.refresh()
     }
 
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
