@@ -228,6 +228,7 @@ mod ffi {
             resources: &str,
             candidates: &[CandidateGlossInput],
         ) -> Result<Vec<String>>;
+        #[cfg(not(target_os = "android"))]
         fn handwriting_recognize(
             model_path: &str,
             points: &[HandwritingPoint],
@@ -404,6 +405,7 @@ pub fn candidate_glosses(
 
 /// Run the Engine's optional offline handwriting recognizer on copied strokes.
 /// Points are flattened with their zero-based stroke index for the CXX ABI.
+#[cfg(not(target_os = "android"))]
 pub fn handwriting_recognize(
     model_path: &str,
     strokes: &[Vec<(f32, f32)>],

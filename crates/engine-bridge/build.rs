@@ -52,6 +52,7 @@ fn main() {
         config
             // Native dependency roots can move; don't retain stale FindPackage paths.
             .configure_arg("--fresh")
+            .define("MSIME_ENGINE_BRIDGE_HANDWRITING", "OFF")
             .define(
                 "CMAKE_TOOLCHAIN_FILE",
                 ndk.join("build/cmake/android.toolchain.cmake"),
@@ -83,7 +84,9 @@ fn main() {
         destination.display()
     );
     println!("cargo:rustc-link-lib=static=MetasequoiaImeEngine");
-    println!("cargo:rustc-link-lib=static=MetasequoiaHandwriting");
+    if !android {
+        println!("cargo:rustc-link-lib=static=MetasequoiaHandwriting");
+    }
     let sqlite = std::fs::read_to_string(destination.join("build/sqlite-path.txt"))
         .expect("CMake SQLite path");
     let sqlite = PathBuf::from(sqlite.trim());

@@ -73,7 +73,9 @@ rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources);
 rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str category);
 rust::Vec<rust::String> candidate_glosses(
     rust::Str resources, rust::Slice<const CandidateGlossInput> candidates);
+#if !defined(__ANDROID__)
 rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
                                                rust::Slice<const HandwritingPoint> points,
                                                float width, float height);
+#endif
 }

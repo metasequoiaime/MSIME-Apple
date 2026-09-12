@@ -34,3 +34,10 @@ symbols=$("$readelf_tool" --dyn-syms --wide "$library_dir/libmsime_android.so")
 for method in prepareHostRaw loadPreferencesRaw savePreferencesRaw createRaw characterRaw setNineKeyModeRaw chooseNineKeySpellingRaw updatePreferencesRaw pinCandidateRaw fixCandidatePositionRaw clearCandidatePositionRaw removeCandidateRaw emojiCatalogRaw candidateGlossesRaw applyTranslationsRaw destroyRaw; do
   grep -Eq "GLOBAL +DEFAULT +[0-9]+ +Java_app_msime_client_NativeClient_${method}$" <<< "$symbols" || { echo "Missing JNI export: $method" >&2; exit 1; }
 done
+nm_tool="${readelf_tool%/llvm-readelf}/llvm-nm"
+[[ -x "$nm_tool" ]] || { echo "llvm-nm is required beside llvm-readelf" >&2; exit 1; }
+host_symbols=$("$nm_tool" -C --defined-only "$library_dir/libmsime_host_api.so")
+if grep -Eq 'msime_engine_bridge::handwriting_recognize|metasequoia::handwriting::|zinnia::' <<< "$host_symbols"; then
+  echo "Android host unexpectedly contains the Engine handwriting recognizer" >&2; exit 1
+fi
+echo "libmsime_host_api.so: Engine handwriting recognizer excluded for Android"
