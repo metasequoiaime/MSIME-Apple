@@ -528,11 +528,17 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             capture_args = request_capture_command(options, self.server.capture_backend,
                                                    self.server.capture_device)
-            asr = select_profile(self.server.config, options, "asr")
+            # One validated snapshot owns both recognition and polishing for
+            # this recording, even if the private file changes mid-session.
+            config = load_config(self.server.config_path)
+            asr = select_profile(config, options, "asr")
             if asr is None:
                 self.send(generation, ok=False)
                 return
-            polish_config = select_profile(self.server.config, options, "polish")
+            polish_config = select_profile(config, options, "polish")
+            if asr["provider"] == "doubao":
+                from msime_voice_doubao import websocket_dependency
+                websocket_dependency()
             if (asr["provider"] == "doubao" and options.get("asr_resource_id") and
                 options["asr_resource_id"] != asr["resource_id"]):
                 self.send(generation, ok=False)
@@ -644,15 +650,21 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 def load_config(path):
-    with path.open() as source:
+    # Nonblocking open prevents a replaced FIFO from holding a request slot.
+    # Validate the opened file itself so atomic replacement remains supported.
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as source:
         info = os.fstat(source.fileno())
         if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
             raise ValueError()
         raw = source.read(16385)
-        if len(raw.encode()) > 16384:
+        after = os.fstat(source.fileno())
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns, value.st_mode, value.st_uid)
+        if len(raw) > 16384 or identity(info) != identity(after):
             raise ValueError()
-    config = json.loads(raw)
-    if not isinstance(config, dict) or "asr" not in config:
+    config = json.loads(raw.decode("utf-8"))
+    if not isinstance(config, dict) or not isinstance(config.get("asr"), dict):
         raise ValueError()
     entries = []
     for name in ("asr", "polish"):
@@ -729,7 +741,7 @@ def main():
     except Exception:
         os.close(service_lock)
         raise
-    server.config = config
+    server.config_path = args.config.absolute()
     server.capture_args = capture_args
     server.capture_backend = args.capture
     server.capture_device = args.capture_device
