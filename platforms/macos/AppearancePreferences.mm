@@ -40,6 +40,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSString *_sharedInputScheme;
+    NSString *_sharedShuangpinProfile;
+    NSNumber *_sharedShuangpinPreeditUsesRaw;
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
@@ -171,12 +174,22 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)setAutocorrect:(BOOL)value { [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
 - (void)setHelpcodeEnabled:(BOOL)value { [_defaults setBool:value forKey:HelpcodeKey]; [self preferencesChanged]; }
-- (NSString *)inputScheme { NSString *value = [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
-- (NSString *)shuangpinProfile { NSString *value = [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
-- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
-- (BOOL)shuangpinPreeditUsesRaw { return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
-- (void)setShuangpinPreeditUsesRaw:(BOOL)value { [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
+- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
+- (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
+- (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (void)applySharedInputPreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id scheme = preferences[@"scheme"];
+    id profile = preferences[@"shuangpin_profile"];
+    id raw = preferences[@"shuangpin_preedit_uses_raw"];
+    if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
+    if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    [self refreshControls];
+}
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }

@@ -161,6 +161,44 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
 
+static void TestSharedInputPreferences() {
+    NSString *suite = [@"msime.shared-input." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.inputScheme = @"quanpin";
+    prefs.shuangpinProfile = @"xiaohe";
+    prefs.shuangpinPreeditUsesRaw = YES;
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    NSDictionary *shared = @{@"scheme": @"shuangpin", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO};
+    [controller applySharedToolbarPreferences:shared];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw);
+    NSPopUpButton *scheme = (id)PreferenceControl(prefs, @selector(schemeChanged:));
+    NSPopUpButton *profile = (id)PreferenceControl(prefs, @selector(profileChanged:));
+    NSPopUpButton *preedit = (id)PreferenceControl(prefs, @selector(preeditChanged:));
+    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0);
+    assert(saves == 0);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
+    for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
+    [controller applySharedToolbarPreferences:@{@"scheme": NSNull.null, @"shuangpin_profile": @42, @"shuangpin_preedit_uses_raw": @1}];
+    [controller applySharedToolbarPreferences:@{}];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw && saves == 0);
+    [scheme selectItemAtIndex:2];
+    [NSApp sendAction:scheme.action to:scheme.target from:scheme];
+    [profile selectItemAtIndex:2];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    [preedit selectItemAtIndex:1];
+    [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+    NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
+    assert([edited[@"scheme"] isEqual:@"wubi"] && [edited[@"shuangpin_profile"] isEqual:@"shoudao"] && [edited[@"shuangpin_preedit_uses_raw"] isEqual:@YES] && saves == 3);
+    [controller applySharedToolbarPreferences:shared];
+    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0 && saves == 3);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
     NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
@@ -582,6 +620,7 @@ int main() {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        TestSharedInputPreferences();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
