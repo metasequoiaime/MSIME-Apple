@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1780,26 +1780,26 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "SmartPunctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("智能标点"), "",
       ibus_text_new_from_static_string("按上下文选择标点形式"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.smart_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto smart_repeat = ibus_property_new(
       "SmartPunctuationRepeat", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("重复标点转中文"), "",
       ibus_text_new_from_static_string("短时间重复输入 ASCII 标点时替换为中文标点"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.smart_punctuation_repeat ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto paired = ibus_property_new(
       "PairedPunctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("成对标点"), "",
       ibus_text_new_from_static_string("输入成对引号和括号"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.paired_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto punctuation_lock = ibus_property_new(
       "PunctuationLock", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("标点锁定"), "",
       ibus_text_new_from_static_string("跟随输入模式或固定中文/英文标点"),
-      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto punctuation_lock_menu = ibus_prop_list_new();
   for (const auto &[value, label] : {std::pair{"follow", "跟随"},
@@ -1808,7 +1808,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("PunctuationLock/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择标点锁定策略"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择标点锁定策略"), !menu_save_pending, TRUE,
         s.punctuation_lock == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_prop_list_append(punctuation_lock_menu, item);
@@ -3384,6 +3384,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name == "PairedPunctuation") {
+      if (menu_save_pending || (value == PROP_STATE_CHECKED) == s.paired_punctuation) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::PairedPunctuation, value == PROP_STATE_CHECKED);
+        return;
+      }
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.session) {
         s.view = response(msime_client_set_paired_punctuation(s.session, enabled));
@@ -3397,6 +3403,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name) == "SmartPunctuation") {
+      if (menu_save_pending || (value == PROP_STATE_CHECKED) == s.smart_punctuation) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::SmartPunctuation, value == PROP_STATE_CHECKED);
+        return;
+      }
       s.smart_punctuation = value == PROP_STATE_CHECKED;
       s.smart_punctuation_override = s.smart_punctuation;
       if (!s.smart_punctuation) {
@@ -3407,6 +3419,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name) == "SmartPunctuationRepeat") {
+      if (menu_save_pending || (value == PROP_STATE_CHECKED) == s.smart_punctuation_repeat) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::SmartPunctuationRepeat, value == PROP_STATE_CHECKED);
+        return;
+      }
       s.smart_punctuation_repeat = value == PROP_STATE_CHECKED;
       s.smart_repeat_override = s.smart_punctuation_repeat;
       if (!s.smart_punctuation_repeat) {
@@ -3662,6 +3680,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     const bool enabled = value == PROP_STATE_CHECKED;
     if (std::string(name).rfind("PunctuationLock/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("PunctuationLock/").size());
+      if (value != PROP_STATE_CHECKED || menu_save_pending || selected == s.punctuation_lock)
+        return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::PunctuationLock, selected);
+        return;
+      }
       if (s.session) {
         s.view = response(msime_client_set_punctuation_lock(
             s.session, selected == "chinese" ? 1 : selected == "english" ? 2 : 0));
@@ -4775,6 +4800,14 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->candidate_page_size_override.reset();
           if (request.preference == MenuPreference::FrequencyMode)
             self->state->frequency_mode_override.reset();
+          if (request.preference == MenuPreference::SmartPunctuation)
+            self->state->smart_punctuation_override.reset();
+          if (request.preference == MenuPreference::SmartPunctuationRepeat)
+            self->state->smart_repeat_override.reset();
+          if (request.preference == MenuPreference::PairedPunctuation)
+            self->state->paired_punctuation_override.reset();
+          if (request.preference == MenuPreference::PunctuationLock)
+            self->state->punctuation_lock_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4810,6 +4843,18 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::FrequencyMode:
             snapshot["preferences"]["frequency"]["mode"] = request.value;
+            break;
+          case MenuPreference::SmartPunctuation:
+            snapshot["preferences"]["smart_punctuation"] = request.value;
+            break;
+          case MenuPreference::SmartPunctuationRepeat:
+            snapshot["preferences"]["smart_punctuation_repeat"] = request.value;
+            break;
+          case MenuPreference::PairedPunctuation:
+            snapshot["preferences"]["paired_punctuation"] = request.value;
+            break;
+          case MenuPreference::PunctuationLock:
+            snapshot["preferences"]["punctuation_lock"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
