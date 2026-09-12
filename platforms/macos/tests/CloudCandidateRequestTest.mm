@@ -4,12 +4,18 @@
 static NSInteger ResponseStatus = 200;
 static NSUInteger ResponseBytes = 8;
 static BOOL FailWithTimeout = NO;
+static BOOL TranslationMode = NO;
 @interface SyntheticCloudProtocol : NSURLProtocol
 @end
 @implementation SyntheticCloudProtocol
 + (BOOL)canInitWithRequest:(NSURLRequest *)request { (void)request; return YES; }
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request { return request; }
 - (void)startLoading {
+    if (TranslationMode) {
+        assert([self.request.HTTPMethod isEqual:@"POST"]);
+        assert([[self.request valueForHTTPHeaderField:@"Authorization"] isEqual:@"Bearer synthetic"]);
+        assert([[self.request valueForHTTPHeaderField:@"Content-Type"] isEqual:@"application/json"]);
+    }
     if (FailWithTimeout) {
         [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil]];
         return;
@@ -30,8 +36,53 @@ static void Wait(BOOL (^done)(void)) {
     assert(done());
 }
 
+static void TestTranslationTransport() {
+    NSDictionary *descriptor = @{@"url":@"https://translation.invalid/api", @"method":@"POST", @"headers":@{@"Content-Type":@"application/json", @"Authorization":@"Bearer synthetic"},
+        @"body":@{@"text":@"hello", @"source_lang":@"EN", @"target_lang":@"ZH"}, @"timeout_ms":@2500, @"max_response_bytes":@1048576};
+    TranslationMode = YES;
+    for (NSNumber *bytes in @[@8, @1048576, @1048577]) {
+        for (NSNumber *status in @[@200, @201, @503]) {
+            ResponseBytes = bytes.unsignedIntegerValue;
+            ResponseStatus = status.integerValue;
+            __block BOOL done = NO;
+            NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+            configuration.protocolClasses = @[SyntheticCloudProtocol.class];
+            MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc] initWithTranslationDescriptor:descriptor configuration:configuration completion:^(NSData *body) {
+                assert(NSThread.isMainThread && !done);
+                assert((body != nil) == (ResponseStatus < 300 && ResponseBytes <= 1048576));
+                done = YES;
+            }];
+            NSURLRequest *prepared = [request valueForKey:@"translationRequest"];
+            assert(prepared && [[NSJSONSerialization JSONObjectWithData:prepared.HTTPBody options:0 error:nil] isEqual:descriptor[@"body"]]);
+            assert(prepared.timeoutInterval == 2.5);
+            [request start];
+            NSURLSessionConfiguration *effective = [(NSURLSession *)[request valueForKey:@"session"] configuration];
+            assert(effective.timeoutIntervalForResource == 2.5 && !effective.URLCredentialStorage && !effective.HTTPCookieStorage && !effective.URLCache);
+            Wait(^BOOL { return done; });
+            assert(![request valueForKey:@"translationRequest"]);
+        }
+    }
+    for (NSDictionary *override in @[@{@"url":@"file:///synthetic"}, @{@"url":@"https://user:pass@translation.invalid/"},
+        @{@"headers":@{@"Content-Type":@"application/json", @"Authorization":@"synthetic\r\nX: bad"}}, @{@"timeout_ms":@9999}, @{@"method":@"GET"}]) {
+        NSMutableDictionary *invalid = [descriptor mutableCopy]; [invalid addEntriesFromDictionary:override];
+        __block BOOL rejected = NO;
+        MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc] initWithTranslationDescriptor:invalid configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:^(NSData *body) { assert(!body); rejected = YES; }];
+        [request start];
+        assert(rejected && ![request valueForKey:@"session"]);
+    }
+    NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    configuration.protocolClasses = @[SyntheticCloudProtocol.class];
+    MSIMECloudCandidateRequest *cancelled = [[MSIMECloudCandidateRequest alloc] initWithTranslationDescriptor:descriptor configuration:configuration completion:^(NSData *body) { (void)body; assert(false && "cancelled translation must not complete"); }];
+    [cancelled start];
+    [cancelled cancel];
+    assert(![cancelled valueForKey:@"translationRequest"]);
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    TranslationMode = NO;
+}
+
 int main() {
     @autoreleasepool {
+        TestTranslationTransport();
         for (NSNumber *bytes in @[@8, @262144, @262145]) {
             for (NSNumber *status in @[@200, @503]) {
                 ResponseBytes = bytes.unsignedIntegerValue;
