@@ -175,6 +175,15 @@ mod tests {
     }
 
     #[test]
+    fn enforces_quick_phrase_utf16_limit() {
+        let valid = "界".repeat(199);
+        let invalid = "界".repeat(200);
+        let request = |word| CloudDictionaryRequest::Add { kind: "quick".into(), code: "k".into(), word, weight: 1 };
+        assert!(validate_cloud_request(&request(valid)).is_ok());
+        assert!(validate_cloud_request(&request(invalid)).is_err());
+    }
+
+    #[test]
     fn validates_import_and_export_formats() {
         assert!(validate_cloud_request(&CloudDictionaryRequest::Import {
             kind: "pinyin".into(),
