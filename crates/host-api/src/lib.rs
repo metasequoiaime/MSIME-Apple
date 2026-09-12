@@ -75,6 +75,8 @@ struct HostSession {
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     voice: VoiceSessionState,
+    // Declared after runtime so the Engine is dropped before releasing access.
+    _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
@@ -852,6 +854,12 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 msime_client_core::preferences::PunctuationLock::English => 2,
             },
         };
+        let dictionary_access = DictionaryAccess::try_session(
+            std::path::Path::new(&options.user_data),
+            std::path::Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable".to_owned())?
+        .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
         let default_english = matches!(
             applied.default_ime_mode,
             msime_client_core::preferences::DefaultImeMode::English
@@ -887,6 +895,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     page_size_override: None,
                     nine_key_override: None,
                     voice: VoiceSessionState::default(),
+                    _dictionary_access: dictionary_access,
                 },
             )
         });

@@ -247,6 +247,9 @@ struct State {
     if (preedit_override) preferences["tsf_preedit_style"] = *preedit_override;
     if (theme_override) preferences["candidate_theme"] = *theme_override;
     if (skin_override) preferences["candidate_skin"] = *skin_override;
+    // Default snapshots omit the empty quanpin override object.
+    if (!preferences.contains("quanpin"))
+      preferences["quanpin"] = Json::object();
     auto &quanpin = preferences["quanpin"];
     if (autocorrect_transposition_override)
       quanpin["autocorrect_transposition"] = *autocorrect_transposition_override;
@@ -496,6 +499,8 @@ struct State {
       preferences["candidate_theme"] = *theme_override;
     if (skin_override)
       preferences["candidate_skin"] = *skin_override;
+    if (!preferences.contains("quanpin"))
+      preferences["quanpin"] = Json::object();
     auto &quanpin = preferences["quanpin"];
     if (autocorrect_transposition_override)
       quanpin["autocorrect_transposition"] = *autocorrect_transposition_override;
@@ -1191,7 +1196,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                                        std::pair{"CandidateFix5", "固定到 5"}}) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto title = std::string(label) + " " + std::to_string(slot);
-      const auto state = action.rfind("CandidateFix", 0) == 0 &&
+      const auto state = g_str_has_prefix(action, "CandidateFix") &&
                                  fixed_position ==
                                      std::stoi(std::string(action).substr(12))
                              ? PROP_STATE_CHECKED
@@ -1237,7 +1242,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
           configured.at("preferences").value("autocorrect", true)));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
-  const bool nine_key = active_scheme == "quanpin" &&
+  const bool nine_key = active_scheme == "quanpin" && s.view.is_object() &&
                         s.view.value("nine_key", false);
   const bool helpcode = (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
       s.helpcode_override.value_or(configured.at("preferences")
@@ -1557,8 +1562,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       {"temporary_english", "临时英文（Y 模式）"},
       {"temporary_japanese", "临时日文（R 模式）"}};
   for (const auto &[key, label] : local_mode_options) {
-    const bool enabled = local_mode_overrides.contains(key)
-                             ? local_mode_overrides.at(key).get<bool>()
+    const bool enabled = s.local_mode_overrides.contains(key)
+                             ? s.local_mode_overrides.at(key).get<bool>()
                              : configured_local_modes.value(key, true);
     auto item = ibus_property_new(
         (std::string("LocalModes/") + key).c_str(), PROP_TYPE_TOGGLE,
@@ -2303,6 +2308,13 @@ void focus_out(IBusEngine *engine) {
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   const std::string candidate_name = name ? name : "";
+  if (candidate_name == "InputEnabled" || candidate_name == "ChinesePunctuation" ||
+      candidate_name == "CharacterWidth") {
+    const char *target = candidate_name == "InputEnabled" ? "InputMode"
+        : candidate_name == "ChinesePunctuation" ? "Punctuation" : "CharacterMode";
+    property_activate(engine, target, value);
+    return;
+  }
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
       candidate_name.rfind("CandidateRemove", 0) == 0 ||
       candidate_name.rfind("CandidateFix", 0) == 0 ||
@@ -2605,8 +2617,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         if (selected < 1 || selected > 9 || !s.session)
           return;
         s.candidate_page_size_override = static_cast<uint8_t>(selected);
-        apply(engine, msime_client_set_candidate_page_size(
-                         s.session, static_cast<uint8_t>(selected)));
+        s.view = response(msime_client_set_candidate_page_size(
+                         s.session, static_cast<uint8_t>(selected))).at("view");
+        render(engine, s.view);
         publish_mode(engine);
       } catch (...) {
       }
@@ -2665,8 +2678,10 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (property_name == "PairedPunctuation") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.session)
-        apply(engine, msime_client_set_paired_punctuation(s.session, enabled));
+      if (s.session) {
+        s.view = response(msime_client_set_paired_punctuation(s.session, enabled));
+        render(engine, s.view);
+      }
       s.paired_punctuation_override = enabled;
       s.paired_punctuation = enabled;
       s.last_smart_punctuation = 0;
@@ -2696,8 +2711,10 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "CharacterMode") {
       s.fullwidth = value == PROP_STATE_CHECKED;
-      if (s.session)
-        apply(engine, msime_client_set_character_width(s.session, s.fullwidth));
+      if (s.session) {
+        s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        render(engine, s.view);
+      }
       publish_mode(engine);
       return;
     }
@@ -2895,9 +2912,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     const bool enabled = value == PROP_STATE_CHECKED;
     if (std::string(name).rfind("PunctuationLock/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("PunctuationLock/").size());
-      if (s.session)
-        apply(engine, msime_client_set_punctuation_lock(
+      if (s.session) {
+        s.view = response(msime_client_set_punctuation_lock(
             s.session, selected == "chinese" ? 1 : selected == "english" ? 2 : 0));
+        render(engine, s.view);
+      }
       s.punctuation_lock_override = selected;
       s.punctuation_lock = selected;
       {
@@ -3086,7 +3105,7 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.voice_active)
     voice_cancel(engine);
   s.invalidate_providers();
-  if (!s.input_enabled && s.session)
+  if (s.input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
   s.input_enabled = !s.input_enabled;
   if (s.mode_scope_global)
@@ -3262,8 +3281,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.fullwidth = !s.fullwidth;
     guarded(engine, "toggle_character_width", [&] {
       s.open();
-      if (s.session)
-        apply(engine, msime_client_set_character_width(s.session, s.fullwidth));
+      if (s.session) {
+        s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        render(engine, s.view);
+      }
       publish_mode(engine);
     });
     return TRUE;
@@ -3482,20 +3503,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
-      if (s.view.at("candidates").is_array() &&
-          !s.view.at("candidates").empty() &&
-          !apply(engine, msime_client_command(
-                      s.session, MSIME_COMMIT_CANDIDATE)))
-        return;
       handled = apply(engine, msime_client_character(s.session, ';', false));
       return;
     }
     if (unicode_plus_key(s.view, key, modifiers)) {
-      if (s.view.at("candidates").is_array() &&
-          !s.view.at("candidates").empty() &&
-          !apply(engine, msime_client_command(
-                      s.session, MSIME_COMMIT_CANDIDATE)))
-        return;
       handled = apply(engine, msime_client_character(s.session, '+', true));
       return;
     }
@@ -3644,9 +3655,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (accepted_letter || nine_key_digit || unicode_digit || microsoft_ing ||
          unicode_plus || accepted_apostrophe);
     if (candidate_input) {
-      if (!apply(engine, msime_client_command(
-                     s.session, MSIME_COMMIT_CANDIDATE)))
-        return;
+      // Candidate visibility does not end composition. Engine owns how the
+      // next spelling key extends the current input or local mode.
       if (microsoft_ing) {
         handled = apply(engine, msime_client_character(
                                    s.session, ';', false));
