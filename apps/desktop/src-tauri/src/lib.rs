@@ -1280,6 +1280,17 @@ fn send_panel_text_to_target(
     target: &PanelInputTarget,
     text: &str,
 ) -> Result<(), HostActionError> {
+    // ydotool types an ASCII key map, while newlines and tabs must remain
+    // literal text rather than becoming application shortcuts on any backend.
+    let literal_transfer = text.chars().any(|character| matches!(character, '\n' | '\r' | '\t'))
+        || (matches!(target, PanelInputTarget::Ydotool) && !text.is_ascii());
+    if literal_transfer {
+        if !write_linux_clipboard(text) {
+            return Err(HostActionError { code: "unavailable" });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        return send_panel_ctrl_v(app, target);
+    }
     release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
         let status = std::process::Command::new("xdotool")
@@ -1295,6 +1306,8 @@ fn send_panel_text_to_target(
     if let PanelInputTarget::Ydotool = target {
         return run_ydotool(&[
             "type".to_owned(),
+            "--escape".to_owned(),
+            "0".to_owned(),
             "--key-delay".to_owned(),
             "0".to_owned(),
             "--".to_owned(),
@@ -1305,14 +1318,19 @@ fn send_panel_text_to_target(
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_text(
-    app: &tauri::AppHandle,
+async fn send_panel_text(
+    app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
-    text: &str,
+    text: String,
 ) -> Result<(), HostActionError> {
-    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
-        code: "invalid_text",
-    })?;
+    if text.is_empty()
+        || text.len() > 4096
+        || text.chars().any(|character| {
+            character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+        })
+    {
+        return Err(HostActionError { code: "invalid_text" });
+    }
     let target = state
         .0
         .lock()
@@ -1323,7 +1341,11 @@ fn send_panel_text(
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
-    send_panel_text_to_target(app, &target, text)
+    tauri::async_runtime::spawn_blocking(move || {
+        send_panel_text_to_target(&app, &target, &text)
+    })
+    .await
+    .map_err(|_| HostActionError { code: "unavailable" })?
 }
 
 #[cfg(target_os = "linux")]
@@ -1960,13 +1982,17 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
 }
 
 #[tauri::command]
-fn submit_handwriting_candidate(
+async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return send_panel_text(&app, &state, &candidate);
+    {
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text(app, &state, candidate).await;
+    }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (app, state, candidate);
@@ -1977,14 +2003,14 @@ fn submit_handwriting_candidate(
 }
 
 #[tauri::command]
-fn send_text(
+async fn send_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     text: String,
 ) -> Result<(), HostActionError> {
     let _ = &app;
     #[cfg(target_os = "linux")]
-    return send_panel_text(&app, &state, &text);
+    return send_panel_text(app, &state, text).await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
