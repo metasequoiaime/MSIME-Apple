@@ -14,5 +14,6 @@ pub mod preferences;
 pub mod resources;
 pub mod skin_catalog;
 pub mod translation;
+pub mod translation_store;
 pub mod typing_statistics;
 pub mod voice;
