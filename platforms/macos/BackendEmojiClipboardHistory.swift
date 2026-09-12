@@ -69,4 +69,16 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
     }
     return removed.boolValue
   }
+
+  static func enable(directory: String) throws {
+    let selector = NSSelectorFromString("enableClipboardHistoryRequest:")
+    guard NSString(string: directory).isAbsolutePath,
+          let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
+          type.responds(to: selector),
+          let response = type.perform(selector, with: directory)?.takeUnretainedValue() as? NSDictionary,
+          response["error"] == nil, let enabled = response["enabled"] as? NSNumber,
+          CFGetTypeID(enabled) == CFBooleanGetTypeID(), enabled.boolValue else {
+      throw NSError(domain: "MSIMEClipboardHistory", code: 4)
+    }
+  }
 }
