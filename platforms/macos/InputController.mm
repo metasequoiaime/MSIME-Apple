@@ -842,6 +842,23 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
+        NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+        if (socket.length) {
+            NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @YES };
+            uint64_t generation = controller->_voiceGeneration;
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                NSError *providerError = nil;
+                [controller->_session voiceProviderStream:query socket:socket update:^(NSString *text, BOOL final) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (controller->_voiceGeneration != generation || !controller->_voiceService.active) return;
+                        [controller->_voiceService applyText:text generation:generation completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
+                        (void)final;
+                    });
+                } phase:^(NSUInteger phase) { (void)phase; } error:&providerError];
+                dispatch_async(dispatch_get_main_queue(), ^{ if (controller->_voiceGeneration == generation && controller->_voiceService.active) [controller->_voiceService cancelWithError:nil]; });
+            });
+            return;
+        }
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             (void)final;
             [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
