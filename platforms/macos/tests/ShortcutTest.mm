@@ -2544,6 +2544,9 @@ int main() {
         assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": @"(aB)"}, YES) isEqual:@"漢語(aB)"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": NSNull.null}, NO) isEqual:@"汉语"]);
+        assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":@YES, @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語*(aB) ☁️"]));
+        for (id corrected in @[@NO, @1, @"true", NSNull.null])
+            assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":corrected}, NO) isEqual:@"汉语"]));
         for (id source in @[@0, @1, @4, @255, @(-1), @YES, @2.0, @"2", NSNull.null])
             assert(([CandidateDisplay(@{@"text":@"汉语", @"source":source}, NO) isEqual:@"汉语"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語(aB) ☁️"]));
@@ -2578,6 +2581,29 @@ int main() {
         assert([scriptButton.toolTip isEqual:@"漢語(aB)"]);
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
+        word[@"corrected"] = @YES;
+        NSUInteger fixedCase = 0;
+        for (id fixed in @[@0, @1, @5, @(-1), @256, @YES, @1.0, @"1", NSNull.null]) {
+            word[@"fixed_position"] = fixed;
+            const BOOL valid = fixedCase == 1 || fixedCase == 2;
+            ++fixedCase;
+            for (NSNumber *highlighted in @[@NO, @YES]) {
+                word[@"highlighted"] = highlighted;
+                [controller renderCandidates];
+                scriptButton = PageButton(layoutPanel.contentView, 0);
+                assert(scriptButton.candidateFixed == valid);
+                assert([scriptButton.title containsString:@"漢語*(aB)"] && [scriptButton.candidateID isEqual:word[@"id"]]);
+                if (valid) {
+                    NSColor *color = [scriptButton.titleColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                    assert(fabs(color.redComponent - 55.0/255) < 0.001 && fabs(color.greenComponent - 154.0/255) < 0.001 && fabs(color.blueComponent - 211.0/255) < 0.001);
+                    [controller refreshCandidateSkin];
+                    assert([scriptButton.titleColor isEqual:color]);
+                }
+                assert([word[@"text"] isEqual:@"汉语"]);
+            }
+        }
+        [word removeObjectForKey:@"corrected"];
+        [word removeObjectForKey:@"fixed_position"];
         for (NSNumber *source in @[@2, @3]) {
             word[@"source"] = source;
             NSDictionary *unchanged = [word copy];

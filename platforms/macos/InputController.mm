@@ -44,6 +44,9 @@ static BOOL MSIMEScriptConversionApplies(id value) {
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
     NSString *text = candidate[@"text"];
+    id corrected = candidate[@"corrected"];
+    if ([corrected isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)corrected) == CFBooleanGetTypeID() &&
+        [corrected boolValue]) text = [text stringByAppendingString:@"*"];
     if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
     text = MSIMEChineseOutputString(text, traditional);
     id source = candidate[@"source"];
@@ -1107,6 +1110,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         button.toolTip = display;
         button.bordered = NO;
         button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
+        id fixed = candidate[@"fixed_position"];
+        button.candidateFixed = MSIMEUnsignedCandidateIdentityValue(fixed) &&
+            [fixed compare:@0] == NSOrderedDescending && [fixed compare:@255] != NSOrderedDescending;
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
@@ -1168,6 +1174,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
         button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
+        // Windows fixed-position span overrides candidate text, not its number.
+        if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
         button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
         button.barColor = SkinColor(tokens.accent);
         button.showSelectedBar = tokens.showSelectedBar;
