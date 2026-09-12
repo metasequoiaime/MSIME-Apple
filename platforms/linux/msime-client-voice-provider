@@ -195,6 +195,14 @@ def matching(config, options, prefix):
                for key in ("provider", "model"))
 
 
+def select_profile(config, options, name):
+    requested = options.get(name + "_provider")
+    entry = config.get(name)
+    if requested and (entry is None or requested != entry["provider"]):
+        entry = config.get(name + "_profiles", {}).get(requested)
+    return entry if entry and matching(entry, options, name) else None
+
+
 def capture_command(backend, device=None):
     if device is not None and (not device or len(device) > 1024 or
                                any(ord(c) < 32 for c in device)):
@@ -520,10 +528,11 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             capture_args = request_capture_command(options, self.server.capture_backend,
                                                    self.server.capture_device)
-            if not matching(self.server.config["asr"], options, "asr"):
+            asr = select_profile(self.server.config, options, "asr")
+            if asr is None:
                 self.send(generation, ok=False)
                 return
-            asr = self.server.config["asr"]
+            polish_config = select_profile(self.server.config, options, "polish")
             if (asr["provider"] == "doubao" and options.get("asr_resource_id") and
                 options["asr_resource_id"] != asr["resource_id"]):
                 self.send(generation, ok=False)
@@ -584,7 +593,7 @@ class Handler(socketserver.StreamRequestHandler):
             if text and query.get("stream") and (options.get("polish_enabled") or options.get("polish_text")):
                 self.send(generation, text, kind="partial")
             if text:
-                text = polish(text, self.server.config.get("polish"), options)
+                text = polish(text, polish_config, options)
             self.send(generation, "" if session.cancelled.is_set() else text)
         except Exception:
             try:
@@ -645,10 +654,24 @@ def load_config(path):
     config = json.loads(raw)
     if not isinstance(config, dict) or "asr" not in config:
         raise ValueError()
+    entries = []
     for name in ("asr", "polish"):
-        if name not in config:
-            continue
-        entry = config[name]
+        default = config.get(name)
+        if default is not None:
+            if not isinstance(default, dict):
+                raise ValueError()
+            entries.append((name, default))
+        profiles = config.get(name + "_profiles", {})
+        allowed = ASR_PROVIDERS if name == "asr" else POLISH_PROVIDERS
+        if not isinstance(profiles, dict) or not set(profiles).issubset(allowed):
+            raise ValueError()
+        for provider, entry in profiles.items():
+            if (not isinstance(entry, dict) or entry.get("provider", provider) != provider
+                    or (default is not None and default.get("provider") == provider)):
+                raise ValueError()
+            entry["provider"] = provider
+            entries.append((name, entry))
+    for name, entry in entries:
         if any(not isinstance(entry.get(k), str) or not entry[k].strip() for k in ("provider", "endpoint", "token")):
             raise ValueError()
         if entry["provider"] not in (ASR_PROVIDERS if name == "asr" else POLISH_PROVIDERS):
@@ -679,14 +702,14 @@ def load_config(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("socket", type=Path)
-    parser.add_argument("--config", type=Path, required=True, help="owner-only JSON with asr and optional polish objects")
+    parser.add_argument("--config", type=Path, required=True, help="owner-only JSON with asr/polish defaults and optional asr_profiles/polish_profiles")
     parser.add_argument("--capture", choices=("auto", "pulse", "pipewire", "alsa"), default="auto")
     parser.add_argument("--capture-device", help="PulseAudio source, PipeWire node name/serial, or ALSA PCM device")
     parser.add_argument("--max-recording-seconds", type=int, default=300, help="1–600 seconds, default 300")
     args = parser.parse_args()
     try:
         config = load_config(args.config)
-        if config["asr"]["provider"] == "doubao":
+        if config["asr"]["provider"] == "doubao" or "doubao" in config.get("asr_profiles", {}):
             from msime_voice_doubao import websocket_dependency
             websocket_dependency()
         capture_args = capture_command(args.capture, args.capture_device)
