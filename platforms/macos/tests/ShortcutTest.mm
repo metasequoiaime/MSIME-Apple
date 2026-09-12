@@ -1919,6 +1919,7 @@ static void TestCloudCandidatePreference() {
 @end
 @interface CustomTranslationSession : GlossSession
 @property(nonatomic, copy) NSDictionary *custom;
+@property(nonatomic, copy) NSDictionary *tencent;
 @property(nonatomic, copy) NSArray *page;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
@@ -1928,7 +1929,7 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
-        @"custom_translation":self.custom ?: @{}} : nil;
+        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -1945,6 +1946,7 @@ static void TestCloudCandidatePreference() {
 @interface ControlledTranslationBatch : MSIMECustomTranslationBatch
 @property(nonatomic, copy) void (^reply)(NSArray *);
 @property(nonatomic, copy) NSArray *items;
+@property(nonatomic, copy) NSDictionary *tencentConfig;
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL cancelled;
 @end
@@ -1972,7 +1974,110 @@ static void TestCloudCandidatePreference() {
     assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
     return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"Hello", @"translation":@"本地释义"}]};
 }
+- (MSIMECustomTranslationBatch *)tencentBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
+                                         completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    ControlledTranslationBatch *batch = (ControlledTranslationBatch *)[self customBatchForItems:items completion:completion];
+    batch.tencentConfig = config;
+    return batch;
+}
 @end
+static NSDictionary *TencentConfig() {
+    return @{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"ap-guangzhou"};
+}
+static void TestTencentCandidateScheduling() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.tencent = TencentConfig();
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"smile", @"source":@6}];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"]; [controller setValue:client forKey:@"activeClient"];
+    [controller applySharedToolbarPreferences:@{@"tencent_tmt":session.tencent}];
+    [controller synchronizeCustomTranslations]; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1 && controller.batches[0].started);
+    ControlledTranslationBatch *first = controller.batches[0];
+    assert([first.tencentConfig isEqual:session.tencent] && first.items.count == 2);
+    assert(([first.items[0] isEqual:@{@"text":@"Hello", @"key":@"hello", @"source_language":@"en", @"target_language":@"zh"}]));
+    assert([first.items[1][@"target_language"] isEqual:@"fr"]);
+    NSArray *online = @[@{@"text":@"Hello", @"translation":@"你好"}];
+    first.reply(online); assert([session.delivered isEqual:online]);
+    session.generation++; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1); // Positive and negative cache hits.
+    // Custom remains authoritative, including a configured but invalid endpoint.
+    session.custom = @{@"enabled":@YES, @"endpoint":@"", @"api_key":@""};
+    [controller synchronizeCustomTranslations]; assert(controller.batches.count == 1);
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://provider.invalid", @"api_key":@""};
+    [controller synchronizeCustomTranslations]; assert(controller.batches.count == 2);
+    assert(!controller.batches.lastObject.tencentConfig && controller.batches.lastObject.items.count == 2);
+    controller.batches.lastObject.reply(@[@{@"text":@"Hello", @"translation":@"自定义"}]);
+    session.custom = nil; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && [session.delivered isEqual:online]); // Provider cache isolation.
+    for (NSString *field in @[@"secret_id", @"secret_key", @"region"]) {
+        NSMutableDictionary *edited = [session.tencent mutableCopy];
+        edited[field] = [field isEqual:@"region"] ? @"ap-shanghai" : @"syntheticReplacement";
+        [controller applySharedToolbarPreferences:@{@"tencent_tmt":edited}];
+        assert(![controller currentCustomTranslationRequest] && session.delivered.count == 0);
+        session.tencent = edited;
+        NSUInteger before = controller.batches.count;
+        [controller synchronizeCustomTranslations];
+        assert(controller.batches.count == before + 1 && controller.batches.lastObject.items.count == 2);
+        controller.batches.lastObject.reply(online);
+    }
+    for (NSString *change in @[@"generation", @"page", @"client", @"session", @"focus", @"japanese", @"disabled"]) {
+        [[MSIMETranslationCache sharedCache] clear];
+        [controller cancelCandidateTranslations]; session.delivered = @[];
+        [controller synchronizeCustomTranslations];
+        ControlledTranslationBatch *pending = controller.batches.lastObject;
+        NSArray *page = session.page;
+        if ([change isEqual:@"generation"]) session.generation++;
+        if ([change isEqual:@"page"]) session.page = @[];
+        if ([change isEqual:@"client"]) [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        if ([change isEqual:@"session"]) [controller setValue:[CustomTranslationSession new] forKey:@"session"];
+        if ([change isEqual:@"focus"]) [controller setValue:@YES forKey:@"focusPending"];
+        if ([change isEqual:@"japanese"]) session.localMode = @"temporary_japanese";
+        if ([change isEqual:@"disabled"]) session.enabled = NO;
+        pending.reply(online); assert(session.delivered.count == 0);
+        [controller cancelCandidateTranslations]; assert(pending.cancelled);
+        session.page = page; session.localMode = nil; session.enabled = YES;
+        [controller setValue:session forKey:@"session"]; [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@NO forKey:@"focusPending"];
+    }
+    session.targetLanguage = @"en"; session.offline = YES;
+    [controller synchronizeCandidateGloss]; [controller synchronizeCustomTranslations];
+    assert(![controller currentCustomTranslationRequest]);
+    NSUInteger before = controller.batches.count;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (controller.batches.count == before && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.batches.count == before + 1);
+    ControlledTranslationBatch *fallback = controller.batches.lastObject;
+    assert(fallback.tencentConfig && fallback.items.count == 1 && [fallback.items[0][@"text"] isEqual:@"测试"]);
+    fallback.reply(@[@{@"text":@"测试", @"translation":@"test"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"test"}]]));
+    [controller cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
+    session.offline = NO;
+    [controller synchronizeCandidateGloss];
+    [controller synchronizeCustomTranslations];
+    ControlledTranslationBatch *pending = controller.batches.lastObject;
+    assert(pending != fallback && pending.started);
+    NSMutableDictionary *disabled = [session.tencent mutableCopy]; disabled[@"enabled"] = @NO;
+    [controller applySharedToolbarPreferences:@{@"tencent_tmt":disabled}];
+    assert(pending.cancelled && ![controller currentCustomTranslationRequest] && session.delivered.count == 0);
+    pending.reply(online); assert(session.delivered.count == 0);
+    session.tencent = disabled; assert(![controller currentCustomTranslationRequest]);
+    session.tencent = TencentConfig();
+    [controller applySharedToolbarPreferences:@{@"tencent_tmt":session.tencent}];
+    [controller synchronizeCandidateGloss];
+    [controller synchronizeCustomTranslations]; pending = controller.batches.lastObject;
+    // Pending custom enablement must block Tencent even before the query updates.
+    NSDictionary *custom = @{@"enabled":@YES, @"endpoint":@"https://provider.invalid", @"api_key":@""};
+    [controller applySharedToolbarPreferences:@{@"custom_translation":custom}];
+    assert(pending.cancelled && ![controller currentCustomTranslationRequest]);
+    pending.reply(online); assert(session.delivered.count == 0);
+    [controller cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -2105,13 +2210,14 @@ static void TestCustomTranslationCacheDelivery() {
     [controller cancelCandidateTranslations];
     [[MSIMETranslationCache sharedCache] clear];
 }
-static void TestCustomTranslationIdleDelay() {
+static void TestCustomTranslationIdleDelay(BOOL tencent) {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.useRealDelay = YES; controller.batches = [NSMutableArray array];
     CustomTranslationSession *session = [CustomTranslationSession new];
     session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
     session.custom = @{@"enabled":@YES, @"endpoint":@"https://idle.invalid/api", @"api_key":@""};
+    if (tencent) { session.custom = nil; session.tencent = TencentConfig(); }
     session.page = @[@{@"text":@"hello", @"source":@4}];
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
@@ -2298,7 +2404,9 @@ int main() {
         TestGlossScheduling();
         TestCustomTranslationController();
         TestCustomTranslationCacheDelivery();
-        TestCustomTranslationIdleDelay();
+        TestCustomTranslationIdleDelay(NO);
+        TestCustomTranslationIdleDelay(YES);
+        TestTencentCandidateScheduling();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();
         TestSharedInputPreferences();

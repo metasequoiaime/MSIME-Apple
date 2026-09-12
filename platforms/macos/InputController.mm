@@ -223,6 +223,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_customTimer;
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
+    NSDictionary *_tencentTranslationConfig;
     NSArray<NSDictionary *> *_customResults;
     uint64_t _customEpoch;
 }
@@ -245,9 +246,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
     NSDictionary *config = query[@"custom_translation"];
+    BOOL custom = [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
+    if (!custom) config = query[@"tencent_tmt"];
     if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] isEqual:@YES]) return nil;
     // A preference snapshot can be pending in Engine while the composition is active.
-    if ((_customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
+    if ((custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
+        (!custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
+            (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
         (_glossTargetLanguage && ![_glossTargetLanguage isEqual:query[@"target_language"]])) return nil;
     NSDictionary *view = [_session viewWithError:nil];
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
@@ -265,7 +270,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (!candidates.count) return nil;
     return @{@"generation":query[@"generation"], @"target_language":query[@"target_language"],
-        @"custom_translation":config, @"candidates":[candidates copy]};
+        (custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy]};
 }
 - (void)applyCandidateTranslationResults {
     NSMutableArray *results = [NSMutableArray array];
@@ -278,6 +283,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+- (MSIMECustomTranslationBatch *)tencentBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
+                                         completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    return [[MSIMECustomTranslationBatch alloc] initWithTencentItems:items config:config
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
 }
 - (NSTimer *)customTranslationTimerWithBlock:(void (^)(NSTimer *))block {
     NSTimer *timer = [NSTimer timerWithTimeInterval:0.5 repeats:NO block:block];
@@ -295,12 +305,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSMutableArray *cached = [NSMutableArray array];
     NSMutableDictionary *identities = [NSMutableDictionary dictionary];
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
+    BOOL tencent = query[@"tencent_tmt"] != nil;
+    NSString *scope = tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
     for (NSDictionary *item in plan) {
-        NSArray *identity = @[query[@"custom_translation"][@"endpoint"], query[@"target_language"],
+        NSArray *identity = @[scope, query[@"target_language"],
             item[@"source_language"], item[@"target_language"], item[@"key"]];
         id value = [cache valueForIdentity:identity];
         if (value) {
             if ([value isKindOfClass:NSString.class]) [cached addObject:@{@"text":item[@"text"], @"translation":value}];
+            continue;
+        }
+        if (tencent) {
+            [items addObject:item];
+            identities[item[@"text"]] = identity;
             continue;
         }
         NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
@@ -324,7 +341,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [timer invalidate]; owner->_customTimer = nil;
         if (owner->_session != session || owner->_activeClient != client ||
             ![[owner currentCustomTranslationRequest] isEqual:query]) return;
-        owner->_customBatch = [owner customBatchForItems:items completion:^(NSArray<NSDictionary *> *results) {
+        void (^completion)(NSArray<NSDictionary *> *) = ^(NSArray<NSDictionary *> *results) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
                 ![[current currentCustomTranslationRequest] isEqual:query]) return;
@@ -339,7 +356,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
             current->_customResults = [combined copy];
             [current applyCandidateTranslationResults];
-        }];
+        };
+        owner->_customBatch = tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
+            : [owner customBatchForItems:items completion:completion];
         [owner->_customBatch start];
     }];
 }
@@ -932,6 +951,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (_customTranslationConfig && ![_customTranslationConfig isEqual:custom]) [[MSIMETranslationCache sharedCache] clear];
         translationChanged |= ![_customTranslationConfig isEqual:custom];
         _customTranslationConfig = [custom copy];
+    }
+    NSDictionary *tencent = preferences[@"tencent_tmt"];
+    if ([tencent isKindOfClass:NSDictionary.class]) {
+        if (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:tencent]) [[MSIMETranslationCache sharedCache] clear];
+        translationChanged |= ![_tencentTranslationConfig isEqual:tencent];
+        _tencentTranslationConfig = [tencent copy];
     }
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
         [self cancelCandidateTranslations];
