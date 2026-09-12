@@ -828,6 +828,32 @@ impl UnixSocketProvider {
             && stream.write_all(b"\n").is_ok()
     }
 
+    /// Ask a user-owned voice provider to finish the active capture session.
+    /// Unlike cancellation, a stop lets the streaming connection deliver its
+    /// final transcription back to the caller.
+    #[cfg(unix)]
+    pub fn voice_stop(&self, generation: u64) -> bool {
+        let mut stream = match UnixStream::connect(&self.path) {
+            Ok(stream) => stream,
+            Err(_) => return false,
+        };
+        if stream
+            .set_write_timeout(Some(std::time::Duration::from_millis(250)))
+            .is_err()
+        {
+            return false;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "voice_stop",
+            "query": {"generation": generation}
+        })
+        .to_string();
+        request.len() <= 4096
+            && stream.write_all(request.as_bytes()).is_ok()
+            && stream.write_all(b"\n").is_ok()
+    }
+
     /// Forward one validated account-backed dictionary operation to the
     /// user-owned service. The provider owns authentication, synchronization,
     /// and network policy; this adapter only carries bounded JSON.

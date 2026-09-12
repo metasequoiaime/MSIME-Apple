@@ -1644,6 +1644,33 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
     })
 }
 
+/// Ask a user-owned voice socket to finish capture and return its final stream
+/// result. The streaming connection remains responsible for delivering text.
+///
+/// # Safety
+/// `socket_path` must reference a readable UTF-8 buffer for this call.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_stop(
+    socket_path: *const u8,
+    socket_length: usize,
+    generation: u64,
+) -> *mut c_char {
+    response(|| {
+        if socket_path.is_null() || socket_length > 4096 {
+            return Err("invalid voice provider socket buffer".into());
+        }
+        let path = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })
+        .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(json!(UnixSocketProvider::new(path).voice_stop(generation)))
+    })
+}
+
 /// Apply a provider result returned for a previously copied OnlineQuery.
 /// The query and candidate buffers are UTF-8 and are never retained.
 ///

@@ -1845,6 +1845,32 @@ void voice_cancel(IBusEngine *engine) {
     render(engine, s.view);
   publish_mode(engine);
 }
+void voice_stop(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.voice_active || s.voice_provider_socket.empty())
+    return;
+  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+      msime_client_voice_provider_stop(
+          reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
+          s.voice_provider_socket.size(), s.voice_generation),
+      msime_client_string_free);
+  bool stopped = false;
+  if (owned) {
+    try {
+      const auto result = Json::parse(owned.get());
+      stopped = result.at("ok").get<bool>() && result.at("value").get<bool>();
+    } catch (...) {
+      stopped = false;
+    }
+  }
+  if (!stopped)
+    voice_cancel(engine);
+  else {
+    s.voice_space_consumed = false;
+    s.voice_space_locked = false;
+    publish_mode(engine);
+  }
+}
 void voice_start(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
@@ -2878,7 +2904,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.voice_hotkey_consumed_key = 0;
       if (s.voice_active && !s.voice_space_locked &&
           voice_hold_hotkey(s, key, chord_modifiers))
-        guarded(engine, "voice_hotkey_release", [&] { voice_cancel(engine); });
+        guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
       return TRUE;
     }
     return FALSE;
@@ -2997,7 +3023,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
       s.voice_hotkey_consumed_key = key;
       if (s.voice_active)
-        voice_cancel(engine);
+        voice_stop(engine);
       else
         voice_start(engine);
       handled = true;

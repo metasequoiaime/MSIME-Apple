@@ -247,6 +247,10 @@ char *msime_client_voice_provider_stream(
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,
                                          uint64_t generation);
+/* Ask the provider to finish capture and deliver the final stream result. */
+char *msime_client_voice_provider_stop(const uint8_t *socket_path,
+                                       size_t socket_length,
+                                       uint64_t generation);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
