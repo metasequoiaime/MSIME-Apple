@@ -2,9 +2,11 @@
 #import "CandidateSkinPreviewView.h"
 #import "SkinSettingsView.h"
 #import "CloudAppearanceSettings.h"
+#import "TranslationSettingsWindow.h"
 #include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
+NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
@@ -155,6 +157,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     MSIMECandidatePreviewView *_preview;
     NSButton *_themeButton;
     NSWindowController *_skinWindow;
+    NSString *_translationPreferencesDirectory;
+    MSIMETranslationSettingsWindow *_translationWindow;
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthButton;
     NSButton *_keymapButton;
@@ -186,6 +190,23 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     return self;
 }
 - (NSURL *)skinsRoot { return _skinsRoot; }
+- (void)setTranslationPreferencesDirectory:(NSString *)directory {
+    if ([_translationPreferencesDirectory isEqual:directory]) return;
+    [_translationWindow close]; _translationWindow = nil;
+    _translationPreferencesDirectory = [directory copy];
+}
+- (void)showTranslationSettings:(id)sender {
+    if (!_translationWindow) {
+        __weak MSIMEAppearancePreferences *weakSelf = self;
+        _translationWindow = [[MSIMETranslationSettingsWindow alloc] initWithDirectory:_translationPreferencesDirectory saved:^(NSDictionary *preferences) {
+            MSIMEAppearancePreferences *current = weakSelf;
+            if (!current) return;
+            [current applySharedInputPreferences:preferences];
+            [[NSNotificationCenter defaultCenter] postNotificationName:MSIMETranslationPreferencesDidSaveNotification object:current userInfo:preferences];
+        }];
+    }
+    [_translationWindow showWindow:sender];
+}
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
@@ -1027,6 +1048,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
+        @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
         @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
         @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
