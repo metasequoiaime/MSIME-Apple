@@ -7,8 +7,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSString *_directory;
     NSDictionary *_snapshot;
     void (^_saved)(NSDictionary *);
-    NSButton *_enabled, *_custom, *_reveal, *_save, *_reload;
-    NSPopUpButton *_target;
+    NSButton *_enabled, *_reveal, *_save, *_reload;
+    NSPopUpButton *_target, *_provider;
+    NSGridView *_grid;
     NSTextField *_endpoint, *_plainKey, *_status;
     NSSecureTextField *_key;
     NSButton *_tencent, *_revealTencent;
@@ -28,7 +29,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _enabled = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(updateControls:)];
     _target = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_target addItemsWithTitles:@[@"英语", @"法语", @"日语", @"西班牙语", @"俄语", @"德语", @"韩语"]];
-    _custom = [NSButton checkboxWithTitle:@"启用自定义 DeepLX 翻译服务" target:self action:@selector(updateControls:)];
+    _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_provider addItemsWithTitles:@[@"腾讯云", @"自定义 DeepLX"]];
+    _provider.target = self; _provider.action = @selector(providerChanged:);
     _endpoint = [NSTextField textFieldWithString:@""]; _endpoint.placeholderString = @"https://example.com/translate";
     _key = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _key.placeholderString = @"留空表示不鉴权";
     _plainKey = [NSTextField textFieldWithString:@""]; _plainKey.hidden = YES;
@@ -36,7 +39,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _reveal = [NSButton checkboxWithTitle:@"显示 API Key" target:self action:@selector(revealKey:)];
     NSStackView *keys = [NSStackView stackViewWithViews:@[_key, _plainKey, _reveal]];
     keys.orientation = NSUserInterfaceLayoutOrientationVertical; keys.alignment = NSLayoutAttributeLeading;
-    _tencent = [NSButton checkboxWithTitle:@"启用腾讯云翻译（自定义服务关闭时）" target:self action:@selector(updateControls:)];
+    _tencent = [NSButton checkboxWithTitle:@"启用腾讯云在线翻译" target:self action:@selector(updateControls:)];
     _secretId = [NSTextField textFieldWithString:@""]; _secretId.placeholderString = @"AKID...";
     _tencentKey = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _tencentKey.placeholderString = @"SecretKey";
     _plainTencentKey = [NSTextField textFieldWithString:@""]; _plainTencentKey.hidden = YES;
@@ -45,17 +48,17 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _region = [NSTextField textFieldWithString:@""]; _region.placeholderString = @"ap-guangzhou（默认）";
     NSStackView *tencentKeys = [NSStackView stackViewWithViews:@[_tencentKey, _plainTencentKey, _revealTencent]];
     tencentKeys.orientation = NSUserInterfaceLayoutOrientationVertical; tencentKeys.alignment = NSLayoutAttributeLeading;
-    NSGridView *grid = [NSGridView gridViewWithViews:@[
+    _grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选释义"], _enabled],
         @[[NSTextField labelWithString:@"中文候选目标语言"], _target],
-        @[[NSTextField labelWithString:@"翻译服务"], _custom],
+        @[[NSTextField labelWithString:@"在线翻译服务"], _provider],
         @[[NSTextField labelWithString:@"完整 POST 接口地址"], _endpoint],
         @[[NSTextField labelWithString:@"Bearer API Key（可选）"], keys],
         @[[NSTextField labelWithString:@"腾讯云服务"], _tencent],
         @[[NSTextField labelWithString:@"SecretId"], _secretId],
         @[[NSTextField labelWithString:@"SecretKey"], tencentKeys],
         @[[NSTextField labelWithString:@"腾讯云区域"], _region]]];
-    grid.rowSpacing = 14;
+    _grid.rowSpacing = 14;
     for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region])
         [field.widthAnchor constraintEqualToConstant:310].active = YES;
     NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；关闭自定义服务后可使用腾讯云。腾讯云须填写 SecretId 和 SecretKey。凭据仅保存在本机配置文件，不参与云端设置同步。关闭两个在线服务仍保留离线释义。"];
@@ -63,7 +66,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
     _reload = [NSButton buttonWithTitle:@"重新加载（放弃编辑）" target:self action:@selector(reload:)];
     NSStackView *buttons = [NSStackView stackViewWithViews:@[_reload, _save]];
-    NSStackView *stack = [NSStackView stackViewWithViews:@[grid, notice, _status, buttons]];
+    NSStackView *stack = [NSStackView stackViewWithViews:@[_grid, notice, _status, buttons]];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical; stack.alignment = NSLayoutAttributeLeading; stack.spacing = 16;
     stack.translatesAutoresizingMaskIntoConstraints = NO; [window.contentView addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[[stack.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20],
@@ -78,15 +81,29 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
 - (void)updateControls:(id)sender {
     (void)sender;
     BOOL ready = !_busy && _snapshot != nil;
-    _enabled.enabled = ready; _custom.enabled = ready;
+    _enabled.enabled = ready; _provider.enabled = ready;
     _target.enabled = ready && _enabled.state == NSControlStateValueOn;
-    BOOL custom = ready && _custom.state == NSControlStateValueOn;
+    BOOL selectedCustom = _provider.indexOfSelectedItem == 1;
+    for (NSInteger row = 3; row <= 4; ++row) [_grid rowAtIndex:row].hidden = !selectedCustom;
+    for (NSInteger row = 5; row <= 8; ++row) [_grid rowAtIndex:row].hidden = selectedCustom;
+    BOOL custom = ready && selectedCustom;
     _endpoint.enabled = custom; _key.enabled = custom; _plainKey.enabled = custom; _reveal.enabled = custom;
     _tencent.enabled = ready && !custom;
     BOOL tencent = ready && !custom && _tencent.state == NSControlStateValueOn;
     _secretId.enabled = tencent; _tencentKey.enabled = tencent; _plainTencentKey.enabled = tencent;
     _revealTencent.enabled = tencent; _region.enabled = tencent;
     _save.enabled = ready; _reload.enabled = !_busy;
+}
+- (void)providerChanged:(id)sender {
+    (void)sender;
+    // Switching provider retains drafts but always remasks any revealed key.
+    if (_reveal.state == NSControlStateValueOn) {
+        _reveal.state = NSControlStateValueOff; [self revealKey:nil];
+    }
+    if (_revealTencent.state == NSControlStateValueOn) {
+        _revealTencent.state = NSControlStateValueOff; [self revealTencentKey:nil];
+    }
+    [self updateControls:nil];
 }
 - (void)revealKey:(id)sender {
     (void)sender;
@@ -117,7 +134,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
                 current->_enabled.state = [preferences[@"candidate_translations"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
                 NSUInteger index = [TranslationLanguages() indexOfObject:preferences[@"translation_target_language"] ?: @"en"];
                 [current->_target selectItemAtIndex:index == NSNotFound ? 0 : index];
-                current->_custom.state = [custom[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+                [current->_provider selectItemAtIndex:[custom[@"enabled"] boolValue] ? 1 : 0];
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
                 current->_key.stringValue = custom[@"api_key"] ?: @"";
                 current->_plainKey.hidden = YES; current->_key.hidden = NO; current->_reveal.state = NSControlStateValueOff;
@@ -139,7 +156,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     if (_busy || !_snapshot) return;
     [self.window makeFirstResponder:nil];
     NSString *key = _reveal.state == NSControlStateValueOn ? _plainKey.stringValue : _key.stringValue;
-    NSDictionary *custom = @{@"enabled":@(_custom.state == NSControlStateValueOn), @"endpoint":_endpoint.stringValue, @"api_key":key};
+    NSDictionary *custom = @{@"enabled":@(_provider.indexOfSelectedItem == 1), @"endpoint":_endpoint.stringValue, @"api_key":key};
     // Use the same descriptor validation as runtime even for disabled drafts.
     if ([custom[@"enabled"] boolValue]) {
         NSDictionary *request = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":custom,
