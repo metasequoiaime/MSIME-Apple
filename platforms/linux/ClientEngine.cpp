@@ -1624,6 +1624,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                               ? s.view.value("candidates", Json::array())
                               : Json::array();
   const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
+  const bool actions_available = s.focused && !s.blocked && s.input_enabled && s.session;
   bool editable_candidates = false;
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
@@ -1651,7 +1652,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     auto entry = ibus_property_new(
         entry_name.c_str(), PROP_TYPE_MENU,
         ibus_text_new_from_string(entry_label.c_str()), "",
-        ibus_text_new_from_static_string("选择此候选的操作"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择此候选的操作"), actions_available, TRUE,
         PROP_STATE_UNCHECKED, actions);
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
@@ -1671,7 +1672,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                              : PROP_STATE_UNCHECKED;
       ibus_prop_list_append(actions, ibus_property_new(
           name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
-          ibus_text_new_from_static_string("操作当前页候选"), TRUE, TRUE,
+          ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           state, nullptr));
     }
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
