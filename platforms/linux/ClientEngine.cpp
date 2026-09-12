@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2025,7 +2025,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "NumberRowSelection", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("数字选词"), "",
       ibus_text_new_from_static_string("使用数字键选择候选词"),
-      s.focused && !s.blocked && s.input_enabled && !nine_key, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !nine_key && !menu_save_pending, TRUE,
       s.number_row_selection && !nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto nine_key_property = ibus_property_new(
       "NineKey", PROP_TYPE_TOGGLE,
@@ -2069,7 +2069,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "WordCharacter", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("以词定字"), "",
       ibus_text_new_from_static_string("使用减号/等号或方括号选择词语首末汉字"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.word_character.enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto preedit_property = ibus_property_new(
       "PreeditStyle", PROP_TYPE_MENU,
@@ -3192,8 +3192,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name == "NumberRowSelection") {
-      if (s.view.value("nine_key", false))
+      if (s.view.value("nine_key", false) || menu_save_pending ||
+          s.number_row_selection == (value == PROP_STATE_CHECKED))
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::NumberRowSelection, value == PROP_STATE_CHECKED);
+        return;
+      }
       s.number_row_selection = value == PROP_STATE_CHECKED;
       s.number_row_override = s.number_row_selection;
       publish_mode(engine);
@@ -3258,8 +3264,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (property_name == "WordCharacter") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.word_character_override.value_or(s.word_character.enabled) == enabled)
+      if (menu_save_pending || s.word_character_override.value_or(s.word_character.enabled) == enabled)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::WordCharacter, enabled);
+        return;
+      }
       s.word_character_override = enabled;
       s.word_character.enabled = enabled;
       publish_mode(engine);
@@ -4882,6 +4893,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->nine_key_override.reset();
           if (request.preference == MenuPreference::LocalMode)
             self->state->local_mode_overrides.erase(request.value.at("key").get<std::string>());
+          if (request.preference == MenuPreference::NumberRowSelection)
+            self->state->number_row_override.reset();
+          if (request.preference == MenuPreference::WordCharacter)
+            self->state->word_character_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4972,6 +4987,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           case MenuPreference::LocalMode:
             snapshot["preferences"]["local_modes"][request.value.at("key").get<std::string>()] =
                 request.value.at("enabled");
+            break;
+          case MenuPreference::NumberRowSelection:
+            snapshot["preferences"]["number_row_selection"] = request.value;
+            break;
+          case MenuPreference::WordCharacter:
+            snapshot["preferences"]["word_character"]["enabled"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
