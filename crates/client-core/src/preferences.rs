@@ -94,6 +94,8 @@ pub struct Preferences {
     pub settings_theme: SettingsTheme,
     #[serde(default)]
     pub candidate_theme: SettingsTheme,
+    #[serde(default)]
+    pub toolbar_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -632,6 +634,7 @@ impl Default for Preferences {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
+            toolbar_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
@@ -1066,6 +1069,7 @@ mod tests {
         for key in [
             "theme",
             "settings_theme",
+            "toolbar_theme",
             "ui_backend",
             "candidate_follow_cursor",
         ] {
@@ -1078,12 +1082,40 @@ mod tests {
         let preferences = Preferences {
             theme: ThemeMode::Light,
             settings_theme: SettingsTheme::Dark,
+            toolbar_theme: SettingsTheme::Light,
             ui_backend: UiBackend::Webview2,
             candidate_follow_cursor: false,
             ..Preferences::default()
         };
         let saved = store.save(0, preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
+    }
+
+    #[test]
+    fn toolbar_theme_roundtrips_independently_and_rejects_unknown_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        for (revision, toolbar_theme) in [
+            SettingsTheme::Dark,
+            SettingsTheme::Light,
+            SettingsTheme::Follow,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                theme: ThemeMode::System,
+                settings_theme: SettingsTheme::Light,
+                candidate_theme: SettingsTheme::Dark,
+                toolbar_theme,
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["toolbar_theme"] = "system".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 
     #[test]

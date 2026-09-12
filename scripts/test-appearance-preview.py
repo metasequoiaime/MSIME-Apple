@@ -95,9 +95,15 @@ with sync_playwright() as playwright:
     }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     page.evaluate("async () => { const {mount} = await import('/settings.js'); window.removeFixture = mount(); }")
     preview = page.get_by_role("region", name="候选窗口预览")
+    page.get_by_label("工具栏主题", exact=True).select_option("light")
     page.get_by_role("button", name="悬浮工具栏", exact=True).click()
     toolbar = page.get_by_label("悬浮工具栏预览", exact=True)
     expect(toolbar.locator(".status-bar")).to_be_visible()
+    expect(toolbar.locator(".status-bar")).to_have_css("background-color", "rgb(255, 255, 255)")
+    page.get_by_role("button", name="外观", exact=True).click()
+    page.get_by_label("工具栏主题", exact=True).select_option("dark")
+    page.get_by_role("button", name="悬浮工具栏", exact=True).click()
+    expect(toolbar.locator(".status-bar")).to_have_css("background-color", "rgb(26, 26, 26)")
     for scale in [75, 100, 125, 150]:
         page.get_by_label("工具栏缩放", exact=True).select_option(str(scale))
         for size in [16, 18, 20, 22, 24, 26, 28]:

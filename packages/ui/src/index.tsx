@@ -88,6 +88,7 @@ export type Preferences = {
   theme?: ThemeMode;
   settings_theme?: SurfaceTheme;
   candidate_theme?: SurfaceTheme;
+  toolbar_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
@@ -542,7 +543,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const themeMode = draft?.theme ?? "dark";
   const settingsTheme = draft?.settings_theme ?? "follow";
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode);
+  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
@@ -642,6 +643,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
+        <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} />
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>

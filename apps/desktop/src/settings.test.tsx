@@ -547,6 +547,29 @@ test("automatic color swatch follows candidate theme without persisting a color 
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
 });
 
+test("toolbar theme loads, previews independently, saves and reloads", async () => {
+  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "dark", settings_theme: "dark", candidate_theme: "dark", toolbar_theme: "light" } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => {
+    snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
+  });
+  render(<SettingsPage client={{ load: async () => snapshot, save }} />);
+  const select = await screen.findByLabelText("工具栏主题") as HTMLSelectElement;
+  expect(select.value).toBe("light");
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const preview = screen.getByLabelText("悬浮工具栏预览").querySelector(".toolbar-settings-preview")!;
+  expect(preview.getAttribute("data-preview-theme")).toBe("light");
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  fireEvent.change(select, { target: { value: "follow" } });
+  expect(preview.getAttribute("data-preview-theme")).toBe("dark");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ toolbar_theme: "follow", candidate_theme: "dark", settings_theme: "dark" })));
+  fireEvent.change(select, { target: { value: "dark" } });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  confirm.mockRestore();
+  await waitFor(() => expect(select.value).toBe("follow"));
+});
+
 test("candidate text colour loads, previews, saves and resets to theme", async () => {
   const saved = { ...initial, preferences: { ...initial.preferences, candidate_text_color: "#123456" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
