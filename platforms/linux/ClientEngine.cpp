@@ -829,6 +829,12 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
         ibus_text_new_from_static_string(action.label),
         s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr));
   }
+  ibus_prop_list_append(items, ibus_property_new(
+      "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("启用语音输入"), "",
+      ibus_text_new_from_static_string("启用或停用语音快捷键和录音入口"),
+      s.focused && !s.blocked && !menu_save_pending,
+      TRUE, s.voice_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   return ibus_property_new(
       "DesktopTools", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("桌面工具"), "",
@@ -3069,6 +3075,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name.rfind("DesktopTools/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
+    if (property_name == "DesktopTools/VoiceEnabled") {
+      if (menu_save_pending || !s.focused || s.blocked) return;
+      save_menu_preference(engine, MenuPreference::VoiceEnabled, value == PROP_STATE_CHECKED);
+      return;
+    }
     if (property_name == "DesktopTools/RetrySave") {
       if (!menu_save_pending && failed_menu_save &&
           failed_menu_save->configuration == configuration_generation &&
@@ -5002,6 +5013,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->punctuation_override.reset();
           if (request.preference == MenuPreference::CharacterWidth)
             self->state->fullwidth = request.value.get<bool>();
+          if (request.preference == MenuPreference::VoiceEnabled)
+            self->state->voice_enabled = request.value.get<bool>();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -5113,6 +5126,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::CharacterWidth:
             snapshot["preferences"]["character_width"] = request.value.get<bool>() ? "fullwidth" : "halfwidth";
+            break;
+          case MenuPreference::VoiceEnabled:
+            snapshot["preferences"]["voice_input"]["enabled"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
