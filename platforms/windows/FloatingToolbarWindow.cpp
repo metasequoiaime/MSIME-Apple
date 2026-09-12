@@ -54,8 +54,8 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const int width = dpi_scale(window_, kWidth);
-    const int height = dpi_scale(window_, kHeight);
+    const int width = dpi_scale(window_, static_cast<int>(kWidth * scale_));
+    const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
     const int margin = dpi_scale(window_, 20);
     if (!SetWindowPos(window_, HWND_TOPMOST, work.right - width - margin,
                       work.bottom - height - margin, width, height,
@@ -102,7 +102,7 @@ void FloatingToolbarWindow::paint() {
       throw std::runtime_error("Toolbar brush unavailable");
     return created;
   };
-  const float unit = static_cast<float>(dpi_scale(window_, 1));
+  const float unit = static_cast<float>(dpi_scale(window_, 1)) * static_cast<float>(scale_);
   auto *format = device_.GetTextFormat(
       L"Segoe UI", 18.0f * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
