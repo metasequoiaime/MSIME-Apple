@@ -2662,6 +2662,10 @@ std::optional<char> keypad_punctuation(guint key) {
     return '/';
   case IBUS_KP_Multiply:
     return '*';
+#ifdef IBUS_KP_Equal
+  case IBUS_KP_Equal:
+    return '=';
+#endif
   default:
     return std::nullopt;
   }
