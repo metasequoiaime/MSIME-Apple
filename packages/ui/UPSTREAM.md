@@ -229,3 +229,13 @@ Unit and Chromium regressions cover escapes in custom-property images,
 non-resource content, containment and scoped rendering. Escaped function
 identifiers and escaped image-set expressions remain unsupported, as do
 fonts, global animations/imports and native platform visual acceptance.
+
+Image-set expressions now accept escaped string/URL options and quoted line
+continuations, including custom properties and the WebKit alias. A
+delimiter-aware scan preserves escaped quotes/parentheses and comments before
+browser normalization; normalized URLs still pass package-path validation.
+The Chromium regression covers rendering, cross-spelling deduplication,
+scope/cleanup and rejection of escaped traversal, remote and unsupported
+filename characters before reads. This supersedes the escaped image-set
+limitation above. Escaped outer function identifiers, fonts, global animations,
+imports and native platform visual parity remain unfinished.

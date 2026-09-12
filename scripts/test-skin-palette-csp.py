@@ -95,13 +95,26 @@ with sync_playwright() as playwright:
       if (imageSet.partial || !getComputedStyle(first).backgroundImage.includes('image-set(') || !getComputedStyle(first).backgroundImage.includes('data:image/svg+xml')) throw Error('image-set variable did not render');
       if (getComputedStyle(second).backgroundImage !== 'none') throw Error('image-set scope escape');
       imageSet.remove();
+      const escapedSetRequests = [];
+      const escapedSet = await prepareToolbarImages('.sample { --choices: image-set("images/\\61.svg" 1x, url(images/a\\.svg) 2x); background-image: var(--choices); &::before { background-image: -webkit-image-set("images/a\\\n.svg" 1x); } }', async name => { escapedSetRequests.push(name); return imageData; });
+      if (escapedSet.partial || escapedSetRequests.join(',') !== 'images/a.svg') throw Error('escaped image-set resolution or dedup failed');
+      const escapedSetSheet = installToolbarCss('card1', escapedSet.css);
+      if (escapedSetSheet.partial || !getComputedStyle(first).backgroundImage.includes('data:image/svg+xml') || !getComputedStyle(first, '::before').backgroundImage.includes('data:image/svg+xml')) throw Error('escaped image-set did not render');
+      if (getComputedStyle(second).backgroundImage !== 'none') throw Error('escaped image-set scope failed');
+      escapedSetSheet.remove();
+      let rejectedSetReads = 0;
+      for (const option of ['"\\2e\\2e/a.svg"', '"\\68 ttps://invalid.example/a.svg"', '"images/a\\"(b).svg"', 'url(images/a\\).svg)']) {
+        const rejected = await prepareToolbarImages('.sample { --bad-choice: image-set(' + option + ' 1x); color: rgb(3, 2, 1); }', async () => { rejectedSetReads++; return imageData; });
+        if (!rejected.partial || rejected.css.includes('--bad-choice:') || !rejected.css.includes('rgb(3, 2, 1)')) throw Error('unsafe escaped image-set survived or lost other styles');
+      }
+      if (rejectedSetReads) throw Error('unsafe escaped image-set reached reader');
       const remoteSet = await prepareToolbarImages('.sample { background-image: image-set("https://invalid.example/a.svg" 1x); }', async () => { throw Error('remote image-set must not reach reader'); });
       if (!remoteSet.partial || remoteSet.css.includes('invalid.example')) throw Error('remote image-set retained');
       const directSet = installToolbarCss('card1', '.sample { --remote: image-set("https://invalid.example/a.svg" 1x); background-image: var(--remote); }');
       if (!directSet.partial || getComputedStyle(first).backgroundImage !== 'none') throw Error('unprepared image-set bypassed validation');
       directSet.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true};
     }""")
     print(result)
     browser.close()
