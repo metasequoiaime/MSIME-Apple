@@ -210,6 +210,7 @@ struct State {
   bool voice_hotkey_rctrl_ralt = false;
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
+  // Key ownership lasts until release, independently of provider completion.
   guint voice_hotkey_consumed_key = 0;
   bool voice_space_consumed = false;
   bool voice_space_locked = false;
@@ -2448,7 +2449,6 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_active = false;
   s.voice_generation = 0;
   s.voice_preedit.clear();
-  s.voice_space_consumed = false;
   s.voice_space_locked = false;
   s.voice_worker.cancel_async();
   if (s.session)
@@ -2479,7 +2479,6 @@ void voice_stop(IBusEngine *engine) {
     s.voice_stopping = true;
     s.voice_phase = "正在识别…";
     render(engine, s.view);
-    s.voice_space_consumed = false;
     s.voice_space_locked = false;
     publish_mode(engine);
   }
@@ -2505,7 +2504,6 @@ void voice_start(IBusEngine *engine) {
   s.voice_stopping = false;
   s.voice_requires_control = false;
   s.voice_generation = generation;
-  s.voice_space_consumed = false;
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
@@ -2623,8 +2621,6 @@ void voice_start(IBusEngine *engine) {
                   s.voice_active = false;
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
-                  s.voice_hotkey_consumed_key = 0;
-                  s.voice_space_consumed = false;
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
@@ -2637,8 +2633,6 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
-                s.voice_hotkey_consumed_key = 0;
-                s.voice_space_consumed = false;
                 s.voice_space_locked = false;
                 if (applied.is_string()) {
                   auto text = traditional_display(
@@ -2655,8 +2649,6 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
-                s.voice_hotkey_consumed_key = 0;
-                s.voice_space_consumed = false;
                 s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 publish_mode(result->engine);
@@ -2725,6 +2717,7 @@ void focus_out(IBusEngine *engine) {
     auto &s = state(engine);
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
+    s.voice_space_consumed = false;
     s.focused = false;
     s.focused_context.clear();
     s.surrounding_utf16 = false;
@@ -3437,6 +3430,7 @@ void reset(IBusEngine *engine) {
     if (state(engine).voice_active)
       voice_cancel(engine);
     state(engine).voice_hotkey_consumed_key = 0;
+    state(engine).voice_space_consumed = false;
     state(engine).last_smart_punctuation = 0;
     state(engine).last_smart_punctuation_time = 0;
     state(engine).smart_punctuation_rejected = 0;
@@ -3596,6 +3590,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // A held key can repeat after stop, cancellation or a fast final result.
+  // Keep consuming its stroke even if modifiers or voice settings changed.
+  if (!release &&
+      ((s.voice_hotkey_consumed_key != 0 && s.voice_hotkey_consumed_key == key) ||
+       (key == IBUS_space && s.voice_space_consumed)))
+    return TRUE;
   const bool repeated_modifier = !release &&
       ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
   if (shift_key) s.shift_down = !release;
