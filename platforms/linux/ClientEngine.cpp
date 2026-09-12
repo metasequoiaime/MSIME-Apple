@@ -1690,6 +1690,22 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
 }
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
+  if (s.skin_override) {
+    const auto selected = *s.skin_override;
+    bool available = selected == "fluent" || selected == "wechat" ||
+                     selected == "graphite" || selected == "willow_green";
+    if (!available) {
+      const auto catalog = configured.find("candidate_skin_catalog");
+      if (catalog != configured.end() && catalog->is_object()) {
+        const auto packages = catalog->find("packages");
+        if (packages != catalog->end() && packages->is_array())
+          for (const auto &package : *packages)
+            if (package.is_object() && package.value("id", std::string{}) == selected)
+              available = true;
+      }
+    }
+    if (!available) s.skin_override.reset();
+  }
   clipboard_schedule(engine);
   auto toolbar = toolbar_property(engine);
   const bool japanese_scheme = s.scheme_override
