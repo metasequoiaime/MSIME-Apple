@@ -82,11 +82,12 @@ type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifi
 const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({ label, virtualKey, shifted });
 const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({ label, virtualKey, modifier: label });
 const keyboardRows: KeyboardKey[][] = [
+  [key("Esc", 0x1b), key("F1", 0x70), key("F2", 0x71), key("F3", 0x72), key("F4", 0x73), key("F5", 0x74), key("F6", 0x75), key("F7", 0x76), key("F8", 0x77), key("F9", 0x78), key("F10", 0x79), key("F11", 0x7a), key("F12", 0x7b)],
   [key("`", 0xc0, "~"), ...[..."1234567890"].map((label, index) => key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index])), key("-", 0xbd, "_"), key("=", 0xbb, "+"), key("Backspace", 0x08)],
   [key("Tab", 0x09), ...[..."QWERTYUIOP"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key("[", 0xdb, "{"), key("]", 0xdd, "}"), key("\\", 0xdc, "|")],
   [modifier("Caps Lock", 0x14), ...[..."ASDFGHJKL"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(";", 0xba, ":"), key("'", 0xde, '"'), key("Enter", 0x0d)],
   [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
-  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), modifier("Ctrl", 0x11)],
+  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), key("←", 0x25), key("↑", 0x26), key("↓", 0x28), key("→", 0x27), modifier("Ctrl", 0x11)],
 ];
 const nineKeyRows: KeyboardKey[][] = [
   [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
