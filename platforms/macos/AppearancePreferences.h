@@ -11,6 +11,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
 - (void)reloadSkins;
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values;
+- (NSDictionary *)cloudSettingsSnapshot;
 - (NSWindowController *)skinCatalogController;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;

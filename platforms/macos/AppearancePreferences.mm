@@ -249,6 +249,20 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self reloadSkins]; // Resolve the imported skin and publish one complete update.
     return YES;
 }
+- (NSDictionary *)cloudSettingsSnapshot {
+    // Shared preferences can be effective without being mirrored into defaults.
+    // Export the same values the native controls and host currently consume.
+    NSMutableDictionary *snapshot = [MSIMECloudAppearanceSnapshot(_defaults) mutableCopy];
+    snapshot[@"platform.macos.candidate_font_size"] = @(self.fontSize);
+    snapshot[@"platform.macos.candidate_page_size"] = @(self.pageSize);
+    snapshot[@"platform.macos.candidate_panel_style"] = @(self.vertical ? 1 : 0);
+    snapshot[@"platform.macos.input_scheme"] = @([@[@"quanpin", @"shuangpin", @"wubi"] indexOfObject:self.inputScheme]);
+    snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
+    snapshot[@"platform.macos.autocorrect"] = @(self.autocorrect);
+    snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
+    return [snapshot copy];
+}
 - (void)resolveSelectedSkin {
     const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
     _lightSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, false, root);

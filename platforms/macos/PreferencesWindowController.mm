@@ -7,7 +7,7 @@ static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
 static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
 
 @implementation MSIMEPreferencesWindowController
-+ (NSDictionary *)cloudSettingsSnapshot { return MSIMECloudAppearanceSnapshot(NSUserDefaults.standardUserDefaults); }
++ (NSDictionary *)cloudSettingsSnapshot { return [[MSIMEAppearancePreferences sharedPreferences] cloudSettingsSnapshot]; }
 + (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary *)values { return @(MSIMEValidateCloudAppearance(values)); }
 + (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary *)values {
     return @([[MSIMEAppearancePreferences sharedPreferences] applyCloudSettingsSnapshot:values]);
