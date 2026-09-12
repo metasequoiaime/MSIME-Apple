@@ -231,6 +231,18 @@ pub struct Candidate {
     pub translation: Option<String>,
 }
 
+/// On-demand copy of every candidate owned by one Engine generation.
+///
+/// Regular [`View`] values remain page-bounded so hosts do not pay to serialize
+/// the complete candidate list after every input action.
+#[derive(Clone, Debug, Serialize)]
+pub struct CandidateSnapshot {
+    pub session: u64,
+    pub generation: u64,
+    pub preedit: String,
+    pub candidates: Vec<Candidate>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum CharacterWidth {
     Fullwidth,
@@ -714,9 +726,7 @@ impl UnixSocketProvider {
         cancelled: Option<&AtomicBool>,
         update: &mut dyn FnMut(&str, bool),
     ) -> Option<String> {
-        if language.len() > 64
-            || cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
-        {
+        if language.len() > 64 || cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
@@ -797,7 +807,10 @@ impl UnixSocketProvider {
                     if matches!(
                         error.kind(),
                         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) => continue,
+                    ) =>
+                {
+                    continue
+                }
                 Err(_) => return None,
             }
         }
@@ -1011,7 +1024,10 @@ impl OnlineProviderWorker {
 }
 
 pub enum Action {
-    Character { value: u8, shift: bool },
+    Character {
+        value: u8,
+        shift: bool,
+    },
     Punctuation(u8),
     /// Finish the highlighted composition and append the literal ASCII mark.
     /// Linux uses this when IBus surrounding text says smart punctuation
@@ -1020,6 +1036,9 @@ pub enum Action {
     PunctuationAscii(u8),
     Command(Command),
     Select(CandidateId),
+    /// Select any candidate in the current Engine generation. This is reserved
+    /// for hosts that explicitly requested [`Runtime::all_candidates`].
+    SelectAnyCandidate(CandidateId),
     SelectEdge(CandidateId, CandidateEdge),
     PinCandidate(CandidateId),
     RemoveCandidate(CandidateId),
@@ -1220,35 +1239,55 @@ impl<E: InputEngine> Runtime<E> {
                 .enumerate()
                 .skip(start)
                 .take(self.page_size)
-                .map(|(index, text)| Candidate {
-                    id: CandidateId {
-                        session: self.session,
-                        generation: self.generation,
-                        index,
-                    },
-                    text: text.clone(),
-                    annotation: self
-                        .cached
-                        .candidate_annotations
-                        .get(index)
-                        .cloned()
-                        .unwrap_or_default(),
-                    source: self
-                        .cached
-                        .candidate_sources
-                        .get(index)
-                        .copied()
-                        .unwrap_or_default(),
-                    fixed_position: self
-                        .cached
-                        .candidate_positions
-                        .get(index)
-                        .copied()
-                        .unwrap_or_default(),
-                    highlighted: index == self.highlighted,
-                    translation: self.translations.get(text).cloned(),
-                })
+                .map(|(index, text)| self.candidate(index, text))
                 .collect(),
+        }
+    }
+
+    /// Copy the complete candidate generation for an explicitly opened panel.
+    pub fn all_candidates(&self) -> CandidateSnapshot {
+        CandidateSnapshot {
+            session: self.session,
+            generation: self.generation,
+            preedit: self.cached.preedit.clone(),
+            candidates: self
+                .cached
+                .candidates
+                .iter()
+                .enumerate()
+                .map(|(index, text)| self.candidate(index, text))
+                .collect(),
+        }
+    }
+
+    fn candidate(&self, index: usize, text: &str) -> Candidate {
+        Candidate {
+            id: CandidateId {
+                session: self.session,
+                generation: self.generation,
+                index,
+            },
+            text: text.to_owned(),
+            annotation: self
+                .cached
+                .candidate_annotations
+                .get(index)
+                .cloned()
+                .unwrap_or_default(),
+            source: self
+                .cached
+                .candidate_sources
+                .get(index)
+                .copied()
+                .unwrap_or_default(),
+            fixed_position: self
+                .cached
+                .candidate_positions
+                .get(index)
+                .copied()
+                .unwrap_or_default(),
+            highlighted: index == self.highlighted,
+            translation: self.translations.get(text).cloned(),
         }
     }
 
@@ -1441,11 +1480,20 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
-        if matches!(&action, Action::Punctuation(value) | Action::PunctuationAscii(value) if !value.is_ascii_punctuation()) {
+        if matches!(&action, Action::Punctuation(value) | Action::PunctuationAscii(value) if !value.is_ascii_punctuation())
+        {
             return Err(RuntimeError::InvalidPunctuation);
         }
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
+        }
+        if let Action::SelectAnyCandidate(id) = &action {
+            if id.session != self.session
+                || id.generation != self.generation
+                || id.index >= self.cached.candidates.len()
+            {
+                return Err(RuntimeError::StaleCandidate);
+            }
         }
         if let Action::Select(id)
         | Action::SelectEdge(id, _)
@@ -1533,6 +1581,7 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
+            Action::SelectAnyCandidate(id) => self.engine.select(id.index),
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
             Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
             Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
@@ -1942,6 +1991,73 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn complete_candidate_snapshot_is_on_demand_and_preserves_global_identity() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view;
+        assert_eq!(page.candidates.len(), 5);
+        assert!(runtime.apply_translations(
+            page.generation,
+            [("candidate-10".into(), "translated".into())]
+        ));
+
+        let snapshot = runtime.all_candidates();
+        assert_eq!(snapshot.session, page.session);
+        assert_eq!(snapshot.generation, page.generation);
+        assert_eq!(snapshot.preedit, "a");
+        assert_eq!(snapshot.candidates.len(), 12);
+        assert_eq!(snapshot.candidates[10].id.index, 10);
+        assert_eq!(snapshot.candidates[10].annotation, "(10)");
+        assert_eq!(snapshot.candidates[10].source, 0);
+        assert_eq!(snapshot.candidates[10].fixed_position, 0);
+        assert_eq!(
+            snapshot.candidates[10].translation.as_deref(),
+            Some("translated")
+        );
+        assert!(snapshot.candidates[0].highlighted);
+    }
+
+    #[test]
+    fn expanded_panel_selection_accepts_only_any_candidate_from_current_generation() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view;
+        let outside_page = runtime.all_candidates().candidates[10].id;
+        let generation = page.generation;
+
+        assert!(matches!(
+            runtime.dispatch(Action::Select(outside_page)),
+            Err(RuntimeError::StaleCandidate)
+        ));
+        for invalid in [
+            CandidateId {
+                session: outside_page.session + 1,
+                ..outside_page
+            },
+            CandidateId {
+                generation: outside_page.generation + 1,
+                ..outside_page
+            },
+            CandidateId {
+                index: 12,
+                ..outside_page
+            },
+        ] {
+            assert!(matches!(
+                runtime.dispatch(Action::SelectAnyCandidate(invalid)),
+                Err(RuntimeError::StaleCandidate)
+            ));
+            assert_eq!(runtime.view().generation, generation);
+        }
+
+        let selected = runtime
+            .dispatch(Action::SelectAnyCandidate(outside_page))
+            .unwrap();
+        assert_eq!(selected.commit.as_deref(), Some("candidate-10"));
+        assert!(selected.view.candidates.is_empty());
     }
 
     #[test]
