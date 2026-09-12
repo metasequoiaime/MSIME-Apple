@@ -1223,8 +1223,16 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let inFlight = 0;
+    let refreshPending = false;
     const refresh = () => {
       if (!active) return;
+      if (inFlight !== 0) {
+        refreshPending = true;
+        // A newer notification invalidates the current snapshot, but only
+        // one follow-up read is needed even when many notifications arrive.
+        ++clipboardGeneration.current;
+        return;
+      }
       inFlight++;
       const request = ++clipboardGeneration.current;
       void Promise.resolve().then(() => Promise.all([client.clipboard!.list!(), client.clipboard?.isEnabled?.() ?? Promise.resolve(true)])).then(([value, enabled]) => {
@@ -1239,7 +1247,13 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
           setClipboardEnabled(null);
           setClipboardLoadFailed(true);
         }
-      }).finally(() => { inFlight--; });
+      }).finally(() => {
+        inFlight--;
+        if (active && refreshPending) {
+          refreshPending = false;
+          refresh();
+        }
+      });
     };
     const pollVisible = () => {
       if (active && document.visibilityState === "visible" &&
@@ -1263,6 +1277,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     void start();
     return () => {
       active = false;
+      refreshPending = false;
       ++clipboardGeneration.current;
       if (poll !== undefined) clearInterval(poll);
       document.removeEventListener("visibilitychange", pollVisible);
