@@ -1,6 +1,9 @@
 #define NOMINMAX
+// Windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <Windows.h>
+#include "CandidatePalette.h"
 #include <algorithm>
+#include <msimeui/DeviceResources.h>
 #include <cmath>
 #include <cwctype>
 #include <cstring>
@@ -22,6 +25,9 @@ struct Point { float x; float y; };
 struct Panel {
   HWND hwnd = nullptr; std::vector<std::vector<Point>> strokes; std::vector<std::wstring> candidates;
   std::wstring hint = L"请在左侧书写，松开鼠标后自动识别"; RECT close{}, canvas{}, results{}, undo{}, clear{};
+  // Direct2D through the shared UI stack, with the candidate card's tokens.
+  msimeui::DeviceResources device;
+  msime::windows::CandidatePalette palette;
   std::vector<RECT> candidate_rects; bool drawing = false, close_hovered = false, close_pressed = false;
   size_t hovered_candidate = kInvalid, pressed_candidate = kInvalid;
   static bool contains(const RECT &r, POINT p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
@@ -46,20 +52,107 @@ struct Panel {
     if (memory) { void *destination = GlobalLock(memory); if (destination) { std::memcpy(destination, candidates[i].c_str(), bytes); GlobalUnlock(memory); if (SetClipboardData(CF_UNICODETEXT, memory)) memory = nullptr; } if (memory) GlobalFree(memory); }
     CloseClipboard(); hint = L"已复制：" + candidates[i]; invalidate();
   }
-  void paint() const {
-    PAINTSTRUCT ps{}; HDC dc = BeginPaint(hwnd, &ps); RECT bounds{}; GetClientRect(hwnd, &bounds);
-    const COLORREF background = RGB(32,32,39), canvas_color = RGB(37,38,45), surface = RGB(41,42,49), hover = RGB(59,50,64), border = RGB(69,69,79), accent = RGB(216,139,222), text = RGB(245,245,247), muted = RGB(184,184,192);
-    HBRUSH background_brush = CreateSolidBrush(background); FillRect(dc, &bounds, background_brush); DeleteObject(background_brush); SetBkMode(dc, TRANSPARENT);
-    HFONT font = CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI"); HGDIOBJ old_font = SelectObject(dc, font);
-    auto draw_text = [&](const wchar_t *value, RECT r, COLORREF color, UINT format) { SetTextColor(dc, color); DrawTextW(dc, value, -1, &r, format); };
-    draw_text(kTitle, {14,0,250,38}, text, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-    HBRUSH close_brush = CreateSolidBrush(close_hovered || close_pressed ? hover : background); FillRect(dc, &close, close_brush); DeleteObject(close_brush); HPEN close_pen = CreatePen(PS_SOLID,2,text); HGDIOBJ old_pen = SelectObject(dc,close_pen); const LONG cx=(close.left+close.right)/2, cy=(close.top+close.bottom)/2; MoveToEx(dc,cx-6,cy-6,nullptr); LineTo(dc,cx+6,cy+6); MoveToEx(dc,cx+6,cy-6,nullptr); LineTo(dc,cx-6,cy+6); SelectObject(dc,old_pen); DeleteObject(close_pen);
-    HBRUSH canvas_brush = CreateSolidBrush(canvas_color); FillRect(dc,&canvas,canvas_brush); DeleteObject(canvas_brush); HPEN canvas_pen = CreatePen(PS_SOLID,1,border); old_pen=SelectObject(dc,canvas_pen); SelectObject(dc,GetStockObject(HOLLOW_BRUSH)); RoundRect(dc,canvas.left,canvas.top,canvas.right,canvas.bottom,12,12); SelectObject(dc,old_pen); DeleteObject(canvas_pen);
-    HPEN ink_pen=CreatePen(PS_SOLID,4,text); old_pen=SelectObject(dc,ink_pen); for(const auto &stroke:strokes){ if(stroke.size()<2) continue; std::vector<POINT> points; points.reserve(stroke.size()); for(const auto &p:stroke) points.push_back({static_cast<LONG>(std::lround(p.x)),static_cast<LONG>(std::lround(p.y))}); Polyline(dc,points.data(),static_cast<int>(points.size())); } SelectObject(dc,old_pen); DeleteObject(ink_pen); if(strokes.empty()) draw_text(L"请在这里书写",canvas,muted,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
-    draw_text(L"识别结果",{results.left,results.top,results.right,results.top+30},text,DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-    for(size_t i=0;i<candidate_rects.size();++i){ const bool selected=i==hovered_candidate; HBRUSH brush=CreateSolidBrush(selected?hover:surface); FillRect(dc,&candidate_rects[i],brush); DeleteObject(brush); HPEN pen=CreatePen(PS_SOLID,selected?2:1,selected?accent:border); old_pen=SelectObject(dc,pen); SelectObject(dc,GetStockObject(HOLLOW_BRUSH)); RoundRect(dc,candidate_rects[i].left,candidate_rects[i].top,candidate_rects[i].right,candidate_rects[i].bottom,10,10); SelectObject(dc,old_pen); DeleteObject(pen); if(i<candidates.size()) draw_text(candidates[i].c_str(),candidate_rects[i],text,DT_SINGLELINE|DT_CENTER|DT_VCENTER|DT_NOPREFIX); }
-    draw_text(hint.c_str(),{results.left,results.bottom-38,results.right,results.bottom-8},muted,DT_SINGLELINE|DT_LEFT|DT_END_ELLIPSIS);
-    auto button=[&](const RECT &r,const wchar_t *label){HBRUSH brush=CreateSolidBrush(surface);FillRect(dc,&r,brush);DeleteObject(brush);HPEN pen=CreatePen(PS_SOLID,1,border);HGDIOBJ previous=SelectObject(dc,pen);SelectObject(dc,GetStockObject(HOLLOW_BRUSH));RoundRect(dc,r.left,r.top,r.right,r.bottom,10,10);SelectObject(dc,previous);DeleteObject(pen);draw_text(label,r,text,DT_SINGLELINE|DT_CENTER|DT_VCENTER);}; button(undo,L"↶  撤销"); button(clear,L"×  重写"); SelectObject(dc,old_font); DeleteObject(font); EndPaint(hwnd,&ps);
+  void paint() {
+    PAINTSTRUCT ps{};
+    const HDC dc = BeginPaint(hwnd, &ps);
+    struct End {
+      HWND window;
+      PAINTSTRUCT &state;
+      ~End() { EndPaint(window, &state); }
+    } end{hwnd, ps};
+    if (!dc || !device.EnsureForWindow(hwnd))
+      return;
+    auto *target = device.GetRenderTarget();
+    if (!target)
+      return;
+    using msime::windows::CandidateColor;
+    auto brush = [&](const CandidateColor &color) {
+      return device.GetSolidColorBrush(
+          D2D1::ColorF(color.r, color.g, color.b, color.a));
+    };
+    auto format = [&](DWRITE_TEXT_ALIGNMENT alignment) {
+      return device.GetTextFormat(L"Segoe UI", 16.0f, DWRITE_FONT_WEIGHT_NORMAL,
+                                  alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                  DWRITE_WORD_WRAPPING_NO_WRAP);
+    };
+    auto *leading = format(DWRITE_TEXT_ALIGNMENT_LEADING);
+    auto *centered = format(DWRITE_TEXT_ALIGNMENT_CENTER);
+    auto *surface = brush(palette.surface);
+    auto *border = brush(palette.border);
+    auto *text_brush = brush(palette.text);
+    auto *muted = brush(palette.number);
+    auto *hover = brush(palette.hover);
+    auto *accent = brush(palette.accent);
+    if (!leading || !centered || !surface || !border || !text_brush || !muted ||
+        !hover || !accent)
+      return;
+    auto rect_of = [](const RECT &value) {
+      return D2D1_RECT_F{static_cast<float>(value.left),
+                         static_cast<float>(value.top),
+                         static_cast<float>(value.right),
+                         static_cast<float>(value.bottom)};
+    };
+    auto write = [&](const wchar_t *value, D2D1_RECT_F where,
+                     ID2D1SolidColorBrush *color, IDWriteTextFormat *with) {
+      target->DrawText(value, static_cast<UINT32>(wcslen(value)), with, where,
+                       color);
+    };
+    target->BeginDraw();
+    target->Clear(D2D1::ColorF(palette.surface.r, palette.surface.g,
+                               palette.surface.b, palette.surface.a));
+    write(kTitle, D2D1_RECT_F{14.0f, 0.0f, 250.0f, 38.0f}, text_brush, leading);
+    if (close_hovered || close_pressed)
+      target->FillRectangle(rect_of(close), hover);
+    const float cx = static_cast<float>(close.left + close.right) / 2.0f;
+    const float cy = static_cast<float>(close.top + close.bottom) / 2.0f;
+    target->DrawLine({cx - 6.0f, cy - 6.0f}, {cx + 6.0f, cy + 6.0f}, text_brush,
+                     2.0f);
+    target->DrawLine({cx + 6.0f, cy - 6.0f}, {cx - 6.0f, cy + 6.0f}, text_brush,
+                     2.0f);
+    const D2D1_ROUNDED_RECT board{rect_of(canvas), 12.0f, 12.0f};
+    target->FillRoundedRectangle(board, hover);
+    target->DrawRoundedRectangle(board, border, 1.0f);
+    // Ink is drawn as segments; the stroke points are already in client space.
+    for (const auto &stroke : strokes)
+      for (size_t i = 1; i < stroke.size(); ++i)
+        target->DrawLine({static_cast<float>(stroke[i - 1].x),
+                          static_cast<float>(stroke[i - 1].y)},
+                         {static_cast<float>(stroke[i].x),
+                          static_cast<float>(stroke[i].y)},
+                         text_brush, 4.0f);
+    write(L"\u8bc6\u522b\u7ed3\u679c",
+          D2D1_RECT_F{static_cast<float>(results.left),
+                      static_cast<float>(results.top),
+                      static_cast<float>(results.right),
+                      static_cast<float>(results.top + 30)},
+          text_brush, leading);
+    for (size_t i = 0; i < candidate_rects.size(); ++i) {
+      const bool selected = i == hovered_candidate;
+      const D2D1_ROUNDED_RECT cell{rect_of(candidate_rects[i]), 10.0f, 10.0f};
+      target->FillRoundedRectangle(cell, selected ? hover : surface);
+      target->DrawRoundedRectangle(cell, selected ? accent : border,
+                                   selected ? 2.0f : 1.0f);
+      if (i < candidates.size())
+        target->DrawText(candidates[i].c_str(),
+                         static_cast<UINT32>(candidates[i].size()), centered,
+                         cell.rect, text_brush);
+    }
+    target->DrawText(hint.c_str(), static_cast<UINT32>(hint.size()), leading,
+                     D2D1_RECT_F{static_cast<float>(results.left),
+                                 static_cast<float>(results.bottom - 38),
+                                 static_cast<float>(results.right),
+                                 static_cast<float>(results.bottom - 8)},
+                     muted);
+    auto button = [&](const RECT &value, const wchar_t *label) {
+      const D2D1_ROUNDED_RECT shape{rect_of(value), 10.0f, 10.0f};
+      target->FillRoundedRectangle(shape, surface);
+      target->DrawRoundedRectangle(shape, border, 1.0f);
+      write(label, shape.rect, text_brush, centered);
+    };
+    button(undo, L"\u21b6 \u64a4\u9500");
+    button(clear, L"\u00d7 \u91cd\u5199");
+    if (target->EndDraw() == D2DERR_RECREATE_TARGET)
+      device.DiscardTarget();
   }
 };
 
@@ -85,4 +178,10 @@ LRESULT CALLBACK window_proc(HWND hwnd,UINT message,WPARAM,LPARAM lparam){
   case WM_PAINT:if(panel)panel->paint();return 0;case WM_SETCURSOR:if(panel&&LOWORD(lparam)==HTCLIENT){SetCursor(LoadCursorW(nullptr,panel->drawing?MAKEINTRESOURCEW(32515):MAKEINTRESOURCEW(32649)));return TRUE;}break;case WM_DESTROY:PostQuitMessage(0);return 0;default:break;}return DefWindowProcW(hwnd,message,0,lparam);
 }
 } // namespace
-int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command_line,int show_command){if(command_line&&std::wstring(command_line)==L"--help")return 0;HANDLE mutex=CreateMutexW(nullptr,FALSE,L"Local\\MSIMEClientHandwritingPanel.SingleInstance");if(!mutex||GetLastError()==ERROR_ALREADY_EXISTS){if(mutex)CloseHandle(mutex);return 0;}WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.hInstance=instance;wc.lpfnWndProc=window_proc;wc.lpszClassName=kClassName;wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));if(!RegisterClassExW(&wc)){CloseHandle(mutex);return 1;}RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);constexpr int width=980,height=650;const int x=work.left+static_cast<int>(std::max<LONG>(0,(work.right-work.left-width)/2));const int y=std::max<LONG>(work.top,work.bottom-height-12);Panel state;HWND window=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE|WS_EX_TOPMOST,kClassName,kTitle,WS_POPUP,x,y,width,height,nullptr,nullptr,instance,&state);if(!window){UnregisterClassW(kClassName,instance);CloseHandle(mutex);return 1;}ShowWindow(window,show_command==SW_HIDE?SW_SHOWNOACTIVATE:SW_SHOWNOACTIVATE);UpdateWindow(window);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessageW(&message);}UnregisterClassW(kClassName,instance);CloseHandle(mutex);return static_cast<int>(message.wParam);}
+int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command_line,int show_command){if(command_line&&std::wstring(command_line)==L"--help")return 0;
+// Direct2D's imaging factory is a COM server; --help answers first so the
+// smoke runner never needs an apartment.
+const HRESULT entered=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
+if(FAILED(entered)&&entered!=RPC_E_CHANGED_MODE)return 1;
+struct Apartment{bool owned;~Apartment(){if(owned)CoUninitialize();}}apartment{entered!=RPC_E_CHANGED_MODE};
+HANDLE mutex=CreateMutexW(nullptr,FALSE,L"Local\\MSIMEClientHandwritingPanel.SingleInstance");if(!mutex||GetLastError()==ERROR_ALREADY_EXISTS){if(mutex)CloseHandle(mutex);return 0;}WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.hInstance=instance;wc.lpfnWndProc=window_proc;wc.lpszClassName=kClassName;wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));if(!RegisterClassExW(&wc)){CloseHandle(mutex);return 1;}RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);constexpr int width=980,height=650;const int x=work.left+static_cast<int>(std::max<LONG>(0,(work.right-work.left-width)/2));const int y=std::max<LONG>(work.top,work.bottom-height-12);Panel state;HWND window=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE|WS_EX_TOPMOST,kClassName,kTitle,WS_POPUP,x,y,width,height,nullptr,nullptr,instance,&state);if(!window){UnregisterClassW(kClassName,instance);CloseHandle(mutex);return 1;}ShowWindow(window,show_command==SW_HIDE?SW_SHOWNOACTIVATE:SW_SHOWNOACTIVATE);UpdateWindow(window);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessageW(&message);}UnregisterClassW(kClassName,instance);CloseHandle(mutex);return static_cast<int>(message.wParam);}

@@ -1,5 +1,7 @@
 #define NOMINMAX
 #include <Windows.h>
+#include "CandidatePalette.h"
+#include <msimeui/DeviceResources.h>
 #include <shellapi.h>
 #include <sqlite3.h>
 
@@ -111,6 +113,9 @@ class Panel {
   int scroll = 0;
   std::wstring search_text;
   std::wstring notice = L"Click an item to copy";
+  // Direct2D through the shared UI stack, with the candidate card tokens.
+  msimeui::DeviceResources device;
+  msime::windows::CandidatePalette palette;
   std::vector<Group> emoji;
   std::vector<Group> kaomoji;
   std::vector<Group> symbols;
@@ -323,102 +328,153 @@ class Panel {
 
   void paint() {
     PAINTSTRUCT paint{};
-    HDC dc = BeginPaint(hwnd, &paint);
+    const HDC dc = BeginPaint(hwnd, &paint);
+    struct End {
+      HWND window;
+      PAINTSTRUCT &state;
+      ~End() { EndPaint(window, &state); }
+    } end{hwnd, paint};
     RECT bounds{};
     GetClientRect(hwnd, &bounds);
-    HBRUSH background = CreateSolidBrush(RGB(32, 32, 39));
-    FillRect(dc, &bounds, background);
-    DeleteObject(background);
-    SetBkMode(dc, TRANSPARENT);
-    HFONT font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    HFONT emoji_font = CreateFontW(-28, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI Emoji");
-    HGDIOBJ old_font = SelectObject(dc, font);
-    SetTextColor(dc, RGB(245, 245, 247));
-    RECT title{18, 0, bounds.right - 48, kHeaderHeight};
-    DrawTextW(dc, kTitle, -1, &title, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-    RECT close{bounds.right - 38, 6, bounds.right - 8, 32};
-    if (close_hovered || close_pressed) {
-      HBRUSH brush = CreateSolidBrush(close_pressed ? RGB(85, 85, 96) : RGB(48, 48, 56));
-      FillRect(dc, &close, brush);
-      DeleteObject(brush);
-    }
-    HPEN close_pen = CreatePen(PS_SOLID, 2, RGB(245, 245, 247));
-    HGDIOBJ old_pen = SelectObject(dc, close_pen);
-    const int cx = (close.left + close.right) / 2;
-    const int cy = (close.top + close.bottom) / 2;
-    MoveToEx(dc, cx - 6, cy - 6, nullptr); LineTo(dc, cx + 6, cy + 6);
-    MoveToEx(dc, cx + 6, cy - 6, nullptr); LineTo(dc, cx - 6, cy + 6);
-    SelectObject(dc, old_pen); DeleteObject(close_pen);
-
-    RECT back{18, kSubTabsTop, 46, kSubTabsTop + 34};
-    if (page != Page::Home) {
-      SetTextColor(dc, RGB(184, 184, 192));
-      DrawTextW(dc, L"‹", -1, &back, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
-    }
-
+    if (!dc || !device.EnsureForWindow(hwnd))
+      return;
+    auto *target = device.GetRenderTarget();
+    if (!target)
+      return;
+    using msime::windows::CandidateColor;
+    auto brush = [&](const CandidateColor &color) {
+      return device.GetSolidColorBrush(
+          D2D1::ColorF(color.r, color.g, color.b, color.a));
+    };
+    auto format = [&](const wchar_t *family, float size,
+                      DWRITE_TEXT_ALIGNMENT alignment) {
+      return device.GetTextFormat(family, size, DWRITE_FONT_WEIGHT_NORMAL,
+                                  alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                  DWRITE_WORD_WRAPPING_NO_WRAP);
+    };
+    auto *leading = format(L"Segoe UI", 14.0f, DWRITE_TEXT_ALIGNMENT_LEADING);
+    auto *centered = format(L"Segoe UI", 14.0f, DWRITE_TEXT_ALIGNMENT_CENTER);
+    auto *glyphs =
+        format(L"Segoe UI Emoji", 28.0f, DWRITE_TEXT_ALIGNMENT_CENTER);
+    auto *text_brush = brush(palette.text);
+    auto *muted = brush(palette.number);
+    auto *hover = brush(palette.hover);
+    auto *selected = brush(palette.selected);
+    if (!leading || !centered || !glyphs || !text_brush || !muted || !hover ||
+        !selected)
+      return;
+    auto box = [](int left, int top, int right, int bottom) {
+      return D2D1_RECT_F{static_cast<float>(left), static_cast<float>(top),
+                         static_cast<float>(right), static_cast<float>(bottom)};
+    };
+    auto write = [&](const std::wstring &value, D2D1_RECT_F where,
+                     ID2D1SolidColorBrush *color, IDWriteTextFormat *with) {
+      target->DrawText(value.c_str(), static_cast<UINT32>(value.size()), with,
+                       where, color);
+    };
+    target->BeginDraw();
+    target->Clear(D2D1::ColorF(palette.surface.r, palette.surface.g,
+                               palette.surface.b, palette.surface.a));
+    write(kTitle, box(18, 0, bounds.right - 48, kHeaderHeight), text_brush,
+          leading);
+    const auto close = box(bounds.right - 38, 6, bounds.right - 8, 32);
+    if (close_hovered || close_pressed)
+      target->FillRectangle(close, close_pressed ? selected : hover);
+    const float cx = (close.left + close.right) / 2.0f;
+    const float cy = (close.top + close.bottom) / 2.0f;
+    target->DrawLine({cx - 6.0f, cy - 6.0f}, {cx + 6.0f, cy + 6.0f}, text_brush,
+                     2.0f);
+    target->DrawLine({cx + 6.0f, cy - 6.0f}, {cx - 6.0f, cy + 6.0f}, text_brush,
+                     2.0f);
+    if (page != Page::Home)
+      write(L"\u2039", box(18, kSubTabsTop, 46, kSubTabsTop + 34), muted,
+            centered);
     for (size_t index = 0; index < 7; ++index) {
-      const int width = std::max(1, (static_cast<int>(bounds.right) - 36 - 6 * 4) / 7);
-      RECT tab{18 + static_cast<int>(index) * (width + 4), kTabsTop, 18 + static_cast<int>(index + 1) * width + static_cast<int>(index) * 4, kTabsTop + kTabsHeight};
-      if (index == static_cast<size_t>(page)) {
-        HBRUSH brush = CreateSolidBrush(RGB(59, 59, 68)); FillRect(dc, &tab, brush); DeleteObject(brush);
-      }
-      const wchar_t *icons[] = {L"◷", L"😀", L"🖼", L"GIF", L"ヾ", L"★", L"▣"};
-      const wchar_t *labels[] = {L"Recent", L"Emoji", L"Stickers", L"GIF", L"Kaomoji", L"Symbols", L"Clipboard"};
-      SelectObject(dc, emoji_font); SetTextColor(dc, RGB(245, 245, 247));
-      RECT icon = tab; icon.bottom -= 17; DrawTextW(dc, icons[index], -1, &icon, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-      SelectObject(dc, font); SetTextColor(dc, RGB(174, 174, 183));
-      RECT label = tab; label.top = label.bottom - 19; DrawTextW(dc, labels[index], -1, &label, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+      const int width =
+          std::max(1, (static_cast<int>(bounds.right) - 36 - 6 * 4) / 7);
+      const auto tab = box(18 + static_cast<int>(index) * (width + 4), kTabsTop,
+                           18 + static_cast<int>(index + 1) * width +
+                               static_cast<int>(index) * 4,
+                           kTabsTop + kTabsHeight);
+      if (index == static_cast<size_t>(page))
+        target->FillRectangle(tab, selected);
+      const wchar_t *icons[] = {L"\u25f7", L"\U0001F600", L"\U0001F5BC", L"GIF",
+                                L"\u30FE", L"\u2605",     L"\u25A3"};
+      const wchar_t *labels[] = {L"Recent",  L"Emoji",   L"Stickers", L"GIF",
+                                 L"Kaomoji", L"Symbols", L"Clipboard"};
+      auto icon = tab;
+      icon.bottom -= 17.0f;
+      write(icons[index], icon, text_brush, glyphs);
+      auto label = tab;
+      label.top = label.bottom - 19.0f;
+      write(labels[index], label, muted, centered);
     }
     if (page == Page::Emoji || page == Page::Symbols) {
       const auto &groups = page == Page::Emoji ? emoji : symbols;
       const size_t count = std::max<size_t>(groups.size(), 1);
-      const int width = std::max(1, (static_cast<int>(bounds.right) - 58) / static_cast<int>(count));
+      const int width = std::max(
+          1, (static_cast<int>(bounds.right) - 58) / static_cast<int>(count));
       for (size_t index = 0; index < groups.size(); ++index) {
-        RECT tab{50 + static_cast<int>(index) * width, kSubTabsTop, 50 + static_cast<int>(index + 1) * width, kSubTabsTop + 34};
-        if (index == category) { HBRUSH brush = CreateSolidBrush(RGB(59, 59, 68)); FillRect(dc, &tab, brush); DeleteObject(brush); }
-        SelectObject(dc, emoji_font); SetTextColor(dc, RGB(245, 245, 247)); DrawTextW(dc, groups[index].icon.c_str(), -1, &tab, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+        const auto tab = box(50 + static_cast<int>(index) * width, kSubTabsTop,
+                             50 + static_cast<int>(index + 1) * width,
+                             kSubTabsTop + 34);
+        if (index == category)
+          target->FillRectangle(tab, selected);
+        write(groups[index].icon, tab, text_brush, glyphs);
       }
     } else if (page != Page::Home) {
-      SetTextColor(dc, RGB(245, 245, 247));
-      const wchar_t *label = page == Page::Kaomoji ? L"Kaomoji" : page == Page::Sticker ? L"Stickers" : page == Page::Gif ? L"GIF" : L"Clipboard";
-      RECT detail{50, kSubTabsTop, bounds.right - 18, kSubTabsTop + 34};
-      SelectObject(dc, font); DrawTextW(dc, label, -1, &detail, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+      const wchar_t *label = page == Page::Kaomoji  ? L"Kaomoji"
+                             : page == Page::Sticker ? L"Stickers"
+                             : page == Page::Gif     ? L"GIF"
+                                                     : L"Clipboard";
+      write(label, box(50, kSubTabsTop, bounds.right - 18, kSubTabsTop + 34),
+            text_brush, leading);
     }
-
     if (page == Page::Sticker || page == Page::Gif || page == Page::Clipboard) {
-      SetTextColor(dc, RGB(174, 174, 183));
-      RECT empty{18, kContentTop + 40, bounds.right - 18, kContentTop + 120};
-      const wchar_t *message = page == Page::Sticker ? L"Stickers can be connected here" : page == Page::Gif ? L"GIF sources can be connected here" : L"Clipboard history is provided by the host";
-      DrawTextW(dc, message, -1, &empty, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+      const wchar_t *message =
+          page == Page::Sticker ? L"Stickers can be connected here"
+          : page == Page::Gif   ? L"GIF sources can be connected here"
+                                : L"Clipboard history is provided by the host";
+      write(message,
+            box(18, kContentTop + 40, bounds.right - 18, kContentTop + 120),
+            muted, centered);
     } else {
       const auto groups = visible_groups();
       int y = kContentTop - scroll;
       size_t flat = 0;
       for (const VisibleGroup &group : groups) {
-        SetTextColor(dc, RGB(184, 184, 192)); SelectObject(dc, font);
-        RECT heading{kGridLeft, y, bounds.right - kGridRight, y + kGroupTitleHeight};
-        DrawTextW(dc, group.title.c_str(), -1, &heading, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+        write(group.title,
+              box(kGridLeft, y, bounds.right - kGridRight,
+                  y + kGroupTitleHeight),
+              muted, leading);
         y += kGroupTitleHeight;
-        const int width = std::max(1, (static_cast<int>(bounds.right) - kGridLeft - kGridRight - 5 * kGap) / 6);
+        const int width =
+            std::max(1, (static_cast<int>(bounds.right) - kGridLeft -
+                         kGridRight - 5 * kGap) /
+                            6);
         for (size_t item = 0; item < group.items.size(); ++item) {
           const int row = static_cast<int>(item / 6);
           const int column = static_cast<int>(item % 6);
-          RECT cell{kGridLeft + column * (width + kGap), y + row * kCellHeight, kGridLeft + column * (width + kGap) + width, y + row * kCellHeight + kCellHeight - kGap};
+          const auto cell =
+              box(kGridLeft + column * (width + kGap), y + row * kCellHeight,
+                  kGridLeft + column * (width + kGap) + width,
+                  y + row * kCellHeight + kCellHeight - kGap);
           const size_t item_index = flat + item;
-          if (item_index == hovered_item || item_index == pressed_item) { HBRUSH brush = CreateSolidBrush(item_index == pressed_item ? RGB(85, 85, 96) : RGB(48, 48, 56)); FillRect(dc, &cell, brush); DeleteObject(brush); }
-          SelectObject(dc, emoji_font); SetTextColor(dc, RGB(245, 245, 247));
-          DrawTextW(dc, group.items[item]->text.c_str(), -1, &cell, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+          if (item_index == hovered_item || item_index == pressed_item)
+            target->FillRoundedRectangle(
+                {cell, palette.item_radius, palette.item_radius},
+                item_index == pressed_item ? selected : hover);
+          write(group.items[item]->text, cell, text_brush, glyphs);
         }
         flat += group.items.size();
         y += static_cast<int>((group.items.size() + 5) / 6) * kCellHeight + 12;
       }
       (void)flat;
     }
-    SelectObject(dc, font); SetTextColor(dc, RGB(174, 174, 183));
-    RECT status{18, bounds.bottom - 30, bounds.right - 18, bounds.bottom};
-    DrawTextW(dc, notice.c_str(), -1, &status, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
-    SelectObject(dc, old_font); DeleteObject(font); DeleteObject(emoji_font);
-    EndPaint(hwnd, &paint);
+    write(notice, box(18, bounds.bottom - 30, bounds.right - 18, bounds.bottom),
+          muted, centered);
+    if (target->EndDraw() == D2DERR_RECREATE_TARGET)
+      device.DiscardTarget();
   }
 };
 
@@ -524,6 +580,15 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_command) {
   if (command_line && std::wstring(command_line) == L"--help") return 0;
+  // Direct2D imaging is a COM server; --help answers before the apartment so
+  // the smoke runner still needs nothing.
+  const HRESULT entered =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  if (FAILED(entered) && entered != RPC_E_CHANGED_MODE) return 1;
+  struct Apartment {
+    bool owned;
+    ~Apartment() { if (owned) CoUninitialize(); }
+  } apartment{entered != RPC_E_CHANGED_MODE};
   HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\MSIMEClientEmojiPanel.SingleInstance");
   if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) { if (mutex) CloseHandle(mutex); return 0; }
   WNDCLASSEXW window_class{};
