@@ -1,4 +1,4 @@
-#include "../src/CandidateTranslation.h"
+#include "CandidateTranslation.h"
 
 #include "english/english_dictionary.h"
 

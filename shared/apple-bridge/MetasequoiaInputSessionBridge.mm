@@ -81,6 +81,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
                         preedit:(NSString *)preedit
                      candidates:(NSArray<NSString *> *)candidates
                  candidateCodes:(NSArray<NSString *> *)candidateCodes
+               candidateGlosses:(NSArray<NSString *> *)candidateGlosses
                  diagnosticText:(nullable NSString *)diagnosticText;
 
 @end
@@ -92,6 +93,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
                         preedit:(NSString *)preedit
                      candidates:(NSArray<NSString *> *)candidates
                  candidateCodes:(NSArray<NSString *> *)candidateCodes
+               candidateGlosses:(NSArray<NSString *> *)candidateGlosses
                  diagnosticText:(nullable NSString *)diagnosticText
 {
     self = [super init];
@@ -102,6 +104,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         _preedit = [preedit copy];
         _candidates = [candidates copy];
         _candidateCodes = [candidateCodes copy];
+        _candidateGlosses = [candidateGlosses copy];
         _diagnosticText = [diagnosticText copy];
     }
     return self;
@@ -200,6 +203,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
                                                      preedit:@""
                                                   candidates:@[]
                                               candidateCodes:@[]
+                                            candidateGlosses:@[]
                                               diagnosticText:nil];
 }
 
@@ -429,6 +433,11 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     _adapter->set_wubi_mixed_pinyin(enabled);
 }
 
+- (void)setCandidateGlossesEnabled:(BOOL)enabled
+{
+    _adapter->set_candidate_glosses_enabled(enabled);
+}
+
 - (BOOL)setEnglishMixedCandidates:(BOOL)enabled
 {
     return _adapter->set_english_mixed_candidates(enabled);
@@ -599,6 +608,13 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         [candidateCodes addObject:StringFromUTF8(code)];
     }
 
+    NSMutableArray<NSString *> *candidateGlosses =
+        [NSMutableArray arrayWithCapacity:snapshot.candidate_glosses.size()];
+    for (const auto &gloss : snapshot.candidate_glosses)
+    {
+        [candidateGlosses addObject:StringFromUTF8(gloss)];
+    }
+
     NSString *commitText = snapshot.commit.has_value() ? StringFromUTF8(*snapshot.commit) : nil;
     const auto &diagnostic = snapshot.diagnostic ? snapshot.diagnostic : _installationDiagnostic;
     NSString *diagnosticText = diagnostic ? StringFromUTF8(*diagnostic) : nil;
@@ -607,6 +623,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
                                                      preedit:StringFromUTF8(snapshot.preedit)
                                                   candidates:candidates
                                               candidateCodes:candidateCodes
+                                            candidateGlosses:candidateGlosses
                                               diagnosticText:diagnosticText];
 }
 

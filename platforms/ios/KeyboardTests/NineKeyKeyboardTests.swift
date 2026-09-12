@@ -991,6 +991,53 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .nineKey, "方案自始至终没变过")
   }
 
+  func testCandidateGlossesAppearOnlyWhenSwitchedOn() throws {
+    // #422:macOS 早就有候选词英文释义,iOS 一直带着同一份离线词库却没有读它。
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+
+    func annotatedCandidate(in controller: KeyboardViewController) throws -> String {
+      let chip = try button("candidate-1", in: controller)
+      let title = chip.configuration?.attributedTitle.map { String($0.characters) }
+        ?? chip.configuration?.title ?? ""
+      return title
+    }
+
+    CandidateGlossPreference.enabled = false
+    let plain = KeyboardViewController()
+    plain.loadViewIfNeeded()
+    plain.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    plain.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(plain.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    let withoutGloss = try annotatedCandidate(in: plain)
+    XCTAssertFalse(withoutGloss.isEmpty, "应当有候选词")
+
+    CandidateGlossPreference.enabled = true
+    let glossed = KeyboardViewController()
+    glossed.loadViewIfNeeded()
+    glossed.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    glossed.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(glossed.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    let withGloss = try annotatedCandidate(in: glossed)
+    XCTAssertTrue(withGloss.hasPrefix(withoutGloss),
+                  "释义是附加在候选后面的,不该改写候选本身")
+    XCTAssertGreaterThan(withGloss.count, withoutGloss.count,
+                         "打开开关后候选后面应当带上释义:\(withGloss)")
+    // 释义来自随键盘打包的离线词库,不联网。词库收词不收单字,所以用词组验证。
+    XCTAssertTrue(withGloss.lowercased().contains("hello"), "你好 的释义应当是 hello:\(withGloss)")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

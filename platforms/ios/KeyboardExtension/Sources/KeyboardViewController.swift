@@ -113,6 +113,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidates: [String] = []
   // The code each visible candidate was found by, parallel to visibleCandidates.
   private var visibleCandidateCodes: [String] = []
+  private var visibleCandidateGlosses: [String] = []
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -1451,6 +1452,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
     session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     _ = session.setEnglishMixedCandidates(EnglishMixedCandidatesPreference.isEnabled)
+    session.setCandidateGlossesEnabled(CandidateGlossPreference.enabled)
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
@@ -2132,7 +2134,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(
       preedit: snapshot.preedit, candidates: snapshot.candidates,
-      candidateCodes: snapshot.candidateCodes)
+      candidateCodes: snapshot.candidateCodes, candidateGlosses: snapshot.candidateGlosses)
     updateSpellingStrip()
   }
 
@@ -2157,10 +2159,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticDismissTimer = timer
   }
 
-  private func updateCandidateStrip(preedit: String, candidates: [String], candidateCodes: [String] = []) {
+  private func updateCandidateStrip(preedit: String, candidates: [String], candidateCodes: [String] = [],
+                                    candidateGlosses: [String] = []) {
     visiblePreedit = preedit
     visibleCandidates = candidates
     visibleCandidateCodes = candidateCodes
+    visibleCandidateGlosses = candidateGlosses
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -2188,7 +2192,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let chip = chip as? UIButton else { continue }
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
-      updateCandidateButton(chip, candidate: page[offset], hint: wubiCodeHint(at: offset),
+      updateCandidateButton(chip, candidate: page[offset], hint: candidateAnnotation(at: offset),
                             number: offset + 1)
     }
     updateExpandControl()
@@ -2275,6 +2279,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 刷新一个候选按钮的文字,位置和动作都不变。
+  /// 候选词右边的小字。五笔给的是剩余编码,其余方案给的是英文释义 — 同一个位置,不会同时出现。
+  private func candidateAnnotation(at index: Int) -> String {
+    let hint = wubiCodeHint(at: index)
+    if !hint.isEmpty { return hint }
+    guard CandidateGlossPreference.enabled, visibleCandidateGlosses.indices.contains(index) else { return "" }
+    return visibleCandidateGlosses[index]
+  }
+
   private func updateCandidateButton(_ button: UIButton, candidate: String, hint: String, number: Int) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }

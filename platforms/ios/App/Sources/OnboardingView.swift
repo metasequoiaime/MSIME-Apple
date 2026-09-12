@@ -49,6 +49,8 @@ struct InputSettingsView: View {
   private var wubiMixedPinyin = false
   @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
   private var wubiCodeHint = true
+  @AppStorage(CandidateGlossPreference.enabledKey, store: CandidateGlossPreference.defaults)
+  private var candidateGloss = false
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
@@ -108,6 +110,13 @@ struct InputSettingsView: View {
           NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
             Label("配置键盘 AI", systemImage: "sparkles")
           }
+        }
+
+        Section("候选词") {
+          Toggle("显示英文释义", isOn: $candidateGloss)
+            .accessibilityIdentifier("candidateGloss")
+          Text("在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。")
+            .font(.footnote).foregroundStyle(.secondary)
         }
 
         if enabledSchemes.contains(.wubi) {
