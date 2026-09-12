@@ -331,6 +331,10 @@ desktop CSP, two-card isolation, decoder failure, remote rejection and limits.
 scripts/skin-font-fixture.json contains an original synthetic rectangular glyph
 font (1000 units/em and advance), not copied font artwork. Browser behavior
 follows https://www.w3.org/TR/css-font-loading/.
-Conditional/nested font faces, local()/data sources, tech() hints, variable font
+Conditional font faces inside media/supports groups now follow nested conditions;
+media changes update registration in source order and cleanup removes listeners.
+Media resources preload within the existing budgets; false supports conditions
+do not read resources. Unit and Chromium resize tests cover this lifecycle.
+local()/data sources, tech() hints, variable font
 shorthand recovery and native-platform typography parity remain unfinished.
 This is preview font support, not full native candidate font delivery.
