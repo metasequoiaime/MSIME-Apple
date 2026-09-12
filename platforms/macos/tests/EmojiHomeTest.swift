@@ -10,7 +10,8 @@ import Foundation
       MacEmojiHomeSection(title: "fixture empty", category: "empty", items: []),
       MacEmojiHomeSection(title: "fixture kaomoji", category: "kaomoji", items: items("kaomoji", 7))
     ]
-    let entries = MacEmojiHomeNavigation.entries(navigationSections)
+    let flowCells = (0..<7).map { MacEmojiFlowCell(rect: CGRect(x: ($0 % 5) * 60, y: ($0 / 5) * 60, width: 50, height: 56), row: $0 / 5, fontSize: 12) }
+    let entries = MacEmojiHomeNavigation.entries(navigationSections, flowCells: flowCells)
     assert(entries.count == 15 && entries[8].row == 2 && entries[13].row == 3)
     func move(_ command: MacEmojiGridCommand, _ index: Int) -> MacEmojiHomeKey? {
       MacEmojiHomeNavigation.destination(command, selected: entries[index].key, entries: entries)?.key
@@ -31,6 +32,24 @@ import Foundation
     assert(MacEmojiHomeNavigation.destination(.activate, selected: entries[3].key, entries: reordered)?.item.text == entries[3].item.text)
     assert(MacEmojiHomeNavigation.destination(.activate, selected: entries[3].key, entries: Array(entries.prefix(2))) == nil)
     assert(MacEmojiHomeNavigation.destination(.home, selected: nil, entries: []) == nil)
+    let flowTexts = ["aaaaa", "bbbbbb", "cccccccc", "ddddd", "eeeeeee", "fffff"]
+    let flowSection = MacEmojiHomeSection(title: "fixture", category: "kaomoji", items: flowTexts.map {
+      MacEmojiCatalogItem(text: $0, annotation: "fixture", group: "fixture")
+    })
+    for width: CGFloat in [150, 200, 400] {
+      let layout = MacEmojiFlow.cells(texts: flowTexts, width: width, measure: { text, size in
+        CGSize(width: CGFloat(text.count) * size, height: size)
+      })
+      let combined = MacEmojiHomeNavigation.entries([navigationSections[0], flowSection], flowCells: layout)
+      for index in layout.indices {
+        for direction in [-1, 1] {
+          let expected = MacEmojiFlow.vertical(from: index, direction: direction, cells: layout)!
+          let actual = MacEmojiHomeNavigation.destination(direction == -1 ? .up : .down,
+            selected: combined[8 + index].key, entries: combined)
+          assert(actual?.key == combined[8 + expected].key)
+        }
+      }
+    }
     let groups = [items("a", 3), items("b", 1), items("c", 2)]
     assert(MacEmojiHomeCatalog.preview(groups: groups, limit: 4, diverse: false).map(\.text) == ["synthetic-a-0", "synthetic-a-1", "synthetic-a-2", "synthetic-b-0"])
     assert(MacEmojiHomeCatalog.preview(groups: groups, limit: 5, diverse: true).map(\.text) == ["synthetic-a-0", "synthetic-b-0", "synthetic-c-0", "synthetic-a-1", "synthetic-c-1"])
