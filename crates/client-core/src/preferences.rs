@@ -283,6 +283,11 @@ pub struct VoiceInputPreferences {
     pub mute_system_audio: bool,
     #[serde(default)]
     pub language: String,
+    /// Empty values inherit the user-managed Linux recording service defaults.
+    #[serde(default)]
+    pub capture_backend: String,
+    #[serde(default)]
+    pub capture_device: String,
     #[serde(default)]
     pub commit_mode: String,
     #[serde(default)]
@@ -351,6 +356,8 @@ impl Default for VoiceInputPreferences {
             end_sound: true,
             mute_system_audio: false,
             language: "zh-cn".into(),
+            capture_backend: String::new(),
+            capture_device: String::new(),
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
             asr_app_key: String::new(),

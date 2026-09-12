@@ -1776,6 +1776,8 @@ fn voice_provider_options(document: &Value) -> Value {
         }
     }
     for key in [
+        "capture_backend",
+        "capture_device",
         "commit_mode",
         "asr_provider",
         "asr_model",

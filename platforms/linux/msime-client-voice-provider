@@ -197,6 +197,20 @@ def capture_command(backend, device=None):
     raise ValueError("install parec, pw-cat, or arecord for the selected capture backend")
 
 
+def request_capture_command(options, default_backend, default_device):
+    backend = options.get("capture_backend", "")
+    device = options.get("capture_device", "")
+    if not isinstance(backend, str) or backend not in ("", "auto", "pulse", "pipewire", "alsa"):
+        raise ValueError("invalid capture backend")
+    if (not isinstance(device, str) or len(device) > 128 or len(device.encode("utf-8")) > 512
+            or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in device)):
+        raise ValueError("invalid capture device")
+    # A selected backend uses its system default when no device is supplied.
+    # An entirely inherited selection preserves the service's command-line device.
+    return capture_command(backend or default_backend,
+                           device or (default_device if not backend else None))
+
+
 def command(args, data=None, timeout=2):
     return subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                           timeout=timeout, check=True).stdout
@@ -443,6 +457,8 @@ class Handler(socketserver.StreamRequestHandler):
             if any(not isinstance(value, (bool, str)) for value in options.values()):
                 self.send(generation, ok=False)
                 return
+            capture_args = request_capture_command(options, self.server.capture_backend,
+                                                   self.server.capture_device)
             if not matching(self.server.config["asr"], options, "asr"):
                 self.send(generation, ok=False)
                 return
@@ -489,7 +505,7 @@ class Handler(socketserver.StreamRequestHandler):
                     if recognizer.done.is_set():
                         session.stopped.set()
 
-                pcm, recorded = capture(session, self.request, self.server.capture_args, self.server.seconds, options,
+                pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
                                         recognizer.feed if recognizer else None, tick if recognizer else None)
             finally:
                 self.server.microphone.release()
@@ -621,6 +637,8 @@ def main():
         raise
     server.config = config
     server.capture_args = capture_args
+    server.capture_backend = args.capture
+    server.capture_device = args.capture_device
     server.seconds = args.max_recording_seconds
     server.lock = threading.Lock()
     server.microphone = threading.BoundedSemaphore(1)

@@ -2319,7 +2319,7 @@ Json voice_provider_options(const Json &preferences) {
       options[key] = voice.at(key);
   }
   constexpr const char *string_keys[] = {
-      "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
+      "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
       "polish_provider", "polish_model", "doubao_boosting_table_id",
       "polish_prompt_id", "polish_prompt", "polish_prompt_custom_1",
       "polish_prompt_custom_2", "polish_prompt_custom_3"};
