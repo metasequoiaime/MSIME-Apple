@@ -1580,9 +1580,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto voice = ibus_property_new(
       "VoiceInput", PROP_TYPE_TOGGLE,
       ibus_text_new_from_string(s.voice_active ? s.voice_phase.c_str() : "语音输入"), "",
-      ibus_text_new_from_static_string("通过用户管理的 Linux 语音服务录音并识别"),
+      ibus_text_new_from_static_string("点击开始录音，再次点击结束录音并提交识别结果；Esc 取消"),
       s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
-          !s.voice_provider_socket.empty(),
+          !s.voice_provider_socket.empty() && !(s.voice_active && s.voice_stopping),
       TRUE, s.voice_active ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto cloud = ibus_property_new(
       "CloudCandidates", PROP_TYPE_TOGGLE,
@@ -2926,7 +2926,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (value == PROP_STATE_CHECKED)
         voice_start(engine);
       else if (s.voice_active)
-        voice_cancel(engine);
+        voice_stop(engine);
       return;
     }
     if (property_name == "CloudCandidates") {
