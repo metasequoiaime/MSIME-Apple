@@ -239,6 +239,20 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (void)applyThemePreferences:(NSDictionary *)preferences
+{
+    NSString *surface = preferences[@"toolbar_theme"];
+    NSString *mode = preferences[@"theme"];
+    NSString *resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : mode;
+    if ([resolved isEqual:@"light"])
+        self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if ([resolved isEqual:@"system"])
+        self.appearance = nil;
+    else
+        self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [self applySkin];
+}
+
 - (void)applySkin
 {
     if (_inputModeButton == nil || _settingsButton == nil)
