@@ -14,8 +14,9 @@ export function AppearanceCandidatePreview({ preferences, scan, readImage, activ
   const skin = preferences.candidate_skin ?? "fluent";
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
   const builtin = ["fluent", "wechat", "graphite", "willow_green"].includes(skin);
-  const helpcode = preferences.scheme === "quanpin" ? preferences.quanpin_helpcode?.enabled ?? true :
-    preferences.scheme === "shuangpin" ? preferences.shuangpin_helpcode?.enabled ?? true : false;
+  const schemeHelpcode = preferences.scheme === "quanpin" ? preferences.quanpin_helpcode : preferences.shuangpin_helpcode;
+  const helpcode = (preferences.scheme === "quanpin" || preferences.scheme === "shuangpin") &&
+    (schemeHelpcode?.enabled ?? true) && (schemeHelpcode?.show_in_candidate_window ?? true);
   return <section className="section" aria-label="候选窗口预览">
     <div className="section-header"><span className="section-title">候选窗口预览<small>固定样例随当前设置草稿变化，不代表实际输入候选。</small></span></div>
     {builtin ? <div className={`skin-card-preview appearance-candidate-preview skin-${skin}`} data-preview-theme={theme}
