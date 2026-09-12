@@ -405,6 +405,18 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     try { await client.cancelVoice?.(); } catch { /* provider may already have stopped */ }
   }
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey
+        || !busyRef.current || !client.cancelVoice) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [client]);
+
   async function close() {
     recognitionRevision.current++;
     const wasBusy = busyRef.current;
@@ -426,10 +438,11 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
       <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>
-      {busy && client.stopVoice && client.cancelVoice && <button type="button" onClick={() => void cancel()}>取消录音</button>}
+      {busy && client.stopVoice && client.cancelVoice && <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>取消录音</button>}
       <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
       <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
       <button type="button" onClick={() => { setText(""); setNotice("识别结果已清空"); }} disabled={!text || busy}>清空结果</button>
+      {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}
       <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
   </main>;
