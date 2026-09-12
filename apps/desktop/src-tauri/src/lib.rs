@@ -3280,7 +3280,7 @@ pub fn run() {
                     #[cfg(target_os = "linux")]
                     let position = {
                         let _ = remember_panel_input_target(&panel_input, true);
-                        None
+                        panel_position(&panel_input, width, height)
                     };
                     #[cfg(target_os = "windows")]
                     let position = {
