@@ -21,6 +21,21 @@ def verify_font_sizes(page, preview):
             expect(preview.locator(".cand .text").first).to_have_css("font-size", f"{size}px")
             expect(preview.locator(".pinyin .text")).to_have_css("font-size", f"{44 - size}px")
 
+def verify_helpcode_display(page, preview):
+    count = preview.locator(".cand").count()
+    expect(preview.locator(".cand-helpcode")).to_have_count(count)
+    page.get_by_role("button", name="辅助码", exact=True).click()
+    # Settings order is shuangpin then quanpin; the fixture uses quanpin.
+    display = page.get_by_role("checkbox", name="在候选窗口显示辅助码", exact=True).nth(1)
+    display.uncheck()
+    page.get_by_role("button", name="外观", exact=True).click()
+    expect(preview.locator(".cand-helpcode")).to_have_count(0)
+    expect(preview.locator(".cand")).to_have_count(count)
+    page.get_by_role("button", name="辅助码", exact=True).click()
+    display.check()
+    page.get_by_role("button", name="外观", exact=True).click()
+    expect(preview.locator(".cand-helpcode")).to_have_count(count)
+
 def verify_text_color(page, preview, selected_white=False):
     text = preview.locator(".cand:not(.first) .text").first
     number = preview.locator(".cand:not(.first) .num, .cand:not(.first) .cand-no").first
@@ -82,6 +97,7 @@ with sync_playwright() as playwright:
     preview = page.get_by_role("region", name="候选窗口预览")
     expect(preview.locator(".cand")).to_have_count(6)
     expect(preview.locator(".candidate")).to_have_css("font-size", "16px")
+    verify_helpcode_display(page, preview)
     page.get_by_label("全局主题", exact=True).select_option("light")
     expect(preview.locator(".appearance-candidate-preview")).to_have_attribute("data-preview-theme", "light")
     light_surface = preview.locator(".container").evaluate("el => getComputedStyle(el).backgroundColor")
@@ -166,6 +182,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="外观", exact=True).click()
     expect(preview.locator(".container")).to_have_css("background-color", "rgb(18, 52, 86)")
     expect(preview.locator(".containerParent")).to_have_css("padding-top", "24px")
+    verify_helpcode_display(page, preview)
     page.get_by_label("候选窗主题", exact=True).select_option("light")
     expect(preview.locator(".container")).to_have_css("background-color", "rgb(171, 205, 239)")
     page.get_by_label("候选窗主题", exact=True).select_option("dark")
