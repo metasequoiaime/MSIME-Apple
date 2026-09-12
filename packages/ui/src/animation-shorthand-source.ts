@@ -1,13 +1,14 @@
 import parse from "postcss/lib/parse";
 import type { Declaration } from "postcss";
 import { animationVariables, parseAnimationVariable } from "./skin-animation-variables.js";
+import { decodeCustomPropertyName } from "./css-custom-property.js";
 
 let generation = 0;
 // CSSOM loses pending shorthand substitution when even one longhand is
 // overridden. Expand whole-value variable shorthands before that lossy parse.
 export function preserveAnimationShorthands(css: string): { css: string; partial: boolean } {
   if (css.length > 16 * 1024 * 1024) return { css: "", partial: true };
-  if (!/(?:animation|var)\s*:/i.test(css) || !css.includes("var(")) return { css, partial: false };
+  if (!/(?:animation|var)\s*:/i.test(css) || !/var\(/i.test(css)) return { css, partial: false };
   let root;
   try { root = parse(css, { from: undefined, map: false }); }
   catch { return { css, partial: true }; } // Keep browser recovery for malformed sheets.
@@ -20,7 +21,7 @@ export function preserveAnimationShorthands(css: string): { css: string; partial
   const styles = declarations.map(declaration => {
     const index = parsed.insertRule(".source-declaration {}", parsed.cssRules.length);
     const style = (parsed.cssRules[index] as CSSStyleRule).style;
-    style.setProperty(declaration.prop, declaration.value, declaration.important ? "important" : "");
+    style.setProperty(decodeCustomPropertyName(declaration.prop) ?? declaration.prop, declaration.value, declaration.important ? "important" : "");
     return style;
   });
   const parser = new CSSStyleSheet();
@@ -47,7 +48,7 @@ export function preserveAnimationShorthands(css: string): { css: string; partial
     if (!declaration.parent) return;
     const style = styles[index];
     for (const property of Array.from(style)) {
-      if (property === declaration.prop || !property.startsWith("--msime-motion-source-")) continue;
+      if (property === (decodeCustomPropertyName(declaration.prop) ?? declaration.prop) || !property.startsWith("--msime-motion-source-")) continue;
       declaration.cloneBefore({ prop: property, value: style.getPropertyValue(property),
         important: style.getPropertyPriority(property) === "important" });
     }

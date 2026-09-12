@@ -57,3 +57,10 @@ test("generated aliases do not overwrite author properties or capture existing r
   expect(declaration.getPropertyValue("--test-var-1")).toBe("");
   expect(declaration.getPropertyValue("--test-var-2")).toBe("private-pulse");
 });
+test("escaped references reserve the same logical alias name", () => {
+  const declaration = style("--label: var(--\\74 est-var-0); --motion: pulse;");
+  const variables = animationVariables([declaration], "test-", literal);
+  expect(variables.rewrite("var(--motion)", "animation-name")).toBe("var(--test-var-1)");
+  expect(variables.install()).toBe(false);
+  expect(declaration.getPropertyValue("--test-var-0")).toBe("");
+});
