@@ -44,7 +44,7 @@ pub enum CloudDictionaryRequest {
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
-    let valid_value = |code: &str, word: &str, weight: i64| {
+    let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         !code.is_empty()
             && code.len() <= 256
             && !code.chars().any(char::is_control)
@@ -52,6 +52,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             && word.len() <= 1024
             && !word.chars().any(char::is_control)
             && weight >= 0
+            && (kind != "quick" || word.encode_utf16().count() <= 199)
     };
     let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit());
     let valid_format = |kind: &str, format: &str| {
@@ -86,7 +87,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             word,
             weight,
         } => {
-            if valid_kind(kind) && valid_value(code, word, *weight) {
+            if valid_kind(kind) && valid_value(kind, code, word, *weight) {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -100,7 +101,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             weight,
             revision,
         } => {
-            if valid_kind(kind) && valid_id(id) && valid_value(code, word, *weight) && *revision > 0
+            if valid_kind(kind) && valid_id(id) && valid_value(kind, code, word, *weight) && *revision > 0
             {
                 Ok(())
             } else {
