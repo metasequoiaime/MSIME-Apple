@@ -131,6 +131,7 @@ struct State {
   MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
   uint64_t client_token = 0;
+  uint64_t focus_epoch = 0;
   Json view;
   bool focused = false;
   std::string focused_context;
@@ -2951,6 +2952,7 @@ void focus_in(IBusEngine *engine) {
     const bool already_focused = s.focused;
     const auto previous_session = s.session;
     s.focused = true;
+    ++s.focus_epoch;
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     // Host shortcuts and presentation also apply before a runtime is needed.
     s.refresh_host_preferences(configured.at("preferences"));
@@ -2981,6 +2983,7 @@ void focus_out(IBusEngine *engine) {
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
     s.focused = false;
+    ++s.focus_epoch;
     s.focused_context.clear();
     s.surrounding_utf16 = false;
     s.stop_clipboard_monitor();
