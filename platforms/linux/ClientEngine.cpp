@@ -76,6 +76,7 @@ struct State {
   std::optional<std::string> frequency_mode_override, helpcode_schema_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
+  std::optional<std::string> translation_target_language_override;
   std::optional<bool> nine_key_override;
   Json local_mode_overrides = Json::object();
   bool fullwidth = false;
@@ -128,6 +129,7 @@ struct State {
   bool online_loading = false, translation_loading = false;
   bool cloud_candidates = true;
   bool candidate_translations = true;
+  std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   void invalidate_providers() {
     ++provider_epoch;
@@ -280,6 +282,8 @@ struct State {
         preferences.value("cloud_candidates", true));
     candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
+    translation_target_language = translation_target_language_override.value_or(
+        preferences.value("translation_target_language", "en"));
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -379,6 +383,11 @@ struct State {
     if (next_candidate_translations != candidate_translations)
       invalidate_providers();
     candidate_translations = next_candidate_translations;
+    const auto next_translation_target_language = translation_target_language_override.value_or(
+        preferences.value("translation_target_language", "en"));
+    if (next_translation_target_language != translation_target_language)
+      invalidate_providers();
+    translation_target_language = next_translation_target_language;
     auto display_preferences = preferences;
     if (layout_override)
       display_preferences["candidate_layout"] = *layout_override;
@@ -877,6 +886,7 @@ void translation_schedule(IBusEngine *engine) {
   try {
     auto query = response(msime_client_translation_query(s.session));
     if (query.is_null() || !query.is_object()) return;
+    query["target_language"] = s.translation_target_language;
     auto *task_data = new TranslationTask{s.session, s.provider_epoch, query.dump(), s.translation_provider_socket};
     s.translation_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
@@ -1216,6 +1226,31 @@ void publish_mode(IBusEngine *engine, bool registration) {
           !s.translation_provider_socket.empty(),
       TRUE, s.candidate_translations ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto translation_language = ibus_property_new(
+      "TranslationLanguage", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("翻译目标语言"), "",
+      ibus_text_new_from_static_string("选择候选翻译的目标语言"),
+      s.focused && !s.blocked && s.input_enabled && s.session &&
+          !s.translation_provider_socket.empty(),
+      TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto translation_language_menu = ibus_prop_list_new();
+  for (const auto &[value, label] : {std::pair{"en", "英语"},
+                                     std::pair{"fr", "法语"},
+                                     std::pair{"ja", "日语"},
+                                     std::pair{"es", "西班牙语"},
+                                     std::pair{"ru", "俄语"},
+                                     std::pair{"de", "德语"},
+                                     std::pair{"ko", "韩语"}}) {
+    auto item = ibus_property_new(
+        (std::string("TranslationLanguage/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("切换候选翻译目标语言"), TRUE, TRUE,
+        s.translation_target_language == value ? PROP_STATE_CHECKED
+                                                : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(translation_language_menu, item);
+  }
+  ibus_property_set_sub_props(translation_language, translation_language_menu);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
@@ -1623,6 +1658,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, cloud);
     ibus_prop_list_append(properties, translations);
+    ibus_prop_list_append(properties, translation_language);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, smart_repeat);
@@ -1660,6 +1696,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, cloud);
     ibus_engine_update_property(engine, translations);
+    ibus_engine_update_property(engine, translation_language);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
@@ -2313,6 +2350,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "VoiceInput" &&
        std::string(name) != "CloudCandidates" &&
        std::string(name) != "CandidateTranslations" &&
+       property_name.rfind("TranslationLanguage/", 0) != 0 &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "SmartPunctuationRepeat" &&
@@ -2382,6 +2420,23 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.invalidate_providers();
       publish_mode(engine);
       if (enabled)
+        translation_schedule(engine);
+      return;
+    }
+    if (property_name.rfind("TranslationLanguage/", 0) == 0) {
+      const auto selected = property_name.substr(
+          std::string("TranslationLanguage/").size());
+      if (selected != "en" && selected != "fr" && selected != "ja" &&
+          selected != "es" && selected != "ru" && selected != "de" &&
+          selected != "ko")
+        return;
+      if (selected == s.translation_target_language)
+        return;
+      s.translation_target_language_override = selected;
+      s.translation_target_language = selected;
+      s.invalidate_providers();
+      publish_mode(engine);
+      if (s.candidate_translations)
         translation_schedule(engine);
       return;
     }
