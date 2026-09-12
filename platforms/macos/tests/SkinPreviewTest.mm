@@ -73,7 +73,7 @@ int main(int argc, const char **argv) {
                     for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;
                         NSFont *candidateFont = [NSFont systemFontOfSize:font.doubleValue];
-                        NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, font.doubleValue - 3.0)];
+                        NSFont *preeditFont = [NSFont systemFontOfSize:preferences.preeditFontSize];
                         CGFloat preeditHeight = MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
                         CGFloat rowHeight = ceil(candidateFont.ascender - candidateFont.descender + candidateFont.leading) + 8.0;
                         NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
@@ -103,6 +103,37 @@ int main(int argc, const char **argv) {
             if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
         }
         assert(layout);
+        // Shared updates do not persist or notify; native controls own explicit edits.
+        NSUInteger beforeShared = notifications;
+        [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": @32, @"candidate_preedit_style": @"empty"}];
+        assert(notifications == beforeShared && preferences.preeditFontSize == 32 && !preferences.showsCandidatePreedit);
+        for (id invalid in @[@YES, @11, @33, @12.5, @"20", NSNull.null]) {
+            [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": invalid, @"candidate_preedit_style": invalid}];
+            assert(preferences.preeditFontSize == 32 && !preferences.showsCandidatePreedit);
+        }
+        NSPopUpButton *preeditSizeControl = nil;
+        NSPopUpButton *preeditStyleControl = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if ([control.accessibilityLabel isEqual:@"候选窗拼音字号"]) preeditSizeControl = (id)control;
+            if ([control.accessibilityLabel isEqual:@"候选窗预编辑"]) preeditStyleControl = (id)control;
+        }
+        assert(preeditSizeControl && preeditStyleControl && preeditSizeControl.indexOfSelectedItem == 20 && preeditStyleControl.indexOfSelectedItem == 1);
+        CGFloat hiddenHeight = preview.previewContentHeight;
+        [preeditStyleControl selectItemAtIndex:0];
+        [NSApp sendAction:preeditStyleControl.action to:preeditStyleControl.target from:preeditStyleControl];
+        assert(preview.previewContentHeight > hiddenHeight);
+        Draw(preview);
+        CGFloat largeHeight = preview.previewContentHeight;
+        [preeditSizeControl selectItemAtIndex:0];
+        [NSApp sendAction:preeditSizeControl.action to:preeditSizeControl.target from:preeditSizeControl];
+        assert(preview.previewContentHeight < largeHeight && preferences.preeditFontSize == 12);
+        Draw(preview);
+        NSDictionary *preeditMerged = [preferences sharedPreferencesByMerging:@{@"synthetic_unowned": @42}];
+        assert([preeditMerged[@"candidate_preedit_font_size"] isEqual:@12]);
+        assert([preeditMerged[@"candidate_preedit_style"] isEqual:@"pinyin"] && [preeditMerged[@"synthetic_unowned"] isEqual:@42]);
+        MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert(reloaded.preeditFontSize == 12 && reloaded.showsCandidatePreedit);
         // Showcase uses compact fonts; compare the layouts at the standard size.
         preferences.fontSize = 18;
         [layout selectItemAtIndex:0];

@@ -8,9 +8,10 @@ static NSColor *PreviewColor(msime::mac::Rgba color) {
 
 namespace
 {
-CGFloat PreviewPreeditHeight(CGFloat candidateFontSize)
+CGFloat PreviewPreeditHeight(CGFloat preeditFontSize)
 {
-    NSFont *font = [NSFont systemFontOfSize:MAX(11.0, candidateFontSize - 3.0) weight:NSFontWeightRegular];
+    if (preeditFontSize <= 0) return 0;
+    NSFont *font = [NSFont systemFontOfSize:preeditFontSize weight:NSFontWeightRegular];
     return MAX(22.0, ceil(font.ascender - font.descender + font.leading) + 6.0);
 }
 
@@ -55,7 +56,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
     metrics.sectionGap = 10.0;
     metrics.top = 10.0;
     metrics.bottom = 14.0;
-    metrics.preeditHeight = PreviewPreeditHeight(metrics.fontSize);
+    metrics.preeditHeight = PreviewPreeditHeight(MAX(11.0, metrics.fontSize - 3.0));
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     metrics.horizontalHeight = 6.0 + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + 6.0;
@@ -70,7 +71,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
 }
 
 SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSize, CGFloat candidateFontSize,
-                                         CGFloat decorationTop)
+                                         CGFloat decorationTop, CGFloat preeditFontSize)
 {
     SkinPreviewMetrics metrics;
     metrics.fontSize = MAX(12.0, candidateFontSize);
@@ -80,7 +81,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     metrics.sectionGap = 0.0;
     metrics.top = 10.0;
     metrics.bottom = 14.0;
-    metrics.preeditHeight = PreviewPreeditHeight(metrics.fontSize);
+    metrics.preeditHeight = PreviewPreeditHeight(preeditFontSize);
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const NSInteger visibleRows = panelStyle == 1 ? MIN(MAX(pageSize, (NSInteger)1), (NSInteger)5) : 1;
@@ -136,7 +137,7 @@ void DrawDecoration(NSRect rect, const msime::mac::ResolvedSkin &skin)
 }
 
 void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BOOL vertical,
-                           NSArray<NSString *> *words, CGFloat fontSize, NSString *footer)
+                           NSArray<NSString *> *words, CGFloat fontSize, NSString *footer, CGFloat preeditFontSize)
 {
     const msime::mac::SkinTokens &tokens = skin.tokens;
     const CGFloat decorationTop = MAX(0.0, skin.decorationTopDip);
@@ -151,22 +152,24 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     [clip addClip];
 
     NSFont *font = [NSFont systemFontOfSize:fontSize weight:NSFontWeightRegular];
-    NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, fontSize - 3.0) weight:NSFontWeightRegular];
+    NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, preeditFontSize) weight:NSFontWeightRegular];
     NSFont *numberFont = [NSFont monospacedDigitSystemFontOfSize:MAX(10.0, fontSize - 4.0) weight:NSFontWeightRegular];
     NSDictionary *preeditAttributes = @{
         NSFontAttributeName : preeditFont,
         NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
     const CGFloat pad = 6.0;
-    const CGFloat preeditHeight = PreviewPreeditHeight(fontSize);
+    const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize);
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
-    DrawAlignedString(@"nihao", preeditRow, NSMinX(preeditRow), preeditAttributes);
-    const CGFloat caretX = NSMinX(preeditRow) + [@"nihao" sizeWithAttributes:preeditAttributes].width + 2.0;
-    NSRect caret = NSMakeRect(caretX, NSMinY(preeditRow) + 3.0, 1.5, NSHeight(preeditRow) - 6.0);
-    [PreviewColor(tokens.accent) setFill];
-    NSRectFill(caret);
+    if (preeditFontSize > 0) {
+        DrawAlignedString(@"nihao", preeditRow, NSMinX(preeditRow), preeditAttributes);
+        const CGFloat caretX = NSMinX(preeditRow) + [@"nihao" sizeWithAttributes:preeditAttributes].width + 2.0;
+        NSRect caret = NSMakeRect(caretX, NSMinY(preeditRow) + 3.0, 1.5, NSHeight(preeditRow) - 6.0);
+        [PreviewColor(tokens.accent) setFill];
+        NSRectFill(caret);
+    }
 
     const CGFloat textInset = 8.0 + (tokens.showSelectedBar ? 6.0 : 0.0);
     const CGFloat contentTop = NSMinY(chrome) + pad + preeditHeight;
@@ -382,7 +385,8 @@ NSArray<NSString *> *PreviewSamples()
     {
         return MakeShowcaseMetrics(fontSize, skin.decorationTopDip).totalHeight;
     }
-    return MakeAppearanceMetrics(_panelStyle, _pageSize, fontSize, skin.decorationTopDip).totalHeight;
+    return MakeAppearanceMetrics(_panelStyle, _pageSize, fontSize, skin.decorationTopDip,
+                                 self.preferences.showsCandidatePreedit ? self.preferences.preeditFontSize : 0).totalHeight;
 }
 
 - (void)toggleForcedTheme
@@ -443,12 +447,12 @@ NSArray<NSString *> *PreviewSamples()
         [@"横排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.horizontalHeight), skin, NO,
-                              horizontal, metrics.fontSize, nil);
+                              horizontal, metrics.fontSize, nil, MAX(11.0, metrics.fontSize - 3.0));
         y += metrics.horizontalHeight + metrics.sectionGap;
         [@"竖排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.verticalHeight), skin, YES,
-                              vertical, metrics.fontSize, nil);
+                              vertical, metrics.fontSize, nil, MAX(11.0, metrics.fontSize - 3.0));
         y += metrics.verticalHeight + metrics.sectionGap;
         [@"悬浮状态栏" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
@@ -458,7 +462,8 @@ NSArray<NSString *> *PreviewSamples()
     }
 
     const SkinPreviewMetrics metrics =
-        MakeAppearanceMetrics(_panelStyle, _pageSize, _candidateFontSize, skin.decorationTopDip);
+        MakeAppearanceMetrics(_panelStyle, _pageSize, _candidateFontSize, skin.decorationTopDip,
+                              self.preferences.showsCandidatePreedit ? self.preferences.preeditFontSize : 0);
     NSArray<NSString *> *samples = PreviewSamples();
     const NSInteger count = MIN(MAX(_pageSize, (NSInteger)1), static_cast<NSInteger>(samples.count));
     const BOOL vertical = _panelStyle == 1;
@@ -475,7 +480,7 @@ NSArray<NSString *> *PreviewSamples()
               withAttributes:captionAttributes];
     y += metrics.captionHeight + metrics.captionGap;
     DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.panelHeight), skin, vertical, words,
-                          metrics.fontSize, footer);
+                          metrics.fontSize, footer, self.preferences.showsCandidatePreedit ? self.preferences.preeditFontSize : 0);
     [NSGraphicsContext restoreGraphicsState];
 }
 

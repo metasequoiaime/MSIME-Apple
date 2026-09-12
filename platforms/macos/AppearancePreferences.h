@@ -21,6 +21,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
 @property(nonatomic) NSUInteger fontSize;
+@property(nonatomic) NSUInteger preeditFontSize;
+@property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.
