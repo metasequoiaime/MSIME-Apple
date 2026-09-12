@@ -193,12 +193,25 @@ static void TestPageSizeCache() {
     [controller applySharedToolbarPreferences:@{@"candidate_page_size": @9}];
     [controller syncPageSize];
     assert(session.pageSizeCalls == 2);
+    ShortcutClient *client = [ShortcutClient new];
+    client.marked = @"synthetic";
+    [controller setValue:client forKey:@"activeClient"];
+    HiddenKeymapPanel *keymap = [[HiddenKeymapPanel alloc] init];
+    keymap.requestedVisible = YES;
+    [controller setValue:keymap forKey:@"keymapPanel"];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    panel.requestedVisible = YES;
+    [controller setValue:panel forKey:@"panel"];
     [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:[NSObject new]]];
     [controller syncPageSize];
-    assert(session.pageSizeCalls == 2);
+    assert(session.pageSizeCalls == 2 && [client.marked isEqual:@"synthetic"] && keymap.requestedVisible && panel.requestedVisible);
     [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:session]];
+    assert(client.marked.length == 0 && client.committed == nil && !keymap.requestedVisible && !panel.requestedVisible);
+    assert([[controller valueForKey:@"focusPending"] boolValue]);
     [controller syncPageSize];
     assert(session.pageSizeCalls == 3 && session.requestedPageSize == 9);
+    [controller prepareSession];
+    assert(session.focusCalls == 1 && ![[controller valueForKey:@"focusPending"] boolValue]);
     [defaults removePersistentDomainForName:suite];
 }
 

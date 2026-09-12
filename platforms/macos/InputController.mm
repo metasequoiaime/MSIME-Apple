@@ -397,8 +397,14 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
     _requestedPageSize = 0;
+    _preferenceLoadState.reset();
+    _focusPending = YES;
+    if (_activeClient) {
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
+    }
     _view = @{};
     [_panel orderOut:nil];
+    [_keymapPanel orderOut:nil];
 }
 
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
