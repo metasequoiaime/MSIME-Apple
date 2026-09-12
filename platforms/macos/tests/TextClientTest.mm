@@ -98,7 +98,25 @@ static void TestEnginePreedit(FakeTextClient *client) {
     // The last accepted preference was formatted display, not the raw startup value.
     assert([expandedAfterRecovery[@"view"][@"preedit"] isEqual:@"bing"]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
+    NSMutableDictionary *otherOptions = [[MSIMEClientSession activeHostOptions] mutableCopy];
+    NSMutableDictionary *otherPreferences = [otherOptions[@"preferences"] mutableCopy];
+    otherPreferences[@"scheme"] = @"quanpin";
+    otherOptions[@"preferences"] = otherPreferences;
+    MSIMEClientSession *other = [[MSIMEClientSession alloc] initWithOptions:otherOptions error:&error];
+    assert(other && !error);
+    assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
+    assert([other setFocused:YES error:&error]);
+    assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"quanpin"]);
+    assert([session setFocused:YES error:&error]);
+    assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
+    assert([session setFocused:NO error:&error]);
+    assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
+    assert([other closeWithError:&error]);
+    NSError *closedError = nil;
+    assert(![other setFocused:YES error:&closedError] && closedError);
+    assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
     assert([session closeWithError:&error] && !error);
+    assert([MSIMEClientSession activeHostOptions][@"error"] != nil);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
 

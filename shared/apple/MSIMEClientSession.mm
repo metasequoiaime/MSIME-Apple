@@ -244,7 +244,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!view) return nil;
     _handle = [view[@"session"] unsignedLongLongValue];
     if (!_handle) { setError(error, @"输入会话句柄无效"); return nil; }
-    gActiveSession = self;
+    if (!gActiveSession) gActiveSession = self;
     return self;
 }
 
@@ -256,7 +256,11 @@ static NSDictionary *decode(char *response, NSError **error) {
 
 - (nullable NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_focus(_handle, focused), error);
+    NSDictionary *result = decode(msime_client_focus(_handle, focused), error);
+    // Keep the last focused session available while a dictionary/settings window
+    // has focus; constructing an unrelated session must not steal its target.
+    if (result && focused) gActiveSession = self;
+    return result;
 }
 - (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
@@ -314,6 +318,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = decode(msime_client_destroy(_handle), error);
     if (!result) return NO;
     _handle = 0;
+    if (gActiveSession == self) gActiveSession = nil;
     return YES;
 }
 - (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary *, NSError *))completion {
