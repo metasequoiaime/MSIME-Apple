@@ -300,8 +300,14 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
 
-  useEffect(() => () => {
-    if (busyRef.current && client.cancelVoice) void client.cancelVoice().catch(() => undefined);
+  useEffect(() => {
+    setBusy(false);
+    return () => {
+      recognitionRevision.current++;
+      const wasBusy = busyRef.current;
+      busyRef.current = false;
+      if (wasBusy && client.cancelVoice) void client.cancelVoice().catch(() => undefined);
+    };
   }, [client]);
 
   useEffect(() => {
@@ -309,7 +315,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     let active = true;
     let unlisten: (() => void) | undefined;
     void client.onVoiceUpdate(update => {
-      if (!active) return;
+      if (!active || !busyRef.current) return;
       setText(update.text);
       setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : "正在录音并识别…");
     }).then(stop => {
@@ -323,6 +329,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   }, [client]);
 
   async function recognize() {
+    if (busyRef.current) return;
     if (!client.recognizeVoice) {
       setNotice("当前宿主未提供语音识别能力");
       return;
@@ -344,8 +351,10 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     } catch {
       if (revision === recognitionRevision.current) setNotice("语音识别失败，请确认录音服务已启动");
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      if (revision === recognitionRevision.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -373,7 +382,10 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
 
   async function close() {
     recognitionRevision.current++;
-    if (busy && client.cancelVoice) {
+    const wasBusy = busyRef.current;
+    busyRef.current = false;
+    setBusy(false);
+    if (wasBusy && client.cancelVoice) {
       try { await client.cancelVoice(); } catch { /* close even if provider is gone */ }
     }
     await client.close();
