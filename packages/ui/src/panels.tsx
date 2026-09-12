@@ -265,6 +265,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const recognitionRevision = useRef(0);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
 
   useEffect(() => {
@@ -310,16 +311,18 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       setNotice("请输入有效的识别语言码");
       return;
     }
+    const revision = ++recognitionRevision.current;
     busyRef.current = true;
     setBusy(true);
     setText("");
     setNotice("正在录音并识别…");
     try {
       const result = await client.recognizeVoice(language);
+      if (revision !== recognitionRevision.current) return;
       setText(result.text);
       setNotice(result.text ? "识别完成，点击提交即可输入" : "没有识别到内容");
     } catch {
-      setNotice("语音识别失败，请确认录音服务已启动");
+      if (revision === recognitionRevision.current) setNotice("语音识别失败，请确认录音服务已启动");
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -339,6 +342,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   }
 
   async function close() {
+    recognitionRevision.current++;
     if (busy && client.cancelVoice) {
       try { await client.cancelVoice(); } catch { /* close even if provider is gone */ }
     }
