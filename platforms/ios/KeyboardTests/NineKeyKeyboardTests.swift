@@ -868,6 +868,58 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(reopened.numberOfItems(inSection: 0), 1)
   }
 
+  func testSchemeNameIsWrittenBackSoTheLegacyFlagCannotKeepResolvingToQuanpin() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    let defaults = UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey, .shuangpin]
+    InputSchemePreference.scheme = .nineKey
+
+    // 名字丢了,只剩那个老布尔。以前这会永远读成全拼 26 键。
+    defaults.removeObject(forKey: "chineseInputScheme")
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
+    // 但它只该发生一次:迁移的结果要写回,否则每次读都在重置。
+    XCTAssertEqual(defaults.string(forKey: "chineseInputScheme"), "quanpin")
+
+    InputSchemePreference.scheme = .nineKey
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertEqual(defaults.string(forKey: "chineseInputScheme"), "nineKey")
+  }
+
+  func testNineKeySurvivesTheKeyboardBeingTornDownAndRebuilt() throws {
+    // 反馈 #419:切走一段时间再回来就变回 26 键。iOS 回收键盘扩展后重新加载它,所以这里
+    // 的第二个控制器就是那次重新加载。
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .quanpin
+
+    let first = KeyboardViewController()
+    first.loadViewIfNeeded()
+    first.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    first.viewWillAppear(false)
+    try button("schemeButton", in: first).sendActions(for: .primaryActionTriggered)
+    try button("schemeCard-nineKey", in: first).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: first).superview).isHidden)
+
+    let rebuilt = KeyboardViewController()
+    rebuilt.loadViewIfNeeded()
+    rebuilt.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    rebuilt.viewWillAppear(false)
+    rebuilt.view.layoutIfNeeded()
+    XCTAssertEqual(try button("schemeButton", in: rebuilt).accessibilityValue, "全拼 9 键")
+    XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: rebuilt).superview).isHidden)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
