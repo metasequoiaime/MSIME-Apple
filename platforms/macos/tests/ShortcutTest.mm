@@ -1239,6 +1239,33 @@ int main() {
             assert(![controller handleEvent:event client:client]);
             assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
         }
+        for (NSArray *entry in @[@[@"comma_period", @",", @0, @(MSIME_PREVIOUS_PAGE)],
+                                 @[@"comma_period", @".", @0, @(MSIME_NEXT_PAGE)],
+                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE)],
+                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE)],
+                                 @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE)]]) {
+            for (NSNumber *enabled in @[@NO, @YES]) {
+                [appearance applySharedCandidatePreferences:@{@"navigation": @{entry[0]:enabled}}];
+                layoutPanel.requestedVisible = YES;
+                appearance.vertical = YES;
+                session.lastCommand = UINT32_MAX;
+                session.asciiCalls = 0;
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:entry[1] charactersIgnoringModifiers:entry[1] isARepeat:NO keyCode:[entry[2] unsignedShortValue]];
+                BOOL handled = [controller handleEvent:event client:client];
+                if (enabled.boolValue) assert(handled && session.lastCommand == [entry[3] unsignedIntValue]);
+                else {
+                    assert(session.lastCommand == UINT32_MAX);
+                    if ([entry[2] unsignedShortValue] != 0) assert(!handled);
+                    else assert(session.asciiCalls == 1);
+                }
+            }
+        }
+        layoutPanel.requestedVisible = YES;
+        NSEvent *reverseTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
+        assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
+        layoutPanel.requestedVisible = NO;
+        session.lastCommand = UINT32_MAX;
+        assert(![controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX);
         // Script selection changes only native display/commit strings, not Engine state or IDs.
         assert(!appearance.traditionalOutput);
         assert([MSIMEChineseOutputString(@"汉语", YES) isEqual:@"漢語"]);
