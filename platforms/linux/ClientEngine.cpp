@@ -2387,6 +2387,7 @@ struct VoiceResult {
   std::string text;
   bool final = true;
   unsigned level = 0;
+  bool provider_failed = false;
 };
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
@@ -2526,8 +2527,9 @@ void voice_start(IBusEngine *engine) {
   const bool stream_inline_preedit =
       provider_options.value("stream_inline_preedit", false);
   const auto alive = s.alive;
+  const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   s.voice_worker.run_stream(
-      [socket, language, generation, engine, alive,
+      [socket, language, generation, engine, alive, provider_succeeded,
        provider_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
@@ -2587,7 +2589,9 @@ void voice_start(IBusEngine *engine) {
           const auto value = document.at("value");
           if (!value.is_object())
             return std::string{};
-          return msime_voice_bound_result(value.value("text", std::string{}));
+          auto text = msime_voice_bound_result(value.value("text", std::string{}));
+          provider_succeeded->store(true);
+          return text;
         } catch (...) {
           return std::string{};
         }
@@ -2618,8 +2622,9 @@ void voice_start(IBusEngine *engine) {
             },
             result, nullptr);
       },
-      [engine, alive, generation](std::string text) {
-        auto *result = new VoiceResult{engine, alive, generation, std::move(text)};
+      [engine, alive, generation, provider_succeeded](std::string text) {
+        auto *result = new VoiceResult{engine, alive, generation, std::move(text),
+                                       true, 0, !provider_succeeded->load()};
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
@@ -2640,6 +2645,10 @@ void voice_start(IBusEngine *engine) {
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
+                  ibus_engine_update_auxiliary_text(result->engine,
+                      ibus_text_new_from_static_string(result->provider_failed
+                          ? "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"
+                          : "未识别到文字，请重新录音"), TRUE);
                   return G_SOURCE_REMOVE;
                 }
                 auto applied = response(msime_client_voice_apply(
@@ -2667,7 +2676,10 @@ void voice_start(IBusEngine *engine) {
                 s.voice_preedit.clear();
                 s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
+                render(result->engine, s.view);
                 publish_mode(result->engine);
+                ibus_engine_update_auxiliary_text(result->engine,
+                    ibus_text_new_from_static_string("语音结果处理失败，请重新录音"), TRUE);
               }
               return G_SOURCE_REMOVE;
             },
