@@ -3239,9 +3239,12 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     if (!id.is_object() || id.at("session").get<uint64_t>() != s.session) return;
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
-    if (button == 3)
+    const auto source = entry.value("source", 0);
+    const auto scheme = s.view.value("scheme", 255);
+    if (button == 3 && scheme != 3 &&
+        (source == 0 || source == 1 || source == 4))
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
-    else
+    else if (button != 3)
       apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }
