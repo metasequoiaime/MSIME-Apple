@@ -16,6 +16,7 @@ export function mount() {
   }] };
   root.render(<SettingsPage client={{ load: async () => snapshot, save: async (_revision, preferences) => ({ ...snapshot, preferences }),
     scanSkinCatalog: async () => catalog,
+    listFontFamilies: async () => ["Segoe UI", "示例字体", "加倍示例", "缺字示例"],
     readSkinImage: async () => ({ contentType: "image/svg+xml", bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="24"><rect width="100" height="24" fill="#abcdef"/></svg>')] }),
   }} />);
   return () => root.unmount();

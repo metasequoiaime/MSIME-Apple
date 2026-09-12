@@ -62,6 +62,12 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .candidate-fallback-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 .candidate-fallback-row { display: flex; align-items: center; gap: 8px; }
 .candidate-fallback-row input { flex: 1; min-width: 0; }
+.font-family-combobox { position: relative; min-width: 0; }
+.candidate-fallback-row .font-family-combobox { flex: 1; }
+.font-family-combobox input { box-sizing: border-box; width: 100%; }
+.font-family-menu { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; max-height: 240px; overflow: auto; border: 1px solid var(--dropdown-menu-border); border-radius: 6px; background: var(--dropdown-menu-bg); color: var(--dropdown-item-color); box-shadow: var(--dropdown-menu-shadow); padding: 4px; }
+.font-family-menu [role="option"] { padding: 6px 10px; cursor: pointer; overflow-wrap: anywhere; }
+.font-family-menu [role="option"]:hover, .font-family-menu [aria-selected="true"] { background: var(--dropdown-item-hover-bg); }
 .appearance-candidate-preview .candidate .pinyin { font-size: var(--appearance-preedit-font-size, 16px); }
 /* Windows 04a8df56 appearance.css colour controls, GPL-3.0. */
 .candidate-color-control { display: flex; align-items: center; gap: 10px; }
