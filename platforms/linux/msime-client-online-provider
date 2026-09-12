@@ -454,10 +454,15 @@ def load_tencent_config(path):
     config = load_private_config(path)
     for key in ("secret_id", "secret_key"):
         value = config.get(key)
+        # Match Windows CloudTranslation::TrimSecret for pasted credentials.
+        # Normalize before validation, signing and cache-scope construction.
+        if isinstance(value, str):
+            value = value.strip(" \t\r\n")
         if (not isinstance(value, str) or not value.strip() or
             any(ord(c) < 33 or ord(c) > 126 for c in value) or
             value.startswith(("FAKESECRET_", "<"))):
             raise ValueError("invalid Tencent credential")
+        config[key] = value
     region = config.get("region", "")
     if (not isinstance(region, str) or len(region) > 64 or
         any(c not in string.ascii_lowercase + string.digits + "-" for c in region)):
