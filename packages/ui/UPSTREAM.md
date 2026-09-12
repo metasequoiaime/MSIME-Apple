@@ -255,3 +255,19 @@ animation compatibility: var()-dependent animation names/shorthands and
 unresolved external/inherited names are disabled with a partial-support notice.
 Fonts, imports, escaped resource function identifiers and native-platform
 visual parity remain unfinished.
+
+Whole-value var() animation-name and animation shorthand references now use
+private, mode-specific custom-property aliases. Original variables remain
+unchanged for non-animation consumers. Alias definitions stay in the original
+rules with the original priorities, so browser inheritance, media/nesting,
+fallbacks and dependency-cycle handling remain active. Referenced definitions
+and nested whole-value fallback chains are rewritten with the same private
+keyframe names. Alias expansion is bounded to 256 source/mode pairs, 32 nested
+fallback levels and 16 MiB of duplicated values. Unit tests and real Chromium
+cover shorthand/name variables, inherited values, conditional priority,
+cyclic fallback, two-card isolation and cleanup through image preparation.
+Semantics follow https://www.w3.org/TR/css-variables-1/.
+This supersedes the blanket var() limitation, not full variable substitution:
+fragment substitutions (e.g. pulse var(--duration)), escaped/non-ASCII variable
+names and partially overridden pending shorthands remain partial support.
+Fonts, imports and native-platform visual acceptance remain unfinished.

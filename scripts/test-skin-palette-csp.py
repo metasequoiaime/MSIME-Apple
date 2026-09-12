@@ -147,10 +147,31 @@ with sync_playwright() as playwright:
       if (!unpreparedFrames.partial || !first.getAnimations().length || first.getAnimations()[0].effect.getKeyframes().some(frame => frame.backgroundImage?.includes('invalid.example'))) throw Error('keyframe filtering retained unsafe resource or dropped valid motion');
       unpreparedFrames.remove();
       const variableMotion = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --motion: pulse 1s; animation: var(--motion); }');
-      if (!variableMotion.partial || first.getAnimations().length) throw Error('unisolated variable animation survived');
+      if (variableMotion.partial || first.getAnimations().length !== 1 || getComputedStyle(first).getPropertyValue('--motion').trim() !== 'pulse 1s') throw Error('variable animation failed or changed original variable');
       variableMotion.remove();
+      const variableNames = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } :root { --motion: pulse; } .sample { animation-name: var(--motion); animation-duration: 1s; animation-timing-function: linear; animation-fill-mode: both; animation-play-state: paused; }');
+      if (variableNames.partial || first.getAnimations().length !== 1) throw Error('inherited animation-name variable failed');
+      first.getAnimations()[0].currentTime = 500;
+      if (Math.abs(Number(getComputedStyle(first).opacity) - .5) > .01) throw Error('variable name changed timing');
+      variableNames.remove();
+      const fallbackMotion = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --a: var(--b); --b: var(--a); animation: var(--a, var(--missing, pulse 1s linear both paused)); }');
+      if (fallbackMotion.partial || first.getAnimations().length !== 1) throw Error('cyclic variable fallback failed');
+      fallbackMotion.remove();
+      const conditionalMotion = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --motion: none; @media screen { --motion: pulse 2s linear both paused !important; } animation: var(--motion); }');
+      if (conditionalMotion.partial || first.getAnimations().length !== 1 || getComputedStyle(first).animationDuration !== '2s') throw Error('conditional variable cascade failed');
+      conditionalMotion.remove();
+      const sharedVariableA = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --motion: pulse 1s linear both paused; animation: var(--motion); }');
+      const sharedVariableB = installToolbarCss('card2', '@keyframes pulse { from {opacity:.4} to {opacity:1} } .sample { --motion: pulse 1s linear both paused; animation: var(--motion); }');
+      if (sharedVariableA.partial || sharedVariableB.partial || first.getAnimations()[0]?.animationName === second.getAnimations()[0]?.animationName) throw Error('variable animation crossed card boundary');
+      sharedVariableA.remove();
+      if (first.getAnimations().length || second.getAnimations().length !== 1) throw Error('variable cleanup affected another card');
+      sharedVariableB.remove();
+      const preparedVariable = await prepareToolbarImages('@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {--motion:pulse 1s linear both paused; animation:var(--motion)}', async () => { throw Error('motion is not a resource'); });
+      const preparedVariableSheet = installToolbarCss('card1', preparedVariable.css);
+      if (preparedVariable.partial || preparedVariableSheet.partial || first.getAnimations().length !== 1) throw Error('image preparation lost variable shorthand');
+      preparedVariableSheet.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true};
     }""")
     print(result)
     browser.close()
