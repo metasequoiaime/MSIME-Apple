@@ -11,6 +11,7 @@
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
 #include "PreferenceSaveState.h"
+#include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
@@ -61,7 +62,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
-    BOOL _preferencesLoading;
+    MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
@@ -311,6 +312,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
+    _preferenceLoadState.reset();
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handwritingCandidateSelected:) name:@"MSIMEHandwritingCandidateSelected" object:nil];
@@ -318,6 +320,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
+    else [self startPreferencesMonitoring];
 }
 
 - (void)handwritingCandidateSelected:(NSNotification *)notification {
@@ -332,16 +335,22 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_panel orderOut:nil];
 }
 
+- (NSDictionary *)runtimeOptions {
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
+    if (!path) {
+        NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
+        path = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
+    }
+    if (!path) return nil;
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    return [options isKindOfClass:NSDictionary.class] ? options : nil;
+}
+
 - (void)prepareSession {
     if (!_session) {
-        NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
-        if (!path) {
-            NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
-            path = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
-        }
-        NSData *data = [NSData dataWithContentsOfFile:path];
-        NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if ([options isKindOfClass:NSDictionary.class]) {
+        NSDictionary *options = [self runtimeOptions];
+        if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -353,7 +362,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
     }
-    if (_session && _preferencesDirectory) {
+    [self startPreferencesMonitoring];
+}
+
+- (void)startPreferencesMonitoring {
+    if (!_preferencesDirectory) {
+        id directory = [self runtimeOptions][@"preferences_directory"];
+        if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+    }
+    if (_activeClient && _preferencesDirectory) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
@@ -365,8 +382,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)reloadPreferences {
-    if (_preferencesLoading || !_activeClient || !_session || !_preferencesDirectory) return;
-    _preferencesLoading = YES;
+    if (!_activeClient || !_preferencesDirectory || !_preferenceLoadState.begin()) return;
+    const uint64_t generation = _preferenceLoadState.generation;
     MSIMEClientSession *session = _session;
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
@@ -376,9 +393,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller) return;
-            controller->_preferencesLoading = NO;
+            if (!controller->_preferenceLoadState.finish(generation)) return;
             // Never apply a delayed read to a replacement or inactive input session.
             if (!snapshot || error || !controller->_activeClient || controller->_session != session) return;
+            if (!session) {
+                [controller->_toolbar applyThemePreferences:snapshot[@"preferences"]];
+                return;
+            }
             NSError *updateError = nil;
             NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
             // Failed loads/updates retain the existing window appearance and runtime.
@@ -392,6 +413,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)deactivateServer:(id)sender {
+    _preferenceLoadState.reset();
     [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
