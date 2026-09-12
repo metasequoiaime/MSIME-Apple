@@ -44,6 +44,16 @@ if(MSIME_OPTIONS_FILE)
 endif()
 enable_testing()
 include(ClipboardTests.cmake)
+set(MSIME_EMOJI_EXIT_SOURCES BackendEmojiExit.swift tests/EmojiExitTest.swift)
+list(TRANSFORM MSIME_EMOJI_EXIT_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_EXIT_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test"
+  DEPENDS ${MSIME_EMOJI_EXIT_SOURCES} VERBATIM)
+add_custom_target(emoji-exit-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test")
+add_test(NAME emoji-exit COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test")
+set_tests_properties(emoji-exit PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 add_executable(emoji-host-cursor-test tests/EmojiHostCursorTest.mm)
 target_compile_options(emoji-host-cursor-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(emoji-host-cursor-test PRIVATE apple-client)
