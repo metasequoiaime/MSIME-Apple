@@ -235,6 +235,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const recognitionRevision = useRef(0);
+  const recognitionQueue = useRef<{ running: boolean; pending: { revision: number; strokes: InkStroke[] } | null }>({ running: false, pending: null });
   const submissionRevision = useRef(0);
   const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
@@ -245,26 +246,50 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     if (active?.canvas.hasPointerCapture?.(active.pointerId)) active.canvas.releasePointerCapture(active.pointerId);
   }
   useEffect(() => {
+    const queue = { running: false, pending: null } as typeof recognitionQueue.current;
+    recognitionQueue.current = queue;
     submittingRef.current = false;
     setSubmitting(false);
     return () => {
+      queue.pending = null;
       recognitionRevision.current++;
       submissionRevision.current++;
       submittingRef.current = false;
       releaseStroke();
     };
   }, [client]);
-  async function recognize(nextStrokes: InkStroke[]) {
+  function recognize(nextStrokes: InkStroke[]) {
     const revision = ++recognitionRevision.current;
     setCandidates([]);
     setNotice("正在识别…");
-    if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由宿主提供"); return; }
-    try {
-      const result = await client.recognizeHandwriting({ language: "zh-CN", strokes: nextStrokes });
-      if (revision !== recognitionRevision.current) return;
-      setCandidates(result.candidates);
-      setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
-    } catch { if (revision === recognitionRevision.current) { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); } }
+    const recognizeInk = client.recognizeHandwriting;
+    if (!recognizeInk) { setNotice("识别结果需由宿主提供"); return; }
+    const queue = recognitionQueue.current;
+    queue.pending = { revision, strokes: nextStrokes };
+    if (queue.running) return;
+    queue.running = true;
+    void (async () => {
+      try {
+        while (queue === recognitionQueue.current && queue.pending) {
+          const request = queue.pending;
+          queue.pending = null;
+          if (request.revision !== recognitionRevision.current) continue;
+          try {
+            const result = await recognizeInk({ language: "zh-CN", strokes: request.strokes });
+            if (request.revision !== recognitionRevision.current) continue;
+            setCandidates(result.candidates);
+            setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
+          } catch {
+            if (request.revision === recognitionRevision.current) {
+              setCandidates([]);
+              setNotice("手写识别失败，请确认识别服务已启动");
+            }
+          }
+        }
+      } finally {
+        queue.running = false;
+      }
+    })();
   }
   function start(event: PointerEvent<SVGSVGElement>) {
     if (activeStroke.current || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
