@@ -20,6 +20,8 @@ struct PreviewConfig {
   std::filesystem::path skin_directory;
   std::string skin_id;
   bool dark_theme = true;
+  // The shipped card lays candidates out on one row; vertical stays available.
+  bool horizontal_candidates = true;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
@@ -54,7 +56,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 3 ||
+      if (!appearance.is_object() || appearance.size() > 4 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -69,6 +71,15 @@ struct PreviewConfig {
         result.skin_id = appearance.at("skin").get<std::string>();
         // The catalog bounds identifiers; refuse anything longer here too.
         if (result.skin_id.size() > 64)
+          throw std::invalid_argument("Invalid preview appearance");
+      }
+      if (appearance.contains("layout")) {
+        if (!appearance.at("layout").is_string())
+          throw std::invalid_argument("Invalid preview appearance");
+        const auto layout = appearance.at("layout").get<std::string>();
+        if (layout == "vertical")
+          result.horizontal_candidates = false;
+        else if (layout != "horizontal")
           throw std::invalid_argument("Invalid preview appearance");
       }
       if (appearance.contains("dark_theme")) {
