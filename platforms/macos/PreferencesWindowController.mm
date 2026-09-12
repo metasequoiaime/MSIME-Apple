@@ -6,6 +6,9 @@
 static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
 static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
 
+static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
+static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
+
 @implementation MSIMEPreferencesWindowController
 + (NSDictionary *)cloudSettingsSnapshot { return MSIMECloudAppearanceSnapshot(NSUserDefaults.standardUserDefaults); }
 + (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary *)values { return @(MSIMEValidateCloudAppearance(values)); }
