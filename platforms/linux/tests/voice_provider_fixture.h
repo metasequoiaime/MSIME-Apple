@@ -15,7 +15,7 @@
 class VoiceProviderFixture {
 public:
   std::atomic<unsigned> started{0}, cancelled{0}, finished{0}, stop_requests{0};
-  std::atomic<bool> release_final{false};
+  std::atomic<bool> release_final{false}, release_partial{false};
   explicit VoiceProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -45,6 +45,12 @@ private:
     int pending = -1;
     uint64_t generation = 0;
     while (!stopped_) {
+      if (pending >= 0 && release_partial.exchange(false)) {
+        const auto response = nlohmann::json{{"type", "partial"}, {"text", "测试😀"},
+                                              {"generation", generation}}.dump() + "\n";
+        send(pending, response.data(), response.size(), MSG_NOSIGNAL);
+      }
+
       if (pending >= 0 && release_final.exchange(false)) {
         const auto response = nlohmann::json{{"type", "final"}, {"text", "synthetic voice"},
                                               {"generation", generation}}.dump() + "\n";

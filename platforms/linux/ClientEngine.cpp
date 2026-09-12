@@ -1897,7 +1897,7 @@ void render(IBusEngine *engine, const Json &view) {
     ibus_engine_update_preedit_text_with_mode(
         engine,
         ibus_text_new_from_string(state(engine).voice_preedit.c_str()),
-        static_cast<guint>(state(engine).voice_preedit.size()), TRUE,
+        static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)), TRUE,
         IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
     ibus_engine_hide_auxiliary_text(engine);

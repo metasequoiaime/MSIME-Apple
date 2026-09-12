@@ -27,6 +27,7 @@ struct Observation {
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
+  guint preedit_cursor = 0;
   bool mode_registered = false;
   bool input_enabled = false;
   bool english_mode = false;
@@ -88,6 +89,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (std::string(name) == "CommitText")
     seen.committed += ibus_text_get_text(IBUS_TEXT(object));
   if (std::string(name) == "UpdatePreeditText") {
+    g_variant_get_child(parameters, 1, "u", &seen.preedit_cursor);
     seen.preedit = ibus_text_get_text(IBUS_TEXT(object));
     gboolean visible;
     g_variant_get_child(parameters, 2, "b", &visible);
@@ -189,6 +191,7 @@ int main(int argc, char **argv) {
     options["preferences"]["learning"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
+    options["preferences"]["voice_input"]["stream_inline_preedit"] = true;
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_page_size"] = 2;
@@ -325,7 +328,16 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
     require(wait_voice([&] { return voice_provider.started.load() == 1; }),
             "Synthetic voice capture did not start");
+    voice_provider.release_partial = true;
+    require(wait_voice([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+            "Streaming voice did not publish synthetic preedit");
+    require(seen.preedit_cursor == 3 && seen.committed.empty(),
+            "Streaming voice cursor was not a Unicode character offset");
+    invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+    require(seen.preedit == "测试😀" && seen.preedit_cursor == 3 && seen.preedit_visible,
+            "Voice preedit redraw used a UTF-8 byte offset");
     mode(PROP_STATE_UNCHECKED);
+    require(!seen.preedit_visible, "Voice cancellation left streaming preedit visible");
     require(wait_voice([&] { return voice_provider.cancelled.load() == 1; }),
             "Disabling input through the menu did not cancel voice capture");
     mode(PROP_STATE_CHECKED);
@@ -347,6 +359,24 @@ int main(int argc, char **argv) {
     require(fresh_committed,
             "Fresh voice result did not commit after mode cancellation");
     seen.committed.clear();
+    const auto escape_starts = voice_provider.started.load();
+    const auto escape_cancels = voice_provider.cancelled.load();
+    const auto escape_finals = voice_provider.finished.load();
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == escape_starts + 1; }),
+            "Streaming Escape fixture did not start");
+    voice_provider.release_partial = true;
+    require(wait_voice([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+            "Streaming Escape fixture did not show preedit");
+    require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed.empty(),
+            "Escape did not clear voice preedit without committing");
+    require(wait_voice([&] { return voice_provider.cancelled.load() == escape_cancels + 1; }),
+            "Escape did not cancel streaming capture");
+    voice_provider.release_partial = true;
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return voice_provider.finished.load() == escape_finals + 1; }),
+            "Cancelled streaming provider did not finish");
+
     for (guint released_modifiers : {guint(0), guint(IBUS_MOD1_MASK)}) {
       const auto starts = voice_provider.started.load();
       const auto stops = voice_provider.stop_requests.load();
