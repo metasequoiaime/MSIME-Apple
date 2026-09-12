@@ -30,7 +30,7 @@ final class BackendWindowBridge: NSObject {
   @objc func showEmoji(withResources resources: String, selectionAttempt selection: @escaping (String) -> Bool) {
     weak var presented: NSWindowController?
     // Each presentation binds a new target; never reuse an older selection closure.
-    presented = show("emoji", accountID: UUID().uuidString, title: "表情与符号", size: NSSize(width: 420, height: 360)) {
+    presented = show("emoji", accountID: UUID().uuidString, title: "表情与符号", size: NSSize(width: 420, height: 560)) {
       MacEmojiView(resources: resources, onSelect: { text in
         let accepted = selection(text)
         if accepted { presented?.close() }
