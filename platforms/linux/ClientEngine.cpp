@@ -103,12 +103,14 @@ struct State {
   bool pure_ctrl_candidate = false;
   bool shift_down = false;
   bool ctrl_down = false;
+  bool right_ctrl_down = false;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
     pure_shift_candidate = false;
     pure_ctrl_candidate = false;
     shift_down = false;
     ctrl_down = false;
+    right_ctrl_down = false;
     modifier_toggle_deadline = 0;
   }
   bool mode_shift_enabled = true;
@@ -2265,7 +2267,7 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
     return s.voice_hotkey_ctrl_f9;
   if (key == IBUS_Alt_R && modifiers == (IBUS_MOD1_MASK | IBUS_CONTROL_MASK))
-    return s.voice_hotkey_rctrl_ralt;
+    return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
   if (key == IBUS_Alt_R && modifiers == IBUS_MOD1_MASK)
     return s.voice_hotkey_ralt;
   if ((key == IBUS_Super_L || key == IBUS_Super_R) &&
@@ -3153,6 +3155,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
   if (shift_key) s.shift_down = !release;
   if (ctrl_key) s.ctrl_down = !release;
+  if (key == IBUS_Control_R) s.right_ctrl_down = !release;
 
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |

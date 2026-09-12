@@ -362,15 +362,32 @@ int main(int argc, char **argv) {
               "Stopping hold recording discarded final recognition");
       seen.committed.clear();
     }
+    const auto before_wrong_ctrl = voice_provider.started.load();
+    require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
+                !key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Left Ctrl incorrectly activated the right-Ctrl voice shortcut");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+    key(IBUS_Control_L, IBUS_RELEASE_MASK);
+    require(voice_provider.started.load() == before_wrong_ctrl && seen.input_enabled,
+            "Left Ctrl voice chord changed capture or input mode");
+    require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Right Ctrl fixture press was intercepted");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    require(!key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Right Ctrl voice state crossed a focus boundary");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+    key(IBUS_Control_R, IBUS_RELEASE_MASK);
     for (auto chord : {std::pair<guint, guint>{IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK},
                        {IBUS_Super_L, IBUS_CONTROL_MASK | IBUS_MOD4_MASK},
                        {IBUS_Super_R, IBUS_CONTROL_MASK | IBUS_MOD4_MASK}}) {
       const auto starts = voice_provider.started.load();
       const auto stops = voice_provider.stop_requests.load();
+      require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Voice chord Ctrl press was intercepted");
       require(key(chord.first, chord.second), "Modifier voice chord was filtered out");
       require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
               "Modifier voice chord did not reach provider");
       require(key(chord.first, IBUS_RELEASE_MASK), "Modifier voice chord release was not consumed");
+      require(!key(IBUS_Control_R, IBUS_RELEASE_MASK), "Voice chord Ctrl release toggled input");
       require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
               "Modifier voice chord release did not stop capture");
       voice_provider.release_final = true;
@@ -378,6 +395,9 @@ int main(int argc, char **argv) {
               "Modifier voice chord lost final recognition");
       seen.committed.clear();
     }
+    require(!key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Released right Ctrl remained eligible for voice capture");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
     const auto locked_starts = voice_provider.started.load();
     const auto locked_stops = voice_provider.stop_requests.load();
     require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Locked recording did not start");
