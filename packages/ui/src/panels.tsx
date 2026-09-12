@@ -355,6 +355,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const effectiveMode = activationMode === "copy" && !client.copyHandwritingCandidate
     ? "input" : activationMode === "input" && !client.submitHandwritingCandidate ? "copy" : activationMode;
   function selectActivation(mode: "copy" | "input") {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     setActivationMode(mode);
     try { window.localStorage.setItem("msime.handwriting.activation", mode); } catch { /* optional preference */ }
   }
@@ -398,6 +399,10 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   async function closeHandwriting() {
     const queue = recognitionQueue.current;
     if (!queue.active || closingRef.current) return;
+    if (activeStroke.current) {
+      setNotice("请完成当前笔画后关闭手写识别板");
+      return;
+    }
     closingRef.current = true;
     setClosing(true);
     try {
@@ -421,6 +426,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     }
   }
   function recognize(nextStrokes: InkStroke[]) {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     const revision = ++recognitionRevision.current;
     setCandidates([]);
     setNotice("正在识别…");
@@ -456,6 +462,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     })();
   }
   function retryRecognition() {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     if (!strokes.length || activeStroke.current || recognitionQueue.current.running || submittingRef.current) return;
     recognize(strokes);
   }
@@ -505,6 +512,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognizeRemaining(strokes);
   }
   function undo() {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     const wasDrawing = activeStroke.current !== null;
     recognitionRevision.current++;
     recognitionQueue.current.pending = null;
@@ -522,6 +530,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognizeRemaining(nextStrokes);
   }
   function redo() {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     if (activeStroke.current || !redoStrokes.length || strokes.length >= MAX_HANDWRITING_STROKES) return;
     recognitionRevision.current++;
     const nextStrokes = [...strokes, redoStrokes[redoStrokes.length - 1]];
@@ -530,6 +539,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognizeRemaining(nextStrokes);
   }
   function clear() {
+    if (!recognitionQueue.current.active || closingRef.current) return;
     recognitionRevision.current++;
     recognitionQueue.current.pending = null;
     releaseStroke();
@@ -582,18 +592,18 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   return <main className="native-panel handwriting-panel" onKeyDown={editInk} data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" disabled={closing} onClick={() => void closeHandwriting()}>×</button></header>
     <div className="handwriting-panel-body">
-      <section className="ink-canvas-section"><svg className="ink-canvas" tabIndex={0} viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo} disabled={!strokes.length && !drawing.length} aria-keyshortcuts="Control+z Meta+z">↶ 撤销</button><button type="button" onClick={redo} disabled={!redoStrokes.length || drawing.length > 0} aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y">↷ 重做</button><button type="button" onClick={clear} disabled={!strokes.length && !drawing.length && !redoStrokes.length}>× 重写</button>{client.recognizeHandwriting && <button type="button" onClick={retryRecognition} disabled={!strokes.length || drawing.length > 0 || recognizing || submitting}>{recognizing ? "识别中…" : "重新识别"}</button>}</div></section>
+      <section className="ink-canvas-section"><svg className="ink-canvas" tabIndex={0} viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布" aria-disabled={closing}>{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo} disabled={closing || (!strokes.length && !drawing.length)} aria-keyshortcuts="Control+z Meta+z">↶ 撤销</button><button type="button" onClick={redo} disabled={closing || !redoStrokes.length || drawing.length > 0} aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y">↷ 重做</button><button type="button" onClick={clear} disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}>× 重写</button>{client.recognizeHandwriting && <button type="button" onClick={retryRecognition} disabled={closing || !strokes.length || drawing.length > 0 || recognizing || submitting}>{recognizing ? "识别中…" : "重新识别"}</button>}</div></section>
       <section className="recognition-section"><h2>识别结果</h2>
         <div className="handwriting-actions" role="group" aria-label="点击手写候选的操作">
           <span>点击候选：</span>
-          <button type="button" aria-pressed={effectiveMode === "copy"} disabled={submitting || !client.copyHandwritingCandidate} onClick={() => selectActivation("copy")}>复制</button>
-          <button type="button" aria-pressed={effectiveMode === "input"} disabled={submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
+          <button type="button" aria-pressed={effectiveMode === "copy"} disabled={closing || submitting || !client.copyHandwritingCandidate} onClick={() => selectActivation("copy")}>复制</button>
+          <button type="button" aria-pressed={effectiveMode === "input"} disabled={closing || submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
         </div>
         <div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
-          <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} />
+          <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={closing || submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} />
           {effectiveMode === "copy" && client.submitHandwritingCandidate
-            ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
-            : effectiveMode === "input" && client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}
+            ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
+            : effectiveMode === "input" && client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}
         </div>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
