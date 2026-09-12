@@ -768,7 +768,9 @@ impl Preferences {
     }
 
     pub fn quanpin_autocorrect_neighbor(&self) -> bool {
-        self.quanpin.autocorrect_neighbor.unwrap_or(self.autocorrect)
+        self.quanpin
+            .autocorrect_neighbor
+            .unwrap_or(self.autocorrect)
     }
 
     pub fn active_helpcode(&self) -> HelpcodePreferences {
