@@ -682,7 +682,7 @@ CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 
 
 桌面 Tauri 宿主加载同一状态目录的历史，提供读取、清空、从系统剪贴板同步和重新复制命令；macOS 使用 `pbpaste`/`pbcopy`，Windows 使用 PowerShell，Linux 使用 `xclip`。设置页在“实用功能”中展示开关和历史列表，关闭开关立即清空，系统同步按钮仅在已启用时可用。20 项 client-core、20 项 host-api、desktop Rust 测试、fmt/clippy、20 项前端测试、TypeScript/Vite 构建通过。
 
-本增量已在 Linux 实现持续剪贴板监听：Wayland 使用选择监听，X11 使用 XFixes 事件与原生文本读取，包含重复相同文本、UTF8/STRING 回退和 INCR 分块边界；Windows Server 的原生持续监听、表情面板分页及跨进程事件同步仍未在本工程复刻，也没有把快捷短语 CRUD/导入/导出伪装成已完成。Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
+本增量已在 Linux 实现持续剪贴板监听：Wayland 使用选择监听，X11 使用 XFixes 事件与原生文本读取，包含重复相同文本、UTF8/STRING 回退和 INCR 分块边界；Windows Server 的原生持续监听及跨进程事件同步仍未在本工程复刻；共享 UI 已提供表情面板分页，也没有把快捷短语 CRUD/导入/导出伪装成已完成。Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
 
 ### Windows 屏幕键盘与手写板平台契约
 
