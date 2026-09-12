@@ -93,6 +93,7 @@ struct MacEmojiView: View {
       ScrollViewReader { proxy in
         VStack(spacing: 4) {
           MacEmojiKeyboardEntry(enabled: loadedQuery == queryID && !items.isEmpty) { command in
+            if command == .activate && !items.indices.contains(selectedIndex) { return }
             guard loadedQuery == queryID,
                   let index = command.destination(from: selectedIndex, count: items.count, columns: columns) else { return }
             selectedIndex = index
@@ -165,21 +166,32 @@ struct MacEmojiView: View {
           status = items.isEmpty ? "最近使用为空或没有匹配项" : "本页 \(items.count) 项"
           return
         }
-        do {
-          try await Task.sleep(nanoseconds: 200_000_000)
-          if category == "clipboard" {
-            let directory = preferencesDirectory
-            let requestedID = queryID
-            let query = search
-            let history = try await Task.detached {
+        if category == "clipboard" {
+          let directory = preferencesDirectory
+          let requestedID = queryID
+          let query = search
+          await MacEmojiClipboardHistory.observe(read: {
+            try await Task.detached {
               try MacEmojiClipboardHistory.load(directory: directory)
             }.value
-            try Task.checkCancellation()
-            items = history.matching(query)
+          }, publish: { history in
+            // Preserve the selected record across insertions/reordering, never
+            // silently move the explicit-insert action to a different record.
+            let selectedText = items.indices.contains(selectedIndex) ? items[selectedIndex].text : nil
+            items = history?.matching(query) ?? []
+            selectedIndex = selectedText.flatMap { text in items.firstIndex { $0.text == text } } ?? -1
             loadedQuery = requestedID
+            clipboardNotice = ""
+            guard let history else {
+              status = "剪贴板历史不可用，请检查共享存储配置"
+              return
+            }
             status = !history.enabled ? "剪贴板历史已关闭" : items.isEmpty ? "没有已保存的匹配记录" : "本页 \(items.count) 项"
-            return
-          }
+          })
+          return
+        }
+        do {
+          try await Task.sleep(nanoseconds: 200_000_000)
           let query = search
           let directory = resources
           let selectedCategory = category
