@@ -5,6 +5,7 @@
 #include "../../vendor/MSIME-Engine/common/helpcode_utils.h"
 
 namespace msime {
+rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates);
 struct EngineOptions;
 struct DictionaryRevision;
 struct DictionaryRecordStream;

@@ -774,13 +774,7 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut candidates = Vec::with_capacity(reply.candidates.len());
-        for candidate in reply.candidates {
-            if !candidates.contains(&candidate) {
-                candidates.push(candidate);
-            }
-        }
-        Some(candidates)
+        msime_engine_bridge::handwriting_order_candidates(&reply.candidates).ok()
     }
 
     /// Search the user-owned emoji catalog. Results stay outside the IBus

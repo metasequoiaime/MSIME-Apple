@@ -1,3 +1,4 @@
+#include <metasequoia/handwriting_candidates.h>
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
@@ -21,6 +22,15 @@
 #include <string_view>
 
 namespace msime {
+rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
+    std::vector<std::string> input;
+    for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));
+    rust::Vec<rust::String> output;
+    for (const auto &candidate : metasequoia::handwriting::order_candidates(input))
+        output.push_back(rust::String(candidate));
+    return output;
+}
+
 namespace {
 metasequoia::RuntimePaths paths_for(const EngineOptions& value) {
     return {std::filesystem::u8path(std::string(value.resources)),

@@ -229,6 +229,7 @@ mod ffi {
             parent: &str,
         ) -> Result<EmojiCatalogSlice>;
         fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
+        fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
         fn candidate_glosses(
             resources: &str,
@@ -407,6 +408,11 @@ pub fn candidate_glosses(
         })
         .collect::<Vec<_>>();
     ffi::candidate_glosses(resources, &candidates)
+}
+
+/// Apply Engine's shared handwriting candidate policy to provider results.
+pub fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>, cxx::Exception> {
+    ffi::handwriting_order_candidates(candidates)
 }
 
 /// Run the Engine's optional offline handwriting recognizer on copied strokes.
