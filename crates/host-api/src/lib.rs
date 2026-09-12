@@ -426,6 +426,59 @@ pub struct LocalEmojiCatalogItem {
     pub group: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct LocalSymbolCatalogGroup {
+    pub parent: String,
+    pub title: String,
+    pub items: Vec<LocalEmojiCatalogItem>,
+}
+
+/// Preserve Engine-owned symbol parent categories and subgroup order.
+#[cfg(unix)]
+pub fn local_symbol_catalog(
+    resources: &str,
+) -> Result<Vec<LocalSymbolCatalogGroup>, &'static str> {
+    if !std::path::Path::new(resources).is_absolute() {
+        return Err("resources path must be absolute");
+    }
+    let groups = msime_engine_bridge::emoji_symbol_groups(resources)
+        .map_err(|_| "local symbol catalog unavailable")?;
+    let mut result = Vec::new();
+    let mut remaining_pages = 256usize;
+    for group in groups {
+        let mut items = Vec::new();
+        let mut offset = 0usize;
+        loop {
+            if remaining_pages == 0 {
+                return Err("local symbol catalog exceeds limit");
+            }
+            remaining_pages -= 1;
+            let page = msime_engine_bridge::emoji_catalog_slice(
+                resources, "", "symbols", &group.title, offset, 512, &group.parent,
+            )
+            .map_err(|_| "local symbol catalog unavailable")?;
+            items.extend(page.items.into_iter().map(|item| LocalEmojiCatalogItem {
+                text: item.text,
+                annotation: item.annotation,
+                group: item.group,
+            }));
+            if page.complete {
+                break;
+            }
+            if page.next_offset <= offset {
+                return Err("local symbol catalog cursor did not advance");
+            }
+            offset = page.next_offset;
+        }
+        result.push(LocalSymbolCatalogGroup {
+            parent: group.parent,
+            title: group.title,
+            items,
+        });
+    }
+    Ok(result)
+}
+
 /// Read one bounded page from the Engine-owned `others.db` catalog.
 #[cfg(unix)]
 pub fn local_emoji_catalog_page(

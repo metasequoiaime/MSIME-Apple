@@ -687,6 +687,8 @@ struct EmojiCatalogItem {
 #[derive(serde::Serialize)]
 struct EmojiCatalogGroup {
     title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
     icon: String,
     items: Vec<EmojiCatalogItem>,
 }
@@ -703,6 +705,35 @@ fn read_local_emoji_groups(
     resources: &str,
     category: &str,
 ) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
+    if category == "symbols" {
+        return msime_host_api::local_symbol_catalog(resources).map(|groups| {
+            groups
+                .into_iter()
+                .map(|group| EmojiCatalogGroup {
+                    title: group.title,
+                    parent: Some(group.parent),
+                    icon: group
+                        .items
+                        .first()
+                        .map(|item| item.text.clone())
+                        .unwrap_or_default(),
+                    items: group
+                        .items
+                        .into_iter()
+                        .map(|item| EmojiCatalogItem {
+                            keywords: if item.annotation.is_empty() {
+                                item.group
+                            } else {
+                                item.annotation
+                            },
+                            text: item.text,
+                        })
+                        .collect(),
+                })
+                .filter(|group| !group.items.is_empty())
+                .collect()
+        });
+    }
     const PAGE_SIZE: u16 = 512;
     let mut groups = Vec::new();
     let mut positions = HashMap::new();
@@ -729,6 +760,7 @@ fn read_local_emoji_groups(
                 positions.insert(title.clone(), index);
                 groups.push(EmojiCatalogGroup {
                     title,
+                    parent: None,
                     icon: String::new(),
                     items: Vec::new(),
                 });

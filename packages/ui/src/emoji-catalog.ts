@@ -1,5 +1,5 @@
 export type EmojiCatalogItem = { text: string; keywords: string };
-export type EmojiCatalogGroup = { title: string; icon: string; items: EmojiCatalogItem[] };
+export type EmojiCatalogGroup = { title: string; parent?: string; icon: string; items: EmojiCatalogItem[] };
 
 // The Windows resource catalog is larger and is supplied by the native host
 // when available. This compact catalog keeps the shared panel useful in
