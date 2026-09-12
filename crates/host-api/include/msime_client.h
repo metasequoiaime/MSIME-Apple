@@ -23,6 +23,12 @@ typedef struct msime_client_key_event {
   bool ui_less;
 } msime_client_key_event;
 
+static inline bool msime_client_key_event_valid(const msime_client_key_event *event) {
+  return event != NULL && event->lease.client != 0 && event->lease.epoch != 0 &&
+         event->lease.token != 0 && event->virtual_key <= 0xff &&
+         (event->modifiers & ~UINT32_C(0x0f)) == 0;
+}
+
 /* ABI 1. All functions return owned, NUL-terminated UTF-8 JSON. Free exactly once
  * using msime_client_string_free, including error responses. Never use free().
  * Responses: {"ok":true,"value":...} or {"ok":false,"error":"..."}.
