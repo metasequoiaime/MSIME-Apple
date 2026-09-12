@@ -117,7 +117,13 @@ function isImeCommitKey(virtualKey: number) {
 }
 
 export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
-  const [activeLayout, setActiveLayout] = useState(layout);
+  const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null;
+    return saved === "nine_key" || saved === "twenty_six_key" ? saved : layout;
+  });
+  function switchLayout() {
+    setActiveLayout(value => { const next = value === "nine_key" ? "twenty_six_key" : "nine_key"; window.localStorage.setItem("msime.keyboard.layout", next); return next; });
+  }
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
@@ -175,7 +181,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
       onPointerUp={() => { pendingDrag.current = null; }}
       onPointerCancel={() => { pendingDrag.current = null; }}
       onPointerLeave={() => { pendingDrag.current = null; }}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={() => setActiveLayout(value => value === "nine_key" ? "twenty_six_key" : "nine_key")}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
