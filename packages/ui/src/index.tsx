@@ -3,6 +3,8 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
 import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
 import { candidateTextColor } from "./candidate-text-color";
+import { CandidateFontControls } from "./candidate-font-controls";
+import { validCandidateFonts } from "./candidate-font-family";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -98,6 +100,8 @@ export type Preferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
+  candidate_font_family?: string;
+  candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
   candidate_preedit_style?: "pinyin" | "empty";
   candidate_skin?: string;
@@ -366,7 +370,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
 
   async function save() {
-    if (!draft || !snapshot) return;
+    if (!draft || !snapshot || !validCandidateFonts(draft)) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const value = await client.save(snapshot.revision, draft);
@@ -579,6 +583,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
+        <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} />
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
@@ -910,7 +915,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
         <div className="section document-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
       </fieldset>
-      <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty}>{busy ? "处理中…" : "保存设置"}</button></footer>
+      {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
+      <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
     <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();

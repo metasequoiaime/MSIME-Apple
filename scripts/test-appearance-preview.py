@@ -1,5 +1,7 @@
 """Local synthetic settings UI regression; never loads a native host or user data."""
 import argparse
+import json
+from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
 parser = argparse.ArgumentParser()
@@ -37,6 +39,32 @@ def verify_text_color(page, preview, selected_white=False):
     expect(text).to_have_css("color", original)
     expect(number).to_have_css("color", original_number)
 
+def verify_font_families(page, preview):
+    page.get_by_label("候选窗主字体", exact=True).fill("缺字示例")
+    page.get_by_role("button", name="添加补充字体", exact=True).click()
+    page.get_by_label("补充字体 1", exact=True).fill("示例字体")
+    page.get_by_role("button", name="添加补充字体", exact=True).click()
+    page.get_by_label("补充字体 2", exact=True).fill("加倍示例")
+    def width():
+        return preview.locator(".candidate").evaluate("""el => {
+          const ctx = document.createElement('canvas').getContext('2d');
+          ctx.font = '20px ' + getComputedStyle(el).fontFamily;
+          return ctx.measureText('A').width;
+        }""")
+    assert abs(width() - 20) < .01
+    page.get_by_role("button", name="上移补充字体 2", exact=True).click()
+    assert abs(width() - 40) < .01
+    page.get_by_role("button", name="移除补充字体 1", exact=True).click()
+    assert abs(width() - 20) < .01
+    page.get_by_role("button", name="移除补充字体 1", exact=True).click()
+    text = preview.locator(".cand .text").first
+    original_color = text.evaluate("el => getComputedStyle(el).color")
+    page.get_by_label("候选窗主字体", exact=True).fill('示例";color:red;/*')
+    family = preview.locator(".candidate").evaluate("el => getComputedStyle(el).fontFamily")
+    assert family.endswith("sans-serif") and "color:red;" in family
+    expect(text).to_have_css("color", original_color)
+    page.get_by_label("候选窗主字体", exact=True).fill("Segoe UI")
+
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True, executable_path=args.executable)
     page = browser.new_page(viewport={"width": 1000, "height": 850})
@@ -45,6 +73,11 @@ with sync_playwright() as playwright:
         body='<html><head><link rel="stylesheet" href="/settings.css"></head><body><div id="root"></div></body></html>',
         content_type="text/html", headers={"Content-Security-Policy": args.csp}))
     page.goto(args.url + "/fixture")
+    page.evaluate("""async base64 => {
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
+      window.fixtureFonts = [new FontFace('缺字示例', bytes, {unicodeRange:'U+0042'}), new FontFace('示例字体', bytes), new FontFace('加倍示例', bytes, {sizeAdjust:'200%'})];
+      for (const face of window.fixtureFonts) { await face.load(); document.fonts.add(face); }
+    }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     page.evaluate("async () => { const {mount} = await import('/settings.js'); window.removeFixture = mount(); }")
     preview = page.get_by_role("region", name="候选窗口预览")
     expect(preview.locator(".cand")).to_have_count(6)
@@ -52,6 +85,7 @@ with sync_playwright() as playwright:
     expect(preview.locator(".pinyin")).to_have_css("font-size", "16px")
     verify_font_sizes(page, preview)
     verify_text_color(page, preview)
+    verify_font_families(page, preview)
     page.get_by_label("候选布局", exact=True).select_option("horizontal")
     page.get_by_label("候选字号", exact=True).select_option("20")
     page.get_by_label("每页候选数量", exact=True).select_option("9")
@@ -108,10 +142,12 @@ with sync_playwright() as playwright:
     expect(preview.locator(".wnd-h .cand")).to_have_count(6)
     verify_font_sizes(page, preview)
     verify_text_color(page, preview)
+    verify_font_families(page, preview)
     if args.screenshot:
         page.screenshot(path=args.screenshot)
     page.evaluate("window.removeFixture()")
+    page.evaluate("() => {for (const face of window.fixtureFonts) document.fonts.delete(face); delete window.fixtureFonts;}")
     expect(page.locator("#root")).to_be_empty()
     assert page.evaluate("document.adoptedStyleSheets.length") == 0
-    print({"appearanceDraftPreview": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
+    print({"appearanceDraftPreview": True, "fontFamilyFallbackOrder": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
     browser.close()

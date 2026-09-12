@@ -6,6 +6,7 @@ import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateTextStyle } from "./candidate-text-color";
+import { candidateFamilyStyle } from "./candidate-font-family";
 
 function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean;
@@ -25,6 +26,7 @@ function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   const geometry = {
     ...candidateFontStyle(preferences),
     ...candidateTextStyle(preferences.candidate_text_color),
+    ...candidateFamilyStyle(preferences),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
