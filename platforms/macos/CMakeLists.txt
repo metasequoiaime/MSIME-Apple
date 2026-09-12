@@ -290,6 +290,11 @@ add_executable(text-client-test tests/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
 add_test(NAME text-client COMMAND text-client-test)
+# Run explicitly with the directory matching desktop-dictionary.lock.json.
+# This resource-dependent integration test does not enable or trigger CI.
+add_executable(snapshot-activation-test tests/SnapshotActivationTest.mm)
+target_compile_options(snapshot-activation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(snapshot-activation-test PRIVATE apple-client)
 add_executable(string-conversion-test tests/StringConversionTest.mm StringConversion.mm)
 target_compile_options(string-conversion-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(string-conversion-test PRIVATE "-framework Foundation")

@@ -5,6 +5,11 @@ fn snapshot_module_is_present() {
 
 #[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
+    activation_case(false);
+    activation_case(true);
+}
+
+fn activation_case(nested_dictionaries: bool) {
     use super::*;
     use msime_engine_bridge::EngineOptions;
     use std::fs;
@@ -13,7 +18,12 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
     let root = tempfile::tempdir().unwrap();
     let active = root.path().join("active");
     let staged = root.path().join("staged");
-    for name in ["resources", "user", "cache", "dictionaries"] {
+    let dictionaries = if nested_dictionaries {
+        "user/dictionaries/generation"
+    } else {
+        "dictionaries"
+    };
+    for name in ["resources", "user", "cache", dictionaries] {
         fs::create_dir_all(active.join(name)).unwrap();
         fs::create_dir_all(staged.join(name)).unwrap();
         fs::write(active.join(name).join("marker"), b"old").unwrap();
@@ -23,7 +33,7 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
         resources: base.join("resources").to_str().unwrap().into(),
         user_data: base.join("user").to_str().unwrap().into(),
         cache: base.join("cache").to_str().unwrap().into(),
-        dictionaries: base.join("dictionaries").to_str().unwrap().into(),
+        dictionaries: base.join(dictionaries).to_str().unwrap().into(),
         scheme: 0,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
@@ -68,12 +78,12 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
     );
     let wrong = "0".repeat(64);
     assert!(activate(123, &wrong).is_err());
-    for name in ["user", "cache", "dictionaries"] {
+    for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     fs::remove_dir_all(staged.join("cache")).unwrap();
     assert!(activate(123, &expected).is_err());
-    for name in ["user", "cache", "dictionaries"] {
+    for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     fs::create_dir_all(staged.join("cache")).unwrap();
@@ -82,7 +92,7 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
         activate(123, &expected).unwrap(),
         serde_json::json!({"activated": true})
     );
-    for name in ["user", "cache", "dictionaries"] {
+    for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"new");
     }
     assert!(!registry().lock().unwrap().contains_key(&123));
