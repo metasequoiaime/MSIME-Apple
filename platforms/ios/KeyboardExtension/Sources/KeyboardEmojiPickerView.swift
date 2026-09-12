@@ -13,6 +13,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private let tabScroll = UIScrollView()
   private lazy var grid = UICollectionView(frame: .zero, collectionViewLayout: Self.makeLayout())
   private var tabButtons: [UIButton] = []
+  private var selectedSection = -1
   private let skin = KeyboardSkinPreference.selected
 
   init(onInsert: @escaping (String) -> Void, onDelete: @escaping () -> Void,
@@ -129,13 +130,25 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private func select(section: Int, scroll: Bool) {
+    // 滚动时每帧都会调到这里。Rewriting a button's configuration re-renders it, so ten of them per
+    // scroll callback is the same waste this panel was meant to avoid.
+    guard section != selectedSection else {
+      if scroll { scrollToSection(section) }
+      return
+    }
+    selectedSection = section
     for (index, tab) in tabButtons.enumerated() {
       let selected = index == section
       tab.configuration?.baseForegroundColor =
         selected ? skin.accent : skin.keyForeground.withAlphaComponent(0.6)
       tab.accessibilityTraits = selected ? [.button, .selected] : .button
     }
-    guard scroll, sections.indices.contains(section), !sections[section].emoji.isEmpty else { return }
+    guard scroll else { return }
+    scrollToSection(section)
+  }
+
+  private func scrollToSection(_ section: Int) {
+    guard sections.indices.contains(section), !sections[section].emoji.isEmpty else { return }
     grid.scrollToItem(at: IndexPath(item: 0, section: section), at: .top, animated: false)
   }
 

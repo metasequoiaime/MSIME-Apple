@@ -79,6 +79,8 @@ enum InputSchemePreference {
       // read of the name silently turned a nine-key keyboard into a 26-key one for good.
       let legacy: ChineseInputScheme = usesShuangpin ? .shuangpin : .quanpin
       let migrated = enabledSchemes.contains(legacy) ? legacy : enabledSchemes[0]
+      // 两个键一起写,和 setter 保持一致;只写一个会让它们从此各说各话。
+      defaults.set(migrated.shuangpinProfile != nil, forKey: key)
       defaults.set(migrated.rawValue, forKey: schemeKey)
       return migrated
     }

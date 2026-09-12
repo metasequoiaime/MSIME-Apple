@@ -27,8 +27,6 @@ struct KeyboardToolSection {
     case opens
     /// A switch that is independently on or off.
     case toggle
-    /// One of several, exactly one of which is current.
-    case choice
   }
 
   let title: String?
@@ -42,7 +40,6 @@ struct KeyboardToolSection {
     switch kind {
     case .opens: return nil
     case .toggle: return tool.selected ? "已开启" : "已关闭"
-    case .choice: return tool.selected ? "使用中" : "点击切换"
     }
   }
 }

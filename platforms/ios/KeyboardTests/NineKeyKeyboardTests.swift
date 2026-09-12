@@ -920,13 +920,14 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: rebuilt).superview).isHidden)
   }
 
-  func testSpellingStripIsReusedAndDoesNotRelayoutOnEveryKeystroke() throws {
-    // 九键每敲一下都会重建这条带子,并顺带把整块键盘重排一次;26 键没有这条带子,却同样吃了
-    // 那次重排。两边都因此变慢,九键更明显。
+  func testSpellingStripReusesItsButtonsBetweenKeystrokes() throws {
+    // 只有九键有这条带子,而它每敲一下都把整排按钮销毁重建,量出来是 13.76ms/键 对 26 键的 2ms。
     //
-    // Timing is not asserted here -- the shared CI simulator is too noisy for a millisecond
-    // budget -- so the contract is the one that made it slow: the buttons are reused rather than
-    // rebuilt, which is only true if nothing recreates them between keystrokes.
+    // The strip still lays the keyboard out again on every keystroke: making that conditional on
+    // the strip's own visibility broke the local input modes, which reach their layout through the
+    // same call. Reuse is the part that stands, so reuse is what this pins.
+    //
+    // Timing is not asserted -- the shared CI simulator is too noisy for a millisecond budget.
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
     defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
