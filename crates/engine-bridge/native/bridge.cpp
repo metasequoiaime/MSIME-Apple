@@ -228,7 +228,7 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, true, 0, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true};
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, true, "ziranma", true, true, 0, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true, true};
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
