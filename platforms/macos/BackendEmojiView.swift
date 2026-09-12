@@ -115,7 +115,7 @@ struct MacEmojiView: View {
         MacEmojiMainTabs(selected: .home, palette: palette, navigate: navigate)
       } else {
         HStack {
-          Button("返回首页") { navigate("home") }
+          MacEmojiBackButton(palette: palette) { navigate("home") }
           if emojiPage {
             MacEmojiCategoryTabs(tabs: MacEmojiCategoryIcons.emojiTabs(groupsCategory == category ? groups : []),
               selected: emojiSection.wrappedValue, palette: palette, select: { emojiSection.wrappedValue = $0 })
