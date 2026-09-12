@@ -33,6 +33,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
+/// Cache shared visibility without emitting a local-save notification.
+- (void)applySharedToolbarVisibility:(BOOL)enabled;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

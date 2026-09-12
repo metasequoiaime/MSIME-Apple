@@ -23,6 +23,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
+    NSNumber *_sharedToolbarEnabled;
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_schemeButton;
     NSPopUpButton *_profileButton;
@@ -125,8 +126,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (BOOL)chinesePunctuation { return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
-- (BOOL)floatingToolbarEnabled { return [_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]; }
-- (void)setFloatingToolbarEnabled:(BOOL)value { [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
+- (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
+- (void)setFloatingToolbarEnabled:(BOOL)value { _sharedToolbarEnabled = nil; [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
+- (void)applySharedToolbarVisibility:(BOOL)enabled { _sharedToolbarEnabled = @(enabled); [self refreshControls]; }
 - (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
 - (void)setShuangpinKeymap:(BOOL)value {
     [_defaults setBool:value forKey:KeymapKey];
