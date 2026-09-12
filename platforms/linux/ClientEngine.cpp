@@ -264,6 +264,7 @@ struct State {
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   std::string translation_dispatched_query;
+  std::string online_dispatched_query;
   void invalidate_providers() {
     if (online_delay_source) {
       const auto source = online_delay_source;
@@ -279,6 +280,7 @@ struct State {
     online_loading = false;
     translation_loading = false;
     translation_dispatched_query.clear();
+    online_dispatched_query.clear();
   }
   std::string surrounding_text;
   bool surrounding_utf16 = false;
@@ -1293,21 +1295,26 @@ void online_dispatch(IBusEngine *engine) {
             matches = false;
         }
         if (!matches) {
-          query["ai_eligible"] = false;
+          // Eligibility is part of Engine's response identity. Remove the
+          // provider configuration rather than changing that identity.
           query.erase("ai_assistant");
         }
       }
     }
-    if (!query.is_object() ||
-        (!s.cloud_candidates && !query.value("ai_eligible", false)) ||
-        (s.cloud_candidates &&
-         !(query.value("cloud_eligible", false) || query.value("ai_eligible", false))))
+    if (!query.is_object()) return;
+    const auto ai = query.value("ai_assistant", Json::object());
+    const bool ai_requested = query.value("ai_eligible", false) &&
+                              ai.is_object() && ai.value("enabled", false);
+    if (!(s.cloud_candidates && query.value("cloud_eligible", false)) && !ai_requested)
       return;
-    if (!s.private_input && query.value("ai_eligible", false) &&
-        query.contains("ai_assistant") && query["ai_assistant"].is_object() &&
-        query["ai_assistant"].value("enabled", false))
+    if (!s.private_input && ai_requested)
       query["ai_context"] = s.ai_context;
-    auto *task_data = new OnlineTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
+    const auto encoded = query.dump();
+    // Empty replies also redraw the page. Dispatch each input/configuration
+    // once instead of polling the same provider every idle interval.
+    if (encoded == s.online_dispatched_query) return;
+    s.online_dispatched_query = encoded;
+    auto *task_data = new OnlineTask{s.session, s.provider_epoch, encoded, s.online_provider_socket};
     s.online_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
     g_task_set_task_data(task, task_data, [](gpointer value) {
@@ -3068,6 +3075,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.cloud_candidates = enabled;
       s.invalidate_providers();
       publish_mode(engine);
+      if (enabled) online_schedule(engine);
       return;
     }
     if (property_name == "CandidateTranslations") {
