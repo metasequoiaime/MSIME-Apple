@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
@@ -7,14 +8,14 @@
 #include <string>
 
 int main(int argc, char **argv) {
-  if (argc != 2 || argv[1][0] != '/')
-    return 2;
+  const auto socket_path = msime_cli_provider_socket(
+      argc, argv, "MSIME_TRANSLATION_PROVIDER_SOCKET", "translation.sock");
+  if (socket_path.empty()) return 2;
   std::array<char, 16385> buffer;
   std::cin.read(buffer.data(), buffer.size());
   const auto length = static_cast<size_t>(std::cin.gcount());
   if (std::cin.bad() || length == 0 || length > 16384)
     return 2;
-  const std::string socket_path = argv[1];
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
       msime_client_translation_provider_request(
           reinterpret_cast<const uint8_t *>(buffer.data()), length,
