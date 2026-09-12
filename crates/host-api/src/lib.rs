@@ -1432,7 +1432,8 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
         Ok(UnixSocketProvider::new(path)
             .query_candidates(query)
             .map(|candidates| {
-                let rows: Vec<_> = candidates.into_iter()
+                let rows: Vec<_> = candidates
+                    .into_iter()
                     .map(|(text, source)| json!({"text": text, "source": source}))
                     .collect();
                 // Preserve the single-result fields for older CLI consumers.
