@@ -94,6 +94,21 @@ def post(config, body, content_type, timeout):
     return json.loads(raw)
 
 
+def normalize_voice_language(value):
+    if not isinstance(value, str) or len(value) > 64 or not value.isascii():
+        raise ValueError("invalid recognition language")
+    tag = value.strip().lower().replace("_", "-")
+    if tag in ("", "auto"):
+        return "auto"
+    parts = tag.split("-")
+    if (len(parts[0]) != 2 or not parts[0].isalpha()
+            or any(not 2 <= len(part) <= 8 or not part.isalnum() for part in parts[1:])):
+        raise ValueError("invalid recognition language")
+    # Keep the host's existing Chinese identifier; multipart APIs take the
+    # base ISO language rather than the locale used by desktop controls.
+    return "zh-cn" if parts[0] == "zh" else parts[0]
+
+
 def multipart(pcm, config, language):
     if config["provider"] == "siliconflow":
         pcm = b"\0" * (RATE * 2 // 5) + pcm + b"\0" * (RATE * 2 // 5)
@@ -108,8 +123,8 @@ def multipart(pcm, config, language):
         wav.writeframes(pcm)
     audio = buffer.getvalue()
     fields = [("model", config["model"])]
-    if config["provider"] != "siliconflow" and language in ("zh-cn", "en"):
-        fields.append(("language", "zh" if language == "zh-cn" else "en"))
+    if config["provider"] != "siliconflow" and language != "auto":
+        fields.append(("language", "zh" if language == "zh-cn" else language))
     while True:
         boundary = "----MSIMEVoice" + uuid.uuid4().hex
         if boundary.encode() not in audio and all(boundary not in v for _, v in fields):
@@ -125,7 +140,7 @@ def multipart(pcm, config, language):
 
 
 def transcribe(pcm, config, language, session):
-    body, content_type = multipart(pcm, config, language)
+    body, content_type = multipart(pcm, config, normalize_voice_language(language))
     for attempt in range(2 if config["provider"] == "siliconflow" else 1):
         if session.cancelled.is_set():
             return ""
@@ -496,8 +511,8 @@ class Handler(socketserver.StreamRequestHandler):
             if kind != "voice":
                 return
             options = query.get("options") or {}
-            language = query.get("language", "zh-cn")
-            if not isinstance(options, dict) or language not in ("zh-cn", "en", "auto", ""):
+            language = normalize_voice_language(query.get("language", "zh-cn"))
+            if not isinstance(options, dict):
                 self.send(generation, ok=False)
                 return
             if any(not isinstance(value, (bool, str)) for value in options.values()):
