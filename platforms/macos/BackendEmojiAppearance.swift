@@ -64,14 +64,14 @@ struct MacEmojiCellStyle: ButtonStyle {
     var body: some View {
       configuration.label
         .frame(maxWidth: .infinity, minHeight: 36)
-        .background(fill, in: RoundedRectangle(cornerRadius: 10))
+        .background(fill, in: RoundedRectangle(cornerRadius: 10 * 2 / 3))
         .overlay {
           if selected {
-            RoundedRectangle(cornerRadius: 10)
-              .strokeBorder(MacEmojiPalette.color(palette.background == 0xF7F7FA ? palette.accent : 0xF0F0F4), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 10 * 2 / 3)
+              .strokeBorder(MacEmojiPalette.color(palette.background == 0xF7F7FA ? palette.accent : 0xF0F0F4), lineWidth: 2 * 2 / 3)
           }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: 10 * 2 / 3))
         .onHover { hovered = $0 }
     }
     private var fill: Color {

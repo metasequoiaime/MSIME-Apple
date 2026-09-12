@@ -19,7 +19,7 @@ enum MacEmojiHomeNavigation {
     var row = 0
     for section in sections {
       let flow = section.category == "kaomoji"
-      let columns = 6
+      let columns = MacEmojiGridMetrics.columns
       for (index, item) in section.items.enumerated() {
         if flow && !flowCells.indices.contains(index) { continue }
         result.append(MacEmojiHomeEntry(
@@ -47,7 +47,8 @@ enum MacEmojiHomeNavigation {
       let current = entries[index]
       // Windows uses a flat six-cell stride outside flow-layout sections.
       guard current.key.category == "kaomoji" else {
-        return entries[max(0, min(entries.count - 1, index + (command == .up ? -6 : 6)))]
+        let stride = MacEmojiGridMetrics.columns
+        return entries[max(0, min(entries.count - 1, index + (command == .up ? -stride : stride)))]
       }
       // Preserve flow navigation's section boundary and nearest horizontal center.
       let nextRow = current.row + (command == .up ? -1 : 1)
