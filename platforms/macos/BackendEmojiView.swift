@@ -25,11 +25,10 @@ struct MacEmojiView: View {
   @State private var offset = 0
   @State private var selectedIndex = 0
   @State private var recent = MacEmojiRecents()
-  @State private var clipboardNotice = ""
+  @State private var toast = MacEmojiToastState()
   @State private var historyRevision = 0
   @State private var historyEnabled: Bool?
   @State private var enablingHistory = false
-  @State private var enableNotice = ""
   @ObservedObject private var clipboardService = MacClipboardService.shared
   @State private var deletingHistory = false
   @State private var deletionNotice = ""
@@ -43,17 +42,12 @@ struct MacEmojiView: View {
 
   private func copyItem(_ item: MacEmojiCatalogItem) {
     if category != "clipboard" { recent.recordSelection(item) }
-    if copyText(item.text) {
-      clipboardNotice = "已复制到剪贴板"
-    } else {
-      clipboardNotice = "无法访问剪贴板，请重试"
-    }
+    toast.copied(item.text, success: copyText(item.text))
   }
 
   private func enableHistory() {
     guard !enablingHistory else { return }
     enablingHistory = true
-    enableNotice = ""
     let directory = preferencesDirectory
     let requestedID = queryID
     Task {
@@ -62,10 +56,10 @@ struct MacEmojiView: View {
         try await Task.detached { try MacEmojiClipboardHistory.enable(directory: directory) }.value
         guard requestedID == queryID else { return }
         historyRevision += 1
-        enableNotice = "已开启共享历史设置，将采集之后的复制操作"
+        toast.show("剪贴板已开启")
       } catch {
         guard requestedID == queryID else { return }
-        enableNotice = "无法开启剪贴板历史，设置可能已变更，请重试"
+        toast.show("无法开启剪贴板")
       }
     }
   }
@@ -132,7 +126,6 @@ struct MacEmojiView: View {
             .buttonStyle(.borderedProminent).disabled(enablingHistory)
           Text("开启共享设置；已运行的桌面客户端可能按此设置保存复制的文本。").font(.caption)
         }
-        if !enableNotice.isEmpty { Text(enableNotice).font(.caption) }
         HStack {
           Text(clipboardService.status?.message ?? "正在检查剪贴板采集设置…").font(.caption)
           Spacer()
@@ -141,7 +134,6 @@ struct MacEmojiView: View {
         if !deletionNotice.isEmpty { Text(deletionNotice).font(.caption) }
       }
       if mediaPage == nil { Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
-      if !clipboardNotice.isEmpty { Text(clipboardNotice).font(.caption) }
       if selection.rejected {
         Text(MacEmojiSelectionState.failureMessage).font(.caption)
           .foregroundStyle(MacEmojiPalette.color(palette.text))
@@ -212,8 +204,14 @@ struct MacEmojiView: View {
       .foregroundStyle(MacEmojiPalette.color(palette.text))
       .tint(MacEmojiPalette.color(palette.accent))
       .preferredColorScheme(appearance.colorScheme)
+      .overlay { MacEmojiToastOverlay(message: toast.message, light: palette.background == 0xF7F7FA) }
+      .task(id: toast.generation) {
+        guard toast.message != nil else { return }
+        let generation = toast.generation
+        await MacEmojiToastState.expire(generation: generation) { toast.dismiss(ifGeneration: $0) }
+      }
       .onChange(of: search) { _ in offset = 0 }
-      .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; clipboardNotice = "" }
+      .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; toast.dismiss() }
       .onChange(of: parent) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
       .task(id: category) {
@@ -273,7 +271,6 @@ struct MacEmojiView: View {
             items = history?.matching(query) ?? []
             selectedIndex = selectedText.flatMap { text in items.firstIndex { $0.text == text } } ?? -1
             loadedQuery = requestedID
-            clipboardNotice = ""
             guard let history else {
               status = "剪贴板历史不可用，请检查共享存储配置"
               return

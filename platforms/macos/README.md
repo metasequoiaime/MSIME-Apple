@@ -74,10 +74,12 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 贴纸和 GIF 按固定 Windows 版本提供首页“更多”入口、主导航页及内容源未接入提示；该版本自身没有媒体内容源，本实现不新增第三方服务。进入这些页面保留搜索文字，使用通用搜索占位提示，不读取目录数据库，不显示分类、分页、键盘选项或插入按钮。首页入口在目录加载中或失败时仍可使用。首页测试覆盖页面标识、提示文字与浅色／深色原生提示渲染；实际安装后的导航和焦点仍需原生宿主验证。
 
+复制及开启剪贴板反馈采用固定 Windows 版本的底部胶囊提示：持续 1.6 秒，新操作重新计时，切换页面立即关闭，不占内容布局也不拦截点击。复制成功提示去除 CR/LF 后显示最多 24 个 UTF-16 单位的预览和省略号，截断时避免破坏代理对；失败提示不包含复制内容。字体、内边距、高度、底部距离及两种主题透明度按原版 2/3 比例绘制。提示测试使用合成文本及注入的等待函数，覆盖过期计时器隔离、取消、文本边界和原生渲染像素；不访问真实剪贴板，不代替安装后交互验证。
+
 表情首页、普通网格与颜文字流式布局同样提供独立的本地测试：
 
 ```sh
-cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build --parallel
+cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build --parallel
 ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 ```
 
