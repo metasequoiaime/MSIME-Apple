@@ -192,15 +192,19 @@ int wmain(int argc, wchar_t **argv) {
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color, "Segoe UI", {}, config.dark_theme,
         config.horizontal_candidates);
     const auto palette = resolve_palette(config);
-    candidates.set_palette(palette);
+    auto resolved_palette = palette;
+    if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
+        config.candidate_number_color != "none")
+      resolved_palette.number = parse_css_color(config.candidate_number_color, resolved_palette.number);
+    candidates.set_palette(resolved_palette);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    modes.set_palette(palette);
+    modes.set_palette(resolved_palette);
     bool toolbar_visible = config.floating_toolbar_enabled;
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    toolbar.set_palette(palette);
+    toolbar.set_palette(resolved_palette);
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
