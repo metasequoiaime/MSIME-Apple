@@ -1,7 +1,7 @@
 import Foundation
 
 enum MacEmojiMainPage: String, CaseIterable {
-  case home, emoji = "", kaomoji, symbols, sticker, gif, clipboard
+  case home, emoji = "", sticker, gif, kaomoji, symbols, clipboard
   var title: String {
     switch self {
     case .home: return "首页"

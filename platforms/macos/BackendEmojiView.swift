@@ -106,11 +106,7 @@ struct MacEmojiView: View {
     VStack(alignment: .leading, spacing: 12) {
       Text("表情与更多").font(.system(size: 12, weight: .semibold))
       if category == "home" {
-      Picker("目录", selection: Binding(get: { category }, set: navigate)) {
-        ForEach(MacEmojiMainPage.allCases, id: \.rawValue) { page in
-          Text(page.title).tag(page.rawValue)
-        }
-      }.pickerStyle(.segmented)
+        MacEmojiMainTabs(selected: .home, palette: palette, navigate: navigate)
       } else {
         HStack {
           Button("返回首页") { navigate("home") }

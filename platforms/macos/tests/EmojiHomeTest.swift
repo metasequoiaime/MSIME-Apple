@@ -7,7 +7,7 @@ import SwiftUI
     (0..<count).map { .init(text: "synthetic-\(group)-\($0)", annotation: "fixture", group: group) }
   }
   @MainActor static func main() throws {
-    assert(MacEmojiMainPage.allCases.map(\.rawValue) == ["home", "", "kaomoji", "symbols", "sticker", "gif", "clipboard"])
+    assert(MacEmojiMainPage.allCases.map(\.rawValue) == ["home", "", "sticker", "gif", "kaomoji", "symbols", "clipboard"])
     for page in MacEmojiMainPage.allCases {
       assert(page.destination(hasRecents: false) == page.rawValue)
       assert(page.destination(hasRecents: true) == (page == .emoji ? "recent" : page.rawValue))
