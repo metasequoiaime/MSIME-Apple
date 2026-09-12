@@ -291,6 +291,18 @@ int main(int argc, char **argv) {
     phrase();
     require(!seen.english_mode && seen.preedit == "nihao",
             "Reloaded mode shortcut did not open Chinese input");
+    live_preferences["ime_mode_scope"] = "global";
+    save_live_preferences(3);
+    const auto scope_deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+    while (seen.input_enabled && g_get_monotonic_time() < scope_deadline) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
+    require(!seen.input_enabled && seen.committed == "nihao",
+            "Global mode synchronization did not finish the reading string");
+    require(!key('n') && !seen.preedit_visible && !seen.lookup_visible,
+            "Preference refresh restored composition after switching to passthrough");
+    seen.committed.clear();
     invoke("Reset");
     for (const auto *scope : {"app", "global"}) {
       ibus_object_destroy(IBUS_OBJECT(engine));

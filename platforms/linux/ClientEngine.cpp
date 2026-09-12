@@ -4368,10 +4368,12 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   s.applied_preferences_snapshot = preferences;
   s.refresh_host_preferences(preferences);
   s.applied_display_generation = configuration_generation;
+  // Subsequent mode synchronization or voice cancellation may replace this
+  // view. Do not restore the pre-transition snapshot after those actions.
+  s.view = updated.at("view");
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
     voice_cancel(engine);
-  s.view = updated.at("view");
   if (s.translation_reset_pending)
     clear_candidate_translations(engine);
   render(engine, s.view);
