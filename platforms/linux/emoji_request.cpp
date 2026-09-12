@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "LocalResourcePaths.h"
+#include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
@@ -10,7 +11,7 @@
 std::string local_resources(int argc, char **argv, bool *local) {
   *local = argc >= 2 && std::string(argv[1]) == "--local";
   if (!*local)
-    return argc == 2 ? argv[1] : std::string{};
+    return msime_cli_provider_socket(argc, argv, "MSIME_EMOJI_PROVIDER_SOCKET", "emoji.sock");
   if (argc == 3)
     return argv[2];
   if (argc != 2)
@@ -21,7 +22,7 @@ std::string local_resources(int argc, char **argv, bool *local) {
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-emoji [--local [resources]] <socket-or-resources>\n";
+    std::cout << "Usage: msime-client-emoji [provider-socket] | --local [resources]\n";
     return 0;
   }
   bool local = false;

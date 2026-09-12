@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "LocalResourcePaths.h"
+#include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
@@ -9,16 +10,15 @@
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-handwriting [--local [model]] <provider-socket>\n";
+    std::cout << "Usage: msime-client-handwriting [provider-socket] | --local [model]\n";
     return 0;
   }
   const bool local = argc >= 2 && std::string(argv[1]) == "--local";
-  const bool provider = !local && argc == 2;
-  if ((!local && !provider) || (provider && argv[1][0] != '/'))
+  if (local && argc > 3)
     return 2;
   const std::string endpoint = local
       ? (argc == 3 ? argv[2] : msime_linux::local_resource("MSIME_HANDWRITING_MODEL", "msime-client/handwriting/handwriting-zh_CN.model"))
-      : argv[1];
+      : msime_cli_provider_socket(argc, argv, "MSIME_HANDWRITING_PROVIDER_SOCKET", "handwriting.sock");
   if (endpoint.empty() || endpoint[0] != '/')
     return 2;
   std::array<char, 262145> buffer;

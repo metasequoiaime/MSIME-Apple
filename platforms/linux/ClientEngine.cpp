@@ -474,24 +474,18 @@ struct State {
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
   }
   bool refresh_provider_sockets() {
-    auto configured_socket = [](const Json &options, const char *key,
-                                const char *environment) {
-      auto socket = options.value(key, std::string{});
-      if (socket.empty()) {
-        if (const auto *fallback = g_getenv(environment))
-          socket = fallback;
-      }
-      return socket;
-    };
-    const auto online = configured_socket(
-        configured, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET");
+    const auto online = provider_socket_fallback(
+        configured, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     const auto translation = [&] {
-      auto socket = configured_socket(configured, "translation_provider_socket",
-                                      "MSIME_TRANSLATION_PROVIDER_SOCKET");
+      auto socket = configured.value("translation_provider_socket", std::string{});
+      if (socket.empty()) {
+        if (const auto *value = g_getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
+          socket = value;
+      }
       return socket.empty() ? online : socket;
     }();
-    const auto voice = configured_socket(
-        configured, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET");
+    const auto voice = provider_socket_fallback(
+        configured, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const bool voice_changed = voice != voice_provider_socket;
     if (online != online_provider_socket ||
         translation != translation_provider_socket)
