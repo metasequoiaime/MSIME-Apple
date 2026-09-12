@@ -23,6 +23,29 @@ test("titlebar sits above the shared sidebar and content body", async () => {
   expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
 });
 
+test("Android fuzzy-pinyin settings preserve rules while disabled and reset explicitly", async () => {
+  const save = vi.fn().mockResolvedValue(initial);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const enabled = screen.getByRole("checkbox", { name: "启用模糊音" }) as HTMLInputElement;
+  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(false);
+  expect(rule.disabled).toBe(true);
+  fireEvent.click(enabled);
+  fireEvent.click(rule);
+  expect(rule.checked).toBe(true);
+  fireEvent.click(enabled);
+  expect(rule.checked).toBe(true);
+  expect(rule.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
+  expect(confirm).toHaveBeenCalledWith("关闭模糊音并清空所有规则？");
+  expect(enabled.checked).toBe(false);
+  expect(rule.checked).toBe(false);
+  confirm.mockRestore();
+});
+
 test("window SVGs follow host state and retain accessible controls", async () => {
   let publish: (maximized: boolean) => void = () => {};
   const windowControl = vi.fn().mockResolvedValue(undefined);
