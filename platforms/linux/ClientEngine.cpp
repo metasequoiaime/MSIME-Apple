@@ -62,6 +62,7 @@ struct State {
   std::optional<bool> english_override;
   std::optional<bool> dedicated_english_override;
   std::optional<bool> cloud_candidates_override;
+  std::optional<bool> candidate_translations_override;
   std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
@@ -126,6 +127,7 @@ struct State {
   bool clipboard_loading = false, clipboard_loaded = false;
   bool online_loading = false, translation_loading = false;
   bool cloud_candidates = true;
+  bool candidate_translations = true;
   uint64_t provider_epoch = 0;
   void invalidate_providers() {
     ++provider_epoch;
@@ -276,6 +278,8 @@ struct State {
         preferences.value("traditional_chinese_output", false));
     cloud_candidates = cloud_candidates_override.value_or(
         preferences.value("cloud_candidates", true));
+    candidate_translations = candidate_translations_override.value_or(
+        preferences.value("candidate_translations", true));
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -370,6 +374,11 @@ struct State {
     if (next_cloud_candidates != cloud_candidates)
       invalidate_providers();
     cloud_candidates = next_cloud_candidates;
+    const bool next_candidate_translations = candidate_translations_override.value_or(
+        preferences.value("candidate_translations", true));
+    if (next_candidate_translations != candidate_translations)
+      invalidate_providers();
+    candidate_translations = next_candidate_translations;
     auto display_preferences = preferences;
     if (layout_override)
       display_preferences["candidate_layout"] = *layout_override;
@@ -860,7 +869,8 @@ bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded
 }
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
-  if (s.translation_provider_socket.empty() || s.translation_loading || !s.session ||
+  if (!s.candidate_translations || s.translation_provider_socket.empty() ||
+      s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled ||
       !s.view.value("candidates", Json::array()).size())
     return;
@@ -1198,6 +1208,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled && s.session &&
           !s.online_provider_socket.empty(),
       TRUE, s.cloud_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto translations = ibus_property_new(
+      "CandidateTranslations", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("候选翻译"), "",
+      ibus_text_new_from_static_string("通过用户管理的 provider 请求候选翻译"),
+      s.focused && !s.blocked && s.input_enabled && s.session &&
+          !s.translation_provider_socket.empty(),
+      TRUE, s.candidate_translations ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
@@ -1604,6 +1622,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, cloud);
+    ibus_prop_list_append(properties, translations);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, smart_repeat);
@@ -1640,6 +1659,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, cloud);
+    ibus_engine_update_property(engine, translations);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
@@ -2292,6 +2312,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "InputMode" &&
        std::string(name) != "VoiceInput" &&
        std::string(name) != "CloudCandidates" &&
+       std::string(name) != "CandidateTranslations" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "SmartPunctuationRepeat" &&
@@ -2350,6 +2371,18 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.cloud_candidates = enabled;
       s.invalidate_providers();
       publish_mode(engine);
+      return;
+    }
+    if (property_name == "CandidateTranslations") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.candidate_translations)
+        return;
+      s.candidate_translations_override = enabled;
+      s.candidate_translations = enabled;
+      s.invalidate_providers();
+      publish_mode(engine);
+      if (enabled)
+        translation_schedule(engine);
       return;
     }
     if (property_name == "NumberRowSelection") {
