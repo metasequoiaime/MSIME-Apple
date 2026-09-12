@@ -313,7 +313,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
     grid.translatesAutoresizingMaskIntoConstraints = NO;
-    [window.contentView addSubview:grid];
+    NSScrollView *settingsScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    settingsScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    settingsScroll.hasVerticalScroller = YES;
+    settingsScroll.drawsBackground = NO;
+    settingsScroll.documentView = grid;
+    [window.contentView addSubview:settingsScroll];
     _preview = [[MSIMECandidatePreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 190)];
     _preview.preferences = self;
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
@@ -330,9 +335,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     showcase.translatesAutoresizingMaskIntoConstraints = NO;
     [window.contentView addSubview:showcase];
     [NSLayoutConstraint activateConstraints:@[
-        [grid.centerXAnchor constraintEqualToAnchor:window.contentView.centerXAnchor],
-        [grid.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:20],
-        [scroll.topAnchor constraintEqualToAnchor:grid.bottomAnchor constant:20],
+        [settingsScroll.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20],
+        [settingsScroll.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20],
+        [settingsScroll.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:20],
+        [settingsScroll.heightAnchor constraintEqualToConstant:400],
+        [grid.centerXAnchor constraintEqualToAnchor:settingsScroll.contentView.centerXAnchor],
+        [grid.topAnchor constraintEqualToAnchor:settingsScroll.contentView.topAnchor],
+        [scroll.topAnchor constraintEqualToAnchor:settingsScroll.bottomAnchor constant:20],
         [scroll.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20],
         [scroll.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20],
         [scroll.bottomAnchor constraintEqualToAnchor:_themeButton.topAnchor constant:-12],

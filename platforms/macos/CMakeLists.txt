@@ -319,7 +319,7 @@ target_compile_options(dictionary-runtime-test PRIVATE -fobjc-arc -Wall -Wextra 
 target_include_directories(dictionary-runtime-test PRIVATE ../../shared/apple ../../crates/host-api/include)
 target_link_libraries(dictionary-runtime-test PRIVATE apple-client "-framework Foundation")
 add_test(NAME dictionary-runtime COMMAND dictionary-runtime-test)
-add_executable(skin-preview-test tests/SkinPreviewTest.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm)
+add_executable(skin-preview-test tests/SkinPreviewTest.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm PreferencesWindowController.mm CandidateSkinAppearance.mm)
 target_include_directories(skin-preview-test PRIVATE .)
 target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit")

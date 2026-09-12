@@ -34,7 +34,8 @@ int main(int argc, const char **argv) {
         assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] shuangpinPreeditUsesRaw]);
         preferences.shuangpinPreeditUsesRaw = YES;
         NSWindow *window = preferences.window;
-        NSGridView *grid = (id)window.contentView.subviews[0];
+        NSScrollView *settingsScroll = (id)window.contentView.subviews[0];
+        NSGridView *grid = (id)settingsScroll.documentView;
         NSScrollView *scroll = (id)window.contentView.subviews[1];
         MSIMECandidatePreviewView *preview = (id)scroll.documentView;
         NSButton *theme = (id)window.contentView.subviews[2];
@@ -43,6 +44,23 @@ int main(int argc, const char **argv) {
         [window.contentView layoutSubtreeIfNeeded];
         assert(!grid.hasAmbiguousLayout && !scroll.hasAmbiguousLayout && !preview.hasAmbiguousLayout);
         assert(scroll.frame.size.height > 200 && preview.frame.size.width > 500);
+        assert(grid.frame.size.height > settingsScroll.contentView.bounds.size.height);
+        NSView *lastControl = [grid cellAtColumnIndex:1 rowIndex:grid.numberOfRows - 1].contentView;
+        [lastControl scrollRectToVisible:lastControl.bounds];
+        assert(NSContainsRect(grid.visibleRect, lastControl.frame));
+        // Restore the initial input settings after checking that the form can scroll.
+        NSView *firstControl = [grid cellAtColumnIndex:1 rowIndex:0].contentView;
+        [firstControl scrollRectToVisible:firstControl.bounds];
+        assert(NSContainsRect(grid.visibleRect, firstControl.frame));
+        NSPopUpButton *preedit = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+        assert(preedit.indexOfSelectedItem == 1);
+        [preedit selectItemAtIndex:0];
+        [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+        assert(!preferences.shuangpinPreeditUsesRaw);
+        assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@NO]);
+        [preedit selectItemAtIndex:1];
+        [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+        assert(preferences.shuangpinPreeditUsesRaw);
         assert([preview.accessibilityLabel isEqual:@"候选窗口预览"]);
         __block NSUInteger notifications = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
@@ -71,7 +89,12 @@ int main(int argc, const char **argv) {
             }
         }
         // Real layout control updates the preview, without a separate preview-specific setting.
-        NSPopUpButton *layout = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
+        NSPopUpButton *layout = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
+        }
+        assert(layout);
         [layout selectItemAtIndex:0];
         [NSApp sendAction:layout.action to:layout.target from:layout];
         CGFloat horizontal = preview.previewContentHeight;
