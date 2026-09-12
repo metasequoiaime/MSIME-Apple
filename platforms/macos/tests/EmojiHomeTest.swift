@@ -64,6 +64,14 @@ import SwiftUI
     ]
     let flowCells = (0..<7).map { MacEmojiFlowCell(rect: CGRect(x: ($0 % 5) * 60, y: ($0 / 5) * 60, width: 50, height: 56), row: $0 / 5, fontSize: 12) }
     let entries = MacEmojiHomeNavigation.entries(navigationSections, flowCells: flowCells)
+    let duplicates = MacEmojiHomeSection(title: "fixture", category: "", items: Array(repeating: items("duplicate", 1)[0], count: 3))
+    let duplicateEntries = MacEmojiHomeNavigation.entries([duplicates], flowCells: [])
+    assert(Set(duplicateEntries.map(\.key)).count == 3)
+    assert(duplicateEntries.map { $0.key.occurrence } == [0, 1, 2])
+    for index in 0..<3 {
+      assert(duplicateEntries[index].key == MacEmojiHomeNavigation.key(category: "", items: duplicates.items, index: index))
+    }
+    assert(MacEmojiHomeNavigation.destination(.right, selected: duplicateEntries[1].key, entries: duplicateEntries)?.key == duplicateEntries[2].key)
     assert(entries.count == 15 && entries[8].row == 2 && entries[13].row == 3)
     let initial = MacEmojiHomeNavigation.selection(nil, sections: navigationSections)
     assert(initial == entries[0].key)

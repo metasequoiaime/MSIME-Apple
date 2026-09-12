@@ -20,6 +20,36 @@ import Foundation
     assert(result.first == result.last) // Valid duplicates are not removed at batch boundaries.
     let empty = try MacEmojiCatalogCursor.collect(revision: { 0 }, page: { _, _ in page(0, 0, true) })
     assert(empty.isEmpty)
+    var prefixOffsets: [Int] = []
+    let prefix = try MacEmojiCatalogCursor.collect(maximumItems: 3, revision: { 0 }) { offset, limit in
+      prefixOffsets.append(offset)
+      switch offset {
+      case 0: assert(limit == 3); return page(0, 3, false)
+      case 3: assert(limit == 3); return page(1, 6, false)
+      case 6: assert(limit == 2); return page(2, 8, false)
+      default: fatalError("Preview read beyond enough valid items")
+      }
+    }
+    assert(prefixOffsets == [0, 3, 6] && prefix.count == 3 && prefix.first == prefix.last)
+    let short = try MacEmojiCatalogCursor.collect(maximumItems: 18, revision: { 0 }) { _, limit in
+      assert(limit == 18); return page(1, 2, true)
+    }
+    assert(short.count == 1)
+    for limit in [0, -1] {
+      do {
+        _ = try MacEmojiCatalogCursor.collect(maximumItems: limit, revision: { 0 }) { _, _ in
+          fatalError("Invalid preview limit invoked page")
+        }
+        assertionFailure("Invalid preview limit accepted")
+      } catch { }
+    }
+    var previewRevision = 0
+    do {
+      _ = try MacEmojiCatalogCursor.collect(maximumItems: 1, revision: { previewRevision }) { _, _ in
+        previewRevision += 1; return page(1, 1, false)
+      }
+      assertionFailure("Preview quota bypassed revision guard")
+    } catch { }
     let malformed: [NSDictionary] = [
       ["items": []], ["items": [], "next_offset": true, "complete": true],
       ["items": [], "next_offset": -1, "complete": true],

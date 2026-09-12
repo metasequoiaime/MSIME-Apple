@@ -27,21 +27,24 @@ enum MacEmojiCatalogCursor {
     return .init(items: items, nextOffset: nextOffset, complete: complete.boolValue)
   }
 
-  /// Only publish after explicit EOF. An empty batch can still advance the cursor.
-  static func collect<Revision: Equatable>(revision: () throws -> Revision,
+  /// Full catalogs require EOF; previews may stop after enough valid items.
+  /// Empty scanned batches never imply EOF.
+  static func collect<Revision: Equatable>(maximumItems: Int? = nil, revision: () throws -> Revision,
     page: (Int, Int) throws -> NSDictionary) throws -> [MacEmojiCatalogItem] {
     try Task.checkCancellation()
+    if let maximumItems, maximumItems <= 0 { throw invalid() }
     let initial = try revision()
     var offset = 0
     var items: [MacEmojiCatalogItem] = []
     while true {
       try Task.checkCancellation()
       guard try revision() == initial else { throw invalid() }
-      let slice = try decode(page(offset, batchSize), offset: offset, limit: batchSize)
+      let limit = maximumItems.map { min(batchSize, $0 - items.count) } ?? batchSize
+      let slice = try decode(page(offset, limit), offset: offset, limit: limit)
       try Task.checkCancellation()
       guard try revision() == initial else { throw invalid() }
       items.append(contentsOf: slice.items)
-      if slice.complete { return items }
+      if slice.complete || items.count == maximumItems { return items }
       offset = slice.nextOffset
     }
   }
@@ -75,7 +78,16 @@ struct MacEmojiCatalogRevision: Equatable {
 
 extension MacEmojiCatalog {
   static func loadAll(resources: String, search: String, category: String, group: String, parent: String) throws -> [MacEmojiCatalogItem] {
-    try MacEmojiCatalogCursor.collect(revision: { try MacEmojiCatalogRevision.capture(resources: resources) }) { offset, limit in
+    try loadCursor(resources: resources, search: search, category: category, group: group, parent: parent, maximumItems: nil)
+  }
+
+  static func loadPrefix(resources: String, search: String, category: String, group: String = "", limit: Int) throws -> [MacEmojiCatalogItem] {
+    try loadCursor(resources: resources, search: search, category: category, group: group, parent: "", maximumItems: limit)
+  }
+
+  private static func loadCursor(resources: String, search: String, category: String, group: String, parent: String,
+    maximumItems: Int?) throws -> [MacEmojiCatalogItem] {
+    try MacEmojiCatalogCursor.collect(maximumItems: maximumItems, revision: { try MacEmojiCatalogRevision.capture(resources: resources) }) { offset, limit in
       try request(resources: resources, parameters: ["cursor": true, "search": search, "category": category,
         "group": group, "parent": parent, "offset": offset, "limit": limit])
     }
