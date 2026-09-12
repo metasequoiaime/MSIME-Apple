@@ -24,6 +24,7 @@ using Json = nlohmann::json;
 struct MsimePreviewEngine;
 namespace {
 Json configured;
+std::optional<bool> global_input_enabled;
 void register_properties(IBusEngine *engine);
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
@@ -54,6 +55,7 @@ struct State {
   guint preferences_timer = 0;
   bool preferences_loading = false;
   bool input_enabled = true;
+  bool mode_scope_global = false;
   bool chinese_punctuation = true;
   bool properties_registered = false;
   std::optional<bool> english_override;
@@ -156,9 +158,19 @@ struct State {
     smart_punctuation_rejected = 0;
   }
   void open() {
+    auto options = configured;
+    auto &base_preferences = options["preferences"];
+    mode_scope_global =
+        base_preferences.value("ime_mode_scope", "app") == "global";
+    if (mode_scope_global) {
+      if (!global_input_enabled)
+        global_input_enabled =
+            base_preferences.value("default_ime_mode", "chinese") != "english";
+      if (!session)
+        input_enabled = *global_input_enabled;
+    }
     if (session || blocked || !focused || !input_enabled)
       return;
-    auto options = configured;
     number_row_selection = number_row_override.value_or(
         options.value("preferences", Json::object()).value("number_row_selection", true));
     auto &preferences = options["preferences"];
@@ -264,6 +276,14 @@ struct State {
       word_character.enabled = *word_character_override;
   }
   void refresh_host_preferences(const Json &preferences) {
+    mode_scope_global = preferences.value("ime_mode_scope", "app") == "global";
+    if (mode_scope_global) {
+      if (!global_input_enabled)
+        global_input_enabled =
+            preferences.value("default_ime_mode", "chinese") != "english";
+      if (!session)
+        input_enabled = *global_input_enabled;
+    }
     navigation = msime::linux_host::NavigationBindings::read(preferences);
     word_character = msime::linux_host::WordCharacterBinding::read(preferences);
     if (word_character_override)
@@ -435,6 +455,7 @@ bool clipboard_remove_index(const std::string &path, size_t index) {
 }
 State &state(IBusEngine *engine);
 void publish_mode(IBusEngine *engine, bool registration = false);
+void sync_global_input_mode(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
@@ -1336,6 +1357,21 @@ void clear(IBusEngine *engine) {
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
 }
+void sync_global_input_mode(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.mode_scope_global || !global_input_enabled ||
+      s.input_enabled == *global_input_enabled)
+    return;
+  s.invalidate_providers();
+  if (!*global_input_enabled && s.session)
+    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+  s.input_enabled = *global_input_enabled;
+  s.open();
+  if (s.session)
+    apply(engine, msime_client_focus(s.session, s.input_enabled));
+  clear(engine);
+  publish_mode(engine);
+}
 [[maybe_unused]] void publish_input_enabled(IBusEngine *engine, bool enabled) {
   auto property = ibus_property_new(
       "InputEnabled", PROP_TYPE_TOGGLE,
@@ -1677,8 +1713,9 @@ void focus_in(IBusEngine *engine) {
     auto &s = state(engine);
     s.focused = true;
     s.open();
+    sync_global_input_mode(engine);
     if (s.session)
-      apply(engine, msime_client_focus(s.session, true));
+      apply(engine, msime_client_focus(s.session, s.input_enabled));
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
@@ -2207,6 +2244,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (!enabled && s.session)
         apply(engine,
               msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      if (s.mode_scope_global)
+        global_input_enabled = enabled;
       s.input_enabled = enabled;
       s.open();
       if (s.session)
@@ -2265,6 +2304,8 @@ void toggle_input_mode(IBusEngine *engine) {
   if (!s.input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
   s.input_enabled = !s.input_enabled;
+  if (s.mode_scope_global)
+    global_input_enabled = s.input_enabled;
   s.open();
   if (s.session)
     apply(engine, msime_client_focus(s.session, s.input_enabled));
@@ -2711,6 +2752,7 @@ gboolean reload_preferences(gpointer data) {
                                return;
                              s.apply_session_overrides(snapshot);
                              s.refresh_host_preferences(snapshot.at("preferences"));
+                             sync_global_input_mode(IBUS_ENGINE(source));
                              if (s.voice_active && !s.voice_enabled)
                                voice_cancel(IBUS_ENGINE(source));
                              const auto encoded = snapshot.dump();

@@ -35,6 +35,14 @@ pub enum DefaultImeMode {
     English,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ImeModeScope {
+    #[default]
+    App,
+    Global,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChineseScheme {
@@ -70,6 +78,8 @@ pub enum TranslationTargetLanguage {
 pub struct Preferences {
     #[serde(default)]
     pub default_ime_mode: DefaultImeMode,
+    #[serde(default)]
+    pub ime_mode_scope: ImeModeScope,
     #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
@@ -593,6 +603,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             default_ime_mode: DefaultImeMode::default(),
+            ime_mode_scope: ImeModeScope::default(),
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             voice_input: VoiceInputPreferences::default(),

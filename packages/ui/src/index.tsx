@@ -86,6 +86,7 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_voice_shortcut?: boolean;
   default_ime_mode?: "chinese" | "english";
+  ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
@@ -627,6 +628,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
+        {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>应用范围只影响当前输入上下文；全局范围在 Linux 输入法会话之间保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
         <div className="section" role="group" aria-labelledby="input-mode-title">
           <div className="section-title" id="input-mode-title">输入模式</div>
           <div className="input-setting-description">切换中文或日文输入，并保留各模式上次选择的方案</div>
