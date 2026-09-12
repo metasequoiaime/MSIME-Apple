@@ -65,6 +65,54 @@ fn helpcode_display_toggle_keeps_candidates_and_filtering_enabled() {
     }
 }
 
+#[test]
+fn hiding_helpcode_restores_correction_annotations() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    Connection::open(Path::new(&options.resources).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_2_s VALUES('shang''hao','sh','上好',100);",
+        )
+        .unwrap();
+    let helpcodes = Path::new(&options.resources).join("helpcodes");
+    std::fs::create_dir_all(&helpcodes).unwrap();
+    std::fs::write(
+        helpcodes.join("zrm_helpcode_big_unique.txt"),
+        "上=ab\n好=cd\n",
+    )
+    .unwrap();
+    options.helpcode = true;
+    options = stage(
+        &options,
+        &root.path().join("correction-fixture"),
+        Vec::new(),
+    )
+    .unwrap();
+    for visible in [true, false, true] {
+        options.show_helpcode = visible;
+        let mut session = Session::new(&options).unwrap();
+        // Same transposition used by the pinned Engine's pinyin correction tests.
+        for ch in b"sahnghao" {
+            session.character(*ch, false).unwrap();
+        }
+        let view = session.snapshot().unwrap();
+        let index = view
+            .candidates
+            .iter()
+            .position(|text| text == "上好")
+            .unwrap();
+        let annotation = &view.candidate_annotations[index];
+        if visible {
+            assert!(!annotation.is_empty());
+            assert_ne!(annotation, "sahnghao");
+        } else {
+            assert_eq!(annotation, "sahnghao");
+        }
+    }
+}
+
 fn records() -> Vec<DictionaryStateRecord> {
     use DictionaryStateRecord::*;
     vec![
