@@ -245,10 +245,15 @@ def translations(query, server):
             return []
         # Keep credentials out of cache keys and separate caches when they change.
         provider = (endpoint, hashlib.sha256(token.encode()).digest())
-    elif server.tencent_config:
-        provider = ("tencent",)
     else:
-        return []
+        # Each request keeps one credential snapshot, including both directions.
+        # A removed or invalid file disables Tencent until a valid file is restored.
+        path = server.tencent_config_path
+        tencent_config = safely(load_tencent_config, path) if path else None
+        if not tencent_config:
+            return []
+        scope = json.dumps(tencent_config, sort_keys=True, separators=(",", ":")).encode()
+        provider = ("tencent", hashlib.sha256(scope).digest())
     deadline = time.monotonic() + 6
     found = {}
     groups = {}
@@ -272,7 +277,7 @@ def translations(query, server):
                               if remaining > 0 else None)
         else:
             remaining = min(2.5, deadline - time.monotonic())
-            values = safely(tencent_translation, server.tencent_config, pending, source, destination, remaining) if remaining > 0 else None
+            values = safely(tencent_translation, tencent_config, pending, source, destination, remaining) if remaining > 0 else None
             values = values or [None] * len(pending)
         with server.translation_lock:
             for text, value in zip(pending, values):
@@ -349,7 +354,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         pass
 
 
-def load_ai_config(path):
+def load_private_config(path):
     descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     with os.fdopen(descriptor, "rb") as source:
         info = os.fstat(source.fileno())
@@ -363,7 +368,28 @@ def load_ai_config(path):
             raise ValueError("invalid private configuration")
     config = json.loads(raw.decode("utf-8"))
     if not isinstance(config, dict):
-        raise ValueError("invalid AI configuration")
+        raise ValueError("invalid private configuration")
+    return config
+
+
+def load_tencent_config(path):
+    config = load_private_config(path)
+    for key in ("secret_id", "secret_key"):
+        value = config.get(key)
+        if (not isinstance(value, str) or not value.strip() or
+            any(ord(c) < 33 or ord(c) > 126 for c in value) or
+            value.startswith(("FAKESECRET_", "<"))):
+            raise ValueError("invalid Tencent credential")
+    region = config.get("region", "")
+    if (not isinstance(region, str) or len(region) > 64 or
+        any(c not in string.ascii_lowercase + string.digits + "-" for c in region)):
+        raise ValueError("invalid Tencent region")
+    return {"secret_id": config["secret_id"], "secret_key": config["secret_key"],
+            "region": region or "ap-guangzhou"}
+
+
+def load_ai_config(path):
+    config = load_private_config(path)
     profiles = config.get("profiles", {})
     if not isinstance(profiles, dict) or len(profiles) > 16:
         raise ValueError("invalid AI profiles")
@@ -401,23 +427,9 @@ def main():
             load_ai_config(args.ai_config)
         except Exception:
             parser.error("AI configuration must be valid owner-only JSON")
-    tencent_config = {}
     if args.tencent_config:
         try:
-            info = args.tencent_config.stat()
-            if (info.st_uid != os.getuid() or info.st_mode & 0o077 or
-                not stat.S_ISREG(info.st_mode) or info.st_size > 16384):
-                raise ValueError()
-            tencent_config = json.loads(args.tencent_config.read_text())
-            for key in ("secret_id", "secret_key"):
-                value = tencent_config[key]
-                if (not isinstance(value, str) or not value.strip() or
-                    any(ord(c) < 33 or ord(c) > 126 for c in value) or
-                    value.startswith(("FAKESECRET_", "<"))):
-                    raise ValueError()
-            region = tencent_config.get("region", "")
-            if not isinstance(region, str) or any(c not in string.ascii_lowercase + string.digits + "-" for c in region):
-                raise ValueError()
+            load_tencent_config(args.tencent_config)
         except Exception:
             parser.error("Tencent configuration must be valid owner-only JSON")
     try:
@@ -438,7 +450,7 @@ def main():
         os.close(service_lock)
         raise
     server.ai_config_path = args.ai_config.absolute() if args.ai_config else None
-    server.tencent_config = tencent_config
+    server.tencent_config_path = args.tencent_config.absolute() if args.tencent_config else None
     server.translation_cache = {}
     server.translation_lock = threading.Lock()
     identity = args.socket.stat()
