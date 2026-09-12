@@ -2977,6 +2977,7 @@ void focus_in(IBusEngine *engine) {
     // Host shortcuts and presentation also apply before a runtime is needed.
     s.refresh_host_preferences(configured.at("preferences"));
     s.open();
+    s.key_router.set_lease({s.client_token, s.focus_epoch, s.session});
     watch_clipboard_history(engine);
     sync_global_input_mode(engine);
     // IBus may replay focus after negotiating client identity. Re-focusing
@@ -2999,6 +3000,7 @@ void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     voice_cancel(engine);
+    s.key_router.cancel({s.client_token, s.focus_epoch, s.session});
     s.voice_consumed_keys.clear();
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
