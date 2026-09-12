@@ -951,8 +951,9 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f64, f64)> {
+fn panel_position(state: &PanelInputState, width: f64, _height: f64) -> Option<tauri::Position> {
     let target = state.0.lock().ok()?.clone()?;
+    let physical = matches!(&target, PanelInputTarget::X11(_));
     let rect = match target {
         PanelInputTarget::X11(window) => std::process::Command::new("xdotool")
             .args(["getwindowgeometry", "--shell", window.as_str()])
@@ -967,11 +968,15 @@ fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f
             .filter(|output| output.status.success())
             .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
             .and_then(|tree| sway_rect_for_container(&tree, id)),
-        PanelInputTarget::Wayland => None,
+        PanelInputTarget::Wayland | PanelInputTarget::Ydotool => None,
     }?;
-    let x = (rect.0 + (rect.2 - width) / 2.0).max(0.0);
-    let y = (rect.1 + rect.3 + 16.0).max(0.0);
-    Some((x, y))
+    let x = rect.0 + (rect.2 - width) / 2.0;
+    let y = rect.1 + rect.3 + 16.0;
+    Some(if physical {
+        tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    } else {
+        tauri::Position::Logical(tauri::LogicalPosition::new(x, y))
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -1621,8 +1626,11 @@ fn send_panel_text_windows(
 
 // Panels sit bottom-centered on the work area, where the native ones did.
 #[cfg(target_os = "windows")]
-fn windows_panel_position(width: f64, height: f64) -> Option<(f64, f64)> {
-    msime_host_windows::work_area().map(|area| area.bottom_center(width, height))
+fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
+    msime_host_windows::work_area().map(|area| {
+        let (x, y) = area.bottom_center(width, height);
+        tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    })
 }
 
 #[tauri::command]
@@ -2358,7 +2366,7 @@ fn open_panel_window(
     title: &'static str,
     width: f64,
     height: f64,
-    position: Option<(f64, f64)>,
+    position: Option<tauri::Position>,
 ) -> Result<(), HostActionError> {
     #[cfg(mobile)]
     {
@@ -2372,10 +2380,8 @@ fn open_panel_window(
         let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            if let Some((x, y)) = position {
-                let _ = window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32),
-                ));
+            if let Some(position) = position {
+                let _ = window.set_position(position);
             }
             window
                 .show()
@@ -2391,18 +2397,16 @@ fn open_panel_window(
                 })?;
             return Ok(());
         }
-        let mut builder = WebviewWindowBuilder::new(
+        let builder = WebviewWindowBuilder::new(
             app,
             label,
             WebviewUrl::App(format!("index.html?panel={route}").into()),
         )
         .title(title);
-        if let Some((x, y)) = position {
-            builder = builder.position(x, y);
-        }
-        builder
+        let window = builder
             .inner_size(width, height)
-            .focused(accepts_focus)
+            .visible(false)
+            .focused(false)
             .focusable(accepts_focus)
             .min_inner_size(width, height)
             .resizable(false)
@@ -2410,7 +2414,15 @@ fn open_panel_window(
             .always_on_top(true)
             .skip_taskbar(true)
             .build()
-            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        if let Some(position) = position {
+            let _ = window.set_position(position);
+        }
+        window
+            .show()
+            .and_then(|_| if accepts_focus { window.set_focus() } else { Ok(()) })
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })
