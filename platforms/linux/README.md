@@ -204,7 +204,7 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 翻译结果压平换行并过滤控制字符，内存缓存最多 2048 项，成功结果保留 480 秒、失败保留 30 秒。缓存按 provider、凭据摘要和语言方向隔离，不写入磁盘。Linux 原生运行、真实服务联调以及统一测试、格式和构建检查留到迁移验收阶段；本节不代表这些验证已经通过。
 
 
-## 随包批量语音服务
+## 随包语音服务
 
 `msime-client-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
 
@@ -213,12 +213,25 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
-先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；每个对象包含 `provider`、`endpoint`、`model`、`token` 四个非空字符串。ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；更换凭据或端点后重启服务。
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；批量识别及润色对象包含 `provider`、`endpoint`、`model`、`token` 四个非空字符串。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；更换凭据或端点后重启服务。
 
 服务捕获 16kHz 单声道 PCM，在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
-润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao WebSocket 实时识别尚未接入此服务。
+润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao 实时识别使用下述 WSS 配置。
 
 提示音尊重 `sound_enabled`、`start_sound`、`end_sound`，通过 `paplay` 或 `aplay` 播放短提示音。`mute_system_audio` 在支持 JSON 输出的 `pactl` 上暂时静音最多 32 个现有播放流，结束或取消后恢复被本服务改变的流；已有静音、已消失或被替换的流不会强制改写。缺少这些可选工具时继续录音。单次仅占用一个麦克风，最多四条语音任务等待网络，控制请求另留容量；会话按连接进程及 generation 区分。客户端断开录音连接或服务收到终止信号时停止采集并恢复播放流。原始音频、转写和凭据均不写入磁盘或日志。
 
 本部分仅完成实现与合并，不代表 Linux 麦克风、PulseAudio/PipeWire/ALSA、真实 ASR/润色或原生宿主已经验收；按用户要求，测试、fmt、clippy、构建和设备联调留到最终统一执行。
+
+
+### Doubao 实时识别
+
+`asr.provider` 设为 `doubao` 时，语音服务使用相同录音和控制入口流式上传，无需先录完整段音频。运行服务的 Python 环境须安装 `websockets==15.0.1`；依赖清单随包安装至 `share/msime-client/requirements-voice.txt`，缺少依赖时启动返回通用配置错误，不会录音后才失败。批量识别仍只依赖 Python 标准库。同步 WebSocket 客户端参数参考其[官方文档](https://websockets.readthedocs.io/en/15.0.1/reference/sync/client.html)。
+
+Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`resource_id` 默认 `volc.seedasr.sauc.duration`。新控制台单 API Key 放入 `token`，旧控制台额外配置 `app_key` 并把 Access Token 放入 `token`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
+
+实现沿用 Windows 固定提交 `b21a1671` 的二进制协议：16kHz、16-bit、单声道 PCM，每 200ms 一帧，gzip 压缩，递增序列号，结束帧使用负序列号。`doubao_enable_itn`、`doubao_enable_punc`、`doubao_enable_ddc` 和 `doubao_boosting_table_id` 进入首帧选项。录音中的变更转写以 partial 事件返回；宿主继续根据 `stream_inline_preedit` 决定是否更新预编辑。松开或达到录音上限后发送结束帧，最多等待 30 秒获取最终结果，再进行可选润色。服务错误、超时和取消不会把中间结果冒充最终结果上屏。
+
+音频发送队列最多容纳 10 秒音频，满时终止该请求；单个 WebSocket 响应和解压后的正文分别限制为 1 MiB。识别连接启用 TLS 证书检查、禁用 WebSocket 扩展压缩、拒绝重定向，并关闭该连接日志；Doubao 协议自身仍使用 gzip。取消会停止录音、丢弃结果并中断已建立的连接；建立连接阶段最多等待 10 秒。流式上传在录音时即发送音频，取消不能撤回已经发送的数据，短录音虽不会上屏也可能已有音频发出。
+
+此部分已补实现，未执行录音、真实 Doubao 请求、测试或构建；Linux 原生宿主和真实服务验收仍待最终统一完成。

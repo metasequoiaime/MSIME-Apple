@@ -1,0 +1,2 @@
+# Optional: required only when the configured ASR provider is doubao.
+websockets==15.0.1
