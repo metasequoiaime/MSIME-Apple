@@ -730,7 +730,10 @@ bool launch_desktop_panel(const char *panel) {
     command = "msime-client-settings";
   gchar *argv[] = {const_cast<gchar *>(command), nullptr};
   gchar **environment = g_get_environ();
-  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", panel, TRUE);
+  const bool about = std::string(panel) == "about";
+  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", about ? "settings" : panel, TRUE);
+  if (about)
+    environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", "about", TRUE);
   GError *error = nullptr;
   const auto started = g_spawn_async(
       nullptr, argv, environment, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
@@ -765,6 +768,7 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典"},
     {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板"},
     {"DesktopTools/Settings", "settings", "设置"},
+    {"DesktopTools/About", "about", "关于"},
 };
 
 IBusProperty *desktop_tools_property(IBusEngine *engine) {

@@ -2,18 +2,25 @@
 set -eu
 
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: msime-client-settings [--panel settings|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
+  echo "Usage: msime-client-settings [--panel settings|about|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
   exit 0
 fi
 if [ "${1:-}" = "--panel" ]; then
   case "${2:-}" in
-    settings|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard)
+    settings|about|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard)
       MSIME_CLIENT_PANEL=$2
       export MSIME_CLIENT_PANEL
       shift 2
       ;;
     *) echo "MSIME panel name is missing or unsupported" >&2; exit 2 ;;
   esac
+fi
+
+# The About menu opens an existing settings section, not a separate panel.
+if [ "${MSIME_CLIENT_PANEL:-}" = "about" ]; then
+  MSIME_CLIENT_PANEL=settings
+  MSIME_CLIENT_SETTINGS_PAGE=about
+  export MSIME_CLIENT_PANEL MSIME_CLIENT_SETTINGS_PAGE
 fi
 
 if [ -n "${MSIME_CLIENT_HOST_OPTIONS:-}" ]; then

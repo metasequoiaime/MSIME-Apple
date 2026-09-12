@@ -456,3 +456,5 @@ Wayland 单行文本通过匿名管道传给 `wtype -` 或 `ydotool type --file 
 Sway 面板输入在发送前解析窗口切换命令的成功回复，并读取窗口树确认原目标已获得焦点；目标关闭、切换失败或焦点不匹配时停止发送。命令等待限时 2 秒，焦点读取限时 1 秒，回复均有大小限制且不写入日志。wtype 按键发送也设置 3 秒期限，失败不自动重放。协议依据 [Sway IPC 官方说明](https://raw.githubusercontent.com/swaywm/sway/master/sway/sway-ipc.7.scd)。
 
 前台目标获取对每个外部命令设置 1 秒期限，并限制窗口树和工具输出大小。wtype 通过空标准输入探测虚拟键盘连接，不发送文字或按键，不使用上游不支持的 `--version`；文本发送省略延时参数，使用默认零延时，避免显式 `-d 0` 被拒绝。依据 [wtype 官方参数解析](https://raw.githubusercontent.com/atx/wtype/master/main.c)。
+
+IBus「桌面工具」提供「关于」入口，与 Windows 托盘菜单对应，直接打开共享设置的关于页。桌面启动器也提供「关于水杉输入法」快捷操作；命令行可用 `msime-client-settings --panel about`，或设置 `MSIME_CLIENT_PANEL=about`。自定义 `MSIME_CLIENT_SETTINGS_COMMAND` 同样收到标准 settings 面板和 about 页环境变量。
