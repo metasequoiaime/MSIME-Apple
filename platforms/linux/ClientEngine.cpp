@@ -2652,6 +2652,8 @@ std::optional<char> keypad_punctuation(guint key) {
   switch (key) {
   case IBUS_KP_Decimal:
     return '.';
+  case IBUS_KP_Separator:
+    return ',';
   case IBUS_KP_Subtract:
     return '-';
   case IBUS_KP_Add:
