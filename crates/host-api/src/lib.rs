@@ -10,6 +10,7 @@ use msime_client_core::preferences::{
     TouchKeyboardLayout,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
+use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
@@ -508,6 +509,73 @@ pub unsafe extern "C" fn msime_client_load_preferences(
             .load()
             .map_err(|e| e.to_string())?;
         serde_json::to_value(snapshot).map_err(|e| e.to_string())
+    })
+}
+
+/// Read or update private aggregate typing statistics without retaining submitted text.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_typing_statistics(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        action: StatisticsAction,
+    }
+    #[derive(Deserialize)]
+    #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+    enum StatisticsAction {
+        Load,
+        Record {
+            text: String,
+            source: TypingSource,
+            day: String,
+        },
+        SetEnabled {
+            enabled: bool,
+        },
+        Reset,
+    }
+    response(|| {
+        if request.is_null() || length > 65_536 {
+            return Err("invalid typing statistics buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|_| "invalid typing statistics request".to_owned())?;
+        if request.directory.len() > 16_384
+            || !std::path::Path::new(&request.directory).is_absolute()
+        {
+            return Err("invalid typing statistics directory".into());
+        }
+        let store = TypingStatisticsStore::new(request.directory);
+        match request.action {
+            StatisticsAction::Load => {
+                serde_json::to_value(store.load().map_err(|error| error.to_string())?)
+                    .map_err(|_| "typing statistics response failed".to_owned())
+            }
+            StatisticsAction::Record { text, source, day } => {
+                let recorded = store
+                    .record(&text, source, &day)
+                    .map_err(|error| error.to_string())?;
+                Ok(json!({"recorded": recorded}))
+            }
+            StatisticsAction::SetEnabled { enabled } => serde_json::to_value(
+                store
+                    .set_enabled(enabled)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|_| "typing statistics response failed".to_owned()),
+            StatisticsAction::Reset => {
+                serde_json::to_value(store.reset().map_err(|error| error.to_string())?)
+                    .map_err(|_| "typing statistics response failed".to_owned())
+            }
+        }
     })
 }
 
@@ -2354,6 +2422,53 @@ mod tests {
         assert_eq!(load("relative".into())["ok"], false);
         assert_eq!(
             read(unsafe { msime_client_load_preferences(std::ptr::null(), 0) })["ok"],
+            false
+        );
+    }
+    #[test]
+    fn typing_statistics_boundary_persists_only_aggregate_counts() {
+        let directory = tempfile::tempdir().unwrap();
+        let call = |action: Value| {
+            let request = serde_json::to_vec(&json!({
+                "directory": directory.path(),
+                "action": action,
+            }))
+            .unwrap();
+            read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
+        };
+        let recorded = call(json!({
+            "operation": "record",
+            "text": "synthetic 🌲",
+            "source": "handwriting",
+            "day": "2026-09-12",
+        }));
+        assert_eq!(recorded["value"]["recorded"], 10);
+        let loaded = call(json!({"operation": "load"}));
+        assert_eq!(loaded["value"]["total"], 10);
+        assert_eq!(loaded["value"]["detail"]["characters"]["latin"], 9);
+        assert_eq!(loaded["value"]["detail"]["characters"]["emoji"], 1);
+        assert_eq!(loaded["value"]["detail"]["sources"]["handwriting"], 10);
+        let persisted =
+            std::fs::read_to_string(directory.path().join("typing-statistics.json")).unwrap();
+        assert!(!persisted.contains("synthetic"));
+        assert_eq!(
+            call(json!({"operation": "set_enabled", "enabled": false}))["value"]["enabled"],
+            false
+        );
+        assert_eq!(
+            call(json!({
+                "operation": "record",
+                "text": "ignored",
+                "source": "english",
+                "day": "2026-09-12",
+            }))["value"]["recorded"],
+            0
+        );
+        let reset = call(json!({"operation": "reset"}));
+        assert_eq!(reset["value"]["total"], 0);
+        assert_eq!(reset["value"]["enabled"], false);
+        assert_eq!(
+            read(unsafe { msime_client_typing_statistics(std::ptr::null(), 0) })["ok"],
             false
         );
     }
