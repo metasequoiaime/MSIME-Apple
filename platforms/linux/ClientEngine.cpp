@@ -1944,6 +1944,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   const bool clipboard_available = s.clipboard_enabled && s.input_enabled &&
                                    !s.clipboard_history_path.empty();
+  const bool clipboard_menu_available = s.focused && !s.blocked &&
+                                       clipboard_available;
   auto clipboard = ibus_property_new(
       "ClipboardHistory", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("剪贴板历史"), "",
@@ -1981,7 +1983,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       auto group = ibus_property_new(
           (std::string("ClipboardHistoryPage/") + std::to_string(index / 10)).c_str(),
           PROP_TYPE_MENU, ibus_text_new_from_string(label.c_str()), "",
-          ibus_text_new_from_static_string("浏览这一组历史"), TRUE, TRUE,
+          ibus_text_new_from_static_string("浏览这一组历史"), clipboard_menu_available, TRUE,
           PROP_STATE_UNCHECKED, page);
       ibus_prop_list_append(clipboard_menu, group);
     }
@@ -1996,14 +1998,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("ClipboardHistory/") + identity).c_str(),
         PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()), "",
-        ibus_text_new_from_static_string("提交历史文本"), TRUE, TRUE,
+        ibus_text_new_from_static_string("提交历史文本"), clipboard_menu_available, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(page, item);
     auto remove = ibus_property_new(
         (std::string("ClipboardHistory/Remove/") + identity).c_str(),
         PROP_TYPE_NORMAL,
         ibus_text_new_from_string((std::string("删除 ") + std::to_string(index + 1)).c_str()),
-        "", ibus_text_new_from_static_string("删除这一条历史文本"), TRUE, TRUE,
+        "", ibus_text_new_from_static_string("删除这一条历史文本"), clipboard_menu_available, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(page, remove);
   }
@@ -2011,7 +2013,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("清空历史"), "",
       ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
-      clipboard_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_menu_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
