@@ -13,6 +13,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
 - (instancetype)init NS_UNAVAILABLE;
 - (nullable NSDictionary<NSString *, id> *)setFocused:(BOOL)focused error:(NSError **)error;
+/// Returns the current View, not a transition; preserves live composition.
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
 /// Returns a View (not a transition). Finish composition before changing mode.
 - (nullable NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error;
