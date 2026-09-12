@@ -23,6 +23,11 @@ static BOOL LocalModeBoolean(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
+static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
+static BOOL ValidFontFamily(id value) {
+    return [value isKindOfClass:NSString.class] && [value length] > 0 &&
+           [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128;
+}
 static NSString *const PreeditFontKey = @"MSIMEClientCandidatePreeditFontSize";
 static NSString *const CandidatePreeditKey = @"MSIMEClientCandidatePreeditStyle";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
@@ -63,6 +68,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedShuangpinHelpcode;
     NSNumber *_sharedVertical;
     NSNumber *_sharedFontSize;
+    NSString *_sharedFontFamily;
     NSNumber *_sharedPreeditFontSize;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
@@ -76,6 +82,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSPopUpButton *_profileButton;
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
+    NSComboBox *_fontFamilyControl;
     NSPopUpButton *_preeditFontButton;
     NSPopUpButton *_candidatePreeditButton;
     NSPopUpButton *_pageShortcutButton;
@@ -143,6 +150,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
+    if (_sharedFontFamily || [_defaults objectForKey:FontFamilyKey]) merged[@"candidate_font_family"] = self.fontFamily;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
@@ -357,6 +365,24 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSInteger size = _sharedFontSize ? _sharedFontSize.integerValue : [_defaults integerForKey:FontKey];
     return size >= 12 && size <= 32 ? size : 18;
 }
+- (NSString *)fontFamily {
+    id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
+    return ValidFontFamily(value) ? value : @"Segoe UI";
+}
+- (void)setFontFamily:(NSString *)value {
+    if (!ValidFontFamily(value)) { [self refreshControls]; return; }
+    _sharedFontFamily = nil;
+    [_defaults setObject:[value copy] forKey:FontFamilyKey];
+    [self preferencesChanged];
+}
+- (NSFont *)candidateFontOfSize:(CGFloat)size {
+    // Resolve a family without silently substituting a different installed family.
+    // Preserve unavailable cross-platform names in preferences, using the system
+    // font only for this host's rendering.
+    NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:self.fontFamily}];
+    NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
+    return (matched ? [NSFont fontWithDescriptor:matched size:size] : nil) ?: [NSFont systemFontOfSize:size];
+}
 - (void)setFontSize:(NSUInteger)value {
     _sharedFontSize = nil;
     [_defaults setInteger:value >= 12 && value <= 32 ? value : 18 forKey:FontKey];
@@ -410,6 +436,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
     id font = preferences[@"candidate_font_size"];
+    id family = preferences[@"candidate_font_family"];
+    if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if ([preeditFont isKindOfClass:NSNumber.class] && !LocalModeBoolean(preeditFont) && [preeditFont doubleValue] == [preeditFont integerValue] && [preeditFont integerValue] >= 12 && [preeditFont integerValue] <= 32) _sharedPreeditFontSize = preeditFont;
@@ -449,6 +477,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
+    _fontFamilyControl.stringValue = self.fontFamily;
     [_preeditFontButton selectItemAtIndex:self.preeditFontSize - 12];
     [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
@@ -500,6 +529,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
+    _fontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    [_fontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
+    _fontFamilyControl.completes = YES;
+    _fontFamilyControl.accessibilityLabel = @"候选字体";
+    _fontFamilyControl.toolTip = @"可选择本机字体或输入字体家族名称；未安装时使用系统字体，但保留原设置";
+    _fontFamilyControl.target = self;
+    _fontFamilyControl.action = @selector(fontFamilyChanged:);
     _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSUInteger size = 12; size <= 32; ++size)
         [_preeditFontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
@@ -544,6 +580,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼预编辑"], _preeditButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
+        @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
         @[[NSTextField labelWithString:@"候选窗拼音字号"], _preeditFontButton],
         @[[NSTextField labelWithString:@"候选窗预编辑"], _candidatePreeditButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
@@ -685,6 +722,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSInteger index = sender.indexOfSelectedItem;
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
+- (void)fontFamilyChanged:(NSComboBox *)sender { self.fontFamily = sender.stringValue; }
 - (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
 - (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 @end

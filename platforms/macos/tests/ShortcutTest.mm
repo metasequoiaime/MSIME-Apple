@@ -1038,6 +1038,9 @@ int main() {
         // The candidate preedit uses Engine display text, independent of candidate font.
         pageView[@"preedit"] = @"ce'shi";
         [controller setValue:pageView forKey:@"view"];
+        NSString *installedFamily = [NSFont fontWithName:@"Menlo" size:18].familyName;
+        assert(installedFamily);
+        appearance.fontFamily = installedFamily;
         for (NSNumber *vertical in @[@NO, @YES]) {
             appearance.vertical = vertical.boolValue;
             appearance.showsCandidatePreedit = YES;
@@ -1047,13 +1050,17 @@ int main() {
             for (NSView *child in layoutPanel.contentView.subviews)
                 if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
             assert(preeditLabel && [preeditLabel.stringValue isEqual:@"ce'shi"] && preeditLabel.font.pointSize == 32);
+            assert([preeditLabel.font.familyName isEqual:installedFamily]);
             const auto preeditTokens = [appearance resolvedSkinForDark:NO].tokens;
             layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
             [controller refreshCandidateSkin];
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
             assert(NSContainsRect(layoutPanel.contentView.bounds, preeditLabel.frame));
             for (NSView *child in layoutPanel.contentView.subviews)
-                if ([child isKindOfClass:MSIMECandidateButton.class]) assert(!NSIntersectsRect(child.frame, preeditLabel.frame));
+                if ([child isKindOfClass:MSIMECandidateButton.class]) {
+                    assert(!NSIntersectsRect(child.frame, preeditLabel.frame));
+                    assert([((NSButton *)child).font.familyName isEqual:installedFamily]);
+                }
             CGFloat shownHeight = layoutPanel.frame.size.height;
             appearance.showsCandidatePreedit = NO;
             [controller renderCandidates];
@@ -1062,6 +1069,7 @@ int main() {
         }
         appearance.showsCandidatePreedit = YES;
         appearance.preeditFontSize = 16;
+        appearance.fontFamily = @"Segoe UI";
         for (id display in @[@"", NSNull.null]) {
             pageView[@"preedit"] = display;
             [controller setValue:pageView forKey:@"view"];

@@ -21,6 +21,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
 @property(nonatomic) NSUInteger fontSize;
+@property(nonatomic, copy) NSString *fontFamily;
+- (NSFont *)candidateFontOfSize:(CGFloat)size;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic) NSUInteger pageSize;
