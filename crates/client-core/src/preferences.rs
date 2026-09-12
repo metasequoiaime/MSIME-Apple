@@ -408,6 +408,8 @@ pub struct Preferences {
     pub candidate_accent_color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_selected_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_hover_color: Option<String>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     #[serde(default)]
@@ -995,6 +997,7 @@ impl Default for Preferences {
             candidate_number_color: None,
             candidate_accent_color: None,
             candidate_selected_color: None,
+            candidate_hover_color: None,
             candidate_font_family: default_candidate_font_family(),
             candidate_fallback_fonts: Vec::new(),
             learning: true,
@@ -1288,6 +1291,14 @@ impl Preferences {
                 return Err(PreferencesError::InvalidCandidateSelectedColor);
             }
         }
+        if let Some(color) = &self.candidate_hover_color {
+            if color.len() != 7
+                || color.as_bytes()[0] != b'#'
+                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(PreferencesError::InvalidCandidateHoverColor);
+            }
+        }
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
         if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 {
@@ -1375,6 +1386,8 @@ pub enum PreferencesError {
     InvalidCandidateAccentColor,
     #[error("candidate selected color must be #RRGGBB or omitted")]
     InvalidCandidateSelectedColor,
+    #[error("candidate hover color must be #RRGGBB or omitted")]
+    InvalidCandidateHoverColor,
     #[error("candidate font family must be non-empty ASCII and at most 128 bytes")]
     InvalidCandidateFontFamily,
     #[error("candidate skin identifier is invalid")]
