@@ -1,3 +1,4 @@
+import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice-device-picker";
 import { useEffect, useRef, useState } from "react";
 import { HostActionButton } from "./HostActionButton";
 import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, readDictionaryFile } from "./dictionary-file";
@@ -351,6 +352,7 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_m
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
+  listVoiceCaptureDevices?: VoiceDeviceReader;
   listFontFamilies?: FontCatalogReader;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
   readSkinImage?: SkinImageReader;
@@ -1195,6 +1197,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>
         {linuxPlatform && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
           <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option></select></label>
+          {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
           <label className="section-header"><span className="section-title">麦克风设备<small>填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。</small></span><input aria-label="麦克风设备" maxLength={128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
         </div>}
         <div className="section"><div className="section-title">Linux provider 行为<small>这些选项会随请求传给用户管理的语音服务，不包含凭据</small></div>

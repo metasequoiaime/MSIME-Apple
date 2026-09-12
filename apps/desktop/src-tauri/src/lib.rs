@@ -1,4 +1,8 @@
 #[cfg(target_os = "linux")]
+mod linux_process;
+#[cfg(target_os = "linux")]
+mod linux_audio_devices;
+#[cfg(target_os = "linux")]
 mod linux_clipboard;
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
@@ -72,6 +76,18 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
             code: "font_catalog",
         })?
         .map_err(|code| CommandError { code })
+}
+
+#[tauri::command]
+async fn list_voice_capture_devices() -> Result<Value, CommandError> {
+    #[cfg(target_os = "linux")]
+    {
+        let devices = tauri::async_runtime::spawn_blocking(linux_audio_devices::list)
+            .await.map_err(|_| CommandError { code: "audio_devices" })?;
+        serde_json::to_value(devices).map_err(|_| CommandError { code: "audio_devices" })
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err(CommandError { code: "unavailable" })
 }
 
 #[derive(Clone)]
@@ -2996,6 +3012,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            list_voice_capture_devices,
             supports_font_catalog,
             initial_settings_page,
             list_font_families,

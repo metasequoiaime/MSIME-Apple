@@ -32,6 +32,7 @@ const client: SettingsClient = {
   copyText: text => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),
+  listVoiceCaptureDevices: () => invoke("list_voice_capture_devices"),
   openVoice: () => invoke("open_voice_panel"),
   openCloudClipboard: () => invoke("open_cloud_clipboard_panel"),
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),

@@ -322,3 +322,7 @@ Linux 桌面未显式设置 `MSIME_CLIENT_STATE_DIR` 时，优先使用 runtime-
 Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、PipeWire、ALSA 或自动选择，并填写对应的设备名称。配置保存为 `preferences.voice_input.capture_backend` 和 `capture_device`；桌面语音面板与 IBus 在下一次请求中传递这两个字段，provider 为每次录音单独构造采集命令，不修改正在录制的会话。
 
 后端和设备都留空时沿用服务 `--capture` / `--capture-device`；明确选择后端而设备留空时使用该后端的系统默认设备。只填写设备则沿用服务后端。选择不存在的后端工具或非法设备会返回失败，不悄悄切换到其他麦克风。设备字段最多 128 个字符、512 UTF-8 字节，禁止控制字符；设备通过独立命令参数传递。无需重启 provider，原始音频及设备配置不会写入日志。
+
+设置页提供“刷新设备”与“可用录音设备”选择器。桌面宿主分别通过 `pactl --format=json list sources`、`pw-dump`、`arecord -L` 读取设备，选中一项时同时填入对应后端和设备名；刷新不会改写当前设置。每个工具最多等待 2 秒、读取 1 MiB，最多返回 256 项，不启动录音，不记录原始工具输出。缺少工具或会话不可访问时仍可手动填写；PulseAudio 的 `.monitor` 播放监视源不列为麦克风。
+
+设备目录依据 [PulseAudio pactl 实现](https://github.com/pulseaudio/pulseaudio/blob/master/src/utils/pactl.c)、[PipeWire pw-dump 文档](https://docs.pipewire.org/page_man_pw-dump_1.html) 和 [ALSA arecord 实现](https://github.com/alsa-project/alsa-utils/blob/master/aplay/aplay.c)。列表反映发现时的设备信息，不保证设备之后仍连接或可用于指定采样格式。
