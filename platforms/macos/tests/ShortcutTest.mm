@@ -1917,6 +1917,152 @@ static void TestCloudCandidatePreference() {
     return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"hello", @"translation":@"测试释义"}]};
 }
 @end
+@interface CustomTranslationSession : GlossSession
+@property(nonatomic, copy) NSDictionary *custom;
+@property(nonatomic, copy) NSArray *page;
+@property(nonatomic, copy) NSArray *delivered;
+@property(nonatomic) uint64_t generation;
+@property(nonatomic) BOOL offline;
+@end
+@implementation CustomTranslationSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    (void)error;
+    return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
+        @"custom_translation":self.custom ?: @{}} : nil;
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return @{@"generation":@(self.generation), @"scheme":@(self.scheme), @"local_mode":self.localMode ?: @"none", @"candidates":self.page ?: @[]};
+}
+- (NSDictionary *)hostOptions { return self.offline ? @{@"resources":@"/synthetic"} : @{}; }
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)error;
+    assert(NSThread.isMainThread && generation == self.generation);
+    self.delivered = translations;
+    return @{@"applied":@YES, @"view":[self viewWithError:nil]};
+}
+@end
+@interface ControlledTranslationBatch : MSIMECustomTranslationBatch
+@property(nonatomic, copy) void (^reply)(NSArray *);
+@property(nonatomic, copy) NSArray *items;
+@property(nonatomic) BOOL started;
+@property(nonatomic) BOOL cancelled;
+@end
+@implementation ControlledTranslationBatch
+- (void)start { assert(!self.started); self.started = YES; }
+- (void)cancel { self.cancelled = YES; }
+@end
+@interface CustomTranslationController : CloudShortcutController
+@property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
+@end
+@implementation CustomTranslationController
+- (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    ControlledTranslationBatch *batch = [ControlledTranslationBatch new];
+    batch.reply = completion;
+    batch.items = items;
+    [self.batches addObject:batch];
+    return batch;
+}
+- (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
+    assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
+    return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"Hello", @"translation":@"本地释义"}]};
+}
+@end
+static void TestCustomTranslationController() {
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://translation.invalid/api", @"api_key":@""};
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"smile", @"source":@6}];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller synchronizeCandidateGloss];
+    [controller synchronizeCustomTranslations];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1 && controller.batches[0].started);
+    ControlledTranslationBatch *first = controller.batches[0];
+    assert(first.items.count == 2);
+    assert(([first.items[0][@"request"][@"body"] isEqual:@{@"text":@"hello", @"source_lang":@"EN", @"target_lang":@"ZH"}]));
+    assert(([first.items[1][@"request"][@"body"] isEqual:@{@"text":@"测试", @"source_lang":@"ZH", @"target_lang":@"FR"}]));
+    NSArray *online = @[@{@"text":@"Hello", @"translation":@"你好"}, @{@"text":@"测试", @"translation":@"essai"}];
+    first.reply(online);
+    assert([session.delivered isEqual:online] && controller.batches.count == 1);
+    // A pending target change cancels work before Engine's applied snapshot changes.
+    [controller applySharedToolbarPreferences:@{@"translation_target_language":@"de"}];
+    assert(session.delivered.count == 0 && ![controller currentCustomTranslationRequest]);
+    first.reply(online);
+    assert(session.delivered.count == 0);
+    session.targetLanguage = @"de";
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2);
+    ControlledTranslationBatch *second = controller.batches.lastObject;
+    assert([second.items[1][@"request"][@"body"][@"target_lang"] isEqual:@"DE"]);
+    // Candidate identity, generation, client, session, focus and mode guards all
+    // reject a callback even before the next synchronization cancels transport.
+    for (NSString *change in @[@"generation", @"page", @"client", @"session", @"focus", @"japanese", @"disabled"]) {
+        [controller cancelCandidateTranslations];
+        [controller synchronizeCustomTranslations];
+        ControlledTranslationBatch *batch = controller.batches.lastObject;
+        NSArray *page = session.page;
+        if ([change isEqual:@"generation"]) session.generation++;
+        if ([change isEqual:@"page"]) session.page = @[@{@"text":@"different", @"source":@0}];
+        if ([change isEqual:@"client"]) [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        if ([change isEqual:@"session"]) [controller setValue:[CustomTranslationSession new] forKey:@"session"];
+        if ([change isEqual:@"focus"]) [controller setValue:@YES forKey:@"focusPending"];
+        if ([change isEqual:@"japanese"]) session.localMode = @"temporary_japanese";
+        if ([change isEqual:@"disabled"]) session.enabled = NO;
+        batch.reply(online);
+        assert(session.delivered.count == 0);
+        [controller cancelCandidateTranslations];
+        assert(batch.cancelled);
+        session.page = page; session.localMode = nil; session.enabled = YES;
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@NO forKey:@"focusPending"];
+    }
+    [controller synchronizeCustomTranslations];
+    ControlledTranslationBatch *pending = controller.batches.lastObject;
+    NSDictionary *disabled = @{@"enabled":@NO, @"endpoint":@"https://translation.invalid/api", @"api_key":@""};
+    [controller applySharedToolbarPreferences:@{@"custom_translation":disabled}];
+    assert(pending.cancelled && ![controller currentCustomTranslationRequest]);
+    pending.reply(online);
+    assert(session.delivered.count == 0);
+    [controller applySharedToolbarPreferences:@{@"custom_translation":session.custom, @"translation_target_language":@"en"}];
+    session.targetLanguage = @"en"; session.offline = YES;
+    [controller synchronizeCandidateGloss];
+    [controller synchronizeCustomTranslations];
+    assert(![controller currentCustomTranslationRequest]); // Wait for offline lookup.
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    NSUInteger previous = controller.batches.count;
+    while (controller.batches.count == previous && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.batches.count == previous + 1);
+    ControlledTranslationBatch *fallback = controller.batches.lastObject;
+    assert(fallback.items.count == 1 && [fallback.items[0][@"text"] isEqual:@"测试"]);
+    fallback.reply(@[@{@"text":@"测试", @"translation":@"test"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"test"}]]));
+    [controller synchronizeCandidateGloss]; [controller synchronizeCustomTranslations];
+    assert(controller.batches.lastObject == fallback);
+    [controller cancelCandidateTranslations];
+    // The native toggle is authoritative even before persistence/notification.
+    session.offline = NO;
+    [controller synchronizeCandidateGloss]; [controller synchronizeCustomTranslations];
+    ControlledTranslationBatch *nativePending = controller.batches.lastObject;
+    NSString *suite = [@"msime.custom.translation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [controller setValue:prefs forKey:@"appearance"];
+    prefs.candidateTranslations = NO;
+    assert(![controller currentCustomTranslationRequest]);
+    [controller appearanceChanged:nil];
+    assert(nativePending.cancelled && session.delivered.count == 0);
+    nativePending.reply(online);
+    assert(session.delivered.count == 0);
+    [prefs.window close];
+    [defaults removePersistentDomainForName:suite];
+}
 static void TestGlossScheduling() {
     GlossController *controller = [GlossController alloc];
     controller.started = dispatch_semaphore_create(0);
@@ -2057,6 +2203,7 @@ int main() {
         TestCloudCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();
+        TestCustomTranslationController();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();
         TestSharedInputPreferences();

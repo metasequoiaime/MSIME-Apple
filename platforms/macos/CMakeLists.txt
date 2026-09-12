@@ -322,7 +322,7 @@ target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -U
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")
 target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
-target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm CloudCandidateRequest.mm)
+target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm CloudCandidateRequest.mm CustomTranslationBatch.mm)
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText")
 add_test(NAME shortcut COMMAND shortcut-test)
 add_executable(shuangpin-keymap-input-test tests/ShuangpinKeymapInputTest.mm ShuangpinKeymapPanel.mm)

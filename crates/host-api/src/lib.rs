@@ -1003,6 +1003,68 @@ pub unsafe extern "C" fn msime_client_voice_apply(
     })
 }
 
+/// Plan eligible visible candidates using shared script filters. No I/O.
+/// # Safety
+/// `request` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_custom_translation_plan(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid translation plan buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Candidate {
+            text: String,
+            source: u8,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            target_language: String,
+            candidates: Vec<Candidate>,
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "invalid translation plan")?;
+        if request.candidates.len() > 9
+            || !["en", "fr", "ja", "es", "ru", "de", "ko"]
+                .contains(&request.target_language.as_str())
+        {
+            return Err("invalid translation plan parameters".into());
+        }
+        let mut results = Vec::new();
+        for candidate in request.candidates {
+            // Engine CandidateSource::Emoji / Kaomoji, and unknown sources.
+            if matches!(candidate.source, 6 | 7 | 10..=255) || candidate.text.chars().count() > 40 {
+                continue;
+            }
+            let (source, target, key) =
+                if msime_client_core::translation::is_cloud_translatable_english(&candidate.text) {
+                    ("en", "zh", candidate.text.to_ascii_lowercase())
+                } else if msime_client_core::translation::is_cloud_translatable_chinese(
+                    &candidate.text,
+                ) {
+                    (
+                        "zh",
+                        request.target_language.as_str(),
+                        candidate.text.clone(),
+                    )
+                } else {
+                    continue;
+                };
+            let item = json!({"text":candidate.text,"key":key,"source_language":source,"target_language":target});
+            if !results.contains(&item) {
+                results.push(item);
+            }
+        }
+        Ok(json!(results))
+    })
+}
+
 /// Build a DeepLX-compatible request for a host-owned HTTP transport. No I/O.
 /// # Safety
 /// `request` must reference `length` readable bytes for this call.
@@ -1078,6 +1140,7 @@ pub unsafe extern "C" fn msime_client_parse_custom_translation_response(
         let result = std::str::from_utf8(bytes)
             .ok()
             .and_then(msime_client_core::translation::parse_translation_response)
+            .and_then(|text| msime_client_core::translation::format_translation_gloss(&text))
             .filter(|text| !text.is_empty() && text.len() <= 4096);
         Ok(result.map(Value::String).unwrap_or(Value::Null))
     })
@@ -3695,6 +3758,44 @@ mod tests {
         read(msime_client_destroy(handle));
     }
     #[test]
+    fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
+        let plan = |request: Value| {
+            let bytes = serde_json::to_vec(&request).unwrap();
+            read(unsafe { msime_client_custom_translation_plan(bytes.as_ptr(), bytes.len()) })
+        };
+        let candidates = json!([
+            {"text":"Hello","source":4},
+            {"text":"测试","source":0},
+            {"text":"Hello","source":4},
+            {"text":"smile","source":6},
+            {"text":"smile","source":7},
+            {"text":"123","source":0},
+            {"text":"test😀","source":0},
+            {"text":"x".repeat(41),"source":0},
+            {"text":"unknown","source":10}
+        ]);
+        for target in ["en", "fr", "ja", "es", "ru", "de", "ko"] {
+            assert_eq!(
+                plan(json!({"target_language":target,"candidates":candidates}))["value"],
+                json!([
+                    {"text":"Hello","key":"hello","source_language":"en","target_language":"zh"},
+                    {"text":"测试","key":"测试","source_language":"zh","target_language":target}
+                ])
+            );
+        }
+        for request in [
+            json!({"target_language":"unknown","candidates":[]}),
+            json!({"target_language":"en","candidates":vec![json!({"text":"hello","source":0}); 10]}),
+            json!({"target_language":"en","candidates":[{"text":"hello","source":true}]}),
+        ] {
+            assert_eq!(plan(request)["ok"], false);
+        }
+        assert_eq!(
+            read(unsafe { msime_client_custom_translation_plan(std::ptr::null(), 0) })["ok"],
+            false
+        );
+    }
+    #[test]
     fn custom_translation_http_bridge_is_bounded_and_pure() {
         let build = |request: Value| {
             let bytes = serde_json::to_vec(&request).unwrap();
@@ -3753,6 +3854,11 @@ mod tests {
             })
         };
         assert_eq!(parse(br#"{"data":"translated"}"#)["value"], "translated");
+        assert_eq!(
+            parse(br#"{"data":"  hello\nworld\t "}"#)["value"],
+            "hello world"
+        );
+        assert!(parse(br#"{"data":"bad\u0000gloss"}"#)["value"].is_null());
         for body in [
             b"invalid".as_slice(),
             br#"{"code":500,"data":"ignored"}"#,

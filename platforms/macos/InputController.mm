@@ -30,6 +30,7 @@
 #import "VoiceInputService.h"
 #import "VoiceSettings.h"
 #import "CloudCandidateRequest.h"
+#import "CustomTranslationBatch.h"
 #include "WubiCommitPolicy.h"
 
 static BOOL MSIMEScriptConversionApplies(id value) {
@@ -216,12 +217,97 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     uint64_t _glossEpoch;
     NSNumber *_glossEnabled;
     NSString *_glossTargetLanguage;
+    NSArray<NSDictionary *> *_glossResults;
+    MSIMECustomTranslationBatch *_customBatch;
+    NSDictionary *_customQuery;
+    NSDictionary *_customTranslationConfig;
+    NSArray<NSDictionary *> *_customResults;
+    uint64_t _customEpoch;
 }
 
+- (void)cancelCustomTranslations {
+    ++_customEpoch;
+    [_customBatch cancel];
+    _customBatch = nil;
+    _customQuery = nil;
+    _customResults = nil;
+}
+- (void)cancelCandidateTranslations {
+    [self cancelCandidateGloss];
+    [self cancelCustomTranslations];
+}
+- (NSDictionary *)currentCustomTranslationRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
+        (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *config = query[@"custom_translation"];
+    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] isEqual:@YES]) return nil;
+    // A preference snapshot can be pending in Engine while the composition is active.
+    if ((_customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
+        (_glossTargetLanguage && ![_glossTargetLanguage isEqual:query[@"target_language"]])) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
+        ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSDictionary *gloss = [self currentGlossRequest];
+    // Resolve the local dictionary first; never transmit an already-resolved key.
+    if (gloss && (![_glossRequest isEqual:gloss] || !_glossResults)) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in view[@"candidates"]) {
+        if (![candidate[@"text"] isKindOfClass:NSString.class] || ![candidate[@"source"] isKindOfClass:NSNumber.class]) continue;
+        BOOL resolved = NO;
+        for (NSDictionary *result in _glossResults)
+            if (gloss && [result[@"text"] isEqual:candidate[@"text"]]) { resolved = YES; break; }
+        if (!resolved) [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
+    }
+    if (!candidates.count) return nil;
+    return @{@"generation":query[@"generation"], @"target_language":query[@"target_language"],
+        @"custom_translation":config, @"candidates":[candidates copy]};
+}
+- (void)applyCandidateTranslationResults {
+    NSMutableArray *results = [NSMutableArray array];
+    if (_glossResults && [_glossRequest isEqual:[self currentGlossRequest]]) [results addObjectsFromArray:_glossResults];
+    if (_customResults && [_customQuery isEqual:[self currentCustomTranslationRequest]]) [results addObjectsFromArray:_customResults];
+    NSDictionary *view = [_session viewWithError:nil];
+    if (!view) return;
+    NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+    if ([applied[@"applied"] boolValue]) [self apply:applied];
+}
+- (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+- (void)synchronizeCustomTranslations {
+    NSDictionary *query = [self currentCustomTranslationRequest];
+    if (!query) { [self cancelCustomTranslations]; return; }
+    if ([_customQuery isEqual:query]) return;
+    [self cancelCustomTranslations];
+    _customQuery = query;
+    NSArray *plan = [MSIMEClientSession customTranslationPlan:@{@"target_language":query[@"target_language"], @"candidates":query[@"candidates"]} error:nil];
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSDictionary *item in plan) {
+        NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
+            @"text":item[@"key"], @"source_language":item[@"source_language"], @"target_language":item[@"target_language"]} error:nil];
+        if (descriptor) [items addObject:@{@"text":item[@"text"], @"request":descriptor}];
+    }
+    if (!items.count) return;
+    uint64_t epoch = _customEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    _customBatch = [self customBatchForItems:items completion:^(NSArray<NSDictionary *> *results) {
+        MSIMEInputController *current = weakSelf;
+        if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
+            ![[current currentCustomTranslationRequest] isEqual:query]) return;
+        current->_customBatch = nil;
+        current->_customResults = [results copy];
+        [current applyCandidateTranslationResults];
+    }];
+    [_customBatch start];
+}
 - (void)cancelCandidateGloss {
     ++_glossEpoch;
     [_glossQueue cancelAllOperations];
     _glossRequest = nil;
+    _glossResults = nil;
 }
 - (NSDictionary *)currentGlossRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
@@ -250,7 +336,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self cancelCandidateGloss];
     _glossRequest = request;
     NSString *resources = [_session.hostOptions[@"resources"] copy];
-    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) { _glossResults = @[]; return; }
     if (!_glossQueue) { _glossQueue = [NSOperationQueue new]; _glossQueue.maxConcurrentOperationCount = 1; _glossQueue.qualityOfService = NSQualityOfServiceUtility; }
     const uint64_t epoch = _glossEpoch;
     MSIMEClientSession *session = _session;
@@ -261,9 +347,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_glossEpoch != epoch || current->_session != session || current->_activeClient != client ||
-                ![[current currentGlossRequest] isEqual:request] || ![result[@"generation"] isEqual:request[@"generation"]]) return;
-            NSDictionary *applied = [session applyTranslations:result[@"translations"] generation:[request[@"generation"] unsignedLongLongValue] error:nil];
-            if ([applied[@"applied"] boolValue]) [current apply:applied];
+                ![[current currentGlossRequest] isEqual:request] || (result && ![result[@"generation"] isEqual:request[@"generation"]])) return;
+            current->_glossResults = [result[@"translations"] copy] ?: @[];
+            [current applyCandidateTranslationResults];
         });
     }];
 }
@@ -331,7 +417,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
-        [self cancelCandidateGloss];
+        [self cancelCandidateTranslations];
         NSDictionary *view = [_session viewWithError:nil];
         if (view) {
             NSDictionary *cleared = [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
@@ -643,7 +729,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
-    [self cancelCandidateGloss];
+    [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     [super activateServer:sender];
@@ -688,7 +774,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
-    [self cancelCandidateGloss];
+    [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     _requestedPageSize = 0;
@@ -761,6 +847,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self renderCandidates];
         [self synchronizeCloudCandidates];
         [self synchronizeCandidateGloss];
+        [self synchronizeCustomTranslations];
     }
 }
 
@@ -781,14 +868,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    BOOL translationChanged = NO;
     id glossEnabled = preferences[@"candidate_translations"];
     if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
+        translationChanged = ![_glossEnabled isEqual:glossEnabled];
         _glossEnabled = glossEnabled;
     }
     id target = preferences[@"translation_target_language"];
-    if ([@[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"] containsObject:target]) _glossTargetLanguage = target;
-    if ((_glossEnabled && !_glossEnabled.boolValue) || (_glossTargetLanguage && ![_glossTargetLanguage isEqual:@"en"])) {
-        [self cancelCandidateGloss];
+    if ([@[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"] containsObject:target]) {
+        translationChanged |= ![_glossTargetLanguage isEqual:target];
+        _glossTargetLanguage = [target copy];
+    }
+    NSDictionary *custom = preferences[@"custom_translation"];
+    if ([custom isKindOfClass:NSDictionary.class]) {
+        translationChanged |= ![_customTranslationConfig isEqual:custom];
+        _customTranslationConfig = [custom copy];
+    }
+    if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
+        [self cancelCandidateTranslations];
         NSDictionary *view = [_session viewWithError:nil];
         if (view) [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     }
@@ -821,7 +918,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
-    [self cancelCandidateGloss];
+    [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
@@ -867,6 +964,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)dealloc {
+    [_customBatch cancel];
     [_glossQueue cancelAllOperations];
     [_cloudTimer invalidate];
     [_cloudRequest cancel];
@@ -884,7 +982,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!sender) { _modifierTap.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
-        [self cancelCandidateGloss];
+        [self cancelCandidateTranslations];
         [self cancelCloudCandidates];
         _modifierTap.reset();
         _preferenceLoadState.reset();
@@ -1060,6 +1158,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self renderCandidates];
     [self synchronizeCloudCandidates];
     [self synchronizeCandidateGloss];
+    [self synchronizeCustomTranslations];
 }
 
 - (void)updateKeymapPanel {
