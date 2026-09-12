@@ -1197,6 +1197,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _focusPending = _appearance.englishMode;
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
+    BOOL holdSpace = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    if (holdSpace && event.keyCode == 49 && !(event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift))) {
+        if (event.type == NSEventTypeKeyDown) { if (!event.isARepeat) [self toggleVoiceInput:nil]; return YES; }
+        if (event.type == NSEventTypeKeyUp && _voiceService.active) { [self toggleVoiceInput:nil]; return YES; }
+    }
     if (_modifierTap.observe(event, _appearance.shiftTapShortcut, _appearance.controlTapShortcut)) {
         [self setEnglishInputMode:!_appearance.englishMode];
         return YES;
