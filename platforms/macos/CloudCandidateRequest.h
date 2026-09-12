@@ -5,6 +5,9 @@
 - (instancetype)initWithURL:(NSURL *)url configuration:(NSURLSessionConfiguration *)configuration
                  completion:(void (^)(NSData *body))completion;
 - (void)start;
+/// Consume the shared custom-translation descriptor. HTTP(S) only; no redirects.
+- (instancetype)initWithTranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                   completion:(void (^)(NSData *body))completion;
 /// Cancel without delivering a result; safe after completion.
 - (void)cancel;
 @end

@@ -1,7 +1,5 @@
 #import "CloudCandidateRequest.h"
 
-static const NSUInteger MaximumBodyBytes = 262144;
-
 @implementation MSIMECloudCandidateRequest {
     NSURL *_url;
     NSURLSessionConfiguration *_configuration;
@@ -10,6 +8,9 @@ static const NSUInteger MaximumBodyBytes = 262144;
     void (^_completion)(NSData *);
     BOOL _started;
     BOOL _accepted;
+    NSURLRequest *_translationRequest;
+    NSUInteger _maximumBodyBytes;
+    NSTimeInterval _timeout;
 }
 - (instancetype)initWithURL:(NSURL *)url configuration:(NSURLSessionConfiguration *)configuration
                  completion:(void (^)(NSData *))completion {
@@ -17,15 +18,51 @@ static const NSUInteger MaximumBodyBytes = 262144;
         _url = [url copy];
         _configuration = [configuration copy];
         _completion = [completion copy];
+        _maximumBodyBytes = 262144;
+        _timeout = 2;
     }
+    return self;
+}
+- (instancetype)initWithTranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                   completion:(void (^)(NSData *))completion {
+    self = [self initWithURL:nil configuration:configuration completion:completion];
+    if (!self) return nil;
+    if (![descriptor isKindOfClass:NSDictionary.class] || ![descriptor[@"url"] isKindOfClass:NSString.class] ||
+        ![descriptor[@"method"] isEqual:@"POST"] || ![descriptor[@"timeout_ms"] isEqual:@2500] ||
+        ![descriptor[@"max_response_bytes"] isEqual:@1048576]) return self;
+    NSString *address = descriptor[@"url"];
+    if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 ||
+        [address rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
+    NSURL *url = [NSURL URLWithString:address];
+    if (![@[@"https", @"http"] containsObject:url.scheme] || !url.host.length || url.user || url.password || url.fragment) return self;
+    NSDictionary *headers = descriptor[@"headers"];
+    if (![headers isKindOfClass:NSDictionary.class] || headers.count > 2 || ![headers[@"Content-Type"] isEqual:@"application/json"]) return self;
+    for (id key in headers) {
+        id value = headers[key];
+        if (![@[@"Content-Type", @"Authorization"] containsObject:key] || ![value isKindOfClass:NSString.class] ||
+            [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 4103 ||
+            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
+    }
+    if (![descriptor[@"body"] isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:descriptor[@"body"]]) return self;
+    NSData *body = [NSJSONSerialization dataWithJSONObject:descriptor[@"body"] options:0 error:nil];
+    if (!body || body.length > 16384) return self;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.allHTTPHeaderFields = headers;
+    request.HTTPBody = body;
+    request.HTTPShouldHandleCookies = NO;
+    request.timeoutInterval = 2.5;
+    _translationRequest = [request copy];
+    _maximumBodyBytes = 1048576;
+    _timeout = 2.5;
     return self;
 }
 - (void)start {
     NSAssert(NSThread.isMainThread, @"Cloud transport must run on main thread");
     if (_started || !_completion) return;
     _started = YES;
-    if (![_url.scheme isEqual:@"https"] || ![_url.host isEqual:@"inputtools.google.com"] ||
-        _url.user || _url.password || (_url.port && _url.port.integerValue != 443)) {
+    if (!_translationRequest && (![_url.scheme isEqual:@"https"] || ![_url.host isEqual:@"inputtools.google.com"] ||
+        _url.user || _url.password || (_url.port && _url.port.integerValue != 443))) {
         [self finish:nil]; return;
     }
     _configuration.URLCache = nil;
@@ -33,17 +70,19 @@ static const NSUInteger MaximumBodyBytes = 262144;
     _configuration.URLCredentialStorage = nil;
     _configuration.HTTPShouldSetCookies = NO;
     _configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    _configuration.timeoutIntervalForRequest = 2;
-    _configuration.timeoutIntervalForResource = 2;
+    _configuration.timeoutIntervalForRequest = _timeout;
+    _configuration.timeoutIntervalForResource = _timeout;
     _body = [NSMutableData data];
     _session = [NSURLSession sessionWithConfiguration:_configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];
-    [[_session dataTaskWithURL:_url] resume];
+    NSURLSessionDataTask *task = _translationRequest ? [_session dataTaskWithRequest:_translationRequest] : [_session dataTaskWithURL:_url];
+    [task resume];
 }
 - (void)cancel {
     _completion = nil;
     [_session invalidateAndCancel];
     _session = nil;
     _body = nil;
+    _translationRequest = nil;
 }
 - (void)finish:(NSData *)body {
     void (^completion)(NSData *) = _completion;
@@ -53,15 +92,16 @@ static const NSUInteger MaximumBodyBytes = 262144;
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task
  didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
     (void)session; (void)task;
-    _accepted = _completion && [response isKindOfClass:NSHTTPURLResponse.class] &&
-        [(NSHTTPURLResponse *)response statusCode] == 200 && response.expectedContentLength <= (int64_t)MaximumBodyBytes;
+    NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+    _accepted = _completion && (status == 200 || (_translationRequest && status > 200 && status < 300)) &&
+        response.expectedContentLength <= (int64_t)_maximumBodyBytes;
     completionHandler(_accepted ? NSURLSessionResponseAllow : NSURLSessionResponseCancel);
     if (!_accepted) [self finish:nil];
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
     (void)session; (void)task;
     if (!_completion || !_accepted) return;
-    if (data.length > MaximumBodyBytes - _body.length) { [self finish:nil]; return; }
+    if (data.length > _maximumBodyBytes - _body.length) { [self finish:nil]; return; }
     [_body appendData:data];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
