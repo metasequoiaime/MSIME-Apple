@@ -427,6 +427,44 @@ pub struct LocalEmojiCatalogItem {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct LocalEmojiCatalogSlice {
+    pub items: Vec<LocalEmojiCatalogItem>,
+    pub next_offset: usize,
+    pub complete: bool,
+}
+
+/// Read catalog rows without collapsing equal text from distinct categories.
+#[cfg(unix)]
+pub fn local_emoji_catalog_slice(
+    resources: &str,
+    category: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<LocalEmojiCatalogSlice, &'static str> {
+    if !std::path::Path::new(resources).is_absolute() {
+        return Err("resources path must be absolute");
+    }
+    if limit == 0 || limit > 4096 {
+        return Err("invalid local emoji page size");
+    }
+    msime_engine_bridge::emoji_catalog_slice(resources, "", category, "", offset, limit, "")
+        .map(|page| LocalEmojiCatalogSlice {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| LocalEmojiCatalogItem {
+                    text: item.text,
+                    annotation: item.annotation,
+                    group: item.group,
+                })
+                .collect(),
+            next_offset: page.next_offset,
+            complete: page.complete,
+        })
+        .map_err(|_| "local emoji catalog unavailable")
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct LocalSymbolCatalogGroup {
     pub parent: String,
     pub title: String,

@@ -701,6 +701,24 @@ struct EmojiCatalogResponse {
 }
 
 #[cfg(unix)]
+fn emoji_category_icon(title: &str) -> &'static str {
+    [
+        ("Smileys", "😀"),
+        ("People", "🧑"),
+        ("Animals", "🐾"),
+        ("Food", "🍕"),
+        ("Travel", "🚗"),
+        ("Activities", "🎉"),
+        ("Objects", "💡"),
+        ("Symbols", "❤"),
+        ("Flags", "🏳"),
+    ]
+    .into_iter()
+    .find_map(|(name, icon)| title.contains(name).then_some(icon))
+    .unwrap_or("☺")
+}
+
+#[cfg(unix)]
 fn read_local_emoji_groups(
     resources: &str,
     category: &str,
@@ -738,13 +756,11 @@ fn read_local_emoji_groups(
     let mut groups = Vec::new();
     let mut positions = HashMap::new();
     let mut offset = 0usize;
+    let mut complete = false;
     for _ in 0..256 {
         let page =
-            msime_host_api::local_emoji_catalog_page(resources, "", category, offset, PAGE_SIZE)?;
-        if page.is_empty() {
-            break;
-        }
-        for item in page {
+            msime_host_api::local_emoji_catalog_slice(resources, category, offset, PAGE_SIZE)?;
+        for item in page.items {
             if item.text.is_empty() {
                 continue;
             }
@@ -759,17 +775,18 @@ fn read_local_emoji_groups(
                 let index = groups.len();
                 positions.insert(title.clone(), index);
                 groups.push(EmojiCatalogGroup {
+                    icon: if category == "kaomoji" {
+                        ";-)".to_owned()
+                    } else {
+                        emoji_category_icon(&title).to_owned()
+                    },
                     title,
                     parent: None,
-                    icon: String::new(),
                     items: Vec::new(),
                 });
                 index
             };
             let group = &mut groups[index];
-            if group.icon.is_empty() {
-                group.icon = item.text.chars().next().unwrap_or('•').to_string();
-            }
             group.items.push(EmojiCatalogItem {
                 keywords: if item.annotation.is_empty() {
                     item.text.clone()
@@ -779,7 +796,17 @@ fn read_local_emoji_groups(
                 text: item.text,
             });
         }
-        offset = offset.saturating_add(PAGE_SIZE as usize);
+        if page.complete {
+            complete = true;
+            break;
+        }
+        if page.next_offset <= offset {
+            return Err("local emoji catalog cursor did not advance");
+        }
+        offset = page.next_offset;
+    }
+    if !complete {
+        return Err("local emoji catalog exceeds limit");
     }
     Ok(groups
         .into_iter()
