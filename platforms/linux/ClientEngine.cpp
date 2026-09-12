@@ -1482,6 +1482,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
         skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
+  if (const auto catalog = configured.find("candidate_skin_catalog");
+      catalog != configured.end() && catalog->is_object()) {
+    if (const auto packages = catalog->find("packages");
+        packages != catalog->end() && packages->is_array()) {
+      for (const auto &package : *packages) {
+        const auto id = package.value("id", std::string{});
+        if (id.empty() || id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+        const auto title = package.value("title", id);
+        ibus_prop_list_append(skin_menu, ibus_property_new(
+            id.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
+            ibus_text_new_from_static_string("外部候选皮肤"), TRUE, FALSE,
+            skin == id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+      }
+    }
+  }
   if (skin != "fluent" && skin != "wechat" && skin != "graphite" && skin != "willow_green") {
     auto item = ibus_property_new(
         (std::string("CandidateSkin/") + skin).c_str(), PROP_TYPE_RADIO,
