@@ -111,6 +111,18 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test"
 add_custom_target(emoji-category-tabs-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test")
 add_test(NAME emoji-category-tabs COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test")
 set_tests_properties(emoji-category-tabs PROPERTIES LABELS "emoji-local" TIMEOUT 30)
+set(MSIME_EMOJI_SECTIONS_TEST_SOURCES BackendEmojiAppearance.swift BackendEmojiSymbolGroups.swift
+  BackendEmojiCatalog.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiKeyboard.swift
+  BackendEmojiSymbolSections.swift tests/EmojiSymbolSectionsTest.swift)
+list(TRANSFORM MSIME_EMOJI_SECTIONS_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_SECTIONS_TEST_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test"
+  DEPENDS ${MSIME_EMOJI_SECTIONS_TEST_SOURCES} VERBATIM)
+add_custom_target(emoji-symbol-sections-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test")
+add_test(NAME emoji-symbol-sections COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test")
+set_tests_properties(emoji-symbol-sections PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 add_executable(screen-keyboard-panel-test tests/ScreenKeyboardPanelTest.mm ScreenKeyboardPanel.mm)
 target_compile_options(screen-keyboard-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(screen-keyboard-panel-test PRIVATE "-framework AppKit" "-framework CoreGraphics" "-framework Carbon")

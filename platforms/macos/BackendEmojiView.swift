@@ -119,7 +119,7 @@ struct MacEmojiView: View {
           } else { Text(MacEmojiMainPage.title(category: category)).font(.system(size: 16, weight: .semibold)) }
         }
       }
-      if category != "home" && category != "clipboard" && !emojiPage && mediaPage == nil {
+      if category != "home" && category != "clipboard" && category != "symbols" && !emojiPage && mediaPage == nil {
       Picker("分类", selection: $group) {
         Text("全部分类").tag("")
         ForEach(groupsCategory == category ? displayedGroups : [], id: \.self) { name in
@@ -184,6 +184,9 @@ struct MacEmojiView: View {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
                 selected: { selectedIndex == $0 }, identity: { $0 },
                 copy: { selectedIndex = $0; copyItem(flowItems[$0]) })
+            } else if category == "symbols" {
+              MacEmojiSymbolSectionsView(items: loadedQuery == queryID ? items : [], palette: palette,
+                selectedIndex: selectedIndex, copy: { selectedIndex = $0; copyItem(items[$0]) })
             } else if category == "clipboard" {
             LazyVGrid(columns: [GridItem(.flexible())], spacing: MacClipboardPreview.gap) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
