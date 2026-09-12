@@ -134,7 +134,9 @@ int wmain(int argc, wchar_t **argv) {
       throw std::runtime_error("Host preparation failed");
     if (stopping.load())
       return 0;
-    ClipboardHistory clipboard_history(config.state_root / "clipboard-history");
+    // Keep the native listener on the same file used by the shared desktop
+    // shell; this is the cross-process handoff for the clipboard panel.
+    ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
     WindowsServerOptions options;
     options.pipes.names = config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
