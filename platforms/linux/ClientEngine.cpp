@@ -85,6 +85,7 @@ Json response(char *raw) {
   return document.at("value");
 }
 std::optional<guint> candidate_text_color(const Json &preferences);
+std::optional<guint> candidate_number_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
@@ -208,6 +209,7 @@ struct State {
   std::string punctuation_lock = "follow";
   std::string preedit_style = "raw";
   std::optional<guint> candidate_text_color, candidate_background_color;
+  std::optional<guint> candidate_number_color;
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
@@ -474,6 +476,7 @@ struct State {
       chinese_punctuation = false;
     const auto display_preferences = skin_display_preferences(options.at("preferences"));
     candidate_text_color = ::candidate_text_color(display_preferences);
+    candidate_number_color = ::candidate_number_color(display_preferences);
     candidate_background_color = ::candidate_background_color(display_preferences);
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
     preedit_style = ::preedit_style(options.at("preferences"));
@@ -554,6 +557,7 @@ struct State {
       display_preferences["candidate_skin"] = *skin_override;
     display_preferences = skin_display_preferences(std::move(display_preferences));
     candidate_text_color = ::candidate_text_color(display_preferences);
+    candidate_number_color = ::candidate_number_color(display_preferences);
     candidate_background_color = ::candidate_background_color(display_preferences);
     candidate_orientation = ::candidate_orientation(display_preferences);
     preedit_style = preedit_override.value_or(::preedit_style(display_preferences));
@@ -1033,6 +1037,9 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   const auto black_contrast = (luminance + 0.05) / 0.05;
   const auto white_contrast = 1.05 / (luminance + 0.05);
   return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
+}
+std::optional<guint> candidate_number_color(const Json &preferences) {
+  return palette_color(preferences.value("candidate_number_color", Json(nullptr)));
 }
 std::optional<guint> candidate_background_color(const Json &preferences) {
   if (const auto custom = palette_color(preferences.value("candidate_background_color", Json(nullptr))))
@@ -2547,8 +2554,11 @@ void render(IBusEngine *engine, const Json &view) {
           *state(engine).candidate_background_color, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
-    ibus_lookup_table_append_label(table,
-                                   ibus_text_new_from_string(label.c_str()));
+    auto label_text = ibus_text_new_from_string(label.c_str());
+    if (state(engine).candidate_number_color)
+      ibus_text_append_attribute(label_text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 *state(engine).candidate_number_color, 0, G_MAXUINT);
+    ibus_lookup_table_append_label(table, label_text);
     if (candidate.at("highlighted").get<bool>())
       ibus_lookup_table_set_cursor_pos(table, static_cast<guint>(index));
   }
