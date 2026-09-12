@@ -1324,3 +1324,16 @@ test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ign
     expect(screen.getByRole("button", { name: "fixture-current" })).toBeDefined();
   }
 });
+
+test("a host can open the settings window on the section its menu named", async () => {
+  const client: SettingsClient = { load: async () => initial, save: vi.fn() };
+  render(<SettingsPage client={client} initialPage="about" />);
+  expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+  cleanup();
+
+  // An id this build does not have keeps the default section rather than
+  // opening an empty one.
+  render(<SettingsPage client={client} initialPage="not-a-page" />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByRole("heading", { name: "外观" })).toBeDefined();
+});

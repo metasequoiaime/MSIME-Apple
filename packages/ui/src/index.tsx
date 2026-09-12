@@ -344,7 +344,14 @@ function message(error: unknown): string {
   return "无法访问设置，请重试。原有设置不会被自动重置。";
 }
 
-export function SettingsPage({ client }: { client: SettingsClient }) {
+type SettingsPageId = (typeof pages)[number]["id"];
+// A host can ask for the section its menu entry names. An unknown id keeps the
+// default page rather than opening an empty one.
+function requestedPage(value: string | undefined): SettingsPageId {
+  return pages.some(page => page.id === value) ? (value as SettingsPageId) : "appearance";
+}
+
+export function SettingsPage({ client, initialPage }: { client: SettingsClient; initialPage?: string }) {
   const linuxPlatform = isLinuxDesktop();
   const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = linuxPlatform ? linuxLicenseUrl : licenseUrl;
@@ -354,7 +361,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage));
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
