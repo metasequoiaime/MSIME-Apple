@@ -42,6 +42,19 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
+std::string provider_socket_fallback(const Json &options, const char *option,
+                                      const char *environment, const char *filename) {
+  auto value = options.value(option, std::string{});
+  if (!value.empty())
+    return value;
+  if (const auto *socket = g_getenv(environment); socket && *socket)
+    return socket;
+  const auto *runtime = g_get_user_runtime_dir();
+  if (!runtime || !*runtime)
+    return {};
+  const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
+  return std::filesystem::exists(candidate) ? candidate.string() : std::string{};
+}
 struct State;
 bool script_conversion_applies(const Json &context);
 std::string traditional_display(const State &s, const Json &context,
@@ -276,11 +289,8 @@ struct State {
       show_helpcode_in_candidate_window = true;
     }
     clipboard_history_path = options.value("clipboard_history_path", std::string{});
-    online_provider_socket = options.value("online_provider_socket", std::string{});
-    if (online_provider_socket.empty()) {
-      if (const auto *socket = g_getenv("MSIME_ONLINE_PROVIDER_SOCKET"))
-        online_provider_socket = socket;
-    }
+    online_provider_socket = provider_socket_fallback(
+        options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     translation_provider_socket =
         options.value("translation_provider_socket", std::string{});
     if (translation_provider_socket.empty()) {
@@ -289,11 +299,8 @@ struct State {
     }
     if (translation_provider_socket.empty())
       translation_provider_socket = online_provider_socket;
-    voice_provider_socket = options.value("voice_provider_socket", std::string{});
-    if (voice_provider_socket.empty()) {
-      if (const auto *socket = g_getenv("MSIME_VOICE_PROVIDER_SOCKET"))
-        voice_provider_socket = socket;
-    }
+    voice_provider_socket = provider_socket_fallback(
+        options, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
     voice_language = voice_preferences.value("language", std::string("zh-cn"));
