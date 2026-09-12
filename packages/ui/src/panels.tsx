@@ -149,20 +149,63 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
   }, [layout]);
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
+  const modifiersRef = useRef<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
+  type QueuedKey = { request: KeyboardInputRequest; description: string };
+  const inputQueue = useRef<{ active: boolean; running: boolean; pending: QueuedKey[] }>({ active: true, running: false, pending: [] });
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   useEffect(() => {
-    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+    const queue = { active: true, running: false, pending: [] as QueuedKey[] };
+    inputQueue.current = queue;
+    modifiersRef.current = new Set();
+    setActiveModifiers(new Set());
+    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
+      if (queue.active) setNotice("未能记录前台输入窗口");
+    });
+    return () => { queue.active = false; queue.pending = []; };
   }, [client]);
   function toggleModifier(keyToToggle: Modifier) {
-    setActiveModifiers(current => {
-      const next = new Set(current);
-      if (next.has(keyToToggle)) next.delete(keyToToggle); else next.add(keyToToggle);
-      return next;
+    const next = new Set(modifiersRef.current);
+    if (next.has(keyToToggle)) next.delete(keyToToggle); else next.add(keyToToggle);
+    modifiersRef.current = next;
+    setActiveModifiers(next);
+  }
+  async function drainKeys() {
+    const queue = inputQueue.current;
+    if (!queue.active || queue.running || !client.sendKey) return;
+    queue.running = true;
+    try {
+      while (queue.active && queue.pending.length) {
+        const next = queue.pending.shift()!;
+        setNotice(`正在发送：${next.description}`);
+        try { await client.sendKey(next.request); }
+        catch {
+          // Delivery may have partially succeeded; never replay a failed key.
+          queue.pending = [];
+          if (queue.active) setNotice("按键发送失败，后续排队按键已取消，请确认输入位置后继续");
+          return;
+        }
+        if (queue.active) setNotice(`已发送：${next.description}`);
+      }
+    } finally { queue.running = false; }
+  }
+  function closeKeyboard() {
+    const queue = inputQueue.current;
+    queue.active = false;
+    queue.pending = [];
+    void client.close().catch(() => {
+      if (inputQueue.current === queue) {
+        queue.active = true;
+        setNotice("无法关闭键盘，请重试");
+      }
     });
   }
   function pressKey(keyToPress: KeyboardKey) {
     if (keyToPress.modifier) { toggleModifier(keyToPress.modifier); return; }
+    const queue = inputQueue.current;
+    if (!queue.active) return;
+    if (queue.pending.length >= 64) { setNotice("按键正在发送，请稍候再继续输入"); return; }
+    const activeModifiers = modifiersRef.current;
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
     const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
@@ -175,15 +218,23 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     const description = `${prefix}${prefix ? "+" : ""}${displayedLabel}`;
     const request: KeyboardInputRequest = { virtual_key: keyToPress.virtualKey, shift: withShift && includeStickyModifiers, modifiers, include_sticky_modifiers: includeStickyModifiers };
     setNotice(client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`);
-    if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
-    if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
+    if (client.sendKey) {
+      queue.pending.push({ request, description });
+      void drainKeys();
+    }
+    if (shift) {
+      const next = new Set(activeModifiers);
+      next.delete("Shift");
+      modifiersRef.current = next;
+      setActiveModifiers(next);
+    }
   }
   const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
   const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
   const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" onClick={() => void client.openVoice?.()}>语音</button>}<button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" onClick={() => void client.openVoice?.()}>语音</button>}<button type="button" aria-label="关闭" onClick={closeKeyboard}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout" style={keyboardStyle}>
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {

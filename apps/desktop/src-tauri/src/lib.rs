@@ -1194,22 +1194,12 @@ fn release_panel_focus(
 #[cfg(target_os = "linux")]
 fn send_panel_key(
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, PanelInputState>,
+    target: PanelInputTarget,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
     if let PanelInputTarget::X11(window) = &target {
         let key = xdotool_key_args(&request).ok_or(HostActionError {
             code: "invalid_key",
@@ -1497,7 +1487,7 @@ fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(),
 }
 
 #[tauri::command]
-fn send_key(
+async fn send_key(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
@@ -1506,7 +1496,20 @@ fn send_key(
     // app handle belongs to only one of them.
     let _ = &app;
     #[cfg(target_os = "linux")]
-    return send_panel_key(&app, &state, request);
+    {
+        request.validate().map_err(|_| HostActionError { code: "invalid_key" })?;
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError { code: "unavailable" })?
+            .clone()
+            .ok_or(HostActionError { code: "unavailable" })?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            send_panel_key(&app, target, request)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?;
+    }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
