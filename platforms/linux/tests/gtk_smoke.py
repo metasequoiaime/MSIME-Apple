@@ -107,6 +107,12 @@ try:
     assert xtst.XTestFakeKeyEvent(display, 10, False, 0)
     x11.XSync(display, False)
     wait(lambda: first.get_text() == "你好", "French physical number row did not select candidate")
+    first.set_text("")
+    keys("n", "i", "h", "a", "o", "ISO_Level3_Shift+agrave")
+    wait(lambda: first.get_text() == "nihao@", "French AltGr text discarded pending spelling")
+    first.set_text("")
+    keys("ISO_Level3_Shift+agrave")
+    wait(lambda: first.get_text() == "@", "Idle French AltGr text was intercepted")
     # Compose a Unicode value on US, then select it with AZERTY Shift+row 1.
     # Its keysym is '1', unlike the US '!', so this must use the physical code.
     subprocess.run(["setxkbmap", "us"], check=True)

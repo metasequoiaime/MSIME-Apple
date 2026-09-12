@@ -3545,6 +3545,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
+    // AltGr selects layout text, not an application shortcut. Finish spelling
+    // before forwarding it, without applying candidate or punctuation bindings.
+    if ((modifiers & ~IBUS_SHIFT_MASK) == IBUS_MOD5_MASK &&
+        g_unichar_isprint(ibus_keyval_to_unicode(key))) {
+      apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
+      return;
+    }
     if (flags &
         (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
          IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK)) {
