@@ -57,7 +57,12 @@ def cloud(query):
     params = urllib.parse.urlencode({"text": text, "itc": "ja-t-i0-und" if
         query.get("scheme") == 3 else "zh-t-i0-pinyin", "num": 1, "ie": "utf-8", "oe": "utf-8"})
     result = fetch("https://inputtools.google.com/request?" + params, 0.35)
-    if result[0] == "SUCCESS":
+    # Match Windows cloud_ime's SUCCESS/first-candidate contract while
+    # rejecting malformed provider JSON before indexing nested values.
+    if (isinstance(result, list) and len(result) >= 2 and result[0] == "SUCCESS" and
+        isinstance(result[1], list) and result[1] and isinstance(result[1][0], list) and
+        len(result[1][0]) >= 2 and isinstance(result[1][0][1], list) and
+        result[1][0][1]):
         return candidate(result[1][0][1][0], 0)
     return None
 
