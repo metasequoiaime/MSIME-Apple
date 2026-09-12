@@ -29,6 +29,11 @@ struct MsimePreviewEngine;
 namespace {
 Json configured;
 uint64_t configuration_generation = 0;
+// Store acceptance is shared by all contexts and survives session recreation.
+// Effective runtime revisions also include local overrides and are independent.
+std::string accepted_preferences_directory;
+Json accepted_preferences_snapshot;
+
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
   if (preferences.value("candidate_theme", "follow") == "follow")
@@ -4262,6 +4267,19 @@ gboolean reload_preferences(gpointer data) {
                              auto snapshot = response(raw.release());
                              if (snapshot.is_null())
                                return;
+                             const auto revision = snapshot.at("revision").get<uint64_t>();
+                             if (accepted_preferences_directory == request->directory &&
+                                 !accepted_preferences_snapshot.is_null()) {
+                               const auto accepted_revision =
+                                   accepted_preferences_snapshot.at("revision").get<uint64_t>();
+                               if (revision < accepted_revision ||
+                                   (revision == accepted_revision &&
+                                    snapshot.at("preferences") !=
+                                        accepted_preferences_snapshot.at("preferences")))
+                                 return;
+                             }
+                             accepted_preferences_directory = request->directory;
+                             accepted_preferences_snapshot = snapshot;
                              configured["preferences"] = snapshot.at("preferences");
                              if (request->session == 0 ||
                                  s.session != request->session || !s.focused ||

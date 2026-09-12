@@ -771,6 +771,19 @@ int main(int argc, char **argv) {
     require(seen.candidates.size() == 3,
             "Stale revision replaced live settings");
     invoke("Reset");
+    save(1, 4);
+    settle();
+    phrase();
+    require(seen.candidates.size() == 3,
+            "Conflicting revision replaced live settings");
+    invoke("Reset");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    settle();
+    phrase();
+    require(seen.candidates.size() == 3,
+            "Conflicting revision replaced settings after focus recovery");
+    invoke("Reset");
     int lock =
         open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
     require(lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) == 0,
