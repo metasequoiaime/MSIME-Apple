@@ -180,7 +180,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (navigationOverrides.count) {
         NSMutableDictionary *navigation = [merged[@"navigation"] mutableCopy] ?: [NSMutableDictionary dictionary];
         for (NSArray *entry in NavigationControls())
-            if (!navigation[entry[0]] || LocalModeBoolean(navigationOverrides[entry[0]])) navigation[entry[0]] = @([self navigationEnabled:entry[0]]);
+            if (LocalModeBoolean(navigationOverrides[entry[0]])) navigation[entry[0]] = @([self navigationEnabled:entry[0]]);
         merged[@"navigation"] = navigation;
     }
     merged[@"candidate_font_size"] = @(self.fontSize);
