@@ -235,7 +235,8 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const recognitionRevision = useRef(0);
-  const recognitionQueue = useRef<{ running: boolean; pending: { revision: number; strokes: InkStroke[] } | null }>({ running: false, pending: null });
+  const [recognizing, setRecognizing] = useState(false);
+  const recognitionQueue = useRef<{ active: boolean; running: boolean; pending: { revision: number; strokes: InkStroke[] } | null }>({ active: true, running: false, pending: null });
   const submissionRevision = useRef(0);
   const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
@@ -246,11 +247,13 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     if (active?.canvas.hasPointerCapture?.(active.pointerId)) active.canvas.releasePointerCapture(active.pointerId);
   }
   useEffect(() => {
-    const queue = { running: false, pending: null } as typeof recognitionQueue.current;
+    const queue = { active: true, running: false, pending: null } as typeof recognitionQueue.current;
     recognitionQueue.current = queue;
+    setRecognizing(false);
     submittingRef.current = false;
     setSubmitting(false);
     return () => {
+      queue.active = false;
       queue.pending = null;
       recognitionRevision.current++;
       submissionRevision.current++;
@@ -266,11 +269,12 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     if (!recognizeInk) { setNotice("识别结果需由宿主提供"); return; }
     const queue = recognitionQueue.current;
     queue.pending = { revision, strokes: nextStrokes };
+    setRecognizing(true);
     if (queue.running) return;
     queue.running = true;
     void (async () => {
       try {
-        while (queue === recognitionQueue.current && queue.pending) {
+        while (queue.active && queue === recognitionQueue.current && queue.pending) {
           const request = queue.pending;
           queue.pending = null;
           if (request.revision !== recognitionRevision.current) continue;
@@ -282,14 +286,19 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
           } catch {
             if (request.revision === recognitionRevision.current) {
               setCandidates([]);
-              setNotice("手写识别失败，请确认识别服务已启动");
+              setNotice("手写识别失败，请确认手写模型或识别服务可用，然后重新识别");
             }
           }
         }
       } finally {
         queue.running = false;
+        if (queue.active && queue === recognitionQueue.current) setRecognizing(false);
       }
     })();
+  }
+  function retryRecognition() {
+    if (!strokes.length || activeStroke.current || recognitionQueue.current.running || submittingRef.current) return;
+    recognize(strokes);
   }
   function start(event: PointerEvent<SVGSVGElement>) {
     if (activeStroke.current || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
@@ -373,7 +382,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
-      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
+      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button>{client.recognizeHandwriting && <button type="button" onClick={retryRecognition} disabled={!strokes.length || drawing.length > 0 || recognizing || submitting}>{recognizing ? "识别中…" : "重新识别"}</button>}</div></section>
       <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}><button type="button" className="handwriting-candidate-submit" disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>{client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}</div>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
