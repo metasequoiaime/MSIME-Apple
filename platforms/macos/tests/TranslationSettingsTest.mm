@@ -123,6 +123,25 @@ int main() {
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         assert(!key.stringValue.length && ![window valueForKey:@"snapshot"]);
         assert(!secretId.stringValue.length && !tencentKey.stringValue.length && !plainTencent.stringValue.length);
+        // Real Apple -> C -> Rust disk roundtrip, outside the main input thread.
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            assert(!NSThread.isMainThread);
+            NSError *failure = nil;
+            NSDictionary *write = @{@"directory":root, @"action":@"remember", @"target_language":@"en", @"generation":@19,
+                @"items":@[@{@"text":@"Hello", @"direction":@"english_to_chinese", @"translation":@"你好"}]};
+            NSDictionary *saved = [MSIMEClientSession learnedTranslationRequest:write error:&failure];
+            assert(saved && !failure && [saved[@"saved"] isEqual:@1]);
+            NSDictionary *read = @{@"directory":root, @"action":@"lookup", @"target_language":@"en", @"generation":@20,
+                @"items":@[@{@"text":@"HELLO", @"direction":@"english_to_chinese"}]};
+            NSDictionary *found = [MSIMEClientSession learnedTranslationRequest:read error:&failure];
+            assert(found && !failure && [found[@"generation"] isEqual:@20]);
+            assert(([found[@"translations"] isEqual:@[@{@"text":@"HELLO", @"translation":@"你好"}]]));
+            NSMutableDictionary *bad = [read mutableCopy]; bad[@"directory"] = @"relative";
+            assert(![MSIMEClientSession learnedTranslationRequest:bad error:&failure] && failure);
+            dispatch_semaphore_signal(done);
+        });
+        assert(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     }
     return 0;
