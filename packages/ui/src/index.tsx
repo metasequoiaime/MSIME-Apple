@@ -89,6 +89,7 @@ export type Preferences = {
   settings_theme?: SurfaceTheme;
   candidate_theme?: SurfaceTheme;
   toolbar_theme?: SurfaceTheme;
+  screen_keyboard_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
@@ -907,6 +908,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
+        <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；macOS 原生屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section" role="group" aria-labelledby="touch-keyboard-spacing-title">
           <div className="section-title" id="touch-keyboard-spacing-title">触屏键盘间距<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>

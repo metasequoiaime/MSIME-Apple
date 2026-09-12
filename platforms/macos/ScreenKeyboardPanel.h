@@ -7,4 +7,5 @@ typedef BOOL (^MSIMEScreenKeyboardSender)(unsigned short keyCode, NSEventModifie
 + (instancetype)sharedPanel;
 - (instancetype)initWithKeySender:(MSIMEScreenKeyboardSender)sender;
 - (void)showKeyboard;
+- (void)applyThemePreferences:(NSDictionary *)preferences;
 @end

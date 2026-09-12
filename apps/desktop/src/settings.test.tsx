@@ -547,6 +547,25 @@ test("automatic color swatch follows candidate theme without persisting a color 
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
 });
 
+test("screen keyboard theme loads, saves independently and reloads", async () => {
+  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, screen_keyboard_theme: "light", toolbar_theme: "dark" } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => {
+    snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
+  });
+  render(<SettingsPage client={{ load: async () => snapshot, save }} />);
+  const select = await screen.findByLabelText("屏幕键盘主题") as HTMLSelectElement;
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(select.value).toBe("light");
+  fireEvent.change(select, { target: { value: "dark" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark" })));
+  fireEvent.change(select, { target: { value: "follow" } });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  confirm.mockRestore();
+  await waitFor(() => expect(select.value).toBe("dark"));
+});
+
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
   let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "dark", settings_theme: "dark", candidate_theme: "dark", toolbar_theme: "light" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
