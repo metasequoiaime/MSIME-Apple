@@ -250,6 +250,7 @@ struct State {
   }
   bool online_loading = false, translation_loading = false;
   guint online_delay_source = 0;
+  guint translation_delay_source = 0;
   bool cloud_candidates = true;
   bool candidate_translations = true;
   bool translation_reset_pending = false;
@@ -259,6 +260,11 @@ struct State {
     if (online_delay_source) {
       const auto source = online_delay_source;
       online_delay_source = 0;
+      g_source_remove(source);
+    }
+    if (translation_delay_source) {
+      const auto source = translation_delay_source;
+      translation_delay_source = 0;
       g_source_remove(source);
     }
     ++provider_epoch;
@@ -1132,7 +1138,7 @@ bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded
     return false;
   }
 }
-void translation_schedule(IBusEngine *engine) {
+void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.candidate_translations || s.translation_provider_socket.empty() ||
       s.translation_loading || !s.session ||
@@ -1156,6 +1162,29 @@ void translation_schedule(IBusEngine *engine) {
     });
     g_object_unref(task);
   } catch (...) { s.translation_loading = false; }
+}
+// Match the Windows translation worker's 500ms idle window. Only copy
+// the current Engine query when dispatching, never at the first keystroke.
+void translation_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.translation_delay_source) {
+    const auto source = s.translation_delay_source;
+    s.translation_delay_source = 0;
+    g_source_remove(source);
+  }
+  if (!s.candidate_translations || s.translation_provider_socket.empty() ||
+      !s.session || !s.focused || s.blocked || !s.input_enabled ||
+      s.view.value("candidates", Json::array()).empty())
+    return;
+  s.translation_delay_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 500,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        state(engine).translation_delay_source = 0;
+        translation_dispatch(engine);
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer);
 bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
