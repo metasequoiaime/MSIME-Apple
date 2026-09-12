@@ -25,10 +25,28 @@ test("theme changes replace external palette without rescanning or reloading ima
     view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme }} scan={scan} readImage={readImage} />);
     expect(view.container.querySelector(".appearance-candidate-preview")?.getAttribute("data-preview-theme")).toBe(candidate_theme);
     expect(document.adoptedStyleSheets).toHaveLength(1);
-    expect(document.adoptedStyleSheets[0].cssRules[0].cssText).toContain(candidate_theme === "light" ? "rgb(171, 205, 239)" : "rgb(18, 52, 86)");
+    const rules = document.adoptedStyleSheets[0].cssRules;
+    expect(rules[rules.length - 1].cssText).toContain(candidate_theme === "light" ? "rgb(171, 205, 239)" : "rgb(18, 52, 86)");
   }
   expect(scan).toHaveBeenCalledTimes(1);
   expect(readImage).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+});
+
+test("sparse light appearance inherits base fields and drops overrides when returning to dark", async () => {
+  const scan = vi.fn().mockResolvedValue({ ...catalog, packages: [{ ...catalog.packages[0], themes: ["dark", "light"],
+    candidate: { dark: { surface: "#123456", border: "#112233", showSelectedBar: false }, light: { surface: "#abcdef" } } }] });
+  const view = render(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme: "light" }} scan={scan} />);
+  await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
+  const css = () => Array.from(document.adoptedStyleSheets[0].cssRules).map(rule => rule.cssText).join(" ");
+  expect(css()).toContain("rgb(17, 34, 51)");
+  expect(css()).toContain("display: none");
+  expect(css().indexOf("rgb(171, 205, 239)")).toBeGreaterThan(css().indexOf("rgb(18, 52, 86)"));
+  view.rerender(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
+  expect(css()).not.toContain("rgb(171, 205, 239)");
+  expect(css()).toContain("rgb(17, 34, 51)");
+  expect(document.adoptedStyleSheets).toHaveLength(1);
   view.unmount();
   expect(document.adoptedStyleSheets).toHaveLength(0);
 });

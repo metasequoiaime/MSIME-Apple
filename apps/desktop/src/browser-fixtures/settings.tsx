@@ -12,7 +12,7 @@ export function mount() {
   const catalog: SkinCatalog = { directory: "/synthetic/skins", issues: [], packages: [{
     id: "sample", name: "Synthetic external", version: "1", base: "fluent", author: null, description: null,
     layouts: ["horizontal", "vertical"], themes: ["dark", "light"], minWidthDip: 100, decorationTopDip: 24, decorationWidthDip: 100,
-    toolbarStylesheet: null, preview: "sample.svg", candidate: { dark: { surface: "#123456" }, light: { surface: "#abcdef" } },
+    toolbarStylesheet: null, preview: "sample.svg", candidate: { dark: { surface: "#123456", border: "#112233", showSelectedBar: false }, light: { surface: "#abcdef" } },
   }] };
   root.render(<SettingsPage client={{ load: async () => snapshot, save: async (_revision, preferences) => ({ ...snapshot, preferences }),
     scanSkinCatalog: async () => catalog,

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import type { Preferences } from "./index";
-import { dimension, paletteCss, type ExternalSkin, type SkinCatalog } from "./external-skins";
+import { dimension, previewPaletteCss, type ExternalSkin, type SkinCatalog } from "./external-skins";
 import { installSkinPalette } from "./skin-palette";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
@@ -14,7 +14,7 @@ function LoadedPreview({ skin, preferences, readImage, helpcode, theme }: {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
-    try { const remove = installSkinPalette(paletteCss(scope, skin.candidate[theme])); setPaletteFailed(false); return remove; }
+    try { const remove = installSkinPalette(previewPaletteCss(scope, skin.candidate, theme)); setPaletteFailed(false); return remove; }
     catch { setPaletteFailed(true); }
   }, [scope, skin.candidate, theme]);
   const top = dimension(skin.decorationTopDip, 500), width = dimension(skin.decorationWidthDip, 1000);
