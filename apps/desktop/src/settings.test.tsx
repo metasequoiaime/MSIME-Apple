@@ -1276,3 +1276,28 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: true } });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
+
+
+test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ignores delayed recognition after %s", async action => {
+  let resolve!: (result: { candidates: string[] }) => void;
+  const recognizeHandwriting = vi.fn(() => new Promise<{ candidates: string[] }>(done => { resolve = done; }));
+  const client = { close: vi.fn().mockResolvedValue(undefined), recognizeHandwriting };
+  const panel = render(<HandwritingPanel client={client} />);
+  const canvas = screen.getByLabelText("手写画布");
+  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+  fireEvent.pointerUp(canvas, { pointerId: 1 });
+  expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
+  if (action === "undo") fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+  if (action === "clear") fireEvent.click(screen.getByRole("button", { name: /重写/ }));
+  if (action === "next stroke") fireEvent.pointerDown(canvas, { clientX: 30, clientY: 30, pointerId: 2 });
+  if (action === "host replacement") panel.rerender(<HandwritingPanel client={{ close: client.close }} />);
+  await act(async () => resolve({ candidates: ["fixture-stale"] }));
+  expect(screen.queryByRole("button", { name: "fixture-stale" })).toBeNull();
+  if (action === "next stroke") {
+    fireEvent.pointerMove(canvas, { clientX: 90, clientY: 90, pointerId: 2 });
+    fireEvent.pointerUp(canvas, { pointerId: 2 });
+    await act(async () => resolve({ candidates: ["fixture-current"] }));
+    expect(screen.getByRole("button", { name: "fixture-current" })).toBeDefined();
+  }
+});
