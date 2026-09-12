@@ -257,7 +257,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
 }
 - (void)syncPunctuation {
-    if (_session) [self apply:[_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil]];
+    if (!_session) return;
+    NSDictionary *view = [_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil];
+    if (view) [self apply:@{@"view":view}];
 }
 - (NSMenu *)menu {
     [self ensureAppearance];

@@ -179,6 +179,13 @@ static void TestEnginePreedit(FakeTextClient *client) {
         assert([typed[@"view"][@"preedit"] isEqual:raw.boolValue ? @"b;" : @"bing"]);
         MSIMEApplyTransition(typed, client);
         assert([client.marked isEqual:typed[@"view"][@"preedit"]] && client.selection.location == client.marked.length);
+        NSDictionary *punctuationView = [session setChinesePunctuationEnabled:NO error:&error];
+        assert(punctuationView && !error && !punctuationView[@"view"]);
+        assert([punctuationView[@"editing_text"] isEqual:@"b;"] && [punctuationView[@"preedit"] isEqual:typed[@"view"][@"preedit"]]);
+        assert([punctuationView[@"generation"] isEqual:typed[@"view"][@"generation"]]);
+        MSIMEApplyTransition(@{@"view":punctuationView}, client);
+        assert([client.marked isEqual:typed[@"view"][@"preedit"]]);
+        assert([session setChinesePunctuationEnabled:YES error:&error] && !error);
         preferences[@"shuangpin_preedit_uses_raw"] = @(!raw.boolValue);
         assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"shuangpin_preedit_uses_raw"] isEqual:raw]);
         NSDictionary *pending = @{@"format_version": @1, @"revision": @(++revision), @"preferences": preferences};

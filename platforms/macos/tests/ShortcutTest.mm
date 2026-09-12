@@ -69,6 +69,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) NSUInteger punctuationCalls;
+@property(nonatomic, copy) NSDictionary *punctuationView;
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
@@ -104,7 +105,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     (void)error;
     self.chinesePunctuation = enabled;
     ++self.punctuationCalls;
-    return nil;
+    return self.punctuationView;
 }
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
     (void)error;
@@ -644,6 +645,20 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     assert(appearance.englishMode && appearance.chinesePunctuation && session.chinesePunctuation);
     appearance.englishMode = english;
     assert(appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
+    // The punctuation API returns a bare View, not {view: ...} like key input.
+    NSDictionary *punctuationView = @{@"session":@9, @"generation":@4, @"focused":@YES,
+        @"editing_text":@"nini", @"preedit":@"ni'ni", @"caret_position":@2,
+        @"dedicated_english":@YES, @"candidates":@[]};
+    session.punctuationView = punctuationView;
+    NSString *previousCommit = client.committed;
+    session.lastCommand = UINT32_MAX;
+    [controller syncPunctuation];
+    assert([[controller valueForKey:@"view"] isEqual:punctuationView]);
+    assert([client.marked isEqual:@"ni'ni"] && [client.committed isEqual:previousCommit]);
+    assert(session.lastCommand == UINT32_MAX);
+    session.punctuationView = nil;
+    [controller syncPunctuation];
+    assert([[controller valueForKey:@"view"] isEqual:punctuationView]);
 }
 
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
