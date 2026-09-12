@@ -2,6 +2,11 @@
 #import <Foundation/Foundation.h>
 #include "CandidateSkin.h"
 
+static inline BOOL MSIMECloudAppearanceIntegerInRange(id value, NSInteger minimum, NSInteger maximum) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+}
+
 // Cloud names follow MSIME-Apple develop 2b0250f4dd7012520392b310dfcc0288c3208a75.
 // Defaults and storage keys follow the active client host, not the retained Apple host.
 static inline NSDictionary *MSIMECloudBooleanPreferences() {
@@ -19,13 +24,13 @@ static inline NSDictionary *MSIMECloudBooleanPreferences() {
 }
 
 static inline NSDictionary *MSIMECloudAppearanceSnapshot(NSUserDefaults *defaults) {
-    NSInteger font = [defaults integerForKey:@"MSIMEClientCandidateFontSize"];
-    NSInteger page = [defaults integerForKey:@"MSIMEClientCandidatePageSize"];
+    id font = [defaults objectForKey:@"MSIMEClientCandidateFontSize"];
+    id page = [defaults objectForKey:@"MSIMEClientCandidatePageSize"];
     NSString *skin = [defaults stringForKey:@"MSIMEClientCandidateSkin"];
     NSMutableDictionary *snapshot = [@{@"platform.macos.candidate_skin": @(msime::mac::NormalizeSkinId(skin.UTF8String ?: "").c_str()),
              @"platform.macos.candidate_panel_style": @([defaults integerForKey:@"MSIMEClientCandidatePanelStyle"] == 1 ? 1 : 0),
-             @"platform.macos.candidate_font_size": @(font == 16 || font == 20 ? font : 18),
-             @"platform.macos.candidate_page_size": @(page == 5 || page == 7 ? page : 9)} mutableCopy];
+             @"platform.macos.candidate_font_size": MSIMECloudAppearanceIntegerInRange(font, 12, 32) ? font : @18,
+             @"platform.macos.candidate_page_size": MSIMECloudAppearanceIntegerInRange(page, 1, 9) ? page : @9} mutableCopy];
     NSInteger shortcut = [defaults integerForKey:@"MSIMEClientCandidatePageShortcut"];
     snapshot[@"platform.macos.candidate_page_shortcut"] = @(shortcut == 1 || shortcut == 2 ? shortcut : 0);
     NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
@@ -46,9 +51,9 @@ static inline BOOL MSIMEValidateCloudAppearance(NSDictionary *values) {
     if (![skin isKindOfClass:NSString.class] || ![skin length] || [skin length] > 64) return NO;
     NSString *normalized = @(msime::mac::NormalizeSkinId([skin UTF8String]).c_str());
     if (![skin isEqual:normalized]) return NO;
+    if (!MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_font_size"], 12, 32) ||
+        !MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_page_size"], 1, 9)) return NO;
     NSDictionary *options = @{@"platform.macos.candidate_panel_style": @[@0,@1],
-                              @"platform.macos.candidate_font_size": @[@16,@18,@20],
-                              @"platform.macos.candidate_page_size": @[@5,@7,@9],
                               @"platform.macos.input_scheme": @[@0,@1,@2],
                               @"platform.macos.candidate_page_shortcut": @[@0,@1,@2]};
     for (NSString *key in options) {

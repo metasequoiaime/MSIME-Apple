@@ -32,6 +32,21 @@ int main() {
     assert([defaults boolForKey:@"MSIMEClientFullWidthInput"]);
     assert(![defaults boolForKey:@"MSIMEClientChinesePunctuation"]);
     NSDictionary *saved = [values copy];
+    // Every size offered by the active native UI survives cloud export/import.
+    for (NSInteger font = 12; font <= 32; ++font) {
+      for (NSInteger page = 1; page <= 9; ++page) {
+        [defaults setInteger:font forKey:@"MSIMEClientCandidateFontSize"];
+        [defaults setInteger:page forKey:@"MSIMEClientCandidatePageSize"];
+        NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
+        assert([snapshot[@"platform.macos.candidate_font_size"] integerValue] == font);
+        assert([snapshot[@"platform.macos.candidate_page_size"] integerValue] == page);
+        [defaults setInteger:18 forKey:@"MSIMEClientCandidateFontSize"];
+        [defaults setInteger:9 forKey:@"MSIMEClientCandidatePageSize"];
+        assert(MSIMEApplyCloudAppearance(snapshot, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:snapshot]);
+      }
+    }
+    assert(MSIMEApplyCloudAppearance(saved, defaults));
     for (NSString *key in MSIMECloudBooleanPreferences()) {
       for (id invalid in @[@1, @"true", NSNull.null]) {
         NSMutableDictionary *bad = [saved mutableCopy];
@@ -47,11 +62,26 @@ int main() {
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
       }
     }
-    for (id invalid in @[@YES, @19, @18.5, @"18", NSNull.null]) {
+    for (id invalid in @[@YES, @11, @33, @18.5, @"18", NSNull.null]) {
       values[@"platform.macos.candidate_font_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
+    for (id invalid in @[@YES, @0, @10, @1.5, @"5", NSNull.null]) {
+      values = [saved mutableCopy];
+      values[@"platform.macos.candidate_page_size"] = invalid;
+      assert(!MSIMEApplyCloudAppearance(values, defaults));
+      assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
+    }
+    for (id invalid in @[@YES, @0, @99, @12.5, @"12"]) {
+      [defaults setObject:invalid forKey:@"MSIMEClientCandidateFontSize"];
+      [defaults setObject:invalid forKey:@"MSIMEClientCandidatePageSize"];
+      NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
+      assert([snapshot[@"platform.macos.candidate_font_size"] isEqual:@18]);
+      assert([snapshot[@"platform.macos.candidate_page_size"] isEqual:@9]);
+      assert(MSIMEValidateCloudAppearance(snapshot));
+    }
+    assert(MSIMEApplyCloudAppearance(saved, defaults));
     values = [saved mutableCopy]; values[@"platform.macos.candidate_skin"] = @"../unsafe";
     assert(!MSIMEApplyCloudAppearance(values, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
