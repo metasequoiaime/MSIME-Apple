@@ -57,6 +57,19 @@ pub struct ClientKeyEvent {
     pub ui_less: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientKeyDispatchResult {
+    Sent,
+    DefinitelyNotSent,
+    DeliveryAmbiguous,
+}
+
+impl ClientKeyDispatchResult {
+    pub fn allows_fallback(self) -> bool {
+        matches!(self, Self::DefinitelyNotSent)
+    }
+}
+
 impl ClientKeyEvent {
     pub fn validate(&self) -> Result<(), PanelContractError> {
         if self.lease.client == 0
@@ -337,6 +350,13 @@ mod tests {
             event.validate(),
             Err(PanelContractError::InvalidKeyboardInput)
         );
+    }
+
+    #[test]
+    fn only_definite_non_delivery_allows_fallback() {
+        assert!(!ClientKeyDispatchResult::Sent.allows_fallback());
+        assert!(ClientKeyDispatchResult::DefinitelyNotSent.allows_fallback());
+        assert!(!ClientKeyDispatchResult::DeliveryAmbiguous.allows_fallback());
     }
 
     #[test]
