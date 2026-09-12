@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
 import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
+import { candidateTextColor } from "./candidate-text-color";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -96,6 +97,7 @@ export type Preferences = {
   candidate_page_size: number;
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
+  candidate_text_color?: string | null;
   candidate_layout?: "horizontal" | "vertical";
   candidate_preedit_style?: "pinyin" | "empty";
   candidate_skin?: string;
@@ -583,6 +585,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidateFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
+          <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? "#e9e8e8"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
+        </div></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>

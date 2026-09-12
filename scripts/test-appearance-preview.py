@@ -19,6 +19,24 @@ def verify_font_sizes(page, preview):
             expect(preview.locator(".cand .text").first).to_have_css("font-size", f"{size}px")
             expect(preview.locator(".pinyin .text")).to_have_css("font-size", f"{44 - size}px")
 
+def verify_text_color(page, preview, selected_white=False):
+    text = preview.locator(".cand:not(.first) .text").first
+    number = preview.locator(".cand:not(.first) .num, .cand:not(.first) .cand-no").first
+    original = text.evaluate("el => getComputedStyle(el).color")
+    original_number = number.evaluate("el => getComputedStyle(el).color")
+    page.get_by_label("候选文字颜色", exact=True).fill("#ab1234")
+    expect(page.get_by_label("候选文字颜色", exact=True)).to_have_css("width", "36px")
+    expect(page.get_by_label("候选文字颜色", exact=True)).to_have_css("height", "28px")
+    expect(page.get_by_role("button", name="跟随主题", exact=True)).to_have_attribute("aria-pressed", "false")
+    expect(text).to_have_css("color", "rgb(171, 18, 52)")
+    expect(number).to_have_css("color", "rgba(171, 18, 52, 0.616)")
+    if selected_white:
+        expect(preview.locator(".first .text")).to_have_css("color", "rgb(255, 255, 255)")
+    page.get_by_role("button", name="跟随主题", exact=True).click()
+    expect(page.get_by_role("button", name="跟随主题", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(text).to_have_css("color", original)
+    expect(number).to_have_css("color", original_number)
+
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True, executable_path=args.executable)
     page = browser.new_page(viewport={"width": 1000, "height": 850})
@@ -33,6 +51,7 @@ with sync_playwright() as playwright:
     expect(preview.locator(".candidate")).to_have_css("font-size", "16px")
     expect(preview.locator(".pinyin")).to_have_css("font-size", "16px")
     verify_font_sizes(page, preview)
+    verify_text_color(page, preview)
     page.get_by_label("候选布局", exact=True).select_option("horizontal")
     page.get_by_label("候选字号", exact=True).select_option("20")
     page.get_by_label("每页候选数量", exact=True).select_option("9")
@@ -45,6 +64,8 @@ with sync_playwright() as playwright:
     page.get_by_role("switch", name="微信绿", exact=True).click()
     page.get_by_role("button", name="外观", exact=True).click()
     expect(preview.locator(".container")).to_have_css("background-color", "rgb(21, 21, 21)")
+    verify_text_color(page, preview, selected_white=True)
+    expect(preview.locator(".first .text")).to_have_css("color", "rgb(255, 255, 255)")
     page.get_by_label("候选布局", exact=True).select_option("vertical")
     expect(preview.locator(".wnd-v")).to_have_css("font-size", "20px")
     if args.screenshot:
@@ -86,10 +107,11 @@ with sync_playwright() as playwright:
     page.get_by_label("候选布局", exact=True).select_option("horizontal")
     expect(preview.locator(".wnd-h .cand")).to_have_count(6)
     verify_font_sizes(page, preview)
+    verify_text_color(page, preview)
     if args.screenshot:
         page.screenshot(path=args.screenshot)
     page.evaluate("window.removeFixture()")
     expect(page.locator("#root")).to_be_empty()
     assert page.evaluate("document.adoptedStyleSheets.length") == 0
-    print({"appearanceDraftPreview": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
+    print({"appearanceDraftPreview": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
     browser.close()

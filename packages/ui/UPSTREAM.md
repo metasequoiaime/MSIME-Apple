@@ -414,3 +414,16 @@ passes. No native host settings, typography implementation or platform acceptanc
 was changed; platform-specific ranges (including macOS native settings) still
 need their own migration. Font-family/fallback controls and global theme remain
 unfinished.
+
+The shared appearance page now exposes the existing candidate_text_color field
+with the pinned appearance.html colour input/reset controls and appearance.css
+geometry/state styling (04a8df56, GPL-3.0). A six-digit hex colour sets candidate
+text and the upstream 0x9d-alpha number colour; reset saves null and removes both
+preview variables so the selected skin returns. Theme-following state is exposed
+through aria-pressed. Selected-skin contrast rules stay intact. Only bounded hex
+values become CSS; malformed values cannot inject declarations.
+
+Tests cover loaded/custom/reset save payloads, sanitization and real computed
+colours/number opacity under desktop CSP on Fluent, WeChat and external previews,
+including retaining WeChat selected white text. This uses the existing core
+contract; no native host typography changes or native acceptance are claimed.

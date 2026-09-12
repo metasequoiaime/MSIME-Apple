@@ -5,6 +5,7 @@ import { installSkinPalette } from "./skin-palette";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
+import { candidateTextStyle } from "./candidate-text-color";
 
 function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean;
@@ -23,6 +24,7 @@ function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base) ? skin.base : "fluent";
   const geometry = {
     ...candidateFontStyle(preferences),
+    ...candidateTextStyle(preferences.candidate_text_color),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
