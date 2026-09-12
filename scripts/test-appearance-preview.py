@@ -265,5 +265,31 @@ with sync_playwright() as playwright:
     page.evaluate("() => {for (const face of window.fixtureFonts) document.fonts.delete(face); delete window.fixtureFonts;}")
     expect(page.locator("#root")).to_be_empty()
     assert page.evaluate("document.adoptedStyleSheets.length") == 0
+    page.evaluate("async () => { const {mountKeyboard} = await import('/settings.js'); window.removeKeyboard = mountKeyboard(); }")
+    expect(page.locator(".keyboard-key")).to_have_count(61)
+    for width in [800, 1100]:
+        page.set_viewport_size({"width": width, "height": 500})
+        assert page.locator(".keyboard-layout").evaluate("""layout => {
+          const weights = [
+            [...Array(13).fill(1), 1.9], [1.5, ...Array(12).fill(1), 1.4],
+            [1.85, ...Array(11).fill(1), 2], [2.35, ...Array(10).fill(1), 2.15],
+            [1.25, 1.25, 1.25, 6.7, 1.25, 1.25, 1.25, 1.25]
+          ];
+          return [...layout.children].every((row, r) => {
+            const bounds = row.getBoundingClientRect();
+            const available = bounds.width - 4 * (weights[r].length - 1);
+            const total = weights[r].reduce((a,b) => a+b, 0);
+            let right = bounds.left;
+            return [...row.children].every((key, i) => {
+              const rect = key.getBoundingClientRect();
+              const valid = Math.abs(rect.width - available * weights[r][i] / total) < .1 && rect.left >= right - .1 && rect.right <= bounds.right + .1;
+              right = rect.right; return valid;
+            });
+          });
+        }""")
+    expect(page.get_by_role("button", name="Space", exact=True)).to_have_css("font-size", "12px")
+    expect(page.get_by_role("button", name="a", exact=True)).to_have_css("font-size", "15px")
+    page.evaluate("window.removeKeyboard()")
+    expect(page.locator("#root")).to_be_empty()
     print({"appearanceDraftPreview": True, "fontCatalogSearch": True, "fontFamilyFallbackOrder": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
     browser.close()

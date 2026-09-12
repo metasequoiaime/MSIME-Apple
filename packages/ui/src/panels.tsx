@@ -80,6 +80,17 @@ const keyboardRows: KeyboardKey[][] = [
 function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"].filter(value => modifiers.has(value as Modifier)).join("+");
 }
+// Width ratios from Windows KeyboardPanel.cpp at 04a8df56f86312474a069f4335a1b58da7afaa9e.
+function keyboardKeyWeight(label: string, row: number, index: number) {
+  if (row === 4) return label === "Space" ? 6.7 : 1.25;
+  if (label === "Backspace") return 1.9;
+  if (label === "Tab") return 1.5;
+  if (label === "\\") return 1.4;
+  if (label === "Caps Lock") return 1.85;
+  if (label === "Enter") return 2;
+  if (label === "Shift") return index === 0 ? 2.35 : 2.15;
+  return 1;
+}
 function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39);
 }
@@ -123,7 +134,7 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
+          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: keyboardKeyWeight(keyToRender.label, rowIndex, keyIndex) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
         })}</div>)}
       </div>
     </div>
