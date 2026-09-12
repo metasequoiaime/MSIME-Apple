@@ -651,7 +651,7 @@ impl UnixSocketProvider {
             }
         }
         let request = request.to_string();
-        if request.len() > 4096
+        if request.len() > 16_384
             || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()
         {

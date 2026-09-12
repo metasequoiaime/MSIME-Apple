@@ -160,11 +160,16 @@ export type VoiceInputPreferences = {
   polish_enabled?: boolean;
   polish_text?: boolean;
   asr_model?: string;
+  asr_resource_id?: string;
   commit_mode?: "tsf" | "sendinput" | "ctrl_v";
   polish_provider?: string;
   polish_model?: string;
   polish_prompt_id?: string;
   polish_prompt?: string;
+  polish_prompt_custom_1?: string;
+  polish_prompt_custom_2?: string;
+  polish_prompt_custom_3?: string;
+  stream_inline_preedit?: boolean;
   doubao_enable_itn?: boolean;
   doubao_enable_punc?: boolean;
   doubao_enable_ddc?: boolean;
@@ -922,6 +927,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ asr_provider: event.target.value })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由 provider 服务决定如何把识别结果交给桌面</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>
         <div className="section"><div className="section-title">Linux provider 行为<small>这些选项会随请求传给用户管理的语音服务，不包含凭据</small></div>
           {([[
@@ -944,6 +951,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <label className="section-header"><span className="section-title">模型</span><input aria-label="文本润色模型" value={voiceInput.polish_model ?? ""} onChange={event => updateVoice({ polish_model: event.target.value })} /></label>
           <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={voiceInput.polish_prompt_id ?? "cleanup"} onChange={event => updateVoice({ polish_prompt_id: event.target.value })}><option value="cleanup">清理口语</option><option value="faithful">忠实原文</option><option value="zh2en">中译英</option><option value="casual">自然口语</option><option value="custom">自定义提示词</option></select></label>
           <label className="section-header"><span className="section-title">润色提示词</span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">自定义提示词一</span><textarea aria-label="自定义提示词一" value={voiceInput.polish_prompt_custom_1 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_1: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">自定义提示词二</span><textarea aria-label="自定义提示词二" value={voiceInput.polish_prompt_custom_2 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_2: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">自定义提示词三</span><textarea aria-label="自定义提示词三" value={voiceInput.polish_prompt_custom_3 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_3: event.target.value })} /></label>
         </div>
         <div className="section"><div className="section-title">Linux IBus 快捷键<small>在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入</small></div>
           {([[

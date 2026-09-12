@@ -1645,15 +1645,16 @@ Json voice_provider_options(const Json &preferences) {
   constexpr const char *boolean_keys[] = {
       "sound_enabled", "start_sound", "end_sound", "mute_system_audio",
       "polish_enabled", "polish_text", "doubao_enable_itn",
-      "doubao_enable_punc", "doubao_enable_ddc"};
+      "doubao_enable_punc", "doubao_enable_ddc", "stream_inline_preedit"};
   for (const auto *key : boolean_keys) {
     if (voice.contains(key) && voice.at(key).is_boolean())
       options[key] = voice.at(key);
   }
   constexpr const char *string_keys[] = {
-      "commit_mode", "asr_provider", "asr_model", "polish_provider",
-      "polish_model", "doubao_boosting_table_id",
-      "polish_prompt_id", "polish_prompt"};
+      "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
+      "polish_provider", "polish_model", "doubao_boosting_table_id",
+      "polish_prompt_id", "polish_prompt", "polish_prompt_custom_1",
+      "polish_prompt_custom_2", "polish_prompt_custom_3"};
   for (const auto *key : string_keys) {
     if (!voice.contains(key) || !voice.at(key).is_string())
       continue;

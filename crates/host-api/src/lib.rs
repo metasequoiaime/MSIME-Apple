@@ -1442,7 +1442,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || socket_path.is_null() || query_length > 4096 || socket_length > 4096 {
+        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096 {
             return Err("invalid voice provider buffer".into());
         }
         #[derive(Deserialize)]

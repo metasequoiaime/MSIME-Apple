@@ -200,6 +200,8 @@ pub struct VoiceInputPreferences {
     #[serde(default)]
     pub asr_model: String,
     #[serde(default)]
+    pub asr_resource_id: String,
+    #[serde(default)]
     pub polish_enabled: bool,
     #[serde(default)]
     pub polish_text: bool,
@@ -215,6 +217,14 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_id: String,
     #[serde(default)]
     pub polish_prompt: String,
+    #[serde(default)]
+    pub polish_prompt_custom_1: String,
+    #[serde(default)]
+    pub polish_prompt_custom_2: String,
+    #[serde(default)]
+    pub polish_prompt_custom_3: String,
+    #[serde(default)]
+    pub stream_inline_preedit: bool,
     #[serde(default = "enabled_by_default")]
     pub hotkey_ralt: bool,
     #[serde(default)]
@@ -250,6 +260,7 @@ impl Default for VoiceInputPreferences {
             asr_token: String::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
+            asr_resource_id: String::new(),
             polish_enabled: false,
             polish_text: false,
             polish_provider: "siliconflow".into(),
@@ -258,6 +269,10 @@ impl Default for VoiceInputPreferences {
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
+            polish_prompt_custom_1: String::new(),
+            polish_prompt_custom_2: String::new(),
+            polish_prompt_custom_3: String::new(),
+            stream_inline_preedit: false,
             hotkey_ralt: true,
             hotkey_ctrl_win: false,
             hotkey_rctrl_ralt: false,
