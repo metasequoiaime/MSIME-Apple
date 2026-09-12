@@ -1,13 +1,11 @@
 #include "msime_client.h"
+#include "LocalResourcePaths.h"
 
 #include <array>
-#include <cstdlib>
-#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <vector>
 
 std::string local_resources(int argc, char **argv, bool *local) {
   *local = argc >= 2 && std::string(argv[1]) == "--local";
@@ -17,29 +15,8 @@ std::string local_resources(int argc, char **argv, bool *local) {
     return argv[2];
   if (argc != 2)
     return {};
-  std::vector<std::filesystem::path> candidates;
-  if (const char *value = std::getenv("MSIME_EMOJI_RESOURCES"); value && *value)
-    candidates.emplace_back(value);
-  if (const char *value = std::getenv("XDG_DATA_HOME"); value && *value)
-    candidates.emplace_back(std::filesystem::path(value) / "msime-client/emoji");
-  if (const char *value = std::getenv("XDG_DATA_DIRS"); value && *value) {
-    std::string dirs(value);
-    std::size_t start = 0;
-    while (start <= dirs.size()) {
-      const auto end = dirs.find(':', start);
-      const auto dir = dirs.substr(start, end == std::string::npos ? end : end - start);
-      if (!dir.empty())
-        candidates.emplace_back(std::filesystem::path(dir) / "msime-client/emoji");
-      if (end == std::string::npos) break;
-      start = end + 1;
-    }
-  }
-  candidates.emplace_back("/usr/local/share/msime-client/emoji");
-  candidates.emplace_back("/usr/share/msime-client/emoji");
-  for (const auto &candidate : candidates)
-    if (std::filesystem::exists(candidate) && std::filesystem::is_directory(candidate))
-      return candidate.string();
-  return {};
+  return msime_linux::local_resource(
+      "MSIME_EMOJI_RESOURCES", "msime-client/emoji/others.db", true);
 }
 
 int main(int argc, char **argv) {
