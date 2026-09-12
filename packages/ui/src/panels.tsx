@@ -125,6 +125,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
   function switchLayout() {
     setActiveLayout(value => { const next = value === "nine_key" ? "twenty_six_key" : "nine_key"; try { window.localStorage.setItem("msime.keyboard.layout", next); } catch { /* preference is optional */ } return next; });
   }
+  useEffect(() => { setActiveLayout(layout); }, [layout]);
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
