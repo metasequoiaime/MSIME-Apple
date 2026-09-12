@@ -1171,12 +1171,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)changeCandidatePage:(MSIMECandidateButton *)button {
-    if (!_activeClient || !_panel.isVisible || ![_view[@"focused"] boolValue] || !button.enabled) return;
+    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
+    if (![_view isKindOfClass:NSDictionary.class] || ![_view[@"focused"] isEqual:@YES] ||
+        ![button.candidateID isKindOfClass:NSDictionary.class]) return;
+    if (![_view[@"focused"] isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)_view[@"focused"]) != CFBooleanGetTypeID()) return;
     for (NSString *key in @[@"session", @"generation", @"page"]) {
-        if (![button.candidateID[key] isEqual:_view[key]]) return;
+        if (!MSIMEUnsignedCandidateIdentityValue(button.candidateID[key]) ||
+            !MSIMEUnsignedCandidateIdentityValue(_view[key]) || ![button.candidateID[key] isEqual:_view[key]]) return;
     }
+    if (!MSIMEUnsignedCandidateIdentityValue(_view[@"page_count"])) return;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger count = [_view[@"page_count"] unsignedIntegerValue];
+    if (count == 0 || page >= count) return;
     if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
     if (button.tag == -2 && count > 0 && page < count - 1) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
 }
