@@ -23,6 +23,8 @@ static BOOL LocalModeBoolean(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
+static NSString *const PreeditFontKey = @"MSIMEClientCandidatePreeditFontSize";
+static NSString *const CandidatePreeditKey = @"MSIMEClientCandidatePreeditStyle";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
@@ -61,6 +63,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedShuangpinHelpcode;
     NSNumber *_sharedVertical;
     NSNumber *_sharedFontSize;
+    NSNumber *_sharedPreeditFontSize;
+    NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
@@ -72,6 +76,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSPopUpButton *_profileButton;
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
+    NSPopUpButton *_preeditFontButton;
+    NSPopUpButton *_candidatePreeditButton;
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
     NSPopUpButton *_skinButton;
@@ -137,6 +143,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
+    if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
+    if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"autocorrect"] = @(self.autocorrect);
     NSMutableDictionary *quanpin = [merged[@"quanpin"] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -358,6 +366,23 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self refreshControls];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
+- (NSUInteger)preeditFontSize {
+    NSInteger size = _sharedPreeditFontSize ? _sharedPreeditFontSize.integerValue : [_defaults integerForKey:PreeditFontKey];
+    return size >= 12 && size <= 32 ? size : 16;
+}
+- (void)setPreeditFontSize:(NSUInteger)value {
+    _sharedPreeditFontSize = nil;
+    [_defaults setInteger:value >= 12 && value <= 32 ? value : 16 forKey:PreeditFontKey];
+    [self preferencesChanged];
+}
+- (BOOL)showsCandidatePreedit {
+    return ![(_sharedCandidatePreedit ?: [_defaults stringForKey:CandidatePreeditKey]) isEqual:@"empty"];
+}
+- (void)setShowsCandidatePreedit:(BOOL)value {
+    _sharedCandidatePreedit = nil;
+    [_defaults setObject:value ? @"pinyin" : @"empty" forKey:CandidatePreeditKey];
+    [self preferencesChanged];
+}
 - (NSInteger)pageShortcut {
     NSInteger value = [_defaults integerForKey:PageShortcutKey];
     return value == 1 || value == 2 ? value : 0;
@@ -385,6 +410,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
     id font = preferences[@"candidate_font_size"];
+    id preeditFont = preferences[@"candidate_preedit_font_size"];
+    id preeditStyle = preferences[@"candidate_preedit_style"];
+    if ([preeditFont isKindOfClass:NSNumber.class] && !LocalModeBoolean(preeditFont) && [preeditFont doubleValue] == [preeditFont integerValue] && [preeditFont integerValue] >= 12 && [preeditFont integerValue] <= 32) _sharedPreeditFontSize = preeditFont;
+    if ([@[@"pinyin", @"empty"] containsObject:preeditStyle]) _sharedCandidatePreedit = preeditStyle;
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
@@ -420,6 +449,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
+    [_preeditFontButton selectItemAtIndex:self.preeditFontSize - 12];
+    [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:self.pageSize - 1];
     [_skinButton removeAllItems];
@@ -469,6 +500,17 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
+    _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    for (NSUInteger size = 12; size <= 32; ++size)
+        [_preeditFontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
+    _preeditFontButton.accessibilityLabel = @"候选窗拼音字号";
+    _preeditFontButton.target = self;
+    _preeditFontButton.action = @selector(preeditFontChanged:);
+    _candidatePreeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_candidatePreeditButton addItemsWithTitles:@[@"显示拼音", @"隐藏"]];
+    _candidatePreeditButton.accessibilityLabel = @"候选窗预编辑";
+    _candidatePreeditButton.target = self;
+    _candidatePreeditButton.action = @selector(candidatePreeditChanged:);
     _pageShortcutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_pageShortcutButton addItemsWithTitles:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]];
     _pageShortcutButton.accessibilityLabel = @"候选翻页快捷键";
@@ -502,6 +544,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼预编辑"], _preeditButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
+        @[[NSTextField labelWithString:@"候选窗拼音字号"], _preeditFontButton],
+        @[[NSTextField labelWithString:@"候选窗预编辑"], _candidatePreeditButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
         @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
         @[[NSTextField labelWithString:@"候选皮肤"], _skinButton],
@@ -641,4 +685,6 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSInteger index = sender.indexOfSelectedItem;
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
+- (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
+- (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 @end

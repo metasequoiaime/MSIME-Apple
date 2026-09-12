@@ -691,6 +691,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     CGFloat clearance = _appearance.fontSize + 42.0;
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
+    id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
+    if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
+        NSFont *preeditFont = [NSFont systemFontOfSize:_appearance.preeditFontSize];
+        clearance += MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
+    }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
 
@@ -718,6 +723,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _skinShowsSelectedBar = geometry.showSelectedBar;
     const CGFloat inset = MAX(2.0, geometry.pad);
     NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
+    id preeditValue = _view[@"preedit"];
+    if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
+    NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
+    NSFont *preeditFont = [NSFont systemFontOfSize:_appearance.preeditFontSize];
+    CGFloat preeditHeight = preedit.length ? MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0) : 0;
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
@@ -759,8 +769,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     const CGFloat decorationHeight = skin.decorationTopDip;
+    if (preedit.length) width = MAX(width, MIN(ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset, MAX(80, visible.size.width - 20)));
     width = MAX(width, MAX(skin.minWidthDip, skin.decorationWidthDip));
-    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight;
+    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight + preeditHeight;
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
@@ -772,7 +783,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         button.candidateID = candidate[@"id"];
         button.tag = (NSInteger)slot;
         CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
-        button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
+        button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - preeditHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
         ++slot;
         if (!vertical) x += itemWidth;
         button.font = font;
@@ -795,6 +806,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
             button.candidateID = _view;
             [content addSubview:button];
         }
+    }
+    if (preedit.length) {
+        NSTextField *label = [NSTextField labelWithString:preedit];
+        label.identifier = @"candidate-preedit";
+        label.accessibilityLabel = @"候选窗预编辑";
+        label.font = preeditFont;
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        label.frame = NSMakeRect(inset, height - inset - decorationHeight - preeditHeight, width - 2 * inset, preeditHeight);
+        [content addSubview:label];
     }
     if (decorationHeight > 0 && _appearance.decorationImage) {
         NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(width - skin.decorationWidthDip, height - decorationHeight, skin.decorationWidthDip, decorationHeight)];
@@ -823,6 +843,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
     for (MSIMECandidateButton *button in content.subviews) {
+        if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
+            ((NSTextField *)(id)button).textColor = SkinColor(tokens.text);
+        }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
         button.titleColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);

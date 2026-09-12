@@ -474,6 +474,15 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [controller updateKeymapPanel];
     assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     assert(panel.clearance == (appearance.vertical ? 24 : appearance.fontSize + 42));
+    NSMutableDictionary *withCandidates = [view mutableCopy];
+    withCandidates[@"candidates"] = @[@{@"text": @"合成"}];
+    [controller setValue:withCandidates forKey:@"view"];
+    appearance.showsCandidatePreedit = NO;
+    [controller updateKeymapPanel];
+    CGFloat hiddenClearance = panel.clearance;
+    appearance.showsCandidatePreedit = YES;
+    [controller updateKeymapPanel];
+    assert(panel.clearance > hiddenClearance);
     for (NSString *display in @[@"b;", @"bing", @""]) {
         NSMutableDictionary *next = [view mutableCopy];
         next[@"preedit"] = display;
@@ -1026,6 +1035,44 @@ int main() {
         assert(session.lastCommand == UINT32_MAX);
         pageView[@"page"] = @0;
         pageView[@"page_count"] = @1;
+        // The candidate preedit uses Engine display text, independent of candidate font.
+        pageView[@"preedit"] = @"ce'shi";
+        [controller setValue:pageView forKey:@"view"];
+        for (NSNumber *vertical in @[@NO, @YES]) {
+            appearance.vertical = vertical.boolValue;
+            appearance.showsCandidatePreedit = YES;
+            appearance.preeditFontSize = 32;
+            [controller renderCandidates];
+            NSTextField *preeditLabel = nil;
+            for (NSView *child in layoutPanel.contentView.subviews)
+                if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
+            assert(preeditLabel && [preeditLabel.stringValue isEqual:@"ce'shi"] && preeditLabel.font.pointSize == 32);
+            const auto preeditTokens = [appearance resolvedSkinForDark:NO].tokens;
+            layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+            [controller refreshCandidateSkin];
+            assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
+            assert(NSContainsRect(layoutPanel.contentView.bounds, preeditLabel.frame));
+            for (NSView *child in layoutPanel.contentView.subviews)
+                if ([child isKindOfClass:MSIMECandidateButton.class]) assert(!NSIntersectsRect(child.frame, preeditLabel.frame));
+            CGFloat shownHeight = layoutPanel.frame.size.height;
+            appearance.showsCandidatePreedit = NO;
+            [controller renderCandidates];
+            assert(layoutPanel.frame.size.height < shownHeight);
+            for (NSView *child in layoutPanel.contentView.subviews) assert(![child.identifier isEqual:@"candidate-preedit"]);
+        }
+        appearance.showsCandidatePreedit = YES;
+        appearance.preeditFontSize = 16;
+        for (id display in @[@"", NSNull.null]) {
+            pageView[@"preedit"] = display;
+            [controller setValue:pageView forKey:@"view"];
+            [controller renderCandidates];
+            NSTextField *label = nil;
+            for (NSView *child in layoutPanel.contentView.subviews)
+                if ([child.identifier isEqual:@"candidate-preedit"]) label = (id)child;
+            if (display == NSNull.null) assert([label.stringValue isEqual:@"ceshi"]);
+            else assert(label == nil);
+        }
+        pageView[@"preedit"] = @"ce'shi";
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         assert(PageButton(layoutPanel.contentView, -1) == nil);
