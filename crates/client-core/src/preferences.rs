@@ -107,6 +107,8 @@ pub struct Preferences {
     #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
+    pub diagnostic_log: DiagnosticLogPreferences,
+    #[serde(default)]
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
@@ -357,6 +359,19 @@ impl Default for AiAssistantPreferences {
             prompt_custom_3: String::new(),
         }
     }
+}
+
+/// Diagnostic logging, off unless a user turns it on while reproducing a
+/// problem. The two hosts log separately because they are separate processes.
+/// Neither records keystrokes, input text or candidates.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DiagnosticLogPreferences {
+    /// Server-side timing and window state: slow request stages, candidate
+    /// window, floating toolbar, menus, focus sessions and transport status.
+    pub server: bool,
+    /// In-process TSF preedit and input latency, buffered and batched out.
+    pub tsf: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -650,6 +665,7 @@ impl Default for Preferences {
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),
+            diagnostic_log: DiagnosticLogPreferences::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
@@ -1049,6 +1065,40 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {
+        let defaults = Preferences::default();
+        assert!(!defaults.diagnostic_log.server && !defaults.diagnostic_log.tsf);
+
+        // A configuration written before the field existed keeps logging off
+        // rather than starting to write a file the user never asked for.
+        let mut document = serde_json::to_value(&defaults).unwrap();
+        document.as_object_mut().unwrap().remove("diagnostic_log");
+        let legacy: Preferences = serde_json::from_value(document).unwrap();
+        assert_eq!(legacy.diagnostic_log, DiagnosticLogPreferences::default());
+
+        // The two hosts are separate processes and are enabled separately.
+        let preferences = Preferences {
+            diagnostic_log: DiagnosticLogPreferences {
+                server: true,
+                tsf: false,
+            },
+            ..Preferences::default()
+        };
+        let restored: Preferences =
+            serde_json::from_str(&serde_json::to_string(&preferences).unwrap()).unwrap();
+        assert!(restored.diagnostic_log.server && !restored.diagnostic_log.tsf);
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, preferences).unwrap();
+        assert!(saved.preferences.diagnostic_log.server);
+        assert_eq!(
+            store.load().unwrap().preferences.diagnostic_log,
+            saved.preferences.diagnostic_log
+        );
+    }
 
     #[test]
     fn capture_obeys_shared_enablement_and_preserves_corrupt_history() {

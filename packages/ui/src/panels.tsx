@@ -344,9 +344,11 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   async function cancel() {
     recognitionRevision.current++;
     busyRef.current = false;
-    try { await client.cancelVoice?.(); } catch { /* provider may already have stopped */ }
+    // Stop is immediate in the panel; waiting for the provider to acknowledge
+    // would leave the button stuck on 停止录音 after the user already stopped.
     setBusy(false);
     setNotice("录音已停止");
+    try { await client.cancelVoice?.(); } catch { /* provider may already have stopped */ }
   }
 
   async function close() {
