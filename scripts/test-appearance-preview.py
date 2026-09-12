@@ -290,6 +290,28 @@ with sync_playwright() as playwright:
     expect(page.get_by_role("button", name="Space", exact=True)).to_have_css("font-size", "12px")
     expect(page.get_by_role("button", name="a", exact=True)).to_have_css("font-size", "15px")
     page.evaluate("window.removeKeyboard()")
+    for theme, background, idle, hover, active, pressed in [
+        ("dark", "rgb(23, 24, 29)", "rgb(43, 45, 52)", "rgb(65, 67, 77)", "rgb(83, 88, 102)", "rgb(102, 106, 119)"),
+        ("light", "rgb(236, 238, 242)", "rgb(255, 255, 255)", "rgb(225, 228, 234)", "rgb(215, 208, 224)", "rgb(199, 201, 208)"),
+    ]:
+        page.evaluate("async theme => { const {mountKeyboard} = await import('/settings.js'); window.removeKeyboard = mountKeyboard(theme); }", theme)
+        expect(page.locator(".keyboard-panel")).to_have_css("background-color", background)
+        shift = page.get_by_role("button", name="Shift", exact=True).first
+        page.mouse.move(0, 0)
+        expect(shift).to_have_css("background-color", idle)
+        shift.hover()
+        expect(shift).to_have_css("background-color", hover)
+        page.mouse.down()
+        expect(shift).to_have_css("background-color", pressed)
+        page.mouse.up()
+        expect(shift).to_have_css("background-color", active)
+        page.mouse.down()
+        expect(shift).to_have_css("background-color", pressed)
+        page.mouse.up()
+        expect(shift).to_have_css("background-color", hover)
+        page.mouse.move(0, 0)
+        expect(shift).to_have_css("background-color", idle)
+        page.evaluate("window.removeKeyboard()")
     expect(page.locator("#root")).to_be_empty()
     print({"appearanceDraftPreview": True, "fontCatalogSearch": True, "fontFamilyFallbackOrder": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
     browser.close()

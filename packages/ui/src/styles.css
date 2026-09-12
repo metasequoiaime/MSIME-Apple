@@ -198,15 +198,19 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .native-panel-header { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-color); background: var(--surface-raised); color: var(--text-color); font-size: 13px; user-select: none; }
 .native-panel-header button { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 21px; line-height: 1; }
 .native-panel-header button:hover { background: var(--button-secondary-hover); color: var(--text-color); }
-.keyboard-panel { background: #17181d; color: #f1f1f3; }
-.keyboard-panel .native-panel-header { border-bottom-color: rgba(255, 255, 255, .09); background: #17181d; color: #f1f1f3; }
-.keyboard-panel .native-panel-header button { color: #aeb0b7; }
+.keyboard-panel { --kb-background: #17181d; --kb-text: #f1f1f3; --kb-heading: #d7d8dd; --kb-key: #2b2d34; --kb-hover: #41434d; --kb-active: #535866; --kb-pressed: #666a77; background: var(--kb-background); color: var(--kb-text); }
+.keyboard-panel[data-keyboard-theme="light"] { --kb-background: #eceef2; --kb-text: #202124; --kb-heading: #555861; --kb-key: #fff; --kb-hover: #e1e4ea; --kb-active: #d7d0e0; --kb-pressed: #c7c9d0; }
+.keyboard-panel .native-panel-header { border-bottom: 0; background: var(--kb-background); color: var(--kb-heading); }
+.keyboard-panel .native-panel-header button { color: var(--kb-text); }
+.keyboard-panel .native-panel-header button:hover { background: var(--kb-hover); color: var(--kb-text); }
 .keyboard-panel-body { padding: 7px; }
-.keyboard-panel-notice { min-height: 20px; margin-bottom: 9px; color: #aeb0b7; font-size: 12px; text-align: center; }
+.keyboard-panel-notice { min-height: 20px; margin-bottom: 9px; color: var(--kb-heading); font-size: 12px; text-align: center; }
 .keyboard-layout { display: flex; flex-direction: column; gap: 4px; }
 .keyboard-row { display: flex; gap: 4px; }
-.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0; border: 0; border-radius: 5px; background: #24262c; color: #f1f1f3; font-size: 15px; transition: background 100ms ease; }
-.keyboard-key:hover, .keyboard-key.active { border-color: #8e8cd8; background: #3b3240; }
+.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0; border: 0; border-radius: 5px; background: var(--kb-key); color: var(--kb-text); font-size: 15px; }
+.keyboard-key:hover { background: var(--kb-hover); }
+.keyboard-key.active { background: var(--kb-active); }
+.keyboard-key:active { background: var(--kb-pressed); }
 .keyboard-key.wide { font-size: 12px; }
 .handwriting-panel { background: #202027; color: #f5f5f7; }
 .handwriting-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
