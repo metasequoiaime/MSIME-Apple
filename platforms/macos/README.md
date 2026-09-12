@@ -105,6 +105,13 @@ cmake --build target/macos-isolated --target emoji-host-cursor-test --parallel
 ctest --test-dir target/macos-isolated -R '^emoji-host-cursor$' --output-on-failure
 ```
 
+`emoji-swift-host-test-build` 进一步使用实际 Swift `MacEmojiCatalog`，通过动态类／selector 查找调用真实 Objective-C → Rust → SQLite 链路。临时合成数据库包含首批 255 个无效行、260 个相同有效条目及一个尾项，验证完整读取跨批次推进、18 项预览、搜索无匹配、分类元数据与符号父分类过滤。静态宿主显式 force-load，未定义模拟 `MSIMEClientSession`。这覆盖 Swift 读取器与宿主协议兼容性，不覆盖 SwiftUI 页面生命周期、安装后的 IMK 或真实资源性能。
+
+```sh
+cmake --build target/macos-isolated --target emoji-swift-host-test-build --parallel
+ctest --test-dir target/macos-isolated -R '^emoji-swift-host$' --output-on-failure
+```
+
 表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，滚动使用 `emoji-scroll-test-build`，同属 `emoji-local`）：
 
 ```sh
