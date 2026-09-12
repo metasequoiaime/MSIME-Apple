@@ -479,6 +479,39 @@ int main(int argc, char **argv) {
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    // Once Ctrl+Alt+Space is consumed, the entire Space stroke belongs to
+    // the shortcut even if its modifiers or configured binding change.
+    for (guint remaining : {0u, guint(IBUS_CONTROL_MASK), guint(IBUS_MOD1_MASK),
+                            guint(IBUS_CONTROL_MASK | IBUS_MOD1_MASK)}) {
+      for (bool disable_binding : {false, true}) {
+        require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK) &&
+                    !seen.input_enabled,
+                "Mode chord fixture did not disable input");
+        if (disable_binding) {
+          auto disabled = options;
+          disabled["preferences"]["keybindings"]["switch_language_ctrl_alt_space"] = false;
+          msime_preview_configure(disabled.dump());
+          invoke("FocusIn");
+        }
+        require(key(IBUS_space, remaining) && !seen.input_enabled,
+                "Consumed mode chord repeat escaped after modifiers or binding changed");
+        require(key(IBUS_space, remaining | IBUS_RELEASE_MASK) && !seen.input_enabled,
+                "Consumed mode chord release escaped after modifiers or binding changed");
+        msime_preview_configure(options.dump());
+        invoke("FocusIn");
+        require(!key(IBUS_space),
+                "Completed mode chord consumed the next independent Space stroke");
+        mode(PROP_STATE_CHECKED);
+      }
+    }
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK) && !seen.input_enabled,
+            "Focus mode chord fixture did not disable input");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK) && seen.input_enabled,
+            "Consumed mode chord crossed a focus boundary");
+    require(key(IBUS_space, IBUS_RELEASE_MASK),
+            "Refocused mode chord release was not consumed");
     // Modifier chords must never be mistaken for a bare Ctrl/Shift release.
     for (bool ctrl_first : {true, false}) {
       for (bool ctrl_release_first : {true, false}) {
