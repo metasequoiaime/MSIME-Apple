@@ -5,6 +5,11 @@
 #include <vector>
 
 namespace {
+NSColor *KeyboardColor(NSAppearance *appearance, unsigned light, unsigned dark) {
+    NSString *match = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    const unsigned rgb = [match isEqualToString:NSAppearanceNameDarkAqua] ? dark : light;
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+}
 struct Key {
     const char *normal;
     const char *shifted;
@@ -79,12 +84,56 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
 }
 }
 
+@interface MSIMEScreenKeyboardButton : NSButton
+@property(nonatomic) BOOL keyboardHovered;
+@property(nonatomic) BOOL closeButton;
+@end
+@implementation MSIMEScreenKeyboardButton {
+    NSTrackingArea *_keyboardTracking;
+}
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_keyboardTracking) [self removeTrackingArea:_keyboardTracking];
+    _keyboardTracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect owner:self userInfo:nil];
+    [self addTrackingArea:_keyboardTracking];
+}
+- (void)mouseEntered:(NSEvent *)event { (void)event; self.keyboardHovered = YES; self.needsDisplay = YES; }
+- (void)mouseExited:(NSEvent *)event { (void)event; self.keyboardHovered = NO; self.needsDisplay = YES; }
+- (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance]; self.needsDisplay = YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    NSColor *fill = KeyboardColor(self.effectiveAppearance, 0xFFFFFF, 0x2B2D34);
+    if (self.closeButton) fill = KeyboardColor(self.effectiveAppearance, 0xECEEF2, 0x17181D);
+    if (self.keyboardHovered) fill = KeyboardColor(self.effectiveAppearance, 0xE1E4EA, 0x41434D);
+    if (!self.closeButton && self.state == NSControlStateValueOn) fill = KeyboardColor(self.effectiveAppearance, 0xD7D0E0, 0x535866);
+    if (self.cell.isHighlighted) fill = KeyboardColor(self.effectiveAppearance, self.closeButton ? 0xE1E4EA : 0xC7C9D0, self.closeButton ? 0x41434D : 0x666A77);
+    [fill setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:self.closeButton ? 4 : 5 yRadius:self.closeButton ? 4 : 5] fill];
+    NSDictionary *attributes = @{NSFontAttributeName:self.font,
+        NSForegroundColorAttributeName:KeyboardColor(self.effectiveAppearance, 0x202124, 0xF1F1F3)};
+    NSSize size = [self.title sizeWithAttributes:attributes];
+    [self.title drawAtPoint:NSMakePoint(NSMidX(self.bounds) - size.width / 2, NSMidY(self.bounds) - size.height / 2) withAttributes:attributes];
+}
+@end
+
 @interface MSIMEScreenKeyboardContent : NSView
 @property(nonatomic, copy) void (^layoutKeys)(NSSize);
 @end
 @implementation MSIMEScreenKeyboardContent
 - (BOOL)isFlipped { return YES; }
 - (void)layout { [super layout]; if (self.layoutKeys) self.layoutKeys(self.bounds.size); }
+- (void)updateHeaderColors {
+    for (NSView *view in self.subviews) if ([view isKindOfClass:NSTextField.class])
+        ((NSTextField *)view).textColor = KeyboardColor(self.effectiveAppearance, 0x555861, 0xD7D8DD);
+}
+- (void)didAddSubview:(NSView *)subview { [super didAddSubview:subview]; [self updateHeaderColors]; }
+- (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance]; [self updateHeaderColors]; self.needsDisplay = YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    [KeyboardColor(self.effectiveAppearance, 0xECEEF2, 0x17181D) setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:8 yRadius:8] fill];
+}
 @end
 
 @implementation MSIMEScreenKeyboardPanel {
@@ -108,6 +157,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     _sender = [sender copy];
     _buttons = [NSMutableArray new];
     self.releasedWhenClosed = NO;
+    self.opaque = NO;
+    self.backgroundColor = NSColor.clearColor;
     self.level = NSFloatingWindowLevel;
     self.hidesOnDeactivate = NO;
     self.movableByWindowBackground = YES;
@@ -116,20 +167,22 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     content.wantsLayer = YES;
     self.contentView = content;
     _status = [NSTextField labelWithString:@"水杉屏幕键盘"];
+    _status.font = [NSFont systemFontOfSize:12];
     _status.frame = NSMakeRect(10, 4, 950, 20);
     _status.autoresizingMask = NSViewWidthSizable;
     [content addSubview:_status];
-    NSButton *close = [NSButton buttonWithTitle:@"×" target:self action:@selector(closeKeyboard:)];
+    MSIMEScreenKeyboardButton *close = [MSIMEScreenKeyboardButton buttonWithTitle:@"×" target:self action:@selector(closeKeyboard:)];
+    close.closeButton = YES;
     close.accessibilityLabel = @"关闭屏幕键盘";
     close.frame = NSMakeRect(1066, 2, 28, 24);
     close.autoresizingMask = NSViewMinXMargin;
     [content addSubview:close];
     for (const auto &row : Rows()) for (const Key &key : row) {
-        NSButton *button = [NSButton buttonWithTitle:@(key.normal) target:self action:@selector(pressKey:)];
+        NSButton *button = [MSIMEScreenKeyboardButton buttonWithTitle:@(key.normal) target:self action:@selector(pressKey:)];
         button.tag = _keys.size();
         button.accessibilityIdentifier = [NSString stringWithFormat:@"MSIMEScreenKeyboardKey%ld", (long)button.tag];
         button.accessibilityLabel = @(key.normal);
-        button.font = [NSFont systemFontOfSize:14];
+        button.font = [NSFont systemFontOfSize:key.normal[1] == '\0' ? 15 : 12];
         button.bezelStyle = NSBezelStyleRegularSquare;
         button.buttonType = NSButtonTypePushOnPushOff;
         [_buttons addObject:button];
@@ -162,10 +215,10 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
 }
 - (void)refreshKeys {
     const bool shift = (_modifiers & NSEventModifierFlagShift) != 0;
-    const bool caps = (_modifiers & NSEventModifierFlagCapsLock) != 0;
     for (NSUInteger index = 0; index < _keys.size(); ++index) {
         const Key &key = _keys[index];
-        const bool shifted = shift || (Letter(key) && caps != shift);
+        // Upstream Caps affects posting, while the key face only reflects Shift.
+        const bool shifted = shift && key.normal[1] == '\0';
         _buttons[index].title = @(shifted && key.shifted[0] ? key.shifted : key.normal);
         _buttons[index].state = key.modifier && (_modifiers & key.modifier) ? NSControlStateValueOn : NSControlStateValueOff;
     }
