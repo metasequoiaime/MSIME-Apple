@@ -10,4 +10,7 @@
                                    completion:(void (^)(NSData *body))completion;
 /// Cancel without delivering a result; safe after completion.
 - (void)cancel;
+/// Fixed Tencent HTTPS endpoint. Sends signed body_utf8 unchanged; no redirects.
+- (instancetype)initWithTencentDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                               completion:(void (^)(NSData *body))completion;
 @end

@@ -57,6 +57,37 @@
     _timeout = 2.5;
     return self;
 }
+- (instancetype)initWithTencentDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                               completion:(void (^)(NSData *))completion {
+    self = [self initWithURL:nil configuration:configuration completion:completion];
+    if (!self) return nil;
+    if (![descriptor isKindOfClass:NSDictionary.class] || ![descriptor[@"url"] isEqual:@"https://tmt.tencentcloudapi.com"] ||
+        ![descriptor[@"method"] isEqual:@"POST"] || ![descriptor[@"timeout_ms"] isEqual:@2500] ||
+        ![descriptor[@"max_response_bytes"] isEqual:@1048576] || ![descriptor[@"body_utf8"] isKindOfClass:NSString.class]) return self;
+    NSDictionary *headers = descriptor[@"headers"];
+    NSArray *allowed = @[@"Content-Type", @"Host", @"X-TC-Action", @"X-TC-Timestamp", @"X-TC-Version", @"X-TC-Region", @"Authorization"];
+    if (![headers isKindOfClass:NSDictionary.class] || headers.count != allowed.count) return self;
+    for (id name in headers) {
+        id value = headers[name];
+        if (![allowed containsObject:name] || ![value isKindOfClass:NSString.class] || ![value length] ||
+            [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 8192 ||
+            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
+    }
+    if (![headers[@"Content-Type"] isEqual:@"application/json; charset=utf-8"] ||
+        ![headers[@"Host"] isEqual:@"tmt.tencentcloudapi.com"] || ![headers[@"X-TC-Action"] isEqual:@"TextTranslateBatch"] ||
+        ![headers[@"X-TC-Version"] isEqual:@"2018-03-21"] || ![headers[@"Authorization"] hasPrefix:@"TC3-HMAC-SHA256 "]) return self;
+    NSString *timestamp = headers[@"X-TC-Timestamp"], *region = headers[@"X-TC-Region"];
+    if (timestamp.length > 12 || [timestamp rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789"] invertedSet]].location != NSNotFound ||
+        region.length > 64 || [region rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"] invertedSet]].location != NSNotFound) return self;
+    NSData *body = [descriptor[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding];
+    if (!body.length || body.length > 16384) return self;
+    // Do not deserialize/reserialize: the TC3 signature binds these exact bytes.
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:descriptor[@"url"]]];
+    request.HTTPMethod = @"POST"; request.allHTTPHeaderFields = headers; request.HTTPBody = body;
+    request.HTTPShouldHandleCookies = NO; request.timeoutInterval = 2.5;
+    _translationRequest = [request copy]; _maximumBodyBytes = 1048576; _timeout = 2.5;
+    return self;
+}
 - (void)start {
     NSAssert(NSThread.isMainThread, @"Cloud transport must run on main thread");
     if (_started || !_completion) return;
