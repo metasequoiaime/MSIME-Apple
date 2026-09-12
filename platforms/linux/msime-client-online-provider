@@ -160,14 +160,17 @@ def translation_direction(text, target):
     if (any(c in string.ascii_letters for c in text) and
         all(c in string.ascii_letters + " -'" for c in text)):
         return "en", "zh"
+    # Match Windows translation_gloss.cpp: mixed text containing Han is
+    # eligible, but pictographs and emoji sequence components are not.
     has_han = False
     for c in text:
-        if "\u3400" <= c <= "\u4dbf" or "\u4e00" <= c <= "\u9fff" or c == "\u3007":
-            has_han = True
-        elif c in string.punctuation + string.whitespace:
-            continue
-        elif c.isascii() or "\U0001f000" <= c <= "\U0001faff":
+        cp = ord(c)
+        if (cp in (0x200D, 0xFE0E, 0xFE0F, 0x20E3) or
+            0x2600 <= cp <= 0x27BF or 0x1F000 <= cp <= 0x1FAFF):
             return None
+        if (0x3400 <= cp <= 0x4DBF or 0x4E00 <= cp <= 0x9FFF or
+            0xF900 <= cp <= 0xFAFF or 0x20000 <= cp <= 0x2CEAF or cp == 0x3007):
+            has_han = True
     return ("zh", target) if has_han else None
 
 
