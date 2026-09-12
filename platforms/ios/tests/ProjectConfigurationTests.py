@@ -591,8 +591,11 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         # The chips are built once and relabelled, so assert that each one is handed the candidate,
-        # its wubi hint and its position, rather than pinning the shape of a single call.
-        self.assertIn("wubiCodeHint(at: offset)", controller)
+        # its annotation and its position, rather than pinning the shape of a single call. The
+        # annotation is one slot serving two things -- the wubi code still to type, or the English
+        # gloss -- so it is the router that has to reach the chip, not either source directly.
+        self.assertIn("candidateAnnotation(at: offset)", controller)
+        self.assertIn("wubiCodeHint(at: index)", controller)
         self.assertIn("number: offset + 1", controller)
         self.assertIn("configuration.background.cornerRadius", controller)
 
