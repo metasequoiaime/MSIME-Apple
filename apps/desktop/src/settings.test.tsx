@@ -505,7 +505,8 @@ test("appearance preview follows drafts, skin selection and reload without savin
   expect(preview.querySelectorAll(".cand")).toHaveLength(9);
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
   expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
-  expect(preview.querySelector(".pinyin")).toBeNull();
+  expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(true);
+  expect(preview.querySelector(".container.preedit-hidden > .pinyin + .row-wrapper > .first")).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
@@ -517,6 +518,8 @@ test("appearance preview follows drafts, skin selection and reload without savin
   await waitFor(() => expect(preview.querySelectorAll(".cand")).toHaveLength(5));
   expect(preview.querySelector(".skin-fluent")).not.toBeNull();
   expect(preview.querySelector(".pinyin")).not.toBeNull();
+  expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(false);
+  expect(preview.querySelector(".preedit-hidden")).toBeNull();
 });
 
 test("appearance preview identifies external skins instead of showing a false built-in match", async () => {

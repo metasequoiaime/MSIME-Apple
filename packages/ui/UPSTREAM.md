@@ -387,3 +387,13 @@ the real settings Chromium fixture checks external colours, decoration geometry,
 decoded image pixels, draft layout updates and stylesheet cleanup under desktop
 CSP. This supersedes the appearance-page external-skin limitation above. Native
 host resource delivery, global theme and full typography controls remain open.
+
+Hidden preedit now retains the upstream `.pinyin` row and marks its container
+`preedit-hidden`, matching pinned appearance.ts instead of removing the row.
+This restores the adjacent-sibling selectors used by Willow green for leading
+corner highlights and padding. The hidden row is explicitly display:none so
+the preview's flex rule cannot override HTML hidden behavior. Chromium regression
+reproduces the old missing structure, then checks vertical top padding/highlight,
+horizontal leading highlight, the single-candidate solid highlight and restoring
+visible preedit. Existing external-skin and CSP checks still pass. This is a
+shared preview fidelity fix, not native-platform visual acceptance.

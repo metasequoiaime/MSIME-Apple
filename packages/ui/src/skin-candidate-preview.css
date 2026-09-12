@@ -1,4 +1,6 @@
 /* MSIME-Windows 04a8df56 candidate preview styles, GPL-3.0; scoped to skin cards. */
+/* Keep the row for upstream adjacent-sibling decoration selectors. */
+.skin-card-preview .container.preedit-hidden > .pinyin { display: none; }
 .skin-card-preview .wnd-h {
   /* Preview card is narrower than a real candwnd host; constrain to parent. */
   max-width: 100%;
