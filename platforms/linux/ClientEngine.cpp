@@ -1838,6 +1838,8 @@ void voice_start(IBusEngine *engine) {
   const auto language = s.voice_language;
   const auto provider_options = voice_provider_options(
       configured.value("preferences", Json::object()));
+  const bool stream_inline_preedit =
+      provider_options.value("stream_inline_preedit", false);
   const auto alive = s.alive;
   s.voice_worker.run_stream(
       [socket, language, generation,
@@ -1870,8 +1872,9 @@ void voice_start(IBusEngine *engine) {
           return std::string{};
         }
       },
-      [engine, alive, generation](std::string text, bool final) {
-        if (final || text.empty())
+      [engine, alive, generation,
+       stream_inline_preedit](std::string text, bool final) {
+        if (!stream_inline_preedit || final || text.empty())
           return;
         auto *result = new VoiceResult{engine, alive, generation,
                                        std::move(text), false};
