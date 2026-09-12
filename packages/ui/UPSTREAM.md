@@ -219,3 +219,13 @@ regression covers nested/variable image sets, deduplication, scoped computed
 styles and rejection of unprepared remote options. This supersedes the
 image-set limitation above; escaped URLs, fonts, global animation/import rules
 and native platform acceptance remain outstanding.
+
+Literal url() payloads now support CSS hexadecimal/simple escapes and quoted
+line continuations. Decoded names pass the unchanged package path allowlist
+before image reads; escaped traversal and remote URLs are rejected. Quoted
+non-resource text (including icon code points) is preserved. Semantics follow
+https://www.w3.org/TR/css-syntax-3/#consume-escaped-code-point.
+Unit and Chromium regressions cover escapes in custom-property images,
+non-resource content, containment and scoped rendering. Escaped function
+identifiers and escaped image-set expressions remain unsupported, as do
+fonts, global animations/imports and native platform visual acceptance.

@@ -2,6 +2,47 @@ import { expect, test, vi } from "vitest";
 import { hasUnresolvedCssResource, rewriteCssImages } from "../../../packages/ui/src/css-image-value";
 const data = "data:image/png;base64,AAH/";
 
+test.each([
+  ["url(images/a\\2e png)", "images/a.png"],
+  ['url("images/\\61.svg")', "images/a.svg"],
+  ["url('images/\\000061.svg')", "images/a.svg"],
+  ["url(images/a\\.png)", "images/a.png"],
+  ["url(images/a\\2E\r\npng)", "images/a.png"],
+  ['url("images/a\\\r\n.png")', "images/a.png"],
+  ['url("images/a\\\f.png")', "images/a.png"],
+  ["url(images\\2f a.png)", "images/a.png"],
+])("decodes CSS URL escapes before resolving %s", async (value, relative) => {
+  const resolve = vi.fn().mockResolvedValue(data);
+  expect(await rewriteCssImages(value, resolve)).toBe('url("' + data + '")');
+  expect(resolve.mock.calls).toEqual([[relative]]);
+});
+
+test.each([
+  "url(\\2e\\2e/a.png)",
+  "url(\\2f a.png)",
+  "url(\\68 ttps://example.invalid/a.png)",
+  "url(images/\\0.png)",
+  "url(images/\\d800.png)",
+  "url(images/\\110000.png)",
+  "url(images/a\\\n.png)",
+  'url("images/a\n.png")',
+  "url(images/a.png\\)",
+  "u\\72l(images/a.png)",
+])("rejects unsafe or unsupported escapes without reading %s", async value => {
+  const resolve = vi.fn();
+  expect(await rewriteCssImages(value, resolve)).toBeNull();
+  expect(resolve).not.toHaveBeenCalled();
+});
+
+test("keeps escaped non-resource strings opaque", async () => {
+  const resolve = vi.fn();
+  for (const value of ['"\\e101"', '"src(icon.png)"', '"escaped \\" url(icon.png)"']) {
+    expect(await rewriteCssImages(value, resolve)).toBe(value);
+    expect(hasUnresolvedCssResource(value)).toBe(false);
+  }
+  expect(resolve).not.toHaveBeenCalled();
+});
+
 test("rewrites quoted and unquoted package images, preserving non-resource content", async () => {
   const resolve = vi.fn().mockResolvedValue(data);
   expect(await rewriteCssImages("url('./images/a.png') center, url(images/b.png)", resolve))
