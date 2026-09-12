@@ -69,6 +69,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音取消路径无效");return NO;}
     return decode(msime_client_voice_provider_cancel((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
 }
+- (BOOL)voiceProviderStopSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
+    NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音停止路径无效");return NO;}
+    return decode(msime_client_voice_provider_stop((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
+}
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
