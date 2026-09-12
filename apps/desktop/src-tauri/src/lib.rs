@@ -1974,6 +1974,43 @@ fn send_text(
 }
 
 #[tauri::command]
+async fn paste_clipboard_text(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+    text: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    {
+        if text.is_empty() || text.len() > 4096 || text.contains('\0') {
+            return Err(HostActionError { code: "invalid_text" });
+        }
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError { code: "unavailable" })?
+            .clone()
+            .ok_or(HostActionError { code: "unavailable" })?;
+        tauri::async_runtime::spawn_blocking(move || {
+            if !write_linux_clipboard(&text) {
+                return Err(HostActionError { code: "unavailable" });
+            }
+            if matches!(target, PanelInputTarget::Wayland | PanelInputTarget::Ydotool) {
+                hide_linux_panels(&app);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            send_panel_ctrl_v(&app, &target)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, state, text);
+        Err(HostActionError { code: "unavailable" })
+    }
+}
+
+#[tauri::command]
 fn send_voice_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
@@ -2921,6 +2958,7 @@ pub fn run() {
             send_key,
             send_text,
             send_voice_text,
+            paste_clipboard_text,
             voice_input_language,
             recognize_handwriting,
             recognize_voice,
