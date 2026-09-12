@@ -69,7 +69,7 @@ install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dic
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS msime-client-ibus-launcher msime-client-online-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS msime-client-ibus-launcher msime-client-online-provider msime-client-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_HANDWRITING_MODEL AND EXISTS "${MSIME_HANDWRITING_MODEL}")
   install(FILES "${MSIME_HANDWRITING_MODEL}" DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/handwriting")
   get_filename_component(MSIME_HANDWRITING_MODEL_DIR "${MSIME_HANDWRITING_MODEL}" DIRECTORY)

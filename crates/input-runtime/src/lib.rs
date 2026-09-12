@@ -470,6 +470,49 @@ pub struct UnixSocketProvider {
     path: PathBuf,
 }
 
+// Retain incomplete UTF-8/JSON lines across polling timeouts. Bound the
+// buffer while reading, rather than after read_line has allocated the payload.
+#[cfg(unix)]
+fn read_voice_provider_line(
+    stream: &mut UnixStream,
+    pending: &mut Vec<u8>,
+    deadline: std::time::Instant,
+    cancelled: Option<&AtomicBool>,
+) -> Option<String> {
+    loop {
+        if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+            return None;
+        }
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        if let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+            if end >= 16_384 {
+                return None;
+            }
+            return String::from_utf8(pending.drain(..=end).collect()).ok();
+        }
+        if pending.len() >= 16_384 {
+            return None;
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(std::time::Duration::from_millis(100))))
+            .ok()?;
+        let mut chunk = [0_u8; 1024];
+        match stream.read(&mut chunk) {
+            Ok(0) => return None,
+            Ok(count) => pending.extend_from_slice(&chunk[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return None,
+        }
+    }
+}
+
 #[cfg(unix)]
 impl UnixSocketProvider {
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -739,7 +782,7 @@ impl UnixSocketProvider {
 
     /// Cancellable variant used by the IBus worker. The provider may still
     /// take up to the socket read timeout to answer, but cancellation never
-    /// waits for the full thirty-second voice request deadline.
+    /// waits for recording or ASR completion.
     pub fn voice_with_options_cancelled(
         &self,
         language: &str,
@@ -747,78 +790,14 @@ impl UnixSocketProvider {
         options: &Value,
         cancelled: Option<&AtomicBool>,
     ) -> Option<String> {
-        if language.len() > 64 {
-            return None;
-        }
-        if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
-            return None;
-        }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(match cancelled {
-                Some(_) => std::time::Duration::from_millis(100),
-                None => std::time::Duration::from_secs(30),
-            }))
-            .ok()?;
-        let mut request = json!({
-            "version": 1,
-            "kind": "voice",
-            "query": {"language": language, "generation": generation}
-        });
-        if let Some(query) = request.get_mut("query").and_then(Value::as_object_mut) {
-            if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
-                query.insert("options".to_owned(), options.clone());
-            }
-        }
-        let request = request.to_string();
-        if request.len() > 16_384
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
-        {
-            return None;
-        }
-        let mut line = Vec::new();
-        let mut reader = BufReader::new(stream);
-        loop {
-            if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
-                return None;
-            }
-            let mut byte = [0u8; 512];
-            match reader.read(&mut byte) {
-                Ok(0) => break,
-                Ok(length) => {
-                    line.extend_from_slice(&byte[..length]);
-                    if line.contains(&b'\n') {
-                        if let Some(end) = line.iter().position(|value| *value == b'\n') {
-                            line.truncate(end);
-                        }
-                        break;
-                    }
-                    if line.len() > 8192 {
-                        return None;
-                    }
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    continue
-                }
-                Err(_) => return None,
-            }
-        }
-        let line = String::from_utf8(line).ok()?;
-        #[derive(Deserialize)]
-        struct Reply {
-            text: String,
-        }
-        let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.text.is_empty() || reply.text.len() > 4096 {
-            return None;
-        }
-        Some(reply.text)
+        self.voice_stream_with_options_cancelled(
+            language,
+            generation,
+            options,
+            cancelled,
+            &mut |_, _| {},
+        )
+        .filter(|text| !text.is_empty())
     }
 
     /// Run a newline-delimited voice provider stream. Provider updates use
@@ -838,13 +817,8 @@ impl UnixSocketProvider {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
-        let cancellable = cancelled.is_some();
         stream
-            .set_read_timeout(Some(if cancellable {
-                std::time::Duration::from_millis(100)
-            } else {
-                std::time::Duration::from_secs(30)
-            }))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let mut request = json!({
             "version": 1,
@@ -863,63 +837,42 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
+        // Up to ten minutes of capture, two sixty-second ASR attempts and
+        // optional polishing. Cancellation is checked at least every 100ms.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(730);
+        let mut pending = Vec::new();
         loop {
-            if cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
-                || std::time::Instant::now() >= deadline
+            let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
+            let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
+            if let Some(event_generation) = value.get("generation").and_then(Value::as_u64)
             {
+                if event_generation != generation {
+                    return None;
+                }
+            }
+            if value.get("ok").and_then(Value::as_bool) == Some(false) {
                 return None;
             }
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => return None,
-                Ok(_) => {
-                    if line.len() > 8192 {
-                        return None;
-                    }
-                    let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-                    if let Some(event_generation) = value.get("generation").and_then(Value::as_u64)
-                    {
-                        if event_generation != generation {
-                            return None;
-                        }
-                    }
-                    if value.get("ok").and_then(Value::as_bool) == Some(false) {
-                        return None;
-                    }
-                    let text = value.get("text").and_then(Value::as_str).unwrap_or("");
-                    if text.len() > 4096 {
-                        return None;
-                    }
-                    let kind = value
-                        .get("type")
-                        .or_else(|| value.get("event"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    let is_final = match kind {
-                        "partial" | "interim" | "update" => false,
-                        "final" | "done" | "commit" => true,
-                        _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
-                    };
-                    if text.is_empty() && !is_final {
-                        continue;
-                    }
-                    update(text, is_final);
-                    if is_final {
-                        return Some(text.to_owned());
-                    }
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    continue
-                }
-                Err(_) => return None,
+            let text = value.get("text").and_then(Value::as_str).unwrap_or("");
+            if text.len() > 4096 {
+                return None;
+            }
+            let kind = value
+                .get("type")
+                .or_else(|| value.get("event"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let is_final = match kind {
+                "partial" | "interim" | "update" => false,
+                "final" | "done" | "commit" => true,
+                _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
+            };
+            if text.is_empty() && !is_final {
+                continue;
+            }
+            update(text, is_final);
+            if is_final {
+                return Some(text.to_owned());
             }
         }
     }

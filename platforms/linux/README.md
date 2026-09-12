@@ -22,7 +22,7 @@ IBus 属性菜单中的“候选翻译”提供当前会话覆盖；关闭后不
 
 “翻译目标语言”菜单可在当前会话选择英语、法语、日语、西班牙语、俄语、德语或韩语；切换会使旧语言的请求失效并按当前候选重新请求，不改写共享偏好文件。
 
-语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”只负责启动和取消 Host API 语音代次；用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial"}` 以及最终的 `{"text":"识别结果","type":"final"}`；旧版只返回 `{"text":"识别结果"}` 的服务仍按最终结果处理。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 也使用该完成路径。`preferences.voice_input.stream_inline_preedit` 开启时中间文本更新 IBus 预编辑，关闭时只提交最终文本。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；空结果、过期结果和取消结果都不会上屏。每条响应文本最多 4096 字节，服务调用最长等待 30 秒。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-client-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
+语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”只负责启动和取消 Host API 语音代次；用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial"}` 以及最终的 `{"text":"识别结果","type":"final"}`；旧版只返回 `{"text":"识别结果"}` 的服务仍按最终结果处理。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 也使用该完成路径。`preferences.voice_input.stream_inline_preedit` 开启时中间文本更新 IBus 预编辑，关闭时只提交最终文本。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；空结果、过期结果和取消结果都不会上屏。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-client-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
 
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
@@ -192,7 +192,7 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 将该 socket 的绝对路径填入 runtime-options 的 `online_provider_socket`。仅提供云候选时无需凭据；AI 服务可增加 `--ai-config /absolute/private-ai.json`，文件仅允许所有者读写，包含 `provider`、`endpoint`、`model`、`token` 四个字符串字段。前三项须与共享 AI 设置一致，endpoint 使用 HTTPS，token 只留在服务配置中，不进入 IBus 查询。修改服务凭据后重新启动服务；不会自动启用系统服务或 CI。
 
-服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，并只取首条模型候选。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音及账户同步服务仍按各自契约接入。
+服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，并只取首条模型候选。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音由独立的随包 voice provider 提供；账户同步服务仍按各自契约接入。
 
 
 ### 随包候选翻译
@@ -202,3 +202,23 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 启用共享设置中的 `custom_translation` 后，服务使用请求中的 endpoint 和可选 API Key 调用 DeepLX 兼容接口，支持本机 HTTP 服务或 HTTPS，禁止重定向。自定义服务失败不会回退到腾讯。英文候选译为中文；中文候选译为所选英语、法语、日语、西班牙语、俄语、德语或韩语。源文本超过 40 个字符或不符合中英文候选规则时跳过。腾讯按翻译方向批量请求，自定义服务逐条请求，每次网络操作超时 2.5 秒，批次在 6 秒预算用尽后停止发起新请求；宿主在后台最多等待 8 秒，过期代次仍由现有 Host API 拒绝。
 
 翻译结果压平换行并过滤控制字符，内存缓存最多 2048 项，成功结果保留 480 秒、失败保留 30 秒。缓存按 provider、凭据摘要和语言方向隔离，不写入磁盘。Linux 原生运行、真实服务联调以及统一测试、格式和构建检查留到迁移验收阶段；本节不代表这些验证已经通过。
+
+
+## 随包批量语音服务
+
+`msime-client-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
+
+```sh
+msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
+  --config /absolute/private-voice.json --capture pulse
+```
+
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；每个对象包含 `provider`、`endpoint`、`model`、`token` 四个非空字符串。ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；更换凭据或端点后重启服务。
+
+服务捕获 16kHz 单声道 PCM，在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
+
+润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao WebSocket 实时识别尚未接入此服务。
+
+提示音尊重 `sound_enabled`、`start_sound`、`end_sound`，通过 `paplay` 或 `aplay` 播放短提示音。`mute_system_audio` 在支持 JSON 输出的 `pactl` 上暂时静音最多 32 个现有播放流，结束或取消后恢复被本服务改变的流；已有静音、已消失或被替换的流不会强制改写。缺少这些可选工具时继续录音。单次仅占用一个麦克风，最多四条语音任务等待网络，控制请求另留容量；会话按连接进程及 generation 区分。客户端断开录音连接或服务收到终止信号时停止采集并恢复播放流。原始音频、转写和凭据均不写入磁盘或日志。
+
+本部分仅完成实现与合并，不代表 Linux 麦克风、PulseAudio/PipeWire/ALSA、真实 ASR/润色或原生宿主已经验收；按用户要求，测试、fmt、clippy、构建和设备联调留到最终统一执行。
