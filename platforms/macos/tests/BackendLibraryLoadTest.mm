@@ -10,7 +10,7 @@ int main(int argc, const char *argv[]) {
         assert(bridge && [bridge respondsToSelector:NSSelectorFromString(@"shared")]);
         for (NSString *selector in @[@"showDictionaryForAccountID:", @"showClipboardForAccountID:",
                                     @"showSnapshotForAccountID:", @"showSettingsForAccountID:",
-                                    @"showCommunityResourcesForAccountID:"]) {
+                                    @"showCommunityResourcesForAccountID:", @"showHandwriting", @"showEmoji"]) {
             assert([bridge instancesRespondToSelector:NSSelectorFromString(selector)]);
         }
         Class account = NSClassFromString(@"MSIMEBackendAccountWindow");
