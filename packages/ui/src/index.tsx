@@ -20,9 +20,11 @@ import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 import { AccountPage, type AccountClient } from "./account-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export { AccountPage, type AccountChallenge, type AccountClient, type AccountProfile, type AccountProviders, type AccountUser } from "./account-page";
 export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
+export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
@@ -370,6 +372,8 @@ export interface SettingsClient {
   account?: AccountClient;
   /** Android community commands expose bounded public skin metadata and designs. */
   communitySkins?: CommunitySkinClient;
+  /** Android community commands expose dictionaries and reply templates. */
+  communityResources?: CommunityResourceClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
   listFontFamilies?: FontCatalogReader;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
@@ -744,7 +748,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const availablePages = pages.filter(item =>
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
     && (item.id !== "account" || Boolean(client.account))
-    && (item.id !== "community" || Boolean(client.communitySkins)));
+    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)));
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
   }, [availablePages, page]);
@@ -843,7 +847,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
-    {client.communitySkins && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
+    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityMine ? "mine" : "all"} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityMine} localDictionary={client.dictionary} />}
+    {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
+    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind="dictionary" />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
     {draft && page !== "typing-statistics" && page !== "account" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">

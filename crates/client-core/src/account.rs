@@ -172,6 +172,17 @@ impl BackendAccountClient {
         token: Option<&str>,
         body: Option<Vec<u8>>,
     ) -> Result<Vec<u8>, AccountError> {
+        self.request_with_limit(method, path, token, body, MAX_JSON_BYTES)
+    }
+
+    pub(crate) fn request_with_limit(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<Vec<u8>>,
+        maximum_response_bytes: usize,
+    ) -> Result<Vec<u8>, AccountError> {
         if !path.starts_with("/v1/") || path.contains('\\') {
             return Err(AccountError::Invalid);
         }
@@ -205,7 +216,7 @@ impl BackendAccountClient {
                 .body(body);
         }
         let response = request.send().map_err(|_| AccountError::Unavailable)?;
-        read_bounded_response(response)
+        read_bounded_response(response, maximum_response_bytes)
     }
 
     pub(crate) fn json<T: DeserializeOwned, B: Serialize>(
@@ -220,6 +231,22 @@ impl BackendAccountClient {
             .transpose()
             .map_err(|_| AccountError::Invalid)?;
         let bytes = self.request(method, path, token, body)?;
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
+    }
+
+    pub(crate) fn json_with_limit<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&B>,
+        maximum_response_bytes: usize,
+    ) -> Result<T, AccountError> {
+        let body = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| AccountError::Invalid)?;
+        let bytes = self.request_with_limit(method, path, token, body, maximum_response_bytes)?;
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 
@@ -238,23 +265,26 @@ impl BackendAccountClient {
     }
 }
 
-fn read_bounded_response(mut response: Response) -> Result<Vec<u8>, AccountError> {
+fn read_bounded_response(
+    mut response: Response,
+    maximum_response_bytes: usize,
+) -> Result<Vec<u8>, AccountError> {
     if !response.status().is_success() {
         return Err(AccountError::from_status(response.status()));
     }
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_JSON_BYTES as u64)
+        .is_some_and(|length| length > maximum_response_bytes as u64)
     {
         return Err(AccountError::Unavailable);
     }
     let mut bytes = Vec::new();
     response
         .by_ref()
-        .take((MAX_JSON_BYTES + 1) as u64)
+        .take((maximum_response_bytes + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| AccountError::Unavailable)?;
-    if bytes.len() > MAX_JSON_BYTES {
+    if bytes.len() > maximum_response_bytes {
         return Err(AccountError::Unavailable);
     }
     Ok(bytes)

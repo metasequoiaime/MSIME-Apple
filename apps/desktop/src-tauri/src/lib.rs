@@ -3169,6 +3169,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             let _ = keyboard_skin_trials.restore_pending();
             app.manage(CustomSkinLibraryStore::new(&directory));
+            #[cfg(target_os = "android")]
+            app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
+                app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
+            ));
             app.manage(keyboard_skin_trials);
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
@@ -3387,6 +3391,24 @@ pub fn run() {
             android_account::community_skin_unpublish,
             #[cfg(target_os = "android")]
             android_account::community_skin_finish_trial,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_list,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_detail,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_publish,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_apply,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_save,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_rate,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_unpublish,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_store_reply,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_remove_reply,
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");

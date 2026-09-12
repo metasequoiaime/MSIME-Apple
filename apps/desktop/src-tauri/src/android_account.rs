@@ -2,6 +2,14 @@ use msime_client_core::account::{
     AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountUser,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
+use msime_client_core::community_resource::{
+    BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
+    CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
+    CommunityResourcePublication, CommunityResourceScope,
+};
+use msime_client_core::community_resource_library::{
+    CommunityResourceLibraryError, CommunityResourceLibraryStore,
+};
 use msime_client_core::community_skin::{
     BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
 };
@@ -69,10 +77,13 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
 type Session = BackendAccountSession<BackendAccountClient, AndroidAccountStorage<Wry>>;
 type CommunityService =
     BackendCommunitySkinService<BackendAccountClient, AndroidAccountStorage<Wry>>;
+type CommunityResourceService =
+    BackendCommunityResourceService<BackendAccountClient, AndroidAccountStorage<Wry>>;
 
 pub struct AccountState {
     session: Arc<Session>,
     community: Arc<CommunityService>,
+    resources: Arc<CommunityResourceService>,
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -88,7 +99,12 @@ pub fn init() -> TauriPlugin<Wry> {
                 client,
                 Arc::clone(&session),
             ));
-            app.manage(AccountState { session, community });
+            let resource_client = BackendAccountClient::new()?;
+            let resources = Arc::new(BackendCommunityResourceService::new(
+                resource_client,
+                Arc::clone(&session),
+            ));
+            app.manage(AccountState { session, community, resources });
             Ok(())
         })
         .build()
@@ -237,6 +253,17 @@ fn trial_error(error: KeyboardSkinTrialError) -> super::CommandError {
     }
 }
 
+fn resource_library_error(error: CommunityResourceLibraryError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            CommunityResourceLibraryError::Io(_) => "community_storage",
+            CommunityResourceLibraryError::Json(_) | CommunityResourceLibraryError::Invalid => {
+                "community_resource_library_format"
+            }
+        },
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommunitySkinDownloadResponse {
@@ -352,6 +379,129 @@ pub async fn community_skin_finish_trial(
             code: "community_storage",
         })?
         .map_err(trial_error)
+}
+
+fn resource_scope(value: &str) -> Result<CommunityResourceScope, super::CommandError> {
+    match value {
+        "" => Ok(CommunityResourceScope::All),
+        "mine" => Ok(CommunityResourceScope::Mine),
+        "saved" => Ok(CommunityResourceScope::Saved),
+        _ => Err(super::CommandError { code: "community_invalid" }),
+    }
+}
+
+async fn resource_call<T, F>(
+    state: State<'_, AccountState>,
+    operation: F,
+) -> Result<T, super::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&CommunityResourceService) -> Result<T, AccountError> + Send + 'static,
+{
+    let service = Arc::clone(&state.resources);
+    tauri::async_runtime::spawn_blocking(move || operation(&service))
+        .await
+        .map_err(|_| super::CommandError { code: "community_unavailable" })?
+        .map_err(community_error)
+}
+
+#[tauri::command]
+pub async fn community_resource_list(
+    state: State<'_, AccountState>,
+    kind: CommunityResourceKind,
+    scope: String,
+    search: String,
+    offset: usize,
+) -> Result<CommunityResourcePage, super::CommandError> {
+    let scope = resource_scope(&scope)?;
+    resource_call(state, move |service| service.list(kind, scope, &search, offset)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_detail(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<CommunityResource, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.detail(id)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_publish(
+    state: State<'_, AccountState>,
+    id: String,
+    kind: CommunityResourceKind,
+    name: String,
+    description: String,
+    content: CommunityResourceContent,
+    revision: u32,
+) -> Result<CommunityResourcePublication, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.publish(id, kind, &name, &description, &content, revision)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_apply(
+    state: State<'_, AccountState>,
+    id: String,
+    resource_revision: u32,
+) -> Result<CommunityResourceApplication, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.apply(id, resource_revision)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_save(
+    state: State<'_, AccountState>,
+    id: String,
+    saved: bool,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.save(id, saved)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_rate(
+    state: State<'_, AccountState>,
+    id: String,
+    stars: u8,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.rate(id, stars)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_unpublish(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    resource_call(state, move |service| service.delete(id)).await
+}
+
+#[tauri::command]
+pub async fn community_resource_store_reply(
+    library: State<'_, CommunityResourceLibraryStore>,
+    item: CommunityResource,
+) -> Result<(), super::CommandError> {
+    let library = library.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || library.save_reply(item))
+        .await
+        .map_err(|_| super::CommandError { code: "community_storage" })?
+        .map_err(resource_library_error)
+}
+
+#[tauri::command]
+pub async fn community_resource_remove_reply(
+    library: State<'_, CommunityResourceLibraryStore>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let library = library.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || library.remove(id))
+        .await
+        .map_err(|_| super::CommandError { code: "community_storage" })?
+        .map_err(resource_library_error)
 }
 
 #[tauri::command]
