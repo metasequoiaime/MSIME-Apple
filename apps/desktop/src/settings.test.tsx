@@ -1069,7 +1069,7 @@ test("native panel views support close, modifier, drawing and undo interactions"
 
   const panel = render(<HandwritingPanel client={{ close }} />);
   const canvas = screen.getByLabelText("手写画布");
-  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
   fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
   fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
   expect(screen.getByRole("status").textContent).toContain("识别结果");
@@ -1307,13 +1307,13 @@ test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ign
   const client = { close: vi.fn().mockResolvedValue(undefined), recognizeHandwriting };
   const panel = render(<HandwritingPanel client={client} />);
   const canvas = screen.getByLabelText("手写画布");
-  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
   fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
   fireEvent.pointerUp(canvas, { pointerId: 1 });
   expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
   if (action === "undo") fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
   if (action === "clear") fireEvent.click(screen.getByRole("button", { name: /重写/ }));
-  if (action === "next stroke") fireEvent.pointerDown(canvas, { clientX: 30, clientY: 30, pointerId: 2 });
+  if (action === "next stroke") fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 30, clientY: 30, pointerId: 2 });
   if (action === "host replacement") panel.rerender(<HandwritingPanel client={{ close: client.close }} />);
   await act(async () => resolve({ candidates: ["fixture-stale"] }));
   expect(screen.queryByRole("button", { name: "fixture-stale" })).toBeNull();
