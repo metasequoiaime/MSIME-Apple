@@ -182,11 +182,13 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .panel-open-button { flex: 0 0 auto; min-width: 72px; margin-top: 0; }
 .panel-preview { min-height: 330px; padding: 20px 24px 30px; border-top: 1px solid var(--border-color); background: var(--surface-subtle); }
 .panel-preview-label { margin-bottom: 18px; color: var(--text-muted); font-size: 12px; }
-.keyboard-mock { width: min(560px, 100%); margin: 0 auto; padding: 18px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--card-bg); box-shadow: var(--card-shadow); }
-.keyboard-mock-title { margin-bottom: 14px; color: var(--text-secondary); font-size: 12px; }
-.keyboard-mock-keys { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
-.keyboard-mock-keys span, .keyboard-mock-space { display: flex; align-items: center; justify-content: center; min-height: 30px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-secondary-bg); color: var(--text-color); font-size: 11px; }
-.keyboard-mock-space { margin-top: 8px; }
+.screen-keyboard-artwork { display: block; width: min(100%, 760px); height: auto; margin: 0 auto; font-family: "Segoe UI", system-ui, sans-serif; --keyboard-background: #17181d; --keyboard-key: #2b2d34; --keyboard-text: #f1f1f3; --keyboard-heading: #d7d8dd; }
+.screen-keyboard-artwork[data-preview-theme="light"] { --keyboard-background: #eceef2; --keyboard-key: #fff; --keyboard-text: #202124; --keyboard-heading: #555861; }
+.keyboard-preview-background { fill: var(--keyboard-background); }
+.keyboard-preview-key { fill: var(--keyboard-key); }
+.keyboard-preview-label { fill: var(--keyboard-text); }
+.keyboard-preview-heading { fill: var(--keyboard-heading); }
+.keyboard-preview-close { stroke: var(--keyboard-text); }
 .handwriting-mock { width: min(560px, 100%); margin: 0 auto; }
 .handwriting-canvas { display: flex; align-items: center; justify-content: center; min-height: 230px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--card-bg); color: var(--text-muted); }
 .handwriting-stroke { color: var(--text-secondary); font-family: "KaiTi", "STKaiti", serif; font-size: 110px; line-height: 1; transform: rotate(-7deg); }
@@ -326,8 +328,6 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .feedback-card { grid-template-columns: 36px minmax(0, 1fr); }
   .feedback-card .secondary { grid-column: 2; justify-self: start; }
   .panel-preview { padding-left: 16px; padding-right: 16px; }
-  .keyboard-mock { padding: 10px; }
-  .keyboard-mock-keys { gap: 3px; }
   .handwriting-panel-body { grid-template-columns: 1fr; padding: 14px; }
   .emoji-panel-search { margin-left: 14px; margin-right: 14px; }
   .emoji-panel-tabs { padding-left: 8px; padding-right: 8px; }

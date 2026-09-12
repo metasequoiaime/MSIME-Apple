@@ -548,7 +548,7 @@ test("automatic color swatch follows candidate theme without persisting a color 
 });
 
 test("screen keyboard theme loads, saves independently and reloads", async () => {
-  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, screen_keyboard_theme: "light", toolbar_theme: "dark" } };
+  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
     snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
   });
@@ -556,14 +556,36 @@ test("screen keyboard theme loads, saves independently and reloads", async () =>
   const select = await screen.findByLabelText("屏幕键盘主题") as HTMLSelectElement;
   fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
   expect(select.value).toBe("light");
+  const preview = screen.getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-preview-theme")).toBe("light");
+  expect(preview.querySelectorAll("[data-keyboard-key]")).toHaveLength(61);
+  expect([...preview.querySelectorAll("[data-keyboard-row]")].map(row => row.children.length)).toEqual([14, 14, 13, 12, 8]);
+  expect(preview.querySelectorAll("button, [tabindex], a")).toHaveLength(0);
+  for (const row of preview.querySelectorAll("[data-keyboard-row]")) {
+    let right = 0;
+    for (const rect of row.querySelectorAll("rect")) {
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      const width = Number(rect.getAttribute("width"));
+      const height = Number(rect.getAttribute("height"));
+      expect(x).toBeGreaterThanOrEqual(right);
+      expect(x + width).toBeLessThanOrEqual(1100);
+      expect(y + height).toBeLessThanOrEqual(400);
+      expect(width).toBeGreaterThan(0);
+      right = x + width;
+    }
+  }
   fireEvent.change(select, { target: { value: "dark" } });
+  expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark" })));
   fireEvent.change(select, { target: { value: "follow" } });
+  expect(preview.getAttribute("data-preview-theme")).toBe("light");
   const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
   confirm.mockRestore();
   await waitFor(() => expect(select.value).toBe("dark"));
+  expect(preview.getAttribute("data-preview-theme")).toBe("dark");
 });
 
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
