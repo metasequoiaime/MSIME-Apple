@@ -446,11 +446,11 @@ async fn cloud_clipboard_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_clipboard(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -500,11 +500,11 @@ async fn cloud_dictionary_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_dictionary(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -1379,7 +1379,7 @@ async fn recognize_handwriting(
         result.validate().map_err(|_| HostActionError {
             code: "invalid_stroke",
         })?;
-        return Ok(result);
+        Ok(result)
     }
     let Some(model) = model else {
         return Err(HostActionError {
@@ -1586,7 +1586,7 @@ async fn recognize_voice(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        return Ok(VoiceRecognitionResult { text });
+        Ok(VoiceRecognitionResult { text })
     }
     #[cfg(not(unix))]
     {
