@@ -916,6 +916,8 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
 }
 
 /// Compare-and-swap save for a validated PreferencesSnapshot.
+/// A successful save with clipboard history disabled clears the default history
+/// under the shared preference/history locks, matching the desktop settings path.
 ///
 /// # Safety
 /// The caller must provide non-null pointers to readable UTF-8 buffers whose
@@ -948,9 +950,15 @@ pub unsafe extern "C" fn msime_client_save_preferences(
         if snapshot.format_version != 1 {
             return Err("unsupported preferences format".into());
         }
-        let saved = PreferencesStore::new(directory)
+        let store = PreferencesStore::new(directory);
+        let saved = store
             .save(expected_revision, snapshot.preferences)
             .map_err(|e| e.to_string())?;
+        if !saved.preferences.clipboard_history {
+            store
+                .clear_disabled_clipboard_history()
+                .map_err(|e| e.to_string())?;
+        }
         serde_json::to_value(saved).map_err(|e| e.to_string())
     })
 }
@@ -2730,6 +2738,71 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_preference_save_clears_history_only_after_successful_disable() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut enabled = store
+            .save(
+                0,
+                Preferences {
+                    clipboard_history: true,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert!(store
+            .capture_clipboard_text("synthetic saved history".into())
+            .unwrap());
+        let history = directory.path().join("clipboard_history.json");
+        let original = std::fs::read(&history).unwrap();
+        let save = |revision, snapshot: &PreferencesSnapshot| {
+            let bytes = serde_json::to_vec(snapshot).unwrap();
+            read(unsafe {
+                msime_client_save_preferences(
+                    path.as_ptr(),
+                    path.len(),
+                    revision,
+                    bytes.as_ptr(),
+                    bytes.len(),
+                )
+            })
+        };
+        enabled.preferences.clipboard_history = false;
+        assert_eq!(save(0, &enabled)["ok"], false);
+        assert_eq!(std::fs::read(&history).unwrap(), original);
+        let result = save(enabled.revision, &enabled);
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["value"]["revision"], enabled.revision + 1);
+        assert!(
+            !history.exists(),
+            "successful native disable retained clipboard history"
+        );
+        assert!(!store
+            .capture_clipboard_text("synthetic stopped capture".into())
+            .unwrap());
+        let mut restored = store.load().unwrap();
+        restored.preferences.clipboard_history = true;
+        assert_eq!(save(restored.revision, &restored)["ok"], true);
+        assert!(store
+            .capture_clipboard_text("synthetic new capture".into())
+            .unwrap());
+        let before = std::fs::read(&history).unwrap();
+        let current = store.load().unwrap();
+        assert_eq!(save(current.revision, &current)["ok"], true);
+        assert_eq!(std::fs::read(&history).unwrap(), before);
+        std::fs::remove_file(&history).unwrap();
+        std::fs::create_dir(&history).unwrap();
+        let mut disabled = store.load().unwrap();
+        disabled.preferences.clipboard_history = false;
+        assert_eq!(save(disabled.revision, &disabled)["ok"], false);
+        assert!(!store.load().unwrap().preferences.clipboard_history);
+        assert_eq!(store.load().unwrap().revision, disabled.revision + 1);
+        assert!(history.is_dir());
+
+    }
+
     #[test]
     fn mixed_input_changes_defer_until_composition_ends() {
         use msime_client_core::preferences::MixedInputPreferences;

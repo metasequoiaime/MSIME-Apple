@@ -106,7 +106,9 @@ char *msime_client_capture_clipboard_history(const uint8_t *request, size_t leng
  * Busy is not missing/corrupt and must not reset preferences to defaults. */
 char *msime_client_try_load_preferences(const uint8_t *directory, size_t length);
 /* Compare-and-swap save of PreferencesSnapshot.preferences. The snapshot's
- * format_version is validated; expected_revision must match the store. */
+ * format_version is validated; expected_revision must match the store.
+ * A disabled clipboard-history save clears the default history file if history
+ * is still disabled. Cleanup errors may be returned after preferences are saved. */
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
