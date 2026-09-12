@@ -9,6 +9,8 @@ final class BackendWindowBridge: NSObject {
   @objc static let shared = BackendWindowBridge()
   private let windows = BackendAccountWindowCache<NSWindowController>()
 
+  @objc func applyEmojiPreferences(_ preferences: NSDictionary) { MacEmojiAppearance.shared.apply(preferences) }
+
   func closeAll() {
     windows.closeAll { controller in
       controller.close()
