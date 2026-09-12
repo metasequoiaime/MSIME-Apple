@@ -3,7 +3,6 @@ import SwiftUI
 struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
-  @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var height = KeyboardLayoutPreference.heightAdjustment
   var body: some View {
     Form {
@@ -31,25 +30,13 @@ struct KeyboardLayoutSettingsView: View {
         Text("间距只改变键位外观，不影响输入方案。键盘布局在键盘的布局按钮里切换。")
       }
       Section {
-        // Writes through the binding rather than onChange: reading the preferences back after a
-        // reset also assigns this, and onChange would store the default again, undoing the reset.
-        Toggle("顶部语音结果入口", isOn: Binding(
-          get: { voice },
-          set: { voice = $0; KeyboardLayoutPreference.voiceShortcutEnabled = $0 }
-        )).accessibilityIdentifier("appVoiceShortcutSwitch")
-      } header: {
-        Text("快捷入口")
-      } footer: {
-        Text("iOS 不允许键盘直接录音，这个入口不是按住说话：先在“语音设置”里录音识别、点击“发送到键盘”，再在键盘里插入结果。打开后工具栏的简繁按钮会换成语音结果按钮；关掉也能从键盘的“更多 → 语音结果”进入。")
-      }
-      Section {
         Button("恢复默认", role: .destructive) {
           KeyboardLayoutPreference.resetToDefaults()
           readPreferences()
         }
         .accessibilityIdentifier("appResetKeyboardSettings")
       } footer: {
-        Text("把这一页的间距、高度和语音入口恢复成默认值。")
+        Text("把这一页的间距和高度恢复成默认值。")
       }
     }
     .tint(MetasequoiaTheme.accent)
@@ -61,7 +48,6 @@ struct KeyboardLayoutSettingsView: View {
   private func readPreferences() {
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
-    voice = KeyboardLayoutPreference.voiceShortcutEnabled
     height = KeyboardLayoutPreference.heightAdjustment
   }
 

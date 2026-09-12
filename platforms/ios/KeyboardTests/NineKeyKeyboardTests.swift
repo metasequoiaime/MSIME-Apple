@@ -552,13 +552,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC", "退出数字键面要恢复字母")
   }
 
-  func testKeyboardSettingsReplaceLayoutCardsAndVoiceIsIndependent() throws {
+  func testKeyboardSettingsReplaceLayoutCardsAndKeepTheComposition() throws {
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .quanpin
     KeyboardLayoutPreference.keySpacing = 5
     KeyboardLayoutPreference.rowSpacing = 8
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
@@ -567,15 +566,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     let preedit = try button("preeditButton", in: controller).configuration?.title
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
-    let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
-    voice.isOn = true
-    voice.sendActions(for: .valueChanged)
-    XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "voiceShortcutSwitch" })
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
-    voice.isOn = false
-    voice.sendActions(for: .valueChanged)
     try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertNotNil(try button("scriptShortcut", in: controller))
   }

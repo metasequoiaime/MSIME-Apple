@@ -28,11 +28,6 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
   private static let maximumBytes = 256 * 1024
   static let lifetime: TimeInterval = 600
 
-  /// Deep link from the keyboard to the app's recording page. A keyboard extension is denied
-  /// microphone access by the system, so producing a result always means a round trip through the
-  /// app; this shortens that trip to one tap instead of leaving the user to find the page.
-  static let recordingURL = URL(string: "metasequoiaime://voice")!
-
   static var defaultDirectory: URL? {
     let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
     #if DEBUG && targetEnvironment(simulator)

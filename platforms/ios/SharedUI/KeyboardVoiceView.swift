@@ -4,9 +4,6 @@ struct KeyboardVoiceView: View {
   let entry: VoiceTextHandoff?
   let insert: () throws -> Void
   let close: () -> Void
-  /// Returns whether the host agreed to open the app. Absent in previews and in the app itself,
-  /// where there is nothing to jump to.
-  var openRecording: (() async -> Bool)?
   @State private var error: String?
   @State private var errorID = UUID()
 
@@ -43,16 +40,6 @@ struct KeyboardVoiceView: View {
         Button("插入语音结果") {
           do { try insert(); close() } catch { self.error = error.localizedDescription; errorID = UUID() }
         }.frame(minHeight: 44).accessibilityIdentifier("keyboardVoiceInsert")
-      } else if let openRecording {
-        Button("打开水杉 App 录音") {
-          Task {
-            guard await openRecording() else {
-              error = "当前 App 不允许键盘跳转，请手动打开水杉 App 的“语音设置”。"
-              errorID = UUID()
-              return
-            }
-          }
-        }.frame(minHeight: 44).accessibilityIdentifier("keyboardVoiceOpenRecording")
       }
     }
     .padding(.horizontal, 12)

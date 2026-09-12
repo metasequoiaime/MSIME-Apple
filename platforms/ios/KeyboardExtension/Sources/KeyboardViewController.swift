@@ -754,7 +754,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
       usesTraditionalOutput.toggle()
       ChineseOutputPreference.usesTraditional = usesTraditionalOutput
       renderCandidateStrip()
@@ -787,11 +786,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
     scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
     scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
-    if KeyboardLayoutPreference.voiceShortcutEnabled {
-      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
     if inputScheme == .thoughtfulReply {
       configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
         label: "生成高情商回复", id: "replyShortcut")
@@ -810,10 +804,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
         self?.closeKeyboardPicker()
         self?.showKeyboardAI()
-      },
-      UIAction(title: "语音结果", image: UIImage(systemName: "waveform")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardVoice()
       },
       UIMenu(title: "按键反馈", options: .displayInline, children: [
         UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
@@ -1565,8 +1555,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
-      }, close: { [weak self] in self?.closeKeyboardService() },
-      openRecording: { [weak self] in await self?.openVoiceRecording() ?? false }))
+      }, close: { [weak self] in self?.closeKeyboardService() }))
       servicePanel = panel
       addChild(panel)
       panel.view.frame = view.bounds
@@ -1574,15 +1563,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       view.addSubview(panel.view)
       panel.didMove(toParent: self)
     } catch { showDiagnostic(error.localizedDescription) }
-  }
-
-  /// Whether the host app agreed to open the recording page. Only the host can honour this, and
-  /// some refuse, so the caller shows the manual instructions instead of a button that does nothing.
-  @MainActor private func openVoiceRecording() async -> Bool {
-    guard let context = extensionContext else { return false }
-    return await withCheckedContinuation { continuation in
-      context.open(VoiceTextHandoffStore.recordingURL) { continuation.resume(returning: $0) }
-    }
   }
 
   private func closeKeyboardService() {
@@ -2387,7 +2367,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       height: KeyboardLayoutPreference.heightAdjustment,
-      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled,
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
         self?.applyLayoutPreferences()
@@ -2401,12 +2380,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       onHeight: { [weak self] adjustment in
         KeyboardLayoutPreference.heightAdjustment = adjustment
         self?.updatePreferredKeyboardHeight()
-      },
-      // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
-      // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
-      onVoice: { [weak self] enabled in
-        KeyboardLayoutPreference.voiceShortcutEnabled = enabled
-        self?.updateShortcutButtons()
       },
       // The panel's controls take their values when it is built, so it is rebuilt rather than
       // reaching back into it to move a slider that has just been reset underneath the user.
