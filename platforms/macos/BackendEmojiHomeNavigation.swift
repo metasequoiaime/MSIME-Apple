@@ -14,6 +14,18 @@ struct MacEmojiHomeEntry {
 }
 
 enum MacEmojiHomeNavigation {
+  /// Reset selects the first visible item, including before asynchronous catalog arrival.
+  /// A removed explicit selection stays stale: activation must not copy a different item.
+  static func selection(_ selected: MacEmojiHomeKey?, sections: [MacEmojiHomeSection]) -> MacEmojiHomeKey? {
+    if let selected { return selected }
+    for section in sections {
+      if let item = section.items.first {
+        return MacEmojiHomeKey(category: section.category, text: item.text, group: item.group)
+      }
+    }
+    return nil
+  }
+
   static func entries(_ sections: [MacEmojiHomeSection], flowCells: [MacEmojiFlowCell]) -> [MacEmojiHomeEntry] {
     var result: [MacEmojiHomeEntry] = []
     var row = 0

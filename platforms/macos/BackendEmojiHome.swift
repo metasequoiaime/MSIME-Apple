@@ -80,6 +80,9 @@ struct MacEmojiHomeView: View {
   @State private var loaded: [String] = []
   @State private var failed = false
   @State private var selected: MacEmojiHomeKey?
+  private var effectiveSelection: MacEmojiHomeKey? {
+    MacEmojiHomeNavigation.selection(selected, sections: visibleSections)
+  }
   private var visibleSections: [MacEmojiHomeSection] {
     let recentSection = recent.isEmpty ? [] : [MacEmojiHomeSection(title: "最近使用", category: "recent", items: recent)]
     return recentSection + (loaded == [resources, search] ? sections : [])
@@ -96,7 +99,7 @@ struct MacEmojiHomeView: View {
       if items.isEmpty && MacEmojiMediaPage(rawValue: category) == nil { Text("没有匹配项").font(.caption) }
       if category == "kaomoji" {
         MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
-          selected: { selected == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          selected: { effectiveSelection == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
           identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
           copy: { index in
             selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
@@ -104,7 +107,7 @@ struct MacEmojiHomeView: View {
           })
       } else {
         MacEmojiGrid(items: items, palette: palette,
-          selected: { selected == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          selected: { effectiveSelection == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
           identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
           copy: { index in
             selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
@@ -122,7 +125,7 @@ struct MacEmojiHomeView: View {
       VStack(spacing: 4) {
         MacEmojiKeyboardEntry(enabled: !visibleSections.allSatisfy { $0.items.isEmpty }) { command in
           let entries = MacEmojiHomeNavigation.entries(visibleSections, flowCells: flowCells)
-          guard let entry = MacEmojiHomeNavigation.destination(command, selected: selected, entries: entries) else { return }
+          guard let entry = MacEmojiHomeNavigation.destination(command, selected: effectiveSelection, entries: entries) else { return }
           selected = entry.key
           proxy.scrollTo(entry.key)
           if command == .activate { copy(entry.item) }
