@@ -85,6 +85,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     ...createVoiceRecognitionClient(invoke, listener => listen<{ request_id: string; text: string; final: boolean }>("voice-update", event => listener(event.payload))),
     sendText: text => invoke("send_text", { text }),
     sendVoiceText: text => invoke("send_voice_text", { text }),
+    copyText: text => invoke("copy_text", { text }),
   },
   cloudClipboard: {
     close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),

@@ -32,6 +32,7 @@ export interface VoicePanelClient extends PanelClient {
   cancelVoice?(): Promise<void>;
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
+  copyText?(text: string): Promise<void>;
 }
 
 function validVoiceLanguage(value: string) {
@@ -296,6 +297,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   const textRevision = useRef(0);
   function updateText(value: string) { textRevision.current++; setText(value); }
   const [submitting, setSubmitting] = useState(false);
+  const [copying, setCopying] = useState(false);
   const submittingRef = useRef(false);
   const submissionRevision = useRef(0);
   const [busy, setBusy] = useState(false);
@@ -321,6 +323,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   useEffect(() => {
     submittingRef.current = false;
     setSubmitting(false);
+    setCopying(false);
     setBusy(false);
     stoppingRef.current = false;
     setStopping(false);
@@ -384,29 +387,35 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     }
   }
 
-  async function submit() {
-    const send = client.sendVoiceText ?? client.sendText;
+  async function submit(copyOnly = false) {
+    const send = copyOnly ? client.copyText : client.sendVoiceText ?? client.sendText;
     if (!text || !send || busyRef.current || submittingRef.current) return;
     const revision = ++submissionRevision.current;
     const submittedTextRevision = textRevision.current;
     submittingRef.current = true;
     setSubmitting(true);
-    setNotice("正在提交…");
+    setCopying(copyOnly);
+    setNotice(copyOnly ? "正在复制…" : "正在提交…");
     try {
       await send(text);
       if (revision !== submissionRevision.current) return;
       if (submittedTextRevision !== textRevision.current) {
-        setNotice("上一版内容已提交，当前内容已保留");
+        setNotice(copyOnly ? "上一版内容已复制，当前内容已保留" : "上一版内容已提交，当前内容已保留");
         return;
       }
-      setNotice(`已提交：${text}`);
-      updateText("");
+      if (copyOnly) {
+        setNotice("识别结果已复制，文本已保留");
+      } else {
+        setNotice(`已提交：${text}`);
+        updateText("");
+      }
     } catch {
-      if (revision === submissionRevision.current) setNotice("提交失败，前台输入窗口可能已关闭");
+      if (revision === submissionRevision.current) setNotice(copyOnly ? "复制失败，识别结果已保留" : "提交失败，前台输入窗口可能已关闭");
     } finally {
       if (revision === submissionRevision.current) {
         submittingRef.current = false;
         setSubmitting(false);
+        setCopying(false);
       }
     }
   }
@@ -475,7 +484,8 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>
       {busy && client.stopVoice && client.cancelVoice && <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>取消录音</button>}
       <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => updateText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
-      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy || submitting}>{submitting ? "正在提交…" : "提交到当前窗口"}</button>
+      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy || submitting}>{submitting && !copying ? "正在提交…" : "提交到当前窗口"}</button>
+      {client.copyText && <button type="button" onClick={() => void submit(true)} disabled={!text || busy || submitting}>{copying ? "正在复制…" : "复制结果"}</button>}
       <button type="button" onClick={() => { updateText(""); setNotice("识别结果已清空"); }} disabled={!text || busy}>清空结果</button>
       {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}
       <p className="voice-panel-notice" role="status">{notice}</p>
