@@ -427,3 +427,14 @@ Tests cover loaded/custom/reset save payloads, sanitization and real computed
 colours/number opacity under desktop CSP on Fluent, WeChat and external previews,
 including retaining WeChat selected white text. This uses the existing core
 contract; no native host typography changes or native acceptance are claimed.
+
+The core font preference contract now accepts Unicode primary and fallback
+family names and up to 32 ordered fallbacks, preparing the shared controls for
+pinned 04a8df56 appearance.ts (which permits 32 supplementary families). Existing
+ASCII names, empty fallback lists, defaults and the per-name 128 UTF-8-byte bound
+remain unchanged. Names are display strings, not paths or CSS declarations;
+consumers must quote/encode them appropriately for their rendering interface.
+Storage tests preserve Unicode and order and reject overlong names/33 entries.
+The previous implementation rejects the new Unicode round-trip regression.
+This increment changes validation/storage only; font enumeration, shared font
+controls, rendering integration and native typography acceptance remain open.
