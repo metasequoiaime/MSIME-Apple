@@ -50,7 +50,6 @@ pub fn chat_completion_body(
         || model.is_empty()
         || model.len() > 256
         || model.chars().any(char::is_control)
-        || prompt.is_empty()
         || prompt.len() > 16384
     {
         return Err(AiError::InvalidConfiguration);
@@ -65,6 +64,67 @@ pub fn chat_completion_body(
         body["thinking"] = serde_json::json!({"type":"disabled"});
     }
     Ok(body)
+}
+
+/// Resolve local provider credentials into a native HTTP descriptor. Contains a
+/// bearer token and private input: never log or persist this descriptor.
+pub fn chat_completion_http_request(
+    config: &crate::preferences::AiAssistantPreferences,
+    request: &AiSuggestionRequest,
+) -> Result<Option<serde_json::Value>, AiError> {
+    if !config.enabled {
+        return Ok(None);
+    }
+    let endpoint = &config.endpoint;
+    let url = reqwest::Url::parse(endpoint).map_err(|_| AiError::InvalidConfiguration)?;
+    if endpoint.len() > 2048
+        || endpoint.chars().any(char::is_control)
+        || !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || request.candidate_limit != config.candidate_limit
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
+    let token = config
+        .tokens
+        .get(&config.provider)
+        .map(String::as_str)
+        .filter(|token| {
+            let token = token.trim();
+            !token.is_empty()
+                && !token.starts_with("FAKESECRET_")
+                && !(token.starts_with('<') && token.ends_with('>'))
+        })
+        .unwrap_or(&config.token)
+        .trim();
+    if token.is_empty()
+        || token.len() > 4096
+        || token.chars().any(char::is_control)
+        || token.starts_with("FAKESECRET_")
+        || (token.starts_with('<') && token.ends_with('>'))
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
+    let prompt = match config.prompt_id.as_str() {
+        "custom_2" => &config.prompt_custom_2,
+        "custom_3" => &config.prompt_custom_3,
+        _ if !config.prompt_custom_1.is_empty() => &config.prompt_custom_1,
+        _ => &config.prompt,
+    };
+    let body = chat_completion_body(request, &config.provider, &config.model, prompt)?;
+    if serde_json::to_vec(&body)
+        .map_err(|_| AiError::InvalidConfiguration)?
+        .len()
+        > 65536
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
+    Ok(Some(serde_json::json!({"url":endpoint,"method":"POST",
+        "headers":{"Content-Type":"application/json","Authorization":format!("Bearer {token}")},
+        "body":body,"timeout_ms":8000,"connect_timeout_ms":2500,"max_response_bytes":1048576})))
 }
 
 /// Parse a bounded successful HTTP body containing JSON-mode chat content.
@@ -211,11 +271,8 @@ mod tests {
             assert_eq!(body.get("thinking").is_some(), provider == "deepseek");
             assert!(body.get("token").is_none());
         }
-        for (provider, model, prompt) in [
-            ("unknown", "model", "prompt"),
-            ("openai", "", "prompt"),
-            ("openai", "model", ""),
-        ] {
+        for (provider, model, prompt) in [("unknown", "model", "prompt"), ("openai", "", "prompt")]
+        {
             assert_eq!(
                 chat_completion_body(&request, provider, model, prompt),
                 Err(AiError::InvalidConfiguration)
@@ -288,5 +345,72 @@ mod tests {
         let mut error: serde_json::Value = serde_json::from_slice(&body).unwrap();
         error["error"] = serde_json::json!({"message":"synthetic"});
         assert!(parse_chat_completion_response(&serde_json::to_vec(&error).unwrap(), 1).is_none());
+    }
+
+    #[test]
+    fn http_descriptor_resolves_private_slots_and_prompt_selection() {
+        let mut config = crate::preferences::AiAssistantPreferences {
+            enabled: true,
+            endpoint: "https://synthetic.invalid/chat".into(),
+            model: "synthetic-model".into(),
+            token: "synthetic-legacy".into(),
+            prompt: "legacy prompt".into(),
+            prompt_custom_2: "second prompt".into(),
+            ..Default::default()
+        };
+        let request = AiSuggestionRequest {
+            segmented_pinyin: vec!["ni".into()],
+            context: String::new(),
+            candidate_limit: 3,
+        };
+        let descriptor = |config: &crate::preferences::AiAssistantPreferences| {
+            chat_completion_http_request(config, &request)
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(
+            descriptor(&config)["headers"]["Authorization"],
+            "Bearer synthetic-legacy"
+        );
+        config
+            .tokens
+            .insert("deepseek".into(), " synthetic-slot ".into());
+        config
+            .tokens
+            .insert("openai".into(), "synthetic-other".into());
+        config.prompt_id = "custom_2".into();
+        let value = descriptor(&config);
+        assert_eq!(value["headers"]["Authorization"], "Bearer synthetic-slot");
+        assert_eq!(value["body"]["messages"][0]["content"], "second prompt");
+        assert_eq!(value["timeout_ms"], 8000);
+        assert_eq!(value["connect_timeout_ms"], 2500);
+        assert_eq!(value["max_response_bytes"], 1048576);
+        config.prompt_id = "custom_3".into();
+        assert_eq!(descriptor(&config)["body"]["messages"][0]["content"], "");
+        config
+            .tokens
+            .insert("deepseek".into(), "<placeholder>".into());
+        assert_eq!(
+            descriptor(&config)["headers"]["Authorization"],
+            "Bearer synthetic-legacy"
+        );
+        for endpoint in [
+            "file:///synthetic",
+            "https://user:pass@synthetic.invalid",
+            "https://synthetic.invalid/#fragment",
+            "https://synthetic.invalid/\n",
+        ] {
+            config.endpoint = endpoint.into();
+            assert!(chat_completion_http_request(&config, &request).is_err());
+        }
+        config.endpoint = "http://localhost:8080/chat".into();
+        assert!(chat_completion_http_request(&config, &request).is_ok());
+        config.token = "bad\r\nheader".into();
+        assert!(chat_completion_http_request(&config, &request).is_err());
+        config.enabled = false;
+        assert_eq!(
+            chat_completion_http_request(&config, &request).unwrap(),
+            None
+        );
     }
 }

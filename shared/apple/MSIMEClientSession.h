@@ -46,6 +46,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 /// Signed Tencent descriptor. Send body_utf8 unchanged; never log credentials.
 + (nullable NSDictionary *)tencentTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Pure AI descriptor with credentials; never log it or follow HTTP redirects.
++ (nullable NSDictionary *)aiHTTPRequest:(NSDictionary *)request error:(NSError **)error;
++ (nullable NSArray<NSString *> *)parseAIResponse:(NSData *)body limit:(NSUInteger)limit error:(NSError **)error;
 /// Worker-only private disk I/O; same bounded request as msime_client_learned_translation_request.
 /// Supply a private user directory, never packaged resources. Do not log learned text.
 + (nullable NSDictionary *)learnedTranslationRequest:(NSDictionary *)request error:(NSError **)error;
