@@ -200,14 +200,15 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .native-panel-header button:hover { background: var(--button-secondary-hover); color: var(--text-color); }
 .keyboard-panel { --kb-background: #17181d; --kb-text: #f1f1f3; --kb-heading: #d7d8dd; --kb-key: #2b2d34; --kb-hover: #41434d; --kb-active: #535866; --kb-pressed: #666a77; background: var(--kb-background); color: var(--kb-text); }
 .keyboard-panel[data-keyboard-theme="light"] { --kb-background: #eceef2; --kb-text: #202124; --kb-heading: #555861; --kb-key: #fff; --kb-hover: #e1e4ea; --kb-active: #d7d0e0; --kb-pressed: #c7c9d0; }
-.keyboard-panel .native-panel-header { border-bottom: 0; background: var(--kb-background); color: var(--kb-heading); }
-.keyboard-panel .native-panel-header button { color: var(--kb-text); }
+.keyboard-panel { display: flex; flex-direction: column; height: 100vh; min-height: 0; border-radius: 8px; }
+.keyboard-panel .native-panel-header { flex: 0 0 28px; height: 28px; padding: 0 6px 0 10px; border-bottom: 0; background: var(--kb-background); color: var(--kb-heading); font-size: 12px; }
+.keyboard-panel .native-panel-header button { flex: 0 0 28px; height: 24px; border-radius: 4px; color: var(--kb-text); }
 .keyboard-panel .native-panel-header button:hover { background: var(--kb-hover); color: var(--kb-text); }
-.keyboard-panel-body { padding: 7px; }
-.keyboard-panel-notice { min-height: 20px; margin-bottom: 9px; color: var(--kb-heading); font-size: 12px; text-align: center; }
-.keyboard-layout { display: flex; flex-direction: column; gap: 4px; }
-.keyboard-row { display: flex; gap: 4px; }
-.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0; border: 0; border-radius: 5px; background: var(--kb-key); color: var(--kb-text); font-size: 15px; }
+.keyboard-panel-body { flex: 1; min-height: 0; padding: 0 7px 7px; }
+.keyboard-panel-notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kb-heading); font-size: 12px; }
+.keyboard-layout { display: flex; flex-direction: column; height: 100%; gap: 4px; }
+.keyboard-row { display: flex; flex: 1; min-height: 0; gap: 4px; }
+.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 5px; background: var(--kb-key); color: var(--kb-text); font-size: 15px; }
 .keyboard-key:hover { background: var(--kb-hover); }
 .keyboard-key.active { background: var(--kb-active); }
 .keyboard-key:active { background: var(--kb-pressed); }

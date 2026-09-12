@@ -289,6 +289,22 @@ with sync_playwright() as playwright:
         }""")
     expect(page.get_by_role("button", name="Space", exact=True)).to_have_css("font-size", "12px")
     expect(page.get_by_role("button", name="a", exact=True)).to_have_css("font-size", "15px")
+    for height in [300, 400, 500]:
+        page.set_viewport_size({"width": 1100, "height": height})
+        expect(page.locator(".keyboard-panel .native-panel-header")).to_have_css("height", "28px")
+        assert page.locator(".keyboard-panel").evaluate("""panel => {
+          const expectedHeight = (innerHeight - 28 - 7 - 16) / 5;
+          return [...panel.querySelectorAll('.keyboard-row')].every((row, index) => {
+            const expectedY = 28 + index * (expectedHeight + 4);
+            return [...row.children].every(key => {
+              const rect = key.getBoundingClientRect();
+              return Math.abs(rect.top - expectedY) < .1 && Math.abs(rect.height - expectedHeight) < .1 && rect.bottom <= innerHeight - 7 + .1;
+            });
+          }) && document.documentElement.scrollHeight === innerHeight;
+        }""")
+    page.get_by_role("button", name="a", exact=True).click()
+    expect(page.get_by_role("status")).to_contain_text("等待宿主注入能力")
+    expect(page.locator(".keyboard-panel .native-panel-header")).to_have_css("height", "28px")
     page.evaluate("window.removeKeyboard()")
     for theme, background, idle, hover, active, pressed in [
         ("dark", "rgb(23, 24, 29)", "rgb(43, 45, 52)", "rgb(65, 67, 77)", "rgb(83, 88, 102)", "rgb(102, 106, 119)"),
