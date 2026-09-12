@@ -65,6 +65,17 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = [self handwritingProviderRequest:request error:&error];
     return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
++ (NSDictionary *)clipboardHistoryRequest:(NSString *)directory {
+    NSError *error = nil;
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) {
+        return @{ @"error": @YES };
+    }
+    NSData *path = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    if (!path || path.length > 16384) return @{ @"error": @YES };
+    NSDictionary *result = decode(msime_client_load_clipboard_history(
+        static_cast<const uint8_t *>(path.bytes), path.length), &error);
+    return result ?: @{ @"error": @YES };
+}
 + (NSDictionary *)emojiCatalogRequest:(NSDictionary<NSString *, id> *)request {
     NSError *error = nil;
     NSString *resources = request[@"resources"];

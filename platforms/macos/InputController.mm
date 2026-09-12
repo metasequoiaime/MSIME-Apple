@@ -224,10 +224,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     (void)sender;
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
-    id resources = [self runtimeOptions][@"resources"];
+    NSDictionary *options = [self runtimeOptions];
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
-        ![shared respondsToSelector:@selector(showEmojiWithResources:selectionAttempt:)]) return;
+        ![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
     if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
     const uint64_t token = _emojiReturn.capture(_activeClient);
     __weak MSIMEInputController *weakSelf = self;
@@ -254,8 +254,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         });
         return YES;
     };
-    [shared performSelector:@selector(showEmojiWithResources:selectionAttempt:)
-                 withObject:[resources isKindOfClass:NSString.class] ? resources : @"" withObject:selection];
+    [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:)
+                 withObject:options withObject:selection];
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
