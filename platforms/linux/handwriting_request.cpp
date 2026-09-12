@@ -44,6 +44,10 @@ std::string default_model_path(const char *program) {
 } // namespace
 
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-handwriting [--local [model]] <provider-socket>\n";
+    return 0;
+  }
   const bool local = argc >= 2 && std::string(argv[1]) == "--local";
   const bool provider = !local && argc == 2;
   if ((!local && !provider) || (provider && argv[1][0] != '/'))
