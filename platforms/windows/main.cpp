@@ -187,6 +187,7 @@ int wmain(int argc, wchar_t **argv) {
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(palette);
+    bool toolbar_visible = config.floating_toolbar_enabled;
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
@@ -195,7 +196,6 @@ int wmain(int argc, wchar_t **argv) {
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather
     // than accepting a click that does nothing.
-    bool toolbar_visible = config.floating_toolbar_enabled;
     const auto shell = shell_executable(executable_directory(),
                                         configured_shell_command());
     toolbar.set_settings_action([&] {
@@ -222,7 +222,10 @@ int wmain(int argc, wchar_t **argv) {
       const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
       if (shell && request) (void)launch_shell_surface(*shell, *request);
     });
-    toolbar.set_hide_action([&] { toolbar.hide(); });
+    toolbar.set_hide_action([&] {
+      toolbar_visible = false;
+      toolbar.hide();
+    });
     TrayMenuCapabilities menu_capabilities;
     menu_capabilities.emoji_panel = shell.has_value();
     menu_capabilities.handwriting_panel = shell.has_value();
