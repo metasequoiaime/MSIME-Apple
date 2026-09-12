@@ -160,7 +160,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
     private void openSettings() throws Exception {
         if (settingsActivity == null) {
             Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.client.preview.MainActivity")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             settingsActivity = startActivitySync(intent);
         } else {
             shell("am start -W -n app.msime.client.preview/.MainActivity");

@@ -68,6 +68,7 @@ if [[ "$settings" == true ]]; then
   done
 fi
 if [[ "$statistics" == true ]]; then
+  "$adb" -s "$serial" shell am force-stop app.msime.client.preview
   result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.TypingStatisticsDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Typing statistics acceptance failed" >&2; exit 1; }
