@@ -2664,12 +2664,18 @@ mod tests {
     #[test]
     fn shuangpin_preedit_mode_is_applied_after_composition() {
         let dir = tempfile::tempdir().unwrap();
-        let raw = Preferences { scheme: InputScheme::Shuangpin, ..Preferences::default() };
+        let raw = Preferences {
+            scheme: InputScheme::Shuangpin,
+            ..Preferences::default()
+        };
         let handle = test_host_preferences(dir.path(), raw.clone());
         read(msime_client_focus(handle, true));
         read(msime_client_character(handle, b'h', false));
         let before = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
-        let expanded = Preferences { shuangpin_preedit_uses_raw: false, ..raw.clone() };
+        let expanded = Preferences {
+            shuangpin_preedit_uses_raw: false,
+            ..raw.clone()
+        };
         let queued = update(handle, 1, &expanded);
         assert_eq!(queued["value"]["deferred"], true);
         assert_eq!(queued["value"]["view"], before);

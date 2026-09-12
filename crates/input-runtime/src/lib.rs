@@ -82,7 +82,9 @@ pub enum RuntimeError {
 
 pub trait InputEngine {
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
-        Err(RuntimeError::Engine("Engine cache reset is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Engine cache reset is unsupported".into(),
+        ))
     }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
