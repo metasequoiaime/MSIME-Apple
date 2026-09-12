@@ -14,7 +14,7 @@ await build({
     outDir: resolve(process.argv[2]),
     emptyOutDir: false,
     lib: {
-      entry: Object.fromEntries(["skin-palette", "skin-toolbar-css", "toolbar-images"].map(name =>
+      entry: Object.fromEntries(["skin-palette", "skin-toolbar-css", "toolbar-images", "toolbar-fonts"].map(name =>
         [name, fileURLToPath(new URL("../packages/ui/src/" + name + ".ts", import.meta.url))])),
       formats: ["es"],
     },

@@ -15,6 +15,7 @@ const client: SettingsClient = {
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
   readSkinToolbarCss: id => invoke("read_skin_toolbar_stylesheet", { id }),
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
+  readSkinFont: (id, relative) => invoke("read_skin_font", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
   load: () => {
     if (!isTauri()) return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));

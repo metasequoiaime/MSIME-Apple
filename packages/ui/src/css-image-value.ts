@@ -12,7 +12,7 @@ const urlPattern = new RegExp(
 
 // CSS Syntax 3: preprocess newlines, then consume escaped code points.
 // Decode before the package path allowlist; escapes never bypass containment.
-function decodeCssUrl(raw: string, quoted: boolean): string | null {
+export function decodeCssUrl(raw: string, quoted: boolean): string | null {
   raw = raw.replace(/\r\n?|\f/g, "\n");
   let result = "";
   for (let index = 0; index < raw.length; index++) {
