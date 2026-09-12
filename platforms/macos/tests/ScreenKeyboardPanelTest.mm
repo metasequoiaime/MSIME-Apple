@@ -2,6 +2,26 @@
 #import <Carbon/Carbon.h>
 #include <cassert>
 #include <vector>
+#include <cmath>
+
+static void AssertPixel(NSView *view, unsigned rgb) {
+    NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:std::ceil(view.bounds.size.width) pixelsHigh:std::ceil(view.bounds.size.height) bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+    bitmap = [bitmap bitmapImageRepByRetaggingWithColorSpace:NSColorSpace.sRGBColorSpace];
+    assert(bitmap != nil);
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+    [view drawRect:view.bounds];
+    [NSGraphicsContext restoreGraphicsState];
+    const NSInteger x = 8 * bitmap.pixelsWide / view.bounds.size.width;
+    const NSInteger y = 8 * bitmap.pixelsHigh / view.bounds.size.height;
+    NSUInteger channels[4] = {};
+    [bitmap getPixel:channels atX:x y:y];
+    // Read the explicitly sRGB bytes; colorAtX: returns a calibrated NSColor and reinterprets them.
+    assert(channels[3] == 255);
+    assert(std::abs((int)channels[0] - (int)((rgb >> 16) & 255)) <= 1);
+    assert(std::abs((int)channels[1] - (int)((rgb >> 8) & 255)) <= 1);
+    assert(std::abs((int)channels[2] - (int)(rgb & 255)) <= 1);
+}
 
 static NSButton *Key(NSPanel *panel, NSUInteger index) {
     NSString *identifier = [NSString stringWithFormat:@"MSIMEScreenKeyboardKey%lu", (unsigned long)index];
@@ -25,6 +45,16 @@ int main() {
             ++sends; lastCode = code; lastFlags = flags; return accepted;
         }];
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        [panel applyThemePreferences:@{}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light", @"screen_keyboard_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"screen_keyboard_theme": @"light", @"toolbar_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"system", @"screen_keyboard_theme": @"follow"}];
+        assert(panel.appearance == nil && !panel.visible);
         assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0);
         const std::vector<unsigned short> codes = {
             50,18,19,20,21,23,22,26,28,25,29,27,24,51,
@@ -34,6 +64,26 @@ int main() {
             59,55,58,49,58,55,117,59
         };
         assert(codes.size() == 61);
+        assert(Key(panel, 29).font.pointSize == 15 && Key(panel, 56).font.pointSize == 12);
+        for (NSNumber *dark in @[@NO, @YES]) {
+            panel.appearance = [NSAppearance appearanceNamed:dark.boolValue ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+            NSButton *button = Key(panel, 41);
+            AssertPixel(panel.contentView, dark.boolValue ? 0x17181D : 0xECEEF2);
+            AssertPixel(button, dark.boolValue ? 0x2B2D34 : 0xFFFFFF);
+            NSEvent *entered = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:1 trackingNumber:0 userData:nullptr];
+            [button mouseEntered:entered];
+            AssertPixel(button, dark.boolValue ? 0x41434D : 0xE1E4EA);
+            Press(panel, 41);
+            AssertPixel(button, dark.boolValue ? 0x535866 : 0xD7D0E0);
+            assert([Key(panel, 56).title isEqualToString:@"Space"]);
+            [button highlight:YES];
+            AssertPixel(button, dark.boolValue ? 0x666A77 : 0xC7C9D0);
+            [button highlight:NO];
+            Press(panel, 41);
+            NSEvent *exited = [NSEvent enterExitEventWithType:NSEventTypeMouseExited location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:2 trackingNumber:0 userData:nullptr];
+            [button mouseExited:exited];
+            AssertPixel(button, dark.boolValue ? 0x2B2D34 : 0xFFFFFF);
+        }
         for (NSUInteger i = 0; i < codes.size(); ++i) {
             NSButton *button = Key(panel, i);
             assert(button && button.accessibilityLabel.length > 0);
@@ -51,6 +101,7 @@ int main() {
         assert(lastCode == kVK_ANSI_Q && lastFlags == NSEventModifierFlagShift);
         assert(Key(panel, 41).state == NSControlStateValueOff && Key(panel, 52).state == NSControlStateValueOff);
         Press(panel, 28); // Caps remains sticky across letters, not punctuation.
+        assert([Key(panel, 29).title isEqualToString:@"a"]); // Matches upstream key face, not posting case.
         Press(panel, 29);
         assert(lastCode == kVK_ANSI_A && lastFlags == NSEventModifierFlagShift); // A has valid keycode zero.
         Press(panel, 39);

@@ -1163,6 +1163,13 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
+#[derive(serde::Serialize, Clone)]
+struct VoiceRecognitionUpdate {
+    text: String,
+    #[serde(rename = "final")]
+    final_result: bool,
+}
+
 fn voice_provider_options(document: &Value) -> Value {
     let Some(voice) = document
         .get("preferences")
@@ -1182,6 +1189,7 @@ fn voice_provider_options(document: &Value) -> Value {
         "doubao_enable_itn",
         "doubao_enable_punc",
         "doubao_enable_ddc",
+        "stream_inline_preedit",
     ] {
         if let Some(value) = voice.get(key).filter(|value| value.is_boolean()) {
             options.insert(key.to_owned(), value.clone());
@@ -1191,10 +1199,15 @@ fn voice_provider_options(document: &Value) -> Value {
         "commit_mode",
         "asr_provider",
         "asr_model",
+        "asr_resource_id",
         "polish_provider",
         "polish_model",
         "polish_prompt_id",
         "polish_prompt",
+        "polish_prompt_custom_1",
+        "polish_prompt_custom_2",
+        "polish_prompt_custom_3",
+        "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
             let bounded = value.chars().take(512).collect::<String>();
@@ -1206,6 +1219,7 @@ fn voice_provider_options(document: &Value) -> Value {
 
 #[tauri::command]
 async fn recognize_voice(
+    app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
     options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
@@ -1240,8 +1254,24 @@ async fn recognize_voice(
                 code: "unavailable",
             })?;
         let language = request.language;
+        let app = app.clone();
         let text = tauri::async_runtime::spawn_blocking(move || {
-            UnixSocketProvider::new(path).voice_with_options(&language, 1, &provider_options)
+            let mut update = |text: &str, final_result: bool| {
+                let _ = app.emit(
+                    "voice-update",
+                    VoiceRecognitionUpdate {
+                        text: text.to_owned(),
+                        final_result,
+                    },
+                );
+            };
+            UnixSocketProvider::new(path).voice_stream_with_options_cancelled(
+                &language,
+                1,
+                &provider_options,
+                None,
+                &mut update,
+            )
         })
         .await
         .map_err(|_| HostActionError {
@@ -1255,10 +1285,49 @@ async fn recognize_voice(
     #[cfg(not(unix))]
     {
         let _ = (request, options);
+    Err(HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[tauri::command]
+fn cancel_voice(
+    options: tauri::State<'_, DictionaryHostOptions>,
+) -> Result<(), HostActionError> {
+    #[cfg(unix)]
+    {
+        let path = serde_json::from_str::<Value>(&options.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("voice_provider_socket")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                    .and_then(|value| value.into_string().ok())
+            })
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        if UnixSocketProvider::new(path).voice_cancel(1) {
+            return Ok(());
+        }
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = options;
         Err(HostActionError {
             code: "unavailable",
         })
     }
+}
 }
 
 #[tauri::command]
@@ -1334,6 +1403,11 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn panel_accepts_focus(label: &str) -> bool {
+    label != "keyboard-panel"
+}
+
+#[cfg(not(target_os = "windows"))]
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -1352,6 +1426,7 @@ fn open_panel_window(
     }
     #[cfg(not(mobile))]
     {
+        let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
             #[cfg(target_os = "linux")]
             if let Some((x, y)) = position {
@@ -1361,7 +1436,13 @@ fn open_panel_window(
             }
             window
                 .show()
-                .and_then(|_| window.set_focus())
+                .and_then(|_| {
+                    if accepts_focus {
+                        window.set_focus()
+                    } else {
+                        Ok(())
+                    }
+                })
                 .map_err(|_| HostActionError {
                     code: "unavailable",
                 })?;
@@ -1378,6 +1459,8 @@ fn open_panel_window(
         }
         builder
             .inner_size(width, height)
+            .focused(accepts_focus)
+            .focusable(accepts_focus)
             .min_inner_size(width, height)
             .resizable(false)
             .decorations(false)
@@ -1663,6 +1746,7 @@ fn close_panel(
     app: tauri::AppHandle,
     label: String,
     state: tauri::State<'_, PanelInputState>,
+    options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
@@ -1676,6 +1760,9 @@ fn close_panel(
         return Err(HostActionError {
             code: "invalid_panel",
         });
+    }
+    if label == "voice-panel" {
+        let _ = cancel_voice(options);
     }
     let result = app
         .get_webview_window(&label)
@@ -2108,6 +2195,7 @@ pub fn run() {
             send_text,
             recognize_handwriting,
             recognize_voice,
+            cancel_voice,
             submit_handwriting_candidate,
             open_external_url,
             open_keyboard_panel,
@@ -2128,6 +2216,20 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn keyboard_does_not_accept_focus_but_editable_panels_do() {
+        assert!(!super::panel_accepts_focus("keyboard-panel"));
+        for label in [
+            "handwriting-panel",
+            "voice-panel",
+            "emoji-panel",
+            "cloud-clipboard-panel",
+            "cloud-dictionary-panel",
+        ] {
+            assert!(super::panel_accepts_focus(label));
+        }
+    }
     #[test]
     fn toolbar_stylesheet_command_errors_do_not_expose_paths() {
         let state = tempfile::tempdir().unwrap();

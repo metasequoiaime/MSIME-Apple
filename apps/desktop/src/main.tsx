@@ -7,6 +7,7 @@ import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
+import { DesktopKeyboard } from "./desktop-keyboard";
 
 const dictionary: DictionaryClient = {
   list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
@@ -54,6 +55,7 @@ const client: SettingsClient = {
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
+    beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "keyboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     sendKey: request => invoke("send_key", { request }),
@@ -68,6 +70,8 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
+    onVoiceUpdate: listener => listen<{ text: string; final: boolean }>("voice-update", event => listener(event.payload)),
+    cancelVoice: () => invoke("cancel_voice"),
     sendText: text => invoke("send_text", { text }),
   },
   cloudClipboard: {
@@ -99,7 +103,7 @@ function DesktopSettings() {
   // Mount once after discovery: replacing the client later would reload draft preferences.
   return settingsClient ? <SettingsPage client={settingsClient} /> : <p role="status">正在连接设置…</p>;
 }
-const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
+const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
   : panel === "voice" ? <VoicePanel client={panelClients.voice} />
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />

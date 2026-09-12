@@ -11,6 +11,7 @@
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
+#import "BackendSelectionObservation.h"
 #include "PreferenceSaveState.h"
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
@@ -220,7 +221,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     (void)sender;
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
-    if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
+    id resources = [self runtimeOptions][@"resources"];
+    if ([shared respondsToSelector:@selector(showEmojiWithResources:)])
+        [shared performSelector:@selector(showEmojiWithResources:) withObject:[resources isKindOfClass:NSString.class] ? resources : @""];
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
@@ -325,7 +328,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _preferenceLoadState.reset();
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handwritingCandidateSelected:) name:@"MSIMEHandwritingCandidateSelected" object:nil];
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), YES);
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
@@ -423,6 +426,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
+        [shared performSelector:@selector(applyEmojiPreferences:) withObject:preferences];
+    [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
     [_toolbar applyThemePreferences:preferences];
     [_toolbar applySizingPreferences:preferences];
     NSDictionary *toolbar = preferences[@"floating_toolbar"];
@@ -434,6 +442,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)deactivateServer:(id)sender {
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
     [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];

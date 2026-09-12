@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
 
 export interface KeyboardInputRequest {
@@ -15,6 +15,7 @@ export interface HandwritingRecognitionResult { candidates: string[]; }
 
 export interface PanelClient {
   close(): Promise<void>;
+  beginWindowDrag?(): Promise<void>;
   rememberInputTarget?(): Promise<void>;
   sendKey?(request: KeyboardInputRequest): Promise<void>;
   sendText?(text: string): Promise<void>;
@@ -24,6 +25,8 @@ export interface PanelClient {
 
 export interface VoicePanelClient extends PanelClient {
   recognizeVoice?(language: string): Promise<{ text: string }>;
+  onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
+  cancelVoice?(): Promise<void>;
 }
 
 export type CloudClipboardAction =
@@ -70,7 +73,7 @@ type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifi
 const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({ label, virtualKey, shifted });
 const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({ label, virtualKey, modifier: label });
 const keyboardRows: KeyboardKey[][] = [
-  [key("`", 0xc0, "~"), ...[..."1234567890"].map((label, index) => key(label, 0x31 + index, ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index])), key("-", 0xbd, "_"), key("=", 0xbb, "+"), key("Backspace", 0x08)],
+  [key("`", 0xc0, "~"), ...[..."1234567890"].map((label, index) => key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index])), key("-", 0xbd, "_"), key("=", 0xbb, "+"), key("Backspace", 0x08)],
   [key("Tab", 0x09), ...[..."QWERTYUIOP"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key("[", 0xdb, "{"), key("]", 0xdd, "}"), key("\\", 0xdc, "|")],
   [modifier("Caps Lock", 0x14), ...[..."ASDFGHJKL"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(";", 0xba, ":"), key("'", 0xde, '"'), key("Enter", 0x0d)],
   [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
@@ -80,13 +83,30 @@ const keyboardRows: KeyboardKey[][] = [
 function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"].filter(value => modifiers.has(value as Modifier)).join("+");
 }
+// Width ratios from Windows KeyboardPanel.cpp at 04a8df56f86312474a069f4335a1b58da7afaa9e.
+function keyboardKeyWeight(label: string, row: number, index: number) {
+  if (row === 4) return label === "Space" ? 6.7 : 1.25;
+  if (label === "Backspace") return 1.9;
+  if (label === "Tab") return 1.5;
+  if (label === "\\") return 1.4;
+  if (label === "Caps Lock") return 1.85;
+  if (label === "Enter") return 2;
+  if (label === "Shift") return index === 0 ? 2.35 : 2.15;
+  return 1;
+}
 function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39);
 }
 
-export function KeyboardPanel({ client }: { client: PanelClient }) {
+export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
+  const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    const reset = () => { pendingDrag.current = null; };
+    window.addEventListener("blur", reset);
+    return () => { reset(); window.removeEventListener("blur", reset); };
+  }, [client]);
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
-  const [notice, setNotice] = useState("使用鼠标或触控方式输入文字与快捷按键");
+  const [notice, setNotice] = useState("Touch keyboard");
   useEffect(() => {
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
@@ -102,7 +122,8 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
     const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
-    const withShift = letter ? caps !== shift : shift;
+    // Upstream shifted key faces take precedence over Caps/Shift inversion.
+    const withShift = shift || (letter && caps);
     const modifiers = { ctrl: activeModifiers.has("Ctrl"), alt: activeModifiers.has("Alt"), win: activeModifiers.has("Win") };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
     const prefix = modifierPrefix(activeModifiers);
@@ -113,16 +134,35 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
     if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
-  return <main className="native-panel keyboard-panel" aria-label="屏幕键盘">
-    <header className="native-panel-header"><span>水杉屏幕键盘</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} aria-label="屏幕键盘">
+    <header className="native-panel-header"
+      onPointerDown={event => {
+        pendingDrag.current = null;
+        if (!client.beginWindowDrag || event.button !== 0 || (event.target as Element).closest("button")) return;
+        pendingDrag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      }}
+      onPointerMove={event => {
+        const pending = pendingDrag.current;
+        if (!pending || pending.id !== event.pointerId) return;
+        if (event.buttons !== 1) { pendingDrag.current = null; return; }
+        if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2) return;
+        pendingDrag.current = null;
+        void (async () => {
+          try { await client.beginWindowDrag?.(); }
+          catch { setNotice("无法移动窗口，请重试。"); }
+        })();
+      }}
+      onPointerUp={() => { pendingDrag.current = null; }}
+      onPointerCancel={() => { pendingDrag.current = null; }}
+      onPointerLeave={() => { pendingDrag.current = null; }}>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
-      <div className="keyboard-panel-notice" role="status">{notice}</div>
       <div className="keyboard-layout">
         {keyboardRows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
-          const uppercase = letter && activeModifiers.has("Caps Lock") !== activeModifiers.has("Shift");
-          const label = keyToRender.label === "Space" ? "" : uppercase ? keyToRender.label.toUpperCase() : keyToRender.label;
-          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
+          const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
+          const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
+          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: keyboardKeyWeight(keyToRender.label, rowIndex, keyIndex) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
         })}</div>)}
       </div>
     </div>
@@ -185,6 +225,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
 
   useEffect(() => {
@@ -192,11 +233,34 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
 
+  useEffect(() => () => {
+    if (busyRef.current && client.cancelVoice) void client.cancelVoice().catch(() => undefined);
+  }, [client]);
+
+  useEffect(() => {
+    if (!client.onVoiceUpdate) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void client.onVoiceUpdate(update => {
+      if (!active) return;
+      setText(update.text);
+      setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : "正在录音并识别…");
+    }).then(stop => {
+      if (active) unlisten = stop;
+      else stop();
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [client]);
+
   async function recognize() {
     if (!client.recognizeVoice) {
       setNotice("当前宿主未提供语音识别能力");
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setText("");
     setNotice("正在录音并识别…");
@@ -207,6 +271,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     } catch {
       setNotice("语音识别失败，请确认录音服务已启动");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -222,8 +287,15 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     }
   }
 
+  async function close() {
+    if (busy && client.cancelVoice) {
+      try { await client.cancelVoice(); } catch { /* close even if provider is gone */ }
+    }
+    await client.close();
+  }
+
   return <main className="native-panel voice-panel" aria-label="语音输入">
-    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>

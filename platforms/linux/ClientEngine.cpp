@@ -116,6 +116,7 @@ struct State {
   bool voice_space_consumed = false;
   bool voice_active = false;
   uint64_t voice_generation = 0;
+  std::string voice_preedit;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -137,10 +138,15 @@ struct State {
     close();
   }
   void close() {
+    if (voice_active && !voice_provider_socket.empty())
+      msime_client_string_free(msime_client_voice_provider_cancel(
+          reinterpret_cast<const uint8_t *>(voice_provider_socket.data()),
+          voice_provider_socket.size(), voice_generation));
     if (voice_active && session)
       msime_client_string_free(msime_client_voice_cancel(session));
     voice_active = false;
     voice_generation = 0;
+    voice_preedit.clear();
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
     pure_shift_candidate = false;
@@ -796,7 +802,9 @@ bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.translation_provider_socket.empty() || s.translation_loading || !s.session ||
-      !s.focused || s.blocked || !s.input_enabled || !s.view.value("candidates", Json::array()).size())
+      !s.focused || s.blocked || !s.input_enabled ||
+      s.candidate_orientation != IBUS_ORIENTATION_VERTICAL ||
+      !s.view.value("candidates", Json::array()).size())
     return;
   try {
     auto query = response(msime_client_translation_query(s.session));
@@ -1632,6 +1640,16 @@ void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
+  if (!state(engine).voice_preedit.empty()) {
+    ibus_engine_update_preedit_text_with_mode(
+        engine,
+        ibus_text_new_from_string(state(engine).voice_preedit.c_str()),
+        static_cast<guint>(state(engine).voice_preedit.size()), TRUE,
+        IBUS_ENGINE_PREEDIT_CLEAR);
+    ibus_engine_hide_lookup_table(engine);
+    ibus_engine_hide_auxiliary_text(engine);
+    return;
+  }
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
                                  : view.at("editing_text").get<std::string>();
   const auto caret = view.at("caret_position").get<size_t>();
@@ -1679,7 +1697,8 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
-    if (candidate.contains("translation") && !candidate.at("translation").is_null()) {
+    if (state(engine).candidate_orientation == IBUS_ORIENTATION_VERTICAL &&
+        candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose
       // the optional gloss without allowing an oversized provider result to
@@ -1693,6 +1712,9 @@ void render(IBusEngine *engine, const Json &view) {
     case 3: value += "  AI"; break;
     default: break;
     }
+    const auto fixed_position = candidate.value("fixed_position", 0);
+    if (fixed_position >= 1 && fixed_position <= 5)
+      value += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
     if (!annotation.empty() && state(engine).show_helpcode_in_candidate_window) {
       value += "  ";
@@ -1761,7 +1783,21 @@ struct VoiceResult {
   std::shared_ptr<std::atomic_bool> alive;
   uint64_t generation;
   std::string text;
+  bool final = true;
 };
+struct VoiceStreamContext {
+  MsimeVoiceWorker::Progress progress;
+};
+extern "C" void voice_provider_stream_update(const uint8_t *text,
+                                               size_t length, bool final,
+                                               void *context) {
+  auto *stream = static_cast<VoiceStreamContext *>(context);
+  if (!stream || !stream->progress || !text || length == 0 || length > 4096)
+    return;
+  stream->progress(msime_voice_bound_result(
+                       std::string(reinterpret_cast<const char *>(text), length)),
+                   final);
+}
 Json voice_provider_options(const Json &preferences) {
   const auto voice = preferences.value("voice_input", Json::object());
   Json options = Json::object();
@@ -1790,11 +1826,18 @@ Json voice_provider_options(const Json &preferences) {
 }
 void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
+  if (s.voice_active && !s.voice_provider_socket.empty())
+    msime_client_string_free(msime_client_voice_provider_cancel(
+        reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
+        s.voice_provider_socket.size(), s.voice_generation));
   if (s.voice_active && s.session)
     msime_client_string_free(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_generation = 0;
+  s.voice_preedit.clear();
   s.voice_worker.cancel_async();
+  if (s.session)
+    render(engine, s.view);
   publish_mode(engine);
 }
 void voice_start(IBusEngine *engine) {
@@ -1810,19 +1853,24 @@ void voice_start(IBusEngine *engine) {
   const auto language = s.voice_language;
   const auto provider_options = voice_provider_options(
       configured.value("preferences", Json::object()));
+  const bool stream_inline_preedit =
+      provider_options.value("stream_inline_preedit", false);
   const auto alive = s.alive;
-  s.voice_worker.run(
+  s.voice_worker.run_stream(
       [socket, language, generation,
-       provider_options](const std::atomic_bool &cancelled) {
+       provider_options](const std::atomic_bool &cancelled,
+                         const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
           return std::string{};
         const auto query = Json{{"language", language},
                                 {"generation", generation},
                                 {"options", provider_options}}
                                .dump();
-        auto *raw = msime_client_voice_provider_request(
+        VoiceStreamContext stream{progress};
+        auto *raw = msime_client_voice_provider_stream(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
-            reinterpret_cast<const uint8_t *>(socket.data()), socket.size());
+            reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
+            voice_provider_stream_update, &stream);
         std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
             raw, msime_client_string_free);
         if (cancelled.load() || !raw)
@@ -1838,6 +1886,32 @@ void voice_start(IBusEngine *engine) {
         } catch (...) {
           return std::string{};
         }
+      },
+      [engine, alive, generation,
+       stream_inline_preedit](std::string text, bool final) {
+        if (!stream_inline_preedit || final || text.empty())
+          return;
+        auto *result = new VoiceResult{engine, alive, generation,
+                                       std::move(text), false};
+        g_main_context_invoke(
+            nullptr,
+            +[](gpointer data) -> gboolean {
+              std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
+              if (!result->alive->load())
+                return G_SOURCE_REMOVE;
+              auto &s = state(result->engine);
+              if (!s.voice_active || s.voice_generation != result->generation ||
+                  !s.session || !s.focused || s.blocked || !s.input_enabled)
+                return G_SOURCE_REMOVE;
+              s.voice_preedit = msime_voice_bound_result(std::move(result->text));
+              ibus_engine_update_preedit_text_with_mode(
+                  result->engine,
+                  ibus_text_new_from_string(s.voice_preedit.c_str()),
+                  static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
+                  TRUE, IBUS_ENGINE_PREEDIT_CLEAR);
+              return G_SOURCE_REMOVE;
+            },
+            result);
       },
       [engine, alive, generation](std::string text) {
         auto *result = new VoiceResult{engine, alive, generation, std::move(text)};
@@ -1857,6 +1931,8 @@ void voice_start(IBusEngine *engine) {
                   msime_client_string_free(msime_client_voice_cancel(s.session));
                   s.voice_active = false;
                   s.voice_generation = 0;
+                  s.voice_preedit.clear();
+                  render(result->engine, s.view);
                   publish_mode(result->engine);
                   return G_SOURCE_REMOVE;
                 }
@@ -1866,6 +1942,7 @@ void voice_start(IBusEngine *engine) {
                     result->text.size()));
                 s.voice_active = false;
                 s.voice_generation = 0;
+                s.voice_preedit.clear();
                 if (applied.is_string()) {
                   auto text = traditional_display(
                       s, Json{{"scheme", s.view.value("scheme", 0)},
@@ -1875,10 +1952,12 @@ void voice_start(IBusEngine *engine) {
                       result->engine,
                       ibus_text_new_from_string(text.c_str()));
                 }
+                render(result->engine, s.view);
                 publish_mode(result->engine);
               } catch (...) {
                 s.voice_active = false;
                 s.voice_generation = 0;
+                s.voice_preedit.clear();
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 publish_mode(result->engine);
               }
@@ -2652,6 +2731,8 @@ std::optional<char> keypad_punctuation(guint key) {
   switch (key) {
   case IBUS_KP_Decimal:
     return '.';
+  case IBUS_KP_Separator:
+    return ',';
   case IBUS_KP_Subtract:
     return '-';
   case IBUS_KP_Add:
@@ -2660,6 +2741,10 @@ std::optional<char> keypad_punctuation(guint key) {
     return '/';
   case IBUS_KP_Multiply:
     return '*';
+#ifdef IBUS_KP_Equal
+  case IBUS_KP_Equal:
+    return '=';
+#endif
   default:
     return std::nullopt;
   }

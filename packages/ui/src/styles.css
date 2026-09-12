@@ -182,11 +182,13 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .panel-open-button { flex: 0 0 auto; min-width: 72px; margin-top: 0; }
 .panel-preview { min-height: 330px; padding: 20px 24px 30px; border-top: 1px solid var(--border-color); background: var(--surface-subtle); }
 .panel-preview-label { margin-bottom: 18px; color: var(--text-muted); font-size: 12px; }
-.keyboard-mock { width: min(560px, 100%); margin: 0 auto; padding: 18px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--card-bg); box-shadow: var(--card-shadow); }
-.keyboard-mock-title { margin-bottom: 14px; color: var(--text-secondary); font-size: 12px; }
-.keyboard-mock-keys { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
-.keyboard-mock-keys span, .keyboard-mock-space { display: flex; align-items: center; justify-content: center; min-height: 30px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-secondary-bg); color: var(--text-color); font-size: 11px; }
-.keyboard-mock-space { margin-top: 8px; }
+.screen-keyboard-artwork { display: block; width: min(100%, 760px); height: auto; margin: 0 auto; font-family: "Segoe UI", system-ui, sans-serif; --keyboard-background: #17181d; --keyboard-key: #2b2d34; --keyboard-text: #f1f1f3; --keyboard-heading: #d7d8dd; }
+.screen-keyboard-artwork[data-preview-theme="light"] { --keyboard-background: #eceef2; --keyboard-key: #fff; --keyboard-text: #202124; --keyboard-heading: #555861; }
+.keyboard-preview-background { fill: var(--keyboard-background); }
+.keyboard-preview-key { fill: var(--keyboard-key); }
+.keyboard-preview-label { fill: var(--keyboard-text); }
+.keyboard-preview-heading { fill: var(--keyboard-heading); }
+.keyboard-preview-close { stroke: var(--keyboard-text); }
 .handwriting-mock { width: min(560px, 100%); margin: 0 auto; }
 .handwriting-canvas { display: flex; align-items: center; justify-content: center; min-height: 230px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--card-bg); color: var(--text-muted); }
 .handwriting-stroke { color: var(--text-secondary); font-family: "KaiTi", "STKaiti", serif; font-size: 110px; line-height: 1; transform: rotate(-7deg); }
@@ -196,17 +198,21 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .native-panel-header { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-color); background: var(--surface-raised); color: var(--text-color); font-size: 13px; user-select: none; }
 .native-panel-header button { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 21px; line-height: 1; }
 .native-panel-header button:hover { background: var(--button-secondary-hover); color: var(--text-color); }
-.keyboard-panel { background: #17181d; color: #f1f1f3; }
-.keyboard-panel .native-panel-header { border-bottom-color: rgba(255, 255, 255, .09); background: #17181d; color: #f1f1f3; }
-.keyboard-panel .native-panel-header button { color: #aeb0b7; }
-.keyboard-panel-body { padding: 12px; }
-.keyboard-panel-notice { min-height: 20px; margin-bottom: 9px; color: #aeb0b7; font-size: 12px; text-align: center; }
-.keyboard-layout { display: flex; flex-direction: column; gap: 5px; }
-.keyboard-row { display: flex; gap: 5px; }
-.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0 8px; border: 1px solid #3b3d45; border-radius: 6px; background: #24262c; color: #f1f1f3; font-size: 15px; transition: background 100ms ease, border-color 100ms ease; }
-.keyboard-key:hover, .keyboard-key.active { border-color: #8e8cd8; background: #3b3240; }
-.keyboard-key-special { flex: 1.45 1 0; color: #c6c7cf; font-size: 12px; }
-.keyboard-key-space { flex: 5 1 0; }
+.keyboard-panel { --kb-background: #17181d; --kb-text: #f1f1f3; --kb-heading: #d7d8dd; --kb-key: #2b2d34; --kb-hover: #41434d; --kb-active: #535866; --kb-pressed: #666a77; background: var(--kb-background); color: var(--kb-text); }
+.keyboard-panel[data-keyboard-theme="light"] { --kb-background: #eceef2; --kb-text: #202124; --kb-heading: #555861; --kb-key: #fff; --kb-hover: #e1e4ea; --kb-active: #d7d0e0; --kb-pressed: #c7c9d0; }
+.keyboard-panel { display: flex; flex-direction: column; height: 100vh; min-height: 0; border-radius: 8px; }
+.keyboard-panel .native-panel-header { flex: 0 0 28px; height: 28px; padding: 0 6px 0 10px; border-bottom: 0; background: var(--kb-background); color: var(--kb-heading); font-size: 12px; }
+.keyboard-panel .native-panel-header button { flex: 0 0 28px; height: 24px; border-radius: 4px; color: var(--kb-text); }
+.keyboard-panel .native-panel-header button:hover { background: var(--kb-hover); color: var(--kb-text); }
+.keyboard-panel-body { flex: 1; min-height: 0; padding: 0 7px 7px; }
+.keyboard-panel-notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kb-heading); font-size: 12px; }
+.keyboard-layout { display: flex; flex-direction: column; height: 100%; gap: 4px; }
+.keyboard-row { display: flex; flex: 1; min-height: 0; gap: 4px; }
+.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 5px; background: var(--kb-key); color: var(--kb-text); font-size: 15px; }
+.keyboard-key:hover { background: var(--kb-hover); }
+.keyboard-key.active { background: var(--kb-active); }
+.keyboard-key:active { background: var(--kb-pressed); }
+.keyboard-key.wide { font-size: 12px; }
 .handwriting-panel { background: #202027; color: #f5f5f7; }
 .handwriting-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
 .handwriting-panel-body { display: grid; grid-template-columns: minmax(300px, .43fr) minmax(360px, .57fr); gap: 28px; padding: 24px; }
@@ -326,8 +332,6 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .feedback-card { grid-template-columns: 36px minmax(0, 1fr); }
   .feedback-card .secondary { grid-column: 2; justify-self: start; }
   .panel-preview { padding-left: 16px; padding-right: 16px; }
-  .keyboard-mock { padding: 10px; }
-  .keyboard-mock-keys { gap: 3px; }
   .handwriting-panel-body { grid-template-columns: 1fr; padding: 14px; }
   .emoji-panel-search { margin-left: 14px; margin-right: 14px; }
   .emoji-panel-tabs { padding-left: 8px; padding-right: 8px; }

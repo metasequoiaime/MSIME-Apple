@@ -96,6 +96,8 @@ pub struct Preferences {
     pub candidate_theme: SettingsTheme,
     #[serde(default)]
     pub toolbar_theme: SettingsTheme,
+    #[serde(default)]
+    pub screen_keyboard_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -222,14 +224,15 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_id: String,
     #[serde(default)]
     pub polish_prompt: String,
+    /// Show streaming ASR updates in the host preedit while recording.
+    #[serde(default = "enabled_by_default")]
+    pub stream_inline_preedit: bool,
     #[serde(default)]
     pub polish_prompt_custom_1: String,
     #[serde(default)]
     pub polish_prompt_custom_2: String,
     #[serde(default)]
     pub polish_prompt_custom_3: String,
-    #[serde(default)]
-    pub stream_inline_preedit: bool,
     #[serde(default = "enabled_by_default")]
     pub hotkey_ralt: bool,
     #[serde(default)]
@@ -274,10 +277,10 @@ impl Default for VoiceInputPreferences {
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
+            stream_inline_preedit: true,
             polish_prompt_custom_1: String::new(),
             polish_prompt_custom_2: String::new(),
             polish_prompt_custom_3: String::new(),
-            stream_inline_preedit: false,
             hotkey_ralt: true,
             hotkey_ctrl_win: false,
             hotkey_rctrl_ralt: false,
@@ -638,6 +641,7 @@ impl Default for Preferences {
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
             toolbar_theme: SettingsTheme::default(),
+            screen_keyboard_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
@@ -1074,6 +1078,7 @@ mod tests {
             "theme",
             "settings_theme",
             "toolbar_theme",
+            "screen_keyboard_theme",
             "ui_backend",
             "candidate_follow_cursor",
         ] {
@@ -1119,6 +1124,32 @@ mod tests {
         }
         let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
         invalid["toolbar_theme"] = "system".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn screen_keyboard_theme_roundtrips_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        for (revision, screen_keyboard_theme) in [
+            SettingsTheme::Dark,
+            SettingsTheme::Light,
+            SettingsTheme::Follow,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                theme: ThemeMode::System,
+                toolbar_theme: SettingsTheme::Dark,
+                screen_keyboard_theme,
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["screen_keyboard_theme"] = "system".into();
         assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 

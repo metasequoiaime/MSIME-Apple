@@ -95,6 +95,31 @@ with sync_playwright() as playwright:
     }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     page.evaluate("async () => { const {mount} = await import('/settings.js'); window.removeFixture = mount(); }")
     preview = page.get_by_role("region", name="候选窗口预览")
+    page.get_by_role("button", name="屏幕键盘", exact=True).click()
+    keyboard = page.get_by_role("img", name="屏幕键盘完整布局预览")
+    expect(keyboard.locator("[data-keyboard-key]")).to_have_count(61)
+    for theme, background, fill, text in [
+        ("light", "rgb(236, 238, 242)", "rgb(255, 255, 255)", "rgb(32, 33, 36)"),
+        ("dark", "rgb(23, 24, 29)", "rgb(43, 45, 52)", "rgb(241, 241, 243)"),
+    ]:
+        page.get_by_label("屏幕键盘主题", exact=True).select_option(theme)
+        expect(keyboard.locator(".keyboard-preview-background")).to_have_css("fill", background)
+        expect(keyboard.locator(".keyboard-preview-key").first).to_have_css("fill", fill)
+        expect(keyboard.locator(".keyboard-preview-label").first).to_have_css("fill", text)
+        for width in [800, 1000]:
+            page.set_viewport_size({"width": width, "height": 850})
+            assert keyboard.evaluate("""svg => {
+              const bounds = svg.getBoundingClientRect();
+              return [...svg.querySelectorAll('[data-keyboard-row]')].every(row => {
+                let right = bounds.left;
+                return [...row.querySelectorAll('rect')].every(key => {
+                  const rect = key.getBoundingClientRect();
+                  const valid = rect.left >= right - .1 && rect.right <= bounds.right + .1 && rect.bottom <= bounds.bottom + .1;
+                  right = rect.right; return valid;
+                });
+              });
+            }""")
+    page.get_by_role("button", name="外观", exact=True).click()
     page.get_by_label("工具栏主题", exact=True).select_option("light")
     page.get_by_role("button", name="悬浮工具栏", exact=True).click()
     toolbar = page.get_by_label("悬浮工具栏预览", exact=True)
@@ -240,5 +265,69 @@ with sync_playwright() as playwright:
     page.evaluate("() => {for (const face of window.fixtureFonts) document.fonts.delete(face); delete window.fixtureFonts;}")
     expect(page.locator("#root")).to_be_empty()
     assert page.evaluate("document.adoptedStyleSheets.length") == 0
+    page.evaluate("async () => { const {mountKeyboard} = await import('/settings.js'); window.removeKeyboard = mountKeyboard(); }")
+    expect(page.locator(".keyboard-key")).to_have_count(61)
+    for width in [800, 1100]:
+        page.set_viewport_size({"width": width, "height": 500})
+        assert page.locator(".keyboard-layout").evaluate("""layout => {
+          const weights = [
+            [...Array(13).fill(1), 1.9], [1.5, ...Array(12).fill(1), 1.4],
+            [1.85, ...Array(11).fill(1), 2], [2.35, ...Array(10).fill(1), 2.15],
+            [1.25, 1.25, 1.25, 6.7, 1.25, 1.25, 1.25, 1.25]
+          ];
+          return [...layout.children].every((row, r) => {
+            const bounds = row.getBoundingClientRect();
+            const available = bounds.width - 4 * (weights[r].length - 1);
+            const total = weights[r].reduce((a,b) => a+b, 0);
+            let right = bounds.left;
+            return [...row.children].every((key, i) => {
+              const rect = key.getBoundingClientRect();
+              const valid = Math.abs(rect.width - available * weights[r][i] / total) < .1 && rect.left >= right - .1 && rect.right <= bounds.right + .1;
+              right = rect.right; return valid;
+            });
+          });
+        }""")
+    expect(page.get_by_role("button", name="Space", exact=True)).to_have_css("font-size", "12px")
+    expect(page.get_by_role("button", name="a", exact=True)).to_have_css("font-size", "15px")
+    for height in [300, 400, 500]:
+        page.set_viewport_size({"width": 1100, "height": height})
+        expect(page.locator(".keyboard-panel .native-panel-header")).to_have_css("height", "28px")
+        assert page.locator(".keyboard-panel").evaluate("""panel => {
+          const expectedHeight = (innerHeight - 28 - 7 - 16) / 5;
+          return [...panel.querySelectorAll('.keyboard-row')].every((row, index) => {
+            const expectedY = 28 + index * (expectedHeight + 4);
+            return [...row.children].every(key => {
+              const rect = key.getBoundingClientRect();
+              return Math.abs(rect.top - expectedY) < .1 && Math.abs(rect.height - expectedHeight) < .1 && rect.bottom <= innerHeight - 7 + .1;
+            });
+          }) && document.documentElement.scrollHeight === innerHeight;
+        }""")
+    page.get_by_role("button", name="a", exact=True).click()
+    expect(page.get_by_role("status")).to_contain_text("等待宿主注入能力")
+    expect(page.locator(".keyboard-panel .native-panel-header")).to_have_css("height", "28px")
+    page.evaluate("window.removeKeyboard()")
+    for theme, background, idle, hover, active, pressed in [
+        ("dark", "rgb(23, 24, 29)", "rgb(43, 45, 52)", "rgb(65, 67, 77)", "rgb(83, 88, 102)", "rgb(102, 106, 119)"),
+        ("light", "rgb(236, 238, 242)", "rgb(255, 255, 255)", "rgb(225, 228, 234)", "rgb(215, 208, 224)", "rgb(199, 201, 208)"),
+    ]:
+        page.evaluate("async theme => { const {mountKeyboard} = await import('/settings.js'); window.removeKeyboard = mountKeyboard(theme); }", theme)
+        expect(page.locator(".keyboard-panel")).to_have_css("background-color", background)
+        shift = page.get_by_role("button", name="Shift", exact=True).first
+        page.mouse.move(0, 0)
+        expect(shift).to_have_css("background-color", idle)
+        shift.hover()
+        expect(shift).to_have_css("background-color", hover)
+        page.mouse.down()
+        expect(shift).to_have_css("background-color", pressed)
+        page.mouse.up()
+        expect(shift).to_have_css("background-color", active)
+        page.mouse.down()
+        expect(shift).to_have_css("background-color", pressed)
+        page.mouse.up()
+        expect(shift).to_have_css("background-color", hover)
+        page.mouse.move(0, 0)
+        expect(shift).to_have_css("background-color", idle)
+        page.evaluate("window.removeKeyboard()")
+    expect(page.locator("#root")).to_be_empty()
     print({"appearanceDraftPreview": True, "fontCatalogSearch": True, "fontFamilyFallbackOrder": True, "fullFontSizeRange": True, "independentPreeditFontSize": True, "textColorAndReset": True, "skinPalette": True, "reload": True, "willowHiddenPreedit": True, "externalPalette": True, "externalDecoration": True, "cleanup": True})
     browser.close()

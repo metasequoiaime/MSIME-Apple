@@ -180,6 +180,15 @@ mod ffi {
             offset: usize,
             limit: u16,
         ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_filtered_page(
+            resources: &str,
+            search: &str,
+            category: &str,
+            group: &str,
+            offset: usize,
+            limit: u16,
+        ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
         fn handwriting_recognize(
             model_path: &str,
             points: &[HandwritingPoint],
@@ -284,6 +293,24 @@ pub fn emoji_catalog_page(
     limit: u16,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog_page(resources, search, category, offset, limit)
+}
+
+pub fn emoji_catalog_filtered_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit)
+}
+
+pub fn emoji_catalog_groups(
+    resources: &str,
+    category: &str,
+) -> Result<Vec<String>, cxx::Exception> {
+    ffi::emoji_catalog_groups(resources, category)
 }
 
 /// Run the Engine's optional offline handwriting recognizer on copied strokes.

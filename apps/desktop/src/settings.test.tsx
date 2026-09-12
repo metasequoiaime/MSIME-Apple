@@ -5,6 +5,7 @@ import minimizeIcon from "../../../packages/ui/src/assets/minimize.svg";
 import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
+import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
 import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -545,6 +546,136 @@ test("automatic color swatch follows candidate theme without persisting a color 
   expect(preview.style.getPropertyValue("--cand-text")).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
+});
+
+test("screen keyboard header drag is bounded and separate from close and keys", async () => {
+  expect(keyboardCapability.windows).toEqual(["keyboard-panel"]);
+  expect(keyboardCapability.permissions).toEqual(["core:window:allow-start-dragging", "core:event:allow-listen", "core:event:allow-unlisten"]);
+  const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  const view = render(<KeyboardPanel client={{ close, beginWindowDrag, sendKey }} />);
+  const header = view.container.querySelector(".native-panel-header")!;
+  titlebarPointer(header, "pointerdown", 100, 14);
+  titlebarPointer(header, "pointermove", 101, 14);
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  titlebarPointer(header, "pointermove", 103, 14);
+  titlebarPointer(header, "pointermove", 110, 14);
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  for (const target of [screen.getByRole("button", { name: "关闭" }), screen.getByRole("button", { name: "a" })]) {
+    titlebarPointer(target, "pointerdown", 100, 14);
+    titlebarPointer(target, "pointermove", 110, 14);
+  }
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  expect(close).not.toHaveBeenCalled();
+  expect(sendKey).not.toHaveBeenCalled();
+  for (const reason of ["pointerup", "pointercancel", "pointerout", "blur"]) {
+    titlebarPointer(header, "pointerdown", 100, 14);
+    if (reason === "blur") fireEvent(window, new Event("blur"));
+    else titlebarPointer(header, reason, 100, 14);
+    titlebarPointer(header, "pointermove", 110, 14);
+    expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  }
+});
+
+test.each([false, true])("keyboard drag reports host failure (synchronous=%s)", async synchronous => {
+  const view = render(<KeyboardPanel client={{ close: async () => {}, beginWindowDrag: () => {
+    if (synchronous) throw new Error("synthetic");
+    return Promise.reject(new Error("synthetic"));
+  } }} />);
+  const header = view.container.querySelector(".native-panel-header")!;
+  titlebarPointer(header, "pointerdown", 100, 14);
+  titlebarPointer(header, "pointermove", 110, 14);
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("无法移动窗口，请重试。"));
+});
+
+test("screen keyboard matches upstream Shift and Caps posting combinations", async () => {
+  for (const caps of [false, true]) for (const shift of [false, true]) {
+    const sendKey = vi.fn().mockResolvedValue(undefined);
+    const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+    if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
+    if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    const letter = panel.container.querySelectorAll(".keyboard-row")[2].querySelectorAll("button")[1];
+    expect(letter.textContent).toBe(shift ? "A" : "a");
+    expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
+    fireEvent.click(letter);
+    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps || shift, include_sticky_modifiers: true }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+    expect(letter.textContent).toBe("a");
+    panel.unmount();
+  }
+});
+
+test("screen keyboard sends every digit as an unmodified IME selection key", async () => {
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+  for (const modifier of ["Ctrl", "Alt", "Win"]) {
+    fireEvent.click(screen.getAllByRole("button", { name: modifier })[0]);
+  }
+  for (const [index, digit] of [..."1234567890"].entries()) {
+    fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: [..."!@#$%^&*()"][index] }));
+    expect(sendKey).toHaveBeenLastCalledWith({
+      virtual_key: digit.charCodeAt(0), shift: false,
+      modifiers: { ctrl: true, alt: true, win: true }, include_sticky_modifiers: false,
+    });
+    expect(screen.getAllByRole("button", { name: "Shift" })[0].getAttribute("aria-pressed")).toBe("false");
+  }
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+});
+
+test("screen keyboard Shift key faces match punctuation and preserve virtual keys", async () => {
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+  const keys: [string, string, number][] = [["`", "~", 0xc0], ["-", "_", 0xbd], ["=", "+", 0xbb], ["[", "{", 0xdb], ["]", "}", 0xdd], ["\\", "|", 0xdc], [";", ":", 0xba], ["'", '"', 0xde], [",", "<", 0xbc], [".", ">", 0xbe], ["/", "?", 0xbf]];
+  for (const [normal, shifted, code] of keys) {
+    fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: shifted }));
+    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: code, shift: true, include_sticky_modifiers: true }));
+    expect(screen.getByRole("button", { name: normal })).toBeDefined();
+  }
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+});
+
+test("screen keyboard theme loads, saves independently and reloads", async () => {
+  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark" } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => {
+    snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
+  });
+  render(<SettingsPage client={{ load: async () => snapshot, save }} />);
+  const select = await screen.findByLabelText("屏幕键盘主题") as HTMLSelectElement;
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(select.value).toBe("light");
+  const preview = screen.getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-preview-theme")).toBe("light");
+  expect(preview.querySelectorAll("[data-keyboard-key]")).toHaveLength(61);
+  expect([...preview.querySelectorAll("[data-keyboard-row]")].map(row => row.children.length)).toEqual([14, 14, 13, 12, 8]);
+  expect(preview.querySelectorAll("button, [tabindex], a")).toHaveLength(0);
+  for (const row of preview.querySelectorAll("[data-keyboard-row]")) {
+    let right = 0;
+    for (const rect of row.querySelectorAll("rect")) {
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      const width = Number(rect.getAttribute("width"));
+      const height = Number(rect.getAttribute("height"));
+      expect(x).toBeGreaterThanOrEqual(right);
+      expect(x + width).toBeLessThanOrEqual(1100);
+      expect(y + height).toBeLessThanOrEqual(400);
+      expect(width).toBeGreaterThan(0);
+      right = x + width;
+    }
+  }
+  fireEvent.change(select, { target: { value: "dark" } });
+  expect(preview.getAttribute("data-preview-theme")).toBe("dark");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark" })));
+  fireEvent.change(select, { target: { value: "follow" } });
+  expect(preview.getAttribute("data-preview-theme")).toBe("light");
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  confirm.mockRestore();
+  await waitFor(() => expect(select.value).toBe("dark"));
+  expect(preview.getAttribute("data-preview-theme")).toBe("dark");
 });
 
 test("toolbar theme loads, previews independently, saves and reloads", async () => {

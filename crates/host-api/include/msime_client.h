@@ -221,7 +221,11 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
 /* Query the verified local others.db Emoji catalog. Resources is an absolute
- * generation directory containing others.db; no provider socket is needed. */
+ * generation directory containing others.db; no provider socket is needed.
+ * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
+ * Optional group filters a catalog subdivision; list_groups:true returns
+ * {groups:[name,...]} in catalog order instead of an item page.
+ * Advance offset by limit, not returned item count: each page deduplicates text. */
 char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
                                          const uint8_t *resources,
@@ -232,6 +236,20 @@ char *msime_client_voice_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
+typedef void (*msime_client_voice_update_callback)(const uint8_t *text,
+                                                   size_t text_length,
+                                                   bool final,
+                                                   void *context);
+/* Stream newline-delimited provider updates. The callback runs on the caller
+ * thread and receives bounded interim/final UTF-8 text; context is untouched. */
+char *msime_client_voice_provider_stream(
+    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
+    size_t socket_length, msime_client_voice_update_callback callback,
+    void *context);
+/* Request cancellation of a provider capture session by generation. */
+char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
+                                         size_t socket_length,
+                                         uint64_t generation);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
