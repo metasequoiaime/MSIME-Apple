@@ -438,3 +438,18 @@ Storage tests preserve Unicode and order and reject overlong names/33 entries.
 The previous implementation rejects the new Unicode round-trip regression.
 This increment changes validation/storage only; font enumeration, shared font
 controls, rendering integration and native typography acceptance remain open.
+
+Shared appearance now edits the primary family and up to 32 ordered fallback
+families with add/remove/reorder actions, using the core's Unicode/128-byte name
+contract. Invalid drafts show an error across settings pages and cannot submit.
+Both built-in and external previews use quoted literal family names followed by
+the system sans-serif fallback, like pinned appearance.ts; control characters,
+quotes and backslashes are escaped without interpreting names as CSS syntax.
+
+React tests cover load/edit/order/save, invalid submission and the 32-item bound.
+Chromium uses the original synthetic font fixture with distinct size-adjust and
+Unicode-range descriptors to verify actual missing-glyph fallback and reordering
+through measured glyph widths in both preview paths, plus CSS-injection-shaped
+names and all existing appearance regressions. System font enumeration and its
+searchable dropdown are not yet connected: the UI explicitly requests complete
+font names. Native host font delivery and native typography parity remain open.

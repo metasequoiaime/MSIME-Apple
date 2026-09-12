@@ -491,6 +491,39 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("font family controls preserve order, validate drafts and save Unicode", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
+  const primary = await screen.findByLabelText("候选窗主字体");
+  expect((primary as HTMLInputElement).value).toBe("Segoe UI");
+  fireEvent.change(primary, { target: { value: "示例主字体" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.submit(mounted.container.querySelector("form")!);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "示例一" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
+  fireEvent.change(screen.getByLabelText("补充字体 2"), { target: { value: "示例二" } });
+  fireEvent.click(screen.getByRole("button", { name: "上移补充字体 2" }));
+  expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("示例二");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenLastCalledWith(7, { ...initial.preferences, candidate_font_family: "示例主字体", candidate_fallback_fonts: ["示例二", "示例一"] });
+  fireEvent.click(screen.getByRole("button", { name: "移除补充字体 1" }));
+  fireEvent.change(primary, { target: { value: "字".repeat(43) } });
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(primary, { target: { value: "有效示例" } });
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("font controls allow 32 existing fallbacks but prevent a 33rd", async () => {
+  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, candidate_fallback_fonts: Array.from({ length: 32 }, (_, i) => `示例${i}`) } }), save: vi.fn() }} />);
+  await screen.findByLabelText("补充字体 32");
+  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "移除补充字体 32" }));
+  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
 test("candidate text colour loads, previews, saves and resets to theme", async () => {
   const saved = { ...initial, preferences: { ...initial.preferences, candidate_text_color: "#123456" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
