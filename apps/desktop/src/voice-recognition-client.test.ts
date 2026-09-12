@@ -38,3 +38,27 @@ test("voice requests and cancellation retain identity across a restart", async (
   await client.cancelVoice();
   expect(cancelled).toHaveLength(1);
 });
+
+test("stop retains the request identity for final streaming events", async () => {
+  let resolve!: (value: { text: string }) => void;
+  let requestId = "";
+  let publish!: (update: { request_id: string; text: string; final: boolean }) => void;
+  const stops: unknown[] = [];
+  const invoke = async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "stop_voice") { stops.push(args?.requestId); return undefined as T; }
+    requestId = (args?.request as { request_id: string }).request_id;
+    return new Promise<{ text: string }>(done => { resolve = done; }) as Promise<T>;
+  };
+  const client = createVoiceRecognitionClient(invoke, async listener => { publish = listener; return () => {}; });
+  const receive = vi.fn();
+  await client.onVoiceUpdate(receive);
+  const recording = client.recognizeVoice("zh-CN");
+  await client.stopVoice();
+  expect(stops).toEqual([requestId]);
+  publish({ request_id: requestId, text: "fixture-final", final: true });
+  expect(receive).toHaveBeenCalledOnce();
+  resolve({ text: "fixture-final" });
+  await recording;
+  await client.stopVoice();
+  expect(stops).toHaveLength(1);
+});
