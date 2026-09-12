@@ -11,6 +11,7 @@
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
+#import "BackendSelectionObservation.h"
 #include "PreferenceSaveState.h"
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
@@ -327,7 +328,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _preferenceLoadState.reset();
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handwritingCandidateSelected:) name:@"MSIMEHandwritingCandidateSelected" object:nil];
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), YES);
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
@@ -437,6 +438,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)deactivateServer:(id)sender {
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
     [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
