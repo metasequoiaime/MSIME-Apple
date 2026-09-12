@@ -16,3 +16,14 @@ test("emoji panel ignores malformed recent storage", () => {
   render(<EmojiPanel client={{ close: async () => {} }} />);
   expect(screen.queryByText("Recently used")).toBeNull();
 });
+
+test("emoji panel paginates catalog items and resets on search", async () => {
+  const items = Array.from({ length: 60 }, (_, index) => ({ text: `😀${index}`, keywords: `item${index}` }));
+  const client = { close: async () => {}, loadCatalog: async () => ({ emoji: [{ title: "All", icon: "😀", items }], kaomoji: [], symbols: [] }) };
+  render(<EmojiPanel client={client} />);
+  (await screen.findByRole("button", { name: "Emoji" })).click();
+  expect(screen.getByText("第 1 / 2 页")).toBeDefined();
+  screen.getByRole("button", { name: "下一页" }).click();
+  expect(screen.getByText("第 2 / 2 页")).toBeDefined();
+  screen.getByRole("textbox", { name: "搜索" }).dispatchEvent(new Event("input", { bubbles: true }));
+});
