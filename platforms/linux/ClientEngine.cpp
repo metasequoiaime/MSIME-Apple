@@ -3539,6 +3539,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   if (character_set_chord && !s.character_set_shortcut_enabled)
     return FALSE;
   const bool character_set_toggle = character_set_chord;
+  // Disabling IME spelling must not disable the system layout's Compose table.
+  // GTK's asynchronous IBus passthrough does not perform dead-key composition.
+  if (s.focused && !s.blocked && !s.input_enabled && !release) {
+    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+      if (const auto text = s.native_compose.feed(key)) {
+        if (!text->empty()) commit_text(engine, *text);
+        return TRUE;
+      }
+    } else {
+      s.native_compose.reset();
+    }
+  }
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;
