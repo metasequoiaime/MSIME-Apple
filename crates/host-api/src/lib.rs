@@ -2433,6 +2433,66 @@ mod tests {
     }
 
     #[test]
+    fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
+        use msime_client_core::preferences::MixedInputPreferences;
+
+        let dir = tempfile::tempdir().unwrap();
+        let dictionaries = dir.path().join("dictionaries");
+        std::fs::create_dir_all(&dictionaries).unwrap();
+        let db = rusqlite::Connection::open(dictionaries.join("english.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+             INSERT INTO english_words VALUES('ok','ok',900);
+             INSERT INTO english_words VALUES('old','old',1000);
+             INSERT INTO english_words VALUES('older','older',800);",
+        )
+        .unwrap();
+        drop(db);
+
+        let handle = test_host_preferences(
+            dir.path(),
+            Preferences {
+                candidate_page_size: 2,
+                learning: false,
+                touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                mixed_input: MixedInputPreferences {
+                    english: true,
+                    minimum_prefix: 2,
+                    emoji: false,
+                    kaomoji: false,
+                },
+                ..Preferences::default()
+            },
+        );
+        read(msime_client_focus(handle, true));
+        assert_eq!(
+            read(msime_client_character(handle, b'6', false))["value"]["handled"],
+            true
+        );
+        let typed = read(msime_client_character(handle, b'5', false));
+        assert_eq!(typed["value"]["view"]["nine_key"], true);
+
+        let complete = read(msime_client_all_candidates(handle));
+        let candidates = complete["value"]["candidates"].as_array().unwrap();
+        let position = |text: &str| {
+            candidates
+                .iter()
+                .position(|candidate| candidate["text"] == text)
+                .unwrap_or_else(|| panic!("missing synthetic candidate {text}"))
+        };
+        let ok = position("ok");
+        assert!(ok < position("old"));
+        assert!(ok < position("older"));
+
+        let generation = complete["value"]["generation"].as_u64().unwrap();
+        let index = candidates[ok]["id"]["index"].as_u64().unwrap() as usize;
+        let selected = read(msime_client_select_any_candidate(handle, generation, index));
+        assert_eq!(selected["value"]["handled"], true);
+        assert_eq!(selected["value"]["commit"], "ok");
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+
+    #[test]
     fn helpcode_settings_switch_independently_after_composition() {
         use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
         let dir = tempfile::tempdir().unwrap();
