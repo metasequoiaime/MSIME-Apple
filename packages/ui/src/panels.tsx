@@ -51,6 +51,7 @@ export type CloudClipboardAction =
   | { operation: "set_enabled"; enabled: boolean };
 export type CloudClipboardItem = { id: string; text: string };
 export interface CloudClipboardPanelClient extends PanelClient {
+  copyText?(text: string): Promise<void>;
   request(action: CloudClipboardAction): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
 }
 
@@ -685,13 +686,13 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     }, "更新云剪贴板设置失败");
   }
 
-  function choose(item: CloudClipboardItem) {
-    const send = client.sendText;
-    if (!send) { setNotice("当前宿主未提供目标窗口提交能力"); return; }
+  function choose(item: CloudClipboardItem, copyOnly = false) {
+    const send = copyOnly ? client.copyText : client.sendText;
+    if (!send) { setNotice("当前宿主未提供此操作"); return; }
     return run(async revision => {
       await send(item.text);
-      if (revision === refreshRevision.current) setNotice(`已输入：${item.text}`);
-    }, "提交失败，前台输入窗口可能已关闭");
+      if (revision === refreshRevision.current) setNotice(copyOnly ? "已复制到本机剪贴板" : `已输入：${item.text}`);
+    }, copyOnly ? "复制失败，请重试" : "提交失败，可复制后手动粘贴");
   }
 
   return <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
@@ -701,7 +702,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy} /></label>
       <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
       <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
-      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button><button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
+      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button>{client.copyText && <button type="button" disabled={busy} aria-label="复制此条云端记录" onClick={() => void choose(item, true)}>复制</button>}<button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
       <p className="cloud-clipboard-notice" role="status">{notice}</p>
     </div>
   </main>;

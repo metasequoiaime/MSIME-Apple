@@ -93,6 +93,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     sendText: text => invoke("send_text", { text }),
+    copyText: text => invoke("copy_text", { text }),
     request: (action: CloudClipboardAction) => invoke("cloud_clipboard_request", { action }),
   },
   cloudDictionary: {
