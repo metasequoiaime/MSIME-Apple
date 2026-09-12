@@ -214,7 +214,7 @@ EngineSession::EngineSession(const EngineOptions& options) : session_(options_fo
                                std::filesystem::u8path(std::string(options.resources)),
                                std::string(options.helpcode_schema))
                          : nullptr),
-    helpcode_enabled_(options.helpcode) {}
+    helpcode_enabled_(options.helpcode), show_helpcode_(options.show_helpcode) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
@@ -320,6 +320,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     result.autocorrect_neighbor = true;
     result.fuzzy_pinyin_rules = 0;
     result.helpcode = true;
+    result.show_helpcode = true;
     result.helpcode_schema = "ziranma";
     result.chinese_punctuation = true;
     result.paired_punctuation = true;
@@ -404,7 +405,13 @@ EngineSnapshot EngineSession::snapshot() const {
         auto annotation = index < value.candidate_annotations.size()
                               ? value.candidate_annotations[index]
                               : candidate.corrected_from;
-        if (annotation.empty() && helpcode_enabled_ && helpcode_keymap_ &&
+        if (!show_helpcode_ && helpcode_enabled_ && helpcode_keymap_ &&
+            (value.scheme == SchemeType::Quanpin || value.scheme == SchemeType::Shuangpin)) {
+            const auto helpcode = HelpcodeUtils::compute_helpcodes(
+                candidate.word, value.scheme == SchemeType::Quanpin, helpcode_keymap_.get());
+            if (!helpcode.empty() && annotation == helpcode) annotation = candidate.corrected_from;
+        }
+        if (annotation.empty() && show_helpcode_ && helpcode_enabled_ && helpcode_keymap_ &&
             candidate.source == CandidateSource::Generated &&
             (value.scheme == SchemeType::Quanpin || value.scheme == SchemeType::Shuangpin)) {
             annotation = HelpcodeUtils::compute_helpcodes(

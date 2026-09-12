@@ -35,6 +35,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL quanpinHelpcodeEnabled;
 @property(nonatomic) BOOL shuangpinHelpcodeEnabled;
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
+- (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;

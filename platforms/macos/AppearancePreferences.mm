@@ -32,6 +32,12 @@ static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
+static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
+static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"]; }
+static BOOL ValidHelpcodeOption(NSString *key, id value) {
+    return [key isEqual:@"schema"] ? [HelpcodeSchemas() containsObject:value] :
+        ([key isEqual:@"show_in_candidate_window"] && LocalModeBoolean(value));
+}
 static NSString *const QuanpinHelpcodeKey = @"MSIMEClientQuanpinHelpcodeEnabled";
 static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnabled";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
@@ -42,6 +48,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSMutableDictionary *_sharedHelpcodeOptions;
+    NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
+    NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
     NSNumber *_sharedAutocorrect;
     NSNumber *_sharedQuanpinHelpcode;
@@ -113,6 +122,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSMutableDictionary *sh = [merged[@"shuangpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
     sh[@"enabled"] = @(self.shuangpinHelpcodeEnabled);
     merged[@"shuangpin_helpcode"] = sh;
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSDictionary *stored = [_defaults dictionaryForKey:HelpcodeOptionsKey][scheme];
+        if (![stored isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *target = merged[[scheme stringByAppendingString:@"_helpcode"]];
+        NSDictionary *effective = [self helpcodeOptionsForScheme:scheme];
+        for (NSString *key in @[@"schema", @"show_in_candidate_window"])
+            if (ValidHelpcodeOption(key, stored[key])) target[key] = effective[key];
+    }
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
@@ -203,7 +220,44 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
     if ([quanpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(quanpin[@"enabled"])) _sharedQuanpinHelpcode = quanpin[@"enabled"];
     if ([shuangpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(shuangpin[@"enabled"])) _sharedShuangpinHelpcode = shuangpin[@"enabled"];
+    if (!_sharedHelpcodeOptions) _sharedHelpcodeOptions = [NSMutableDictionary dictionary];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        id shared = preferences[[scheme stringByAppendingString:@"_helpcode"]];
+        if (![shared isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *values = [_sharedHelpcodeOptions[scheme] mutableCopy] ?: [NSMutableDictionary dictionary];
+        for (NSString *key in @[@"schema", @"show_in_candidate_window"])
+            if (ValidHelpcodeOption(key, shared[key])) values[key] = shared[key];
+        _sharedHelpcodeOptions[scheme] = values;
+    }
     [self refreshControls];
+}
+- (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme {
+    NSMutableDictionary *values = [@{@"schema": @"ziranma", @"show_in_candidate_window": @YES} mutableCopy];
+    id stored = [_defaults dictionaryForKey:HelpcodeOptionsKey][scheme];
+    if ([stored isKindOfClass:NSDictionary.class])
+        for (NSString *key in values.allKeys) if (ValidHelpcodeOption(key, stored[key])) values[key] = stored[key];
+    [values addEntriesFromDictionary:_sharedHelpcodeOptions[scheme] ?: @{}];
+    return values;
+}
+- (void)setHelpcodeOption:(NSString *)key value:(id)value scheme:(NSString *)scheme {
+    if (![@[@"quanpin", @"shuangpin"] containsObject:scheme] || !ValidHelpcodeOption(key, value)) return;
+    NSMutableDictionary *all = [[_defaults dictionaryForKey:HelpcodeOptionsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    id existing = all[scheme];
+    NSMutableDictionary *values = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+    values[key] = value;
+    all[scheme] = values;
+    [_defaults setObject:all forKey:HelpcodeOptionsKey];
+    if (!_sharedHelpcodeOptions) _sharedHelpcodeOptions = [NSMutableDictionary dictionary];
+    NSMutableDictionary *shared = [_sharedHelpcodeOptions[scheme] mutableCopy] ?: [NSMutableDictionary dictionary];
+    shared[key] = value;
+    _sharedHelpcodeOptions[scheme] = shared;
+    [self preferencesChanged];
+}
+- (void)helpcodeSchemaChanged:(NSPopUpButton *)sender {
+    [self setHelpcodeOption:@"schema" value:sender.selectedItem.representedObject scheme:sender.identifier];
+}
+- (void)helpcodeDisplayChanged:(NSButton *)sender {
+    [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
 - (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
 - (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
@@ -317,6 +371,11 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)refreshControls {
+    for (NSString *scheme in _helpcodeSchemaButtons) {
+        NSDictionary *values = [self helpcodeOptionsForScheme:scheme];
+        [_helpcodeSchemaButtons[scheme] selectItemAtIndex:[HelpcodeSchemas() indexOfObject:values[@"schema"]]];
+        _helpcodeDisplayButtons[scheme].state = [values[@"show_in_candidate_window"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+    }
     _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
@@ -432,6 +491,25 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼辅助码"], _shuangpinHelpcodeButton]
     ]];
     grid.rowSpacing = 16;
+    _helpcodeSchemaButtons = [NSMutableDictionary dictionary];
+    _helpcodeDisplayButtons = [NSMutableDictionary dictionary];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
+        NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]];
+        for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
+            [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
+        schemas.identifier = scheme;
+        schemas.target = self;
+        schemas.action = @selector(helpcodeSchemaChanged:);
+        schemas.accessibilityLabel = [name stringByAppendingString:@"辅助码方案"];
+        NSButton *display = [NSButton checkboxWithTitle:[NSString stringWithFormat:@"在候选窗口中显示%@辅助码", name] target:self action:@selector(helpcodeDisplayChanged:)];
+        display.identifier = scheme;
+        _helpcodeSchemaButtons[scheme] = schemas;
+        _helpcodeDisplayButtons[scheme] = display;
+        [grid addRowWithViews:@[[NSTextField labelWithString:schemas.accessibilityLabel], schemas]];
+        [grid addRowWithViews:@[[NSTextField labelWithString:[name stringByAppendingString:@"辅助码显示"]], display]];
+    }
     _localModeButtons = [NSMutableArray array];
     for (NSArray<NSString *> *entry in LocalModeControls()) {
         NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];

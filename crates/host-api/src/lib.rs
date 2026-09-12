@@ -120,6 +120,7 @@ impl HostSession {
         options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
+        options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         options.paired_punctuation = snapshot.preferences.paired_punctuation;
@@ -304,6 +305,7 @@ impl HostOptions {
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: self.preferences.chinese_punctuation,
             paired_punctuation: self.preferences.paired_punctuation,
@@ -853,6 +855,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             local_temporary_english: options.preferences.local_modes.temporary_english,
             local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
             paired_punctuation: options.preferences.paired_punctuation,
@@ -2352,7 +2355,7 @@ mod tests {
             quanpin_helpcode: HelpcodePreferences {
                 enabled: false,
                 schema: HelpcodeSchema::Xiaohe,
-                show_in_candidate_window: true,
+                show_in_candidate_window: false,
             },
             shuangpin_helpcode: HelpcodePreferences {
                 enabled: true,
@@ -2368,11 +2371,13 @@ mod tests {
         SESSIONS.with(|sessions| {
             assert!(!sessions.borrow()[&handle].options.helpcode);
             assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
+            assert!(!sessions.borrow()[&handle].options.show_helpcode);
         });
         preferences.scheme = InputScheme::Shuangpin;
         assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
         SESSIONS.with(|sessions| {
             assert!(sessions.borrow()[&handle].options.helpcode);
+            assert!(sessions.borrow()[&handle].options.show_helpcode);
             assert_eq!(
                 sessions.borrow()[&handle].options.helpcode_schema,
                 "shouyou2_0"

@@ -284,6 +284,44 @@ static void TestIndependentAssistancePreferences() {
     assert([edited[@"quanpin_helpcode"][@"auto_display"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"future_field"] isEqual:@7]);
     [controller applySharedToolbarPreferences:shared];
     assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 3);
+    NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
+    NSGridView *grid = (id)scroll.documentView;
+    NSMutableDictionary *schemaControls = [NSMutableDictionary dictionary];
+    NSMutableDictionary *displayControls = [NSMutableDictionary dictionary];
+    for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+        NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
+        if (control.action == @selector(helpcodeSchemaChanged:)) schemaControls[control.identifier] = control;
+        if (control.action == @selector(helpcodeDisplayChanged:)) displayControls[control.identifier] = control;
+    }
+    assert(schemaControls.count == 2 && displayControls.count == 2);
+    NSDictionary *options = @{@"quanpin_helpcode": @{@"schema": @"shouyou2_0", @"show_in_candidate_window": @NO}, @"shuangpin_helpcode": @{@"schema": @"xiaohe", @"show_in_candidate_window": @YES}};
+    [prefs applySharedAssistancePreferences:options];
+    assert(saves == 3 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
+    assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
+    assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSPopUpButton *schemas = schemaControls[scheme];
+        NSButton *display = displayControls[scheme];
+        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"];
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]]));
+        for (NSUInteger index = 0; index < identifiers.count; ++index) {
+            [schemas selectItemAtIndex:index];
+            [NSApp sendAction:schemas.action to:schemas.target from:schemas];
+            display.state = index % 2 ? NSControlStateValueOn : NSControlStateValueOff;
+            [NSApp sendAction:display.action to:display.target from:display];
+            NSDictionary *merged = [prefs sharedPreferencesByMerging:options][[scheme stringByAppendingString:@"_helpcode"]];
+            assert([merged[@"schema"] isEqual:identifiers[index]] && [merged[@"show_in_candidate_window"] boolValue] == (index % 2 == 1));
+            MSIMEAppearancePreferences *restored = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert([[restored helpcodeOptionsForScheme:scheme][@"schema"] isEqual:identifiers[index]]);
+            assert([[restored helpcodeOptionsForScheme:scheme][@"show_in_candidate_window"] boolValue] == (index % 2 == 1));
+        }
+    }
+    NSUInteger beforeRefresh = saves;
+    [prefs applySharedAssistancePreferences:options];
+    [prefs applySharedAssistancePreferences:@{@"quanpin_helpcode": @{@"schema": @"invalid", @"show_in_candidate_window": @1}}];
+    assert(saves == beforeRefresh);
+    assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
+    assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     [defaults removePersistentDomainForName:suite];
 }
