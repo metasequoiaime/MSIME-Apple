@@ -7,11 +7,13 @@ adb="$android_sdk/platform-tools/adb"
 serial=${1:-emulator-5580}
 settings=false
 handwriting=false
+statistics=false
 for option in "${@:2}"; do
   case "$option" in
     --settings) settings=true ;;
     --handwriting) handwriting=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--settings] [--handwriting]" >&2; exit 1 ;;
+    --statistics) statistics=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--settings] [--handwriting] [--statistics]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -64,6 +66,11 @@ if [[ "$settings" == true ]]; then
     printf '%s\n' "$result"
     [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared settings acceptance failed" >&2; exit 1; }
   done
+fi
+if [[ "$statistics" == true ]]; then
+  result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.TypingStatisticsDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Typing statistics acceptance failed" >&2; exit 1; }
 fi
 if [[ "$handwriting" == true ]]; then
   touch_request=/data/user/0/app.msime.client.test/cache/msime-handwriting-touch.request
