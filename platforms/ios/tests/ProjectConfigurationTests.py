@@ -800,7 +800,11 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             self.skipTest("engine submodule is not checked out")
 
         project = (IOS_ROOT / "project.yml").read_text()
-        not_built = {"tests"}
+        # handwriting 是引擎自带的 zinnia 识别器,iOS 走的是 MLKit Digital Ink。
+        # Compiling it here would put a second recogniser, its third-party sources and its model
+        # data into a keyboard extension that never calls any of it. macOS takes it through
+        # add_subdirectory because that is where it is used.
+        not_built = {"tests", "handwriting"}
         missing = []
         for directory in sorted(engine_root.iterdir()):
             if not directory.is_dir() or directory.name.startswith("."):
