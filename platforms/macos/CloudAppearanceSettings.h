@@ -14,7 +14,8 @@ static inline NSDictionary *MSIMECloudBooleanPreferences() {
              @"floating_toolbar": @[@"MSIMEClientFloatingToolbarEnabled", @YES],
              @"traditional_chinese_output": @[@"MSIMEClientTraditionalOutput", @NO],
              @"wubi_auto_commit_unique": @[@"MSIMEClientWubiAutoCommitUnique", @NO],
-             @"shuangpin_keymap": @[@"MSIMEClientShuangpinKeymap", @NO]};
+             @"shuangpin_keymap": @[@"MSIMEClientShuangpinKeymap", @NO],
+             @"shuangpin_preedit_uses_raw": @[@"MSIMEClientShuangpinPreeditUsesRaw", @YES]};
 }
 
 static inline NSDictionary *MSIMECloudAppearanceSnapshot(NSUserDefaults *defaults) {
