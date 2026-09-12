@@ -12,6 +12,10 @@ static void success(char *value) {
 int main(int argc, char **argv) {
     assert(argc == 2);
     assert(msime_client_abi_version() == 1);
+    msime_client_key_event event = {{1, 2, 3}, 0x41, 30, 0x0f, 'a', false};
+    assert(msime_client_key_event_valid(&event));
+    event.lease.token = 0;
+    assert(!msime_client_key_event_valid(&event));
     char options[4096];
     int length = snprintf(options, sizeof(options),
         "{\"api_version\":1,\"resources\":\"%s/resources\",\"user_data\":\"%s/user\",\"cache\":\"%s/cache\",\"dictionaries\":\"%s/dictionaries\",\"preferences\":{\"scheme\":\"quanpin\",\"candidate_page_size\":5,\"learning\":false,\"chinese_punctuation\":true}}",
