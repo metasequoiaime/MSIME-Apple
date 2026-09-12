@@ -101,7 +101,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<string[]>("list_clipboard_history"),
-    isEnabled: async () => (await client.load()).preferences.clipboard_history,
+    isEnabled: async () => (await client.load()).preferences.clipboard_history ?? false,
     enable: async () => {
       const snapshot = await client.load();
       if (!snapshot.preferences.clipboard_history) {
