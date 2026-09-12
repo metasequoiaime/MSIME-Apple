@@ -24,6 +24,7 @@ struct PreviewConfig {
   bool dark_theme = true;
   // The shipped card lays candidates out on one row; vertical stays available.
   bool horizontal_candidates = true;
+  int candidate_font_size = 16;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
@@ -62,7 +63,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 4 ||
+      if (!appearance.is_object() || appearance.size() > 5 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -92,6 +93,11 @@ struct PreviewConfig {
         if (!appearance.at("dark_theme").is_boolean())
           throw std::invalid_argument("Invalid preview appearance");
         result.dark_theme = appearance.at("dark_theme").get<bool>();
+      }
+      if (appearance.contains("candidate_font_size")) {
+        result.candidate_font_size = appearance.at("candidate_font_size").get<int>();
+        if (result.candidate_font_size < 8 || result.candidate_font_size > 48)
+          throw std::invalid_argument("Invalid candidate font size");
       }
     }
     if (value.contains("key_bindings")) {
