@@ -948,12 +948,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
         <div className="section shortcut-section">
           <div className="section-title">全局维护快捷键</div>
-          <small>程序运行时全局生效；用于维护与调试</small>
+          <small>{linuxPlatform ? "当前 IBus 会话中用于维护候选" : "程序运行时全局生效；用于维护与调试"}</small>
           <div className="shortcut-list">
             <div className="shortcut-row"><span>删除当前候选窗口中的第 1–8 项</span><kbd>Ctrl+Shift+Alt+1–8</kbd></div>
-            <div className="shortcut-row"><span>清除输入法引擎缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
-            <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
-            <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
+            {!linuxPlatform && <>
+              <div className="shortcut-row"><span>清除输入法引擎缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
+              <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
+              <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
+            </>}
           </div>
         </div>
         {linuxPlatform && client.restartInputMethod && <div className="section shortcut-section">

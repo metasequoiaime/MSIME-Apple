@@ -3023,6 +3023,27 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
+  const bool maintenance_candidate_key =
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK) &&
+      key >= IBUS_1 && key <= IBUS_8;
+  if (maintenance_candidate_key) {
+    const auto candidates = s.view.value("candidates", Json::array());
+    const auto index = static_cast<size_t>(key - IBUS_1);
+    if (!candidates.is_array() || index >= candidates.size())
+      return FALSE;
+    const auto &candidate = candidates.at(index);
+    if (!candidate.is_object() || !candidate.contains("id"))
+      return FALSE;
+    const auto &id = candidate.at("id");
+    if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+      return FALSE;
+    guarded(engine, "remove_candidate_shortcut", [&] {
+      apply(engine, msime_client_remove_candidate(
+          s.session, id.at("generation").get<uint64_t>(),
+          id.at("index").get<size_t>()));
+    });
+    return TRUE;
+  }
   if (modifier(key))
     return FALSE;
   if (key == IBUS_BackSpace) {
