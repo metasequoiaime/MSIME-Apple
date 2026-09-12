@@ -6,7 +6,8 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
     NSTextField *_status;
     NSPopUpButton *_provider, *_polishProvider;
     NSButton *_polish;
-    NSTextField *_model;
+    NSTextField *_model, *_endpoint;
+    NSSecureTextField *_token;
     NSButton *_hotkey;
     MSIMEVoiceInputService *_service;
 }
@@ -25,20 +26,25 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _polishProvider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         [_polishProvider addItemsWithTitles:@[@"DeepSeek", @"OpenAI", @"SiliconFlow", @"Groq"]];
         _model = [NSTextField textFieldWithString:@""]; _model.placeholderString = @"留空使用提供商默认模型";
+        _endpoint = [NSTextField textFieldWithString:@""]; _endpoint.placeholderString = @"ASR 接口地址（可选）";
+        _token = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _token.placeholderString = @"ASR Token（仅保存在本机）";
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         [_provider selectItemAtIndex:[@[@"doubao", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao"]];
         _polish.state = [defaults boolForKey:@"MSIMEClientVoicePolish"] ? NSControlStateValueOn : NSControlStateValueOff;
         [_polishProvider selectItemAtIndex:[@[@"deepseek", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek"]];
         _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"";
+        _endpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
+        _token.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"";
         _hotkey = [NSButton checkboxWithTitle:@"启用 Ctrl+F9 语音快捷键" target:self action:@selector(voiceOptionsChanged:)];
         _hotkey.state = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] ? NSControlStateValueOn : NSControlStateValueOff;
         _provider.target = self; _provider.action = @selector(voiceOptionsChanged:);
         _polish.target = self; _polish.action = @selector(voiceOptionsChanged:);
         _polishProvider.target = self; _polishProvider.action = @selector(voiceOptionsChanged:);
         _model.target = self; _model.action = @selector(voiceOptionsChanged:);
+        _endpoint.target = self; _endpoint.action = @selector(voiceOptionsChanged:); _token.target = self; _token.action = @selector(voiceOptionsChanged:);
         _status = [NSTextField labelWithString:@"权限状态未知"];
         NSButton *permission = [NSButton buttonWithTitle:@"请求麦克风与语音权限" target:self action:@selector(requestPermission:)];
-        NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"识别语言"], _language], @[[NSTextField labelWithString:@"ASR 提供商"], _provider], @[[NSTextField labelWithString:@"语音快捷键"], _hotkey], @[[NSTextField labelWithString:@"文本润色"], _polish], @[[NSTextField labelWithString:@"润色提供商"], _polishProvider], @[[NSTextField labelWithString:@"润色模型"], _model], @[[NSTextField labelWithString:@"权限"], _status], @[[NSTextField labelWithString:@""], permission]]];
+        NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"识别语言"], _language], @[[NSTextField labelWithString:@"ASR 提供商"], _provider], @[[NSTextField labelWithString:@"ASR 接口"], _endpoint], @[[NSTextField labelWithString:@"ASR Token"], _token], @[[NSTextField labelWithString:@"语音快捷键"], _hotkey], @[[NSTextField labelWithString:@"文本润色"], _polish], @[[NSTextField labelWithString:@"润色提供商"], _polishProvider], @[[NSTextField labelWithString:@"润色模型"], _model], @[[NSTextField labelWithString:@"权限"], _status], @[[NSTextField labelWithString:@""], permission]]];
         grid.rowSpacing = 16; grid.columnSpacing = 16; grid.translatesAutoresizingMaskIntoConstraints = NO; [window.contentView addSubview:grid];
         [NSLayoutConstraint activateConstraints:@[[grid.centerXAnchor constraintEqualToAnchor:window.contentView.centerXAnchor], [grid.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:24]]]; self.window = window;
     }
@@ -47,5 +53,5 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
 - (void)refreshStatus { _status.stringValue = (_service.microphoneAuthorizationStatus == AVAuthorizationStatusAuthorized && _service.speechAuthorizationStatus == SFSpeechRecognizerAuthorizationStatusAuthorized) ? @"已授权" : @"尚未完全授权"; }
 - (void)requestPermission:(id)sender { (void)sender; [_service requestSpeechPermission:^(BOOL granted) { if (granted) [_service requestMicrophonePermission:^(BOOL grantedMicrophone) { (void)grantedMicrophone; [self refreshStatus]; }]; else [self refreshStatus]; }]; }
 - (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
-- (void)voiceOptionsChanged:(id)sender { (void)sender; NSUserDefaults *d=NSUserDefaults.standardUserDefaults; NSArray *asr=@[@"doubao",@"openai",@"siliconflow",@"groq"], *polish=@[@"deepseek",@"openai",@"siliconflow",@"groq"]; [d setObject:asr[_provider.indexOfSelectedItem] forKey:@"MSIMEClientVoiceASRProvider"]; [d setBool:_hotkey.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlF9"]; [d setBool:_polish.state==NSControlStateValueOn forKey:@"MSIMEClientVoicePolish"]; [d setObject:polish[_polishProvider.indexOfSelectedItem] forKey:@"MSIMEClientVoicePolishProvider"]; [d setObject:_model.stringValue forKey:@"MSIMEClientVoicePolishModel"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
+- (void)voiceOptionsChanged:(id)sender { (void)sender; NSUserDefaults *d=NSUserDefaults.standardUserDefaults; NSArray *asr=@[@"doubao",@"openai",@"siliconflow",@"groq"], *polish=@[@"deepseek",@"openai",@"siliconflow",@"groq"]; [d setObject:asr[_provider.indexOfSelectedItem] forKey:@"MSIMEClientVoiceASRProvider"]; [d setObject:_endpoint.stringValue forKey:@"MSIMEClientVoiceASREndpoint"]; [d setObject:_token.stringValue forKey:@"MSIMEClientVoiceASRToken"]; [d setBool:_hotkey.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlF9"]; [d setBool:_polish.state==NSControlStateValueOn forKey:@"MSIMEClientVoicePolish"]; [d setObject:polish[_polishProvider.indexOfSelectedItem] forKey:@"MSIMEClientVoicePolishProvider"]; [d setObject:_model.stringValue forKey:@"MSIMEClientVoicePolishModel"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 @end
