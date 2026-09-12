@@ -1221,9 +1221,13 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     if (!client.clipboard?.list) { setClipboardLoadFailed(false); return; }
     let active = true;
     let unsubscribe: (() => void) | undefined;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let inFlight = 0;
     const refresh = () => {
+      if (!active) return;
+      inFlight++;
       const request = ++clipboardGeneration.current;
-      void Promise.all([client.clipboard!.list!(), client.clipboard?.isEnabled?.() ?? Promise.resolve(true)]).then(([value, enabled]) => {
+      void Promise.resolve().then(() => Promise.all([client.clipboard!.list!(), client.clipboard?.isEnabled?.() ?? Promise.resolve(true)])).then(([value, enabled]) => {
         if (active && request === clipboardGeneration.current) {
           setClipboard(enabled ? value : []);
           setClipboardEnabled(enabled);
@@ -1235,18 +1239,35 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
           setClipboardEnabled(null);
           setClipboardLoadFailed(true);
         }
-      });
+      }).finally(() => { inFlight--; });
+    };
+    const pollVisible = () => {
+      if (active && document.visibilityState === "visible" &&
+          !clipboardMutation.current && inFlight === 0) refresh();
     };
     const start = async () => {
       try {
         const stop = await client.clipboard?.onChanged?.(refresh);
         if (!active) { stop?.(); return; }
         unsubscribe = stop;
-      } catch { /* Opening and tab changes still refresh without notifications. */ }
-      if (active) refresh();
+      } catch { /* Fall back to visible-page polling below. */ }
+      if (!active) return;
+      refresh();
+      if (!unsubscribe && page === "clipboard") {
+        // Windows polls history every 400 ms. Prefer host notifications here,
+        // but keep live updates when a Linux host cannot subscribe.
+        poll = setInterval(pollVisible, 400);
+        document.addEventListener("visibilitychange", pollVisible);
+      }
     };
     void start();
-    return () => { active = false; ++clipboardGeneration.current; unsubscribe?.(); };
+    return () => {
+      active = false;
+      ++clipboardGeneration.current;
+      if (poll !== undefined) clearInterval(poll);
+      document.removeEventListener("visibilitychange", pollVisible);
+      unsubscribe?.();
+    };
   }, [client, page, clipboardRefresh]);
 
   type DisplayGroup = EmojiCatalogGroup & { moreTarget?: EmojiPage; flow?: boolean };
