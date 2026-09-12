@@ -1,5 +1,10 @@
 import AppKit
 
+@MainActor final class MacEmojiPanelWindow: NSWindow {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { true }
+}
+
 /// Window caching must not keep a closed panel's polling SwiftUI view alive.
 @MainActor final class MacEmojiWindowController: NSWindowController, NSWindowDelegate {
   func windowWillClose(_ notification: Notification) {

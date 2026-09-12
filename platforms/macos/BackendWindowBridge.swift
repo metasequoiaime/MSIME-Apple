@@ -52,8 +52,9 @@ final class BackendWindowBridge: NSObject {
         controller.window?.contentViewController = nil
       }) {
       let host = NSHostingController(rootView: content())
-      let window = NSWindow(contentViewController: host)
-      window.title = title; window.setContentSize(size); window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+      let window = key == "emoji" ? MacEmojiPanelWindow(contentViewController: host) : NSWindow(contentViewController: host)
+      window.title = title; window.setContentSize(size)
+      window.styleMask = key == "emoji" ? [.borderless, .closable, .resizable] : [.titled, .closable, .miniaturizable, .resizable]
       window.isReleasedWhenClosed = false
       let controller: NSWindowController
       if key == "emoji" {
