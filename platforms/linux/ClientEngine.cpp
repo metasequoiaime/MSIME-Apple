@@ -3267,8 +3267,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool microsoft_ing =
         microsoft_shuangpin_ing_key(s.view, key, modifiers);
     const bool unicode_plus = unicode_plus_key(s.view, key, modifiers);
+    const auto caret_position = s.view.value(
+        "caret_position", s.view.value("editing_text", std::string{}).size());
     const bool accepted_apostrophe =
-        key == IBUS_apostrophe && has_composition &&
+        key == IBUS_apostrophe && has_composition && caret_position != 0 &&
         ((local_mode == "none" && active_scheme != "wubi") ||
          local_mode == "emoji" || local_mode == "kaomoji" ||
          local_mode == "temporary_japanese");
