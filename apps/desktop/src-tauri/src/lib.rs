@@ -1155,19 +1155,40 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
 }
 
 #[cfg(target_os = "linux")]
-fn hide_linux_panels(app: &tauri::AppHandle) {
-    for label in [
-        "keyboard-panel",
+fn release_panel_focus(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+) -> Result<(), HostActionError> {
+    if !matches!(target, PanelInputTarget::Wayland | PanelInputTarget::Ydotool) {
+        return Ok(());
+    }
+    let windows: Vec<_> = [
         "handwriting-panel",
         "emoji-panel",
         "voice-panel",
         "cloud-clipboard-panel",
         "cloud-dictionary-panel",
-    ] {
-        if let Some(window) = app.get_webview_window(label) {
-            let _ = window.hide();
-        }
+    ]
+    .into_iter()
+    .filter_map(|label| app.get_webview_window(label))
+    .collect();
+    let mut focused = false;
+    for window in &windows {
+        focused |= window.is_focused().map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
     }
+    if focused {
+        // Hide every editable panel so the compositor cannot focus another one.
+        // The screen keyboard never accepts focus and stays available for typing.
+        for window in windows {
+            window.hide().map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1237,14 +1258,13 @@ fn send_panel_key(
         let mut command_args = Vec::with_capacity(args.len() + 1);
         command_args.push("key".to_owned());
         command_args.extend(args);
+        release_panel_focus(app, &target)?;
         return run_ydotool(&command_args);
     }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
-    }
+    release_panel_focus(app, &target)?;
     let mut args = Vec::new();
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
@@ -1270,6 +1290,7 @@ fn send_panel_text_to_target(
     target: &PanelInputTarget,
     text: &str,
 ) -> Result<(), HostActionError> {
+    release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
         let status = std::process::Command::new("xdotool")
             .args(["type", "--window", window.as_str(), "--delay", "0", "--", text])
@@ -1289,9 +1310,6 @@ fn send_panel_text_to_target(
             "--".to_owned(),
             text.to_owned(),
         ]);
-    }
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
     }
     run_wtype(target, &["--".to_owned(), text.to_owned()])
 }
@@ -1323,6 +1341,7 @@ fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
+    release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
         let status = std::process::Command::new("xdotool")
             .args(["key", "--window", window.as_str(), "ctrl+v"])
@@ -1342,9 +1361,6 @@ fn send_panel_ctrl_v(
             "47:0".to_owned(),
             "29:0".to_owned(),
         ]);
-    }
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
     }
     run_wtype(
         target,
@@ -1999,10 +2015,6 @@ async fn paste_clipboard_text(
         tauri::async_runtime::spawn_blocking(move || {
             if !write_linux_clipboard(&text) {
                 return Err(HostActionError { code: "unavailable" });
-            }
-            if matches!(target, PanelInputTarget::Wayland | PanelInputTarget::Ydotool) {
-                hide_linux_panels(&app);
-                std::thread::sleep(std::time::Duration::from_millis(50));
             }
             send_panel_ctrl_v(&app, &target)
         })
