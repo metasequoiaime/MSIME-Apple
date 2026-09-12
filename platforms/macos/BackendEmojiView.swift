@@ -126,24 +126,20 @@ struct MacEmojiView: View {
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: category == "clipboard" ? MacClipboardPreview.gap : 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
-                HStack {
+                if category == "clipboard" {
+                  MacEmojiClipboardRow(text: item.text, palette: palette, selected: selectedIndex == index,
+                    deleting: deletingHistory, copy: { selectedIndex = index; copyItem(item) },
+                    remove: { removeHistory(item.text) })
+                    .id(index)
+                } else {
                 Button(item.text) { selectedIndex = index; copyItem(item) }
                   .font(usesWideCells ? .body : .title2)
-                  .lineLimit(category == "clipboard" ? 3 : nil)
                   .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
                   .id(index)
                   .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
                   .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
-                  if category == "clipboard" {
-                    Spacer(minLength: 4)
-                    Button { removeHistory(item.text) } label: { Image(systemName: "trash") }
-                      .buttonStyle(.plain)
-                      .accessibilityLabel("删除此条历史记录")
-                      .help("删除此条历史记录，不会清空系统剪贴板")
-                      .disabled(deletingHistory)
-                  }
                 }
               }
             }
