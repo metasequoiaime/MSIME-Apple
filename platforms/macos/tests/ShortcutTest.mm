@@ -666,6 +666,68 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     assert([[controller valueForKey:@"view"] isEqual:punctuationView]);
 }
 
+static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    assert(appearance.characterSetShortcut);
+    NSDictionary *keys = @{@"toggle_character_set_ctrl_shift_f":@NO, @"switch_language_shift":@NO};
+    assert([[appearance sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
+    assert(![appearance sharedPreferencesByMerging:@{}][@"keybindings"]);
+    [appearance applySharedInputPreferences:@{@"keybindings":keys}];
+    assert(!appearance.characterSetShortcut);
+    [appearance applySharedInputPreferences:@{@"keybindings":@{@"toggle_character_set_ctrl_shift_f":@"invalid"}}];
+    [appearance applySharedInputPreferences:@{@"keybindings":@"invalid"}];
+    assert(!appearance.characterSetShortcut);
+    NSButton *button = (id)PreferenceControl(appearance, NSSelectorFromString(@"characterSetShortcutChanged:"));
+    assert(button.state == NSControlStateValueOff);
+    button.state = NSControlStateValueOn;
+    [NSApp sendAction:button.action to:button.target from:button];
+    assert(appearance.characterSetShortcut);
+    NSDictionary *merged = [appearance sharedPreferencesByMerging:@{@"keybindings":keys}];
+    assert(([merged[@"keybindings"] isEqual:@{@"toggle_character_set_ctrl_shift_f":@YES, @"switch_language_shift":@NO}]));
+    NSDictionary *patch = [appearance sharedPreferencesByMerging:@{}];
+    assert([patch[@"keybindings"] isEqual:@{@"toggle_character_set_ctrl_shift_f":@YES}]);
+    assert([MSIMEMergePreferenceSnapshot(@{@"keybindings":keys}, patch)[@"keybindings"] isEqual:merged[@"keybindings"]]);
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    NSDictionary *view = @{@"editing_text":@"test", @"candidates":@[]};
+    [controller setValue:view forKey:@"view"];
+    const BOOL english = appearance.englishMode, traditional = appearance.traditionalOutput;
+    const BOOL fullWidth = appearance.fullWidthInput, punctuation = appearance.chinesePunctuation;
+    appearance.englishMode = NO;
+    session.lastCommand = UINT32_MAX;
+    NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    assert([controller handleEvent:ModeKey(3, flags, NO) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([controller handleEvent:ModeKey(3, flags, YES) client:client]);
+    assert(appearance.traditionalOutput != traditional);
+    assert([[controller valueForKey:@"view"] isEqual:view]);
+    assert(session.lastCommand == UINT32_MAX && client.committed == nil);
+    assert([controller handleEvent:ModeKey(3, flags | NSEventModifierFlagCapsLock, NO) client:client]);
+    assert(appearance.traditionalOutput == traditional);
+    appearance.englishMode = YES;
+    assert([controller handleEvent:ModeKey(3, flags, NO) client:client]);
+    assert(appearance.traditionalOutput == traditional && appearance.englishMode);
+    for (NSUInteger mask = 0; mask < 16; ++mask) {
+        NSEventModifierFlags mods = (mask & 1 ? NSEventModifierFlagControl : 0) |
+            (mask & 2 ? NSEventModifierFlagShift : 0) | (mask & 4 ? NSEventModifierFlagOption : 0) |
+            (mask & 8 ? NSEventModifierFlagCommand : 0);
+        assert([controller handleEvent:ModeKey(3, mods, NO) client:client] == (mask == 3));
+        assert(appearance.traditionalOutput == traditional);
+    }
+    assert(![controller handleEvent:ModeKey(2, flags, NO) client:client]);
+    [appearance applySharedInputPreferences:@{@"keybindings":keys}];
+    assert(![controller handleEvent:ModeKey(3, flags, NO) client:client]);
+    appearance.characterSetShortcut = NO;
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] characterSetShortcut]);
+    appearance.characterSetShortcut = YES;
+    appearance.englishMode = english;
+    assert(appearance.fullWidthInput == fullWidth && appearance.chinesePunctuation == punctuation);
+}
+
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
@@ -1686,6 +1748,7 @@ int main() {
         TestInputMode(defaults, appearance);
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
+        TestCharacterSetShortcut(defaults, appearance);
         TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
