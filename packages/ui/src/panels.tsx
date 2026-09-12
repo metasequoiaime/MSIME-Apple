@@ -70,6 +70,8 @@ export interface EmojiPanelClient extends PanelClient {
   copyText?(text: string): Promise<void>;
   clipboard?: {
     list?(): Promise<string[]>;
+    isEnabled?(): Promise<boolean>;
+    enable?(): Promise<void>;
     onChanged?(listener: () => void): Promise<() => void>;
     sync?(): Promise<string[]>;
     remove?(text: string): Promise<void>;
@@ -689,6 +691,7 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
   });
   const [clipboard, setClipboard] = useState<string[]>([]);
   const [clipboardBusy, setClipboardBusy] = useState(false);
+  const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardMutation = useRef(false);
   const clipboardGeneration = useRef(0);
   const [notice, setNotice] = useState("点击项目即可复制");
@@ -716,8 +719,11 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
     let unsubscribe: (() => void) | undefined;
     const refresh = () => {
       const request = ++clipboardGeneration.current;
-      void client.clipboard!.list!().then(value => {
-        if (active && request === clipboardGeneration.current) setClipboard(value);
+      void Promise.all([client.clipboard!.list!(), client.clipboard?.isEnabled?.() ?? Promise.resolve(true)]).then(([value, enabled]) => {
+        if (active && request === clipboardGeneration.current) {
+          setClipboard(enabled ? value : []);
+          setClipboardEnabled(enabled);
+        }
       }).catch(() => {
         if (active && request === clipboardGeneration.current) setClipboard([]);
       });
@@ -776,8 +782,14 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
     try {
       const result = await action();
       const request = ++clipboardGeneration.current;
-      const next = client.clipboard?.list ? await client.clipboard.list() : result ?? fallback();
-      if (request === clipboardGeneration.current) setClipboard(next);
+      const [next, enabled] = await Promise.all([
+        client.clipboard?.list ? client.clipboard.list() : Promise.resolve(result ?? fallback()),
+        client.clipboard?.isEnabled?.() ?? Promise.resolve(true),
+      ]);
+      if (request === clipboardGeneration.current) {
+        setClipboard(enabled ? next : []);
+        setClipboardEnabled(enabled);
+      }
       setNotice(message);
     } catch {
       setNotice("无法更新剪贴板历史");
@@ -785,6 +797,10 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
       clipboardMutation.current = false;
       setClipboardBusy(false);
     }
+  }
+
+  function enableClipboard() {
+    if (client.clipboard?.enable) return changeClipboard(client.clipboard.enable, () => [], "剪贴板历史已开启");
   }
 
   function syncClipboard() {
@@ -834,8 +850,8 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
     </nav>
     {isDetail && <div className="emoji-panel-back"><button type="button" aria-label="返回" onClick={() => selectPage("home")}>‹ 返回</button></div>}
     {page === "clipboard" ? <section className="emoji-panel-content clipboard-panel-content" aria-label="剪贴板历史">
-      <div className="emoji-panel-toolbar"><h2>剪贴板</h2><div className="clipboard-panel-actions">{client.clipboard?.sync && <button type="button" disabled={clipboardBusy} onClick={() => void syncClipboard()}>同步</button>}{client.clipboard?.clear && <button type="button" disabled={clipboardBusy || !clipboard.length} onClick={() => void clearClipboard()}>清空历史</button>}</div></div>
-      {clipboard.length ? <div className="clipboard-panel-list">{clipboard.filter(item => matchesEmojiItem({ text: item, keywords: item }, query)).map(item => <div className="clipboard-panel-row" key={item}><button type="button" className="clipboard-panel-item" disabled={clipboardBusy} onClick={() => void copy(item, true)}>{item}</button>{client.clipboard?.paste && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="粘贴此条记录到原应用" onClick={() => void pasteClipboard(item)}>粘贴</button>}{client.clipboard?.remove && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="删除此条记录" onClick={() => void removeClipboard(item)}>删除</button>}</div>)}</div> : <p className="emoji-panel-empty">暂无剪贴板记录</p>}
+      <div className="emoji-panel-toolbar"><h2>剪贴板</h2><div className="clipboard-panel-actions">{client.clipboard?.sync && <button type="button" disabled={clipboardBusy || clipboardEnabled === false} onClick={() => void syncClipboard()}>同步</button>}{client.clipboard?.clear && <button type="button" disabled={clipboardBusy || !clipboard.length} onClick={() => void clearClipboard()}>清空历史</button>}</div></div>
+      {clipboardEnabled === false ? <div className="emoji-panel-empty"><p>剪贴板历史已关闭</p><p>开启后保存复制过的文本；关闭会清空历史。</p>{client.clipboard?.enable && <button type="button" disabled={clipboardBusy} onClick={() => void enableClipboard()}>开启剪贴板历史</button>}</div> : clipboard.length ? <div className="clipboard-panel-list">{clipboard.filter(item => matchesEmojiItem({ text: item, keywords: item }, query)).map(item => <div className="clipboard-panel-row" key={item}><button type="button" className="clipboard-panel-item" disabled={clipboardBusy} onClick={() => void copy(item, true)}>{item}</button>{client.clipboard?.paste && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="粘贴此条记录到原应用" onClick={() => void pasteClipboard(item)}>粘贴</button>}{client.clipboard?.remove && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="删除此条记录" onClick={() => void removeClipboard(item)}>删除</button>}</div>)}</div> : <p className="emoji-panel-empty">暂无剪贴板记录</p>}
     </section> : page === "sticker" || page === "gif" ? <p className="emoji-panel-empty">{page === "sticker" ? "贴纸来源可在这里接入" : "GIF 来源可在这里接入"}</p> : <section className="emoji-panel-content" aria-label={page === "home" ? "最近使用与目录" : page === "emoji" ? "Emoji 目录" : page === "kaomoji" ? "颜文字目录" : "符号目录"}>
       {page === "home" && recent.length > 0 && <div className="emoji-panel-toolbar"><span>最近使用</span><button type="button" onClick={clearRecent}>清除最近使用</button></div>}
       {displayGroups.map((group, groupIndex) => <div className="emoji-panel-group" key={group.title}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{page === "home" && groupIndex > 0 && <button type="button" onClick={() => selectPage(group.title === "Emoji" ? "emoji" : group.title === "Kaomoji" ? "kaomoji" : "symbols")}>更多</button>}</div><div className="emoji-panel-grid">{group.items.map(item => <button type="button" className="emoji-panel-item" key={`${group.title}-${item.text}`} title={item.keywords} onClick={() => void copy(item.text)}>{item.text}</button>)}</div></div>)}

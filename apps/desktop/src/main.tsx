@@ -98,7 +98,23 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<string[]>("list_clipboard_history"),
-    onChanged: listener => listen("clipboard-history-changed", () => listener()),
+    isEnabled: async () => (await client.load()).preferences.clipboard_history,
+    enable: async () => {
+      const snapshot = await client.load();
+      if (!snapshot.preferences.clipboard_history) {
+        await client.save(snapshot.revision, { ...snapshot.preferences, clipboard_history: true });
+      }
+    },
+    onChanged: async listener => {
+      const stopHistory = await listen("clipboard-history-changed", () => listener());
+      try {
+        const stopPreferences = await listen("preferences-changed", () => listener());
+        return () => { stopHistory(); stopPreferences(); };
+      } catch (error) {
+        stopHistory();
+        throw error;
+      }
+    },
     remove: text => invoke("remove_clipboard_history", { text }),
     clear: () => invoke("clear_clipboard_history"),
     sync: () => invoke<string[]>("sync_clipboard_history"),
