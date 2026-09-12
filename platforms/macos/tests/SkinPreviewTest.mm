@@ -1,7 +1,86 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
+#import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>
+
+static NSView *FindControl(NSView *root, NSString *label) {
+    if ([root.accessibilityLabel isEqual:label]) return root;
+    for (NSView *child in root.subviews) {
+        NSView *found = FindControl(child, label);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static NSString *RenderedFamily(NSFont *font) {
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:@"合" attributes:@{NSFontAttributeName:font}];
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)text);
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    assert(CFArrayGetCount(runs) == 1);
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, 0);
+    CTFontRef actual = (CTFontRef)CFDictionaryGetValue(CTRunGetAttributes(run), kCTFontAttributeName);
+    NSString *family = CFBridgingRelease(CTFontCopyFamilyName(actual));
+    CFRelease(line);
+    return family;
+}
+
+static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
+    NSComboBox *entry = (id)FindControl(preferences.window.contentView, @"添加补充字体");
+    NSPopUpButton *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
+    assert(entry && list);
+    NSString *sans = [NSFont fontWithName:@"PingFangSC-Regular" size:18].familyName;
+    NSString *serif = [NSFont fontWithName:@"STSongti-SC-Regular" size:18].familyName;
+    assert(sans && serif);
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_fallback_fonts": @[sans, serif]}];
+    assert(notifications == 0 && list.numberOfItems == 2);
+    assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:sans]);
+    [list selectItemAtIndex:1];
+    [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontUp:") to:preferences from:nil];
+    assert([preferences.fallbackFonts.firstObject isEqual:serif]);
+    assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:serif]);
+    [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontDown:") to:preferences from:nil];
+    assert([preferences.fallbackFonts.firstObject isEqual:sans]);
+    entry.stringValue = @"MSIME Synthetic Unavailable Supplement";
+    [NSApp sendAction:NSSelectorFromString(@"addFallbackFont:") to:preferences from:entry];
+    assert(preferences.fallbackFonts.count == 3 && list.indexOfSelectedItem == 2);
+    [NSApp sendAction:NSSelectorFromString(@"removeFallbackFont:") to:preferences from:nil];
+    assert(preferences.fallbackFonts.count == 2);
+    MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+    assert([reloaded.fallbackFonts isEqual:preferences.fallbackFonts]);
+    NSArray *saved = preferences.fallbackFonts;
+    for (id invalid in @[@"bad", NSNull.null, @[@""], @[@YES], @[[ @"字" stringByPaddingToLength:43 withString:@"字" startingAtIndex:0]]]) {
+        [preferences applySharedCandidatePreferences:@{@"candidate_fallback_fonts": invalid}];
+        assert([preferences.fallbackFonts isEqual:saved]);
+    }
+    NSMutableArray *limit = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 32; ++i) [limit addObject:sans];
+    preferences.fallbackFonts = limit;
+    assert(preferences.fallbackFonts.count == 32 && list.numberOfItems == 32);
+    [limit addObject:serif];
+    preferences.fallbackFonts = limit;
+    assert(preferences.fallbackFonts.count == 32);
+    NSUInteger countAtLimit = notifications;
+    entry.stringValue = serif;
+    [NSApp sendAction:NSSelectorFromString(@"addFallbackFont:") to:preferences from:entry];
+    assert(preferences.fallbackFonts.count == 32 && notifications == countAtLimit);
+    NSMutableString *mutableFamily = [sans mutableCopy];
+    NSMutableArray *mutableFonts = [NSMutableArray arrayWithObject:mutableFamily];
+    [preferences applySharedCandidatePreferences:@{@"candidate_fallback_fonts": mutableFonts}];
+    [mutableFamily appendString:@" synthetic mutation"];
+    [mutableFonts removeAllObjects];
+    assert(([preferences.fallbackFonts isEqual:@[sans]]));
+    preferences.fontFamily = @"MSIME Synthetic Unavailable Primary";
+    preferences.fallbackFonts = @[@"MSIME Synthetic Unavailable Supplement", serif];
+    assert([[preferences candidateFontOfSize:18].familyName isEqual:serif]);
+    preferences.fallbackFonts = @[];
+    assert([[preferences sharedPreferencesByMerging:@{@"candidate_fallback_fonts": @[sans]}][@"candidate_fallback_fonts"] isEqual:@[]]);
+    assert([[preferences candidateFontOfSize:18].fontName isEqual:[NSFont systemFontOfSize:18].fontName]);
+    preferences.fontFamily = @"Segoe UI";
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+}
 
 static NSBitmapImageRep *Draw(MSIMECandidatePreviewView *preview) {
     [preview.superview layoutSubtreeIfNeeded];
@@ -141,6 +220,7 @@ int main(int argc, const char **argv) {
         [NSApp sendAction:familyControl.action to:familyControl.target from:familyControl];
         assert([familyControl.stringValue isEqual:installedFamily]);
         preferences.fontFamily = @"Segoe UI";
+        TestFallbackFonts(preferences, defaults);
         // Shared updates do not persist or notify; native controls own explicit edits.
         NSUInteger beforeShared = notifications;
         [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": @32, @"candidate_preedit_style": @"empty"}];

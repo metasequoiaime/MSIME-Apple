@@ -24,7 +24,7 @@ int main() {
         NSMutableDictionary<NSString *, NSButton *> *buttons = [NSMutableDictionary dictionary];
         for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
             NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if (control.action == NSSelectorFromString(@"localModeChanged:")) buttons[control.identifier] = (id)control;
+            if ([control isKindOfClass:NSControl.class] && control.action == NSSelectorFromString(@"localModeChanged:")) buttons[control.identifier] = (id)control;
         }
         assert(buttons.count == 8);
         for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese"]) {

@@ -120,7 +120,7 @@ int main(int argc, const char **argv) {
         NSButton *browse = nil;
         for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
             NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if (control.action == NSSelectorFromString(@"showSkinCatalog:")) browse = (id)control;
+            if ([control isKindOfClass:NSControl.class] && control.action == NSSelectorFromString(@"showSkinCatalog:")) browse = (id)control;
         }
         assert([browse.title isEqual:@"浏览所有皮肤…"] && [preferences respondsToSelector:browse.action]);
         NSWindowController *catalogWindow = [preferences skinCatalogController];
