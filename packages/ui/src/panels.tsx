@@ -1,6 +1,6 @@
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "./use-emoji-navigation";
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
 
 export interface KeyboardInputRequest {
@@ -1177,11 +1177,13 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardMutation = useRef(false);
   const clipboardGeneration = useRef(0);
+  const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(null);
   const [notice, setNotice] = useState("点击项目即可复制");
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
 
   useEffect(() => {
     clipboardMutation.current = false;
+    deletedRowFocus.current = null;
     setClipboardBusy(false);
     return () => { operationRevision.current++; };
   }, [client]);
@@ -1376,7 +1378,14 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }
 
   function removeClipboard(text: string) {
-    if (client.clipboard?.remove) return changeClipboard(() => client.clipboard!.remove!(text), () => clipboard.filter(item => item !== text), "记录已删除");
+    if (!client.clipboard?.remove || clipboardMutation.current) return;
+    const panel = navigation.ref.current;
+    const focused = panel?.ownerDocument.activeElement;
+    const rows = Array.from(panel?.querySelectorAll<HTMLElement>(".clipboard-panel-row") ?? []);
+    const index = rows.findIndex(row => focused != null && row.contains(focused));
+    if (focused instanceof HTMLElement && index >= 0)
+      deletedRowFocus.current = { element: focused, index, query };
+    return changeClipboard(() => client.clipboard!.remove!(text), () => clipboard.filter(item => item !== text), "记录已删除");
   }
 
   function clearClipboard() {
@@ -1407,6 +1416,25 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       void closeEmoji();
     }
   }, JSON.stringify([page, query, activeCategory]));
+  useLayoutEffect(() => {
+    const pending = deletedRowFocus.current;
+    if (!pending) return;
+    if (page !== "clipboard" || query !== pending.query) {
+      deletedRowFocus.current = null;
+      return;
+    }
+    if (clipboardBusy) return;
+    deletedRowFocus.current = null;
+    const panel = navigation.ref.current;
+    if (!panel || pending.element.isConnected) return;
+    const focused = panel.ownerDocument.activeElement;
+    if (focused && focused !== panel.ownerDocument.body && focused !== pending.element) return;
+    const items = Array.from(panel.querySelectorAll<HTMLButtonElement>(".clipboard-panel-item:not(:disabled)"));
+    const target = items[Math.min(pending.index, items.length - 1)]
+      ?? panel.querySelector<HTMLInputElement>(".emoji-panel-search input");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [clipboard, clipboardBusy, page, query]);
   return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" disabled={clipboardBusy} onClick={() => void closeEmoji()}>×</button></header>
     <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : "Search emoji, kaomoji, and symbols"} /></div>
