@@ -51,23 +51,31 @@ struct MacEmojiPalette {
 
 struct MacEmojiCellStyle: ButtonStyle {
   let palette: MacEmojiPalette
+  var selected = false
   func makeBody(configuration: Configuration) -> some View {
-    Cell(configuration: configuration, palette: palette)
+    Cell(configuration: configuration, palette: palette, selected: selected)
   }
 
   private struct Cell: View {
     let configuration: ButtonStyleConfiguration
     let palette: MacEmojiPalette
+    let selected: Bool
     @State private var hovered = false
     var body: some View {
       configuration.label
         .frame(maxWidth: .infinity, minHeight: 36)
         .background(fill, in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+          if selected {
+            RoundedRectangle(cornerRadius: 10)
+              .strokeBorder(MacEmojiPalette.color(palette.background == 0xF7F7FA ? palette.accent : 0xF0F0F4), lineWidth: 2)
+          }
+        }
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onHover { hovered = $0 }
     }
     private var fill: Color {
-      palette.cellFill(hovered: hovered, isPressed: configuration.isPressed)
+      palette.cellFill(hovered: hovered || selected, isPressed: configuration.isPressed)
         .map(MacEmojiPalette.color) ?? .clear
     }
   }

@@ -15,6 +15,7 @@ struct MacEmojiView: View {
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
   @State private var offset = 0
+  @State private var selectedIndex = 0
   @State private var loadedQuery: [String] = []
   private var queryID: [String] { [search, category, group, String(offset)] }
   @State private var items: [MacEmojiCatalogItem] = []
@@ -49,14 +50,26 @@ struct MacEmojiView: View {
         Button("下一页") { offset += 255 }
           .disabled(loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
       }
-      ScrollView {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
-          ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { _, item in
-            Button(item.text) { onSelect(item.text) }
-              .font(category == "kaomoji" ? .body : .title2)
-              .buttonStyle(MacEmojiCellStyle(palette: palette))
-              .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
-              .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
+      ScrollViewReader { proxy in
+        VStack(spacing: 4) {
+          MacEmojiKeyboardEntry(enabled: loadedQuery == queryID && !items.isEmpty) { command in
+            guard loadedQuery == queryID,
+                  let index = command.destination(from: selectedIndex, count: items.count, columns: category == "kaomoji" ? 3 : 8) else { return }
+            selectedIndex = index
+            proxy.scrollTo(index)
+            if case .activate = command { onSelect(items[index].text) }
+          }.frame(height: 24)
+          ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
+              ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
+                Button(item.text) { selectedIndex = index; onSelect(item.text) }
+                  .font(category == "kaomoji" ? .body : .title2)
+                  .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
+                  .id(index)
+                  .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
+                  .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
+              }
+            }
           }
         }
       }
@@ -88,6 +101,7 @@ struct MacEmojiView: View {
       }
       .task(id: queryID) {
         items = []
+        selectedIndex = 0
         loadedQuery = []
         status = "正在加载…"
         do {
