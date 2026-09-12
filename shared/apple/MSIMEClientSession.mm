@@ -286,6 +286,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_select(_handle, generation, index), error);
 }
+- (nullable NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_select_edge(_handle, generation, index, edge), error);
+}
 - (nullable NSDictionary *)viewWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_view(_handle), error);

@@ -63,4 +63,6 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) NSInteger pageShortcut;
 - (BOOL)navigationEnabled:(NSString *)key;
 - (void)setNavigation:(NSString *)key enabled:(BOOL)enabled;
+- (NSDictionary *)wordCharacterOptions;
+- (void)setWordCharacterEnabled:(BOOL)enabled keys:(NSString *)keys;
 @end

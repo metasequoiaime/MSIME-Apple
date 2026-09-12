@@ -308,6 +308,17 @@ int main(int argc, const char **argv) {
         assert(![preferences navigationEnabled:@"brackets"]);
         [preferences applySharedCandidatePreferences:@{@"word_character": @{@"enabled": @NO, @"keys": @"brackets"}}];
         preferences.pageShortcut = 0;
+        NSButton *wordControl = (id)FindControl(preferences.window.contentView, @"以词定字");
+        assert(wordControl);
+        wordControl.state = NSControlStateValueOn;
+        [NSApp sendAction:wordControl.action to:wordControl.target from:wordControl];
+        assert([[preferences wordCharacterOptions][@"enabled"] boolValue]);
+        MSIMEAppearancePreferences *wordReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert([[wordReloaded wordCharacterOptions][@"enabled"] boolValue]);
+        [wordReloaded setNavigation:@"brackets" enabled:YES];
+        assert(![wordReloaded navigationEnabled:@"brackets"]);
+        assert([preferences sharedPreferencesByMerging:@{}][@"word_character"] != nil);
+        [preferences setWordCharacterEnabled:NO keys:@"brackets"];
         NSTextField *colorField = (id)FindControl(preferences.window.contentView, @"候选文字颜色");
         NSColorWell *colorWell = (id)FindControl(preferences.window.contentView, @"选择候选文字颜色");
         assert(colorField && colorWell);

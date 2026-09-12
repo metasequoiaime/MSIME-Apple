@@ -49,6 +49,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
+@property(nonatomic) NSUInteger edgeCalls;
+@property(nonatomic) uint8_t lastEdge;
+@property(nonatomic) uint64_t edgeGeneration;
+@property(nonatomic) NSUInteger edgeIndex;
 @property(nonatomic, copy) NSDictionary *nextTransition;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
@@ -61,6 +65,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error {
+    (void)error; ++self.edgeCalls; self.lastEdge = edge; self.edgeGeneration = generation; self.edgeIndex = index;
+    return self.nextTransition;
+}
 - (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error;
     self.chinesePunctuation = enabled;
@@ -1239,6 +1247,28 @@ int main() {
             assert(![controller handleEvent:event client:client]);
             assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
         }
+        NSDictionary *beforeWordView = [controller valueForKey:@"view"];
+        NSDictionary *beforeWordTransition = session.nextTransition;
+        for (NSString *keys in @[@"brackets", @"minus_equal"]) {
+            [appearance setNavigation:keys enabled:NO];
+            [appearance setWordCharacterEnabled:YES keys:keys];
+            for (NSUInteger edge = 0; edge < 2; ++edge) {
+                NSDictionary *edgeView = @{@"session": @71, @"generation": @72, @"focused": @YES, @"editing_text": @"synthetic",
+                    @"candidates": @[@{@"text": @"合成", @"highlighted": @YES, @"id": @{@"session": @71, @"generation": @72, @"index": @8}}]};
+                [controller setValue:edgeView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                NSString *character = [keys isEqual:@"brackets"] ? (edge ? @"]" : @"[") : (edge ? @"=" : @"-");
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:0];
+                NSUInteger calls = session.edgeCalls;
+                session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
+                assert([controller handleEvent:event client:client]);
+                assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
+            }
+            [appearance setWordCharacterEnabled:NO keys:keys];
+        }
+        [controller setValue:beforeWordView forKey:@"view"];
+        session.nextTransition = beforeWordTransition;
+        appearance.pageShortcut = 0;
         for (NSArray *entry in @[@[@"comma_period", @",", @0, @(MSIME_PREVIOUS_PAGE)],
                                  @[@"comma_period", @".", @0, @(MSIME_NEXT_PAGE)],
                                  @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE)],
