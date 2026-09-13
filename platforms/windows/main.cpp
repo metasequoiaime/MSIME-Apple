@@ -478,6 +478,8 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
+    if (config.floating_toolbar_x && config.floating_toolbar_y)
+      toolbar.set_position(POINT{*config.floating_toolbar_x, *config.floating_toolbar_y});
     toolbar.set_character_set_reader([traditional_output] {
       return std::optional<bool>(
           traditional_output->load(std::memory_order_acquire));

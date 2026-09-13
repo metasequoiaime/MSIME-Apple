@@ -22,6 +22,7 @@ public:
   void set_scale(double scale) { scale_ = scale; }
   void set_font_size(int size) { font_size_ = size; }
   void set_items(std::array<bool, 6> items) { items_ = items; }
+  void set_position(std::optional<POINT> position) { dragged_position_ = position; }
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {
     character_set_reader_ = std::move(reader);
   }
