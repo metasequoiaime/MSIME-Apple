@@ -7,41 +7,6 @@
 extern "C" {
 #endif
 
-/* Host-neutral focus lease and key event contract. Values are opaque to the ABI. */
-typedef struct msime_client_focus_lease {
-  uint64_t client;
-  uint64_t epoch;
-  uint64_t token;
-} msime_client_focus_lease;
-
-typedef struct msime_client_key_event {
-  msime_client_focus_lease lease;
-  uint32_t virtual_key;
-  uint32_t scan_code;
-  uint32_t modifiers;
-  uint32_t character;
-  bool ui_less;
-} msime_client_key_event;
-
-/* Outcome for platform key-router writes. Only definitely-not-sent may use a
- * local fallback; ambiguous delivery must wait for lease recovery. */
-typedef enum msime_client_key_dispatch_result {
-  MSIME_CLIENT_KEY_SENT = 0,
-  MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT = 1,
-  MSIME_CLIENT_KEY_DELIVERY_AMBIGUOUS = 2,
-} msime_client_key_dispatch_result;
-
-static inline bool msime_client_key_dispatch_allows_fallback(
-    msime_client_key_dispatch_result result) {
-  return result == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT;
-}
-
-static inline bool msime_client_key_event_valid(const msime_client_key_event *event) {
-  return event != NULL && event->lease.client != 0 && event->lease.epoch != 0 &&
-         event->lease.token != 0 && event->virtual_key <= 0xff &&
-         (event->modifiers & ~UINT32_C(0x0f)) == 0;
-}
-
 /* ABI 1. All functions return owned, NUL-terminated UTF-8 JSON. Free exactly once
  * using msime_client_string_free, including error responses. Never use free().
  * Responses: {"ok":true,"value":...} or {"ok":false,"error":"..."}.
@@ -141,9 +106,7 @@ char *msime_client_capture_clipboard_history(const uint8_t *request, size_t leng
  * Busy is not missing/corrupt and must not reset preferences to defaults. */
 char *msime_client_try_load_preferences(const uint8_t *directory, size_t length);
 /* Compare-and-swap save of PreferencesSnapshot.preferences. The snapshot's
- * format_version is validated; expected_revision must match the store.
- * A disabled clipboard-history save clears the default history file if history
- * is still disabled. Cleanup errors may be returned after preferences are saved. */
+ * format_version is validated; expected_revision must match the store. */
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
@@ -164,46 +127,9 @@ char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
-/* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
- * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
- * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
- * Descriptor can contain credentials: never log it. Host enforces timeout/size,
- * rejects redirects and checks HTTP status before parsing. Text <=40 scalars. */
-char *msime_client_custom_translation_http_request(const uint8_t *request, size_t length);
-/* Pure visible-page plan <=64 KiB: {target_language,candidates:[{text,source}]}.
- * Returns [{text,key,source_language,target_language}]; at most nine candidates. */
-char *msime_client_custom_translation_plan(const uint8_t *request, size_t length);
-/* Pure signed TMT descriptor <=64 KiB. Input: {config:{enabled,secret_id,
- * secret_key,region},texts:[string],source_language,target_language,timestamp}.
- * Send body_utf8 bytes unchanged. Never log this credential-bearing descriptor. */
-char *msime_client_tencent_translation_http_request(const uint8_t *request, size_t length);
-// Pure AI descriptor from {config:AI preferences,input:{segmented_pinyin,context,candidate_limit}}.
-// Input <=64KiB. Result contains credentials; never log it. Host must forbid redirects.
-char *msime_client_ai_http_request(const uint8_t *request, size_t length);
-// Successful HTTP body <=1MiB, limit 1..10. Returns a string array or null.
-char *msime_client_parse_ai_response(const uint8_t *body, size_t length, uint8_t limit);
-// Worker-thread disk I/O. JSON <=64KiB: {directory:absolute private user path,
-// action:lookup|remember,target_language,generation,items:[{text,direction,translation?}]}.
-// At most 9 items, directions english_to_chinese/chinese_to_english. Remember
-// requires translation; lookup forbids it. Returns {generation,translations,saved}.
-// Never pass packaged resources. Learned text is private; never log requests.
-// A malformed batch makes no writes; an I/O failure can leave earlier items saved.
-// New writes use Engine translation-glosses.db; old JSON records remain read-only fallback.
-char *msime_client_learned_translation_request(const uint8_t *request, size_t length);
-/* Returns [string|null] with exact expected count (1..9), or null for invalid body. */
-char *msime_client_parse_tencent_translation_response(const uint8_t *body, size_t length, size_t expected);
-/* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
- * malformed/no result. No session mutation; host validates original identity. */
-char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t length);
 /* Apply JSON [{"text":"candidate","translation":"gloss"}] for a candidate generation. */
 char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
-/* Resolve copied candidates against the packaged offline English dictionary.
- * JSON request: {generation,candidates:[{text,source}]}; the generation is
- * echoed for the host to pass to apply_translations on the session thread.
- * This function owns no session handle and may run on a worker thread. */
-char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
-                                           const uint8_t *resources, size_t resources_length);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
@@ -276,23 +202,15 @@ char *msime_client_view(uint64_t session);
  * document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
 /* Return null or {generation,target_language,candidates:[{text}],
- * custom_translation:{enabled,endpoint,api_key}|null,
- * tencent_tmt:{enabled,secret_id,secret_key,region}|null} for visible candidates.
- * Tencent credentials are returned only when usable and enabled, and custom
- * translation is not selected. These fields are for host-owned transport;
- * never log the query. The existing target_language applies to both providers.
+ * custom_translation:{enabled,endpoint,api_key}|null} for visible candidate
+ * translations. The optional custom provider fields are present only when
+ * enabled in validated preferences and are intended for the user-owned Linux
+ * translation service.
  */
 char *msime_client_translation_query(uint64_t session);
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
  * host performs network I/O and applies the copied result separately. */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
-/* Parse a host-fetched response using the shared cloud parser. Returns
- * {applied,view}; no-result/malformed provider documents do not mutate input.
- * Query <=16 KiB, response <=256 KiB. Stale queries and disabled cloud
- * preferences (including a pending disable) cannot apply candidates. */
-char *msime_client_apply_cloud_response(uint64_t session,
-                                      const uint8_t *query, size_t query_length,
-                                      const uint8_t *body, size_t body_length);
 /* Linux: perform one bounded request to a user-owned Unix-socket provider.
  * Call from a worker thread with a copied query; returns null value when no
  * candidate is available. Credentials and network policy stay in that service. */
@@ -312,12 +230,6 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     size_t request_length,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
-/* Persist {target_language,translations:[{text,translation}]} in an existing
- * absolute user-data directory. Only short changed English-target glosses are
- * saved. Candidate gloss requests may include user_data to read this overlay.
- * Maximum request size 128 KiB; path 4096 bytes. Does not access a session. */
-char *msime_client_translation_gloss_save(const uint8_t *request, size_t request_length,
-                                         const uint8_t *user_data, size_t user_data_length);
 char *msime_client_translation_provider_request(const uint8_t *query,
                                                 size_t query_length,
                                                 const uint8_t *socket_path,
@@ -369,21 +281,6 @@ char *msime_client_voice_provider_stream(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
     size_t socket_length, msime_client_voice_update_callback callback,
     void *context);
-/* Optional phase notifications: 0=recording, 1=recognizing, 2=polishing.
- * Both callbacks run synchronously on the caller thread and must not throw. */
-typedef void (*msime_client_voice_status_callback)(uint8_t phase, void *context);
-char *msime_client_voice_provider_stream_events(
-    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
-    size_t socket_length, msime_client_voice_update_callback callback,
-    msime_client_voice_status_callback status_callback, void *context);
-/* Normalized microphone level in [0, 1]; never transcript text or audio.
- * Callback runs synchronously on the caller thread and must not throw. */
-typedef void (*msime_client_voice_level_callback)(float level, void *context);
-char *msime_client_voice_provider_stream_feedback(
-    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
-    size_t socket_length, msime_client_voice_update_callback callback,
-    msime_client_voice_status_callback status_callback,
-    msime_client_voice_level_callback level_callback, void *context);
 /* Request cancellation of a provider capture session by generation. */
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,
@@ -399,14 +296,13 @@ char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *candidate,
                                            size_t candidate_length,
                                            uint8_t source);
-/* Apply a JSON array of UTF-8 strings for one source (cloud=0, AI=1).
- * Buffers are borrowed for the call; at most 16384 bytes each. */
-char *msime_client_apply_online_candidates(uint64_t session,
-                                          const uint8_t *query,
-                                          size_t query_length,
-                                          const uint8_t *candidates,
-                                          size_t candidates_length,
-                                          uint8_t source);
+/* Resolve a shared surface route ("settings", "settings:voice", "emoji", ...)
+ * so a host launches the shared shell by name. Returns the canonical route and,
+ * for panel surfaces, the window label, query and geometry. */
+char *msime_client_parse_surface_route(const uint8_t *value, size_t length);
+/* Describe what the named host ("windows"/"macos"/"linux"/"android"/"ios") can
+ * do, so the shared UI renders from capabilities rather than the user agent. */
+char *msime_client_host_capabilities(const uint8_t *platform, size_t length);
 char *msime_client_destroy(uint64_t session);
 /* value must be NULL or a still-owned pointer returned by this library. */
 void msime_client_string_free(char *value);
