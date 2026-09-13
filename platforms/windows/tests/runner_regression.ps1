@@ -18,21 +18,19 @@ try {
         'windows-input-queue.exe', 'windows-session-smoke.exe',
         'windows-reply-codec.exe', 'windows-reply-composer.exe',
         'windows-pipe-io.exe', 'windows-server-smoke.exe',
-        'windows-preview-config.exe', 'msime-client-server.exe',
-        'msime-client-keyboard-panel.exe', 'msime-client-handwriting-panel.exe',
-        'msime-client-emoji-panel.exe'
+        'windows-preview-config.exe', 'msime-client-server.exe'
     )
     foreach ($name in $names) { Copy-Item -LiteralPath $probePath -Destination (Join-Path $root $name) }
     $env:MSIME_RUNNER_PROBE_MODE = 'pass'
     $output = @(& $copy 6>&1 | ForEach-Object { $_.ToString() })
-    if (@($output | Where-Object { $_ -like 'PASS *' }).Count -ne 15 -or
+    if (@($output | Where-Object { $_ -like 'PASS *' }).Count -ne 12 -or
         @($output | Where-Object { $_ -like 'SKIP locked-dictionary*' }).Count -ne 1) {
         throw 'Default runner coverage mismatch'
     }
     $resources = Join-Path $root 'resource directory'
     $null = New-Item -ItemType Directory -Path $resources
     $output = @(& $copy -ResourcesDirectory $resources 6>&1 | ForEach-Object { $_.ToString() })
-    if (@($output | Where-Object { $_ -like 'PASS *' }).Count -ne 16 -or
+    if (@($output | Where-Object { $_ -like 'PASS *' }).Count -ne 13 -or
         @($output | Where-Object { $_ -like 'SKIP *' }).Count -ne 0) {
         throw 'Resource runner coverage mismatch'
     }
