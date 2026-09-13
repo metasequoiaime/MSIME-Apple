@@ -33,12 +33,16 @@ struct DoubaoHandshake {
 }
 
 /// iOS host-side WebSocket lifecycle for the injected client-core voice transport.
-final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate {
+final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, DoubaoVoiceTransport {
   enum Failure: Error { case notConnected, closed }
 
   private var session: URLSession?
   private var task: URLSessionWebSocketTask?
   private(set) var isConnected = false
+
+  func start(endpoint: URL) async throws {
+    try await start(endpoint: endpoint, headers: [:])
+  }
 
   func start(endpoint: URL, handshake: DoubaoHandshake) async throws {
     try await start(endpoint: endpoint, headers: handshake.headers)

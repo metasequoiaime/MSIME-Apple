@@ -7,6 +7,14 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
+schemes:
+  MSIMEDoubaoTransportTests:
+    build:
+      targets:
+        MSIMEDoubaoTransportTests: all
+    test:
+      targets:
+        - MSIMEDoubaoTransportTests
 targets:
   MSIMEClientApp:
     type: application
@@ -55,3 +63,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport
         PRODUCT_NAME: MSIMEDoubaoTransport
+        ENABLE_TESTABILITY: YES
+  MSIMEDoubaoTransportTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TransportTests
+    dependencies:
+      - target: MSIMEDoubaoTransport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport.tests
+        PRODUCT_NAME: MSIMEDoubaoTransportTests
