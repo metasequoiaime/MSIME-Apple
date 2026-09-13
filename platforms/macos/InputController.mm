@@ -845,7 +845,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
     if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
     if (!_voiceOverlay) _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
-    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; [_voiceCuePlayer playStopCue]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; [_voiceCuePlayer playStopCue]; return; }
+    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [_voiceCuePlayer playStopCue]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [_voiceCuePlayer playStopCue]; return; }
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
         MSIMEInputController *controller = weakSelf;
@@ -854,7 +854,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
-        [controller->_voiceCuePlayer playStartCue];
+        if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [controller->_voiceCuePlayer playStartCue];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
         if (socket.length) {
