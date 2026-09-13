@@ -158,6 +158,8 @@ set_target_properties(msime-client-ibus msime-client-dictionary msime-client-clo
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 
 add_executable(linux-native-compose-test tests/native_compose.cpp)
+add_executable(linux-wave-overlay-model-test tests/wave_overlay_model.cpp)
+target_compile_features(linux-wave-overlay-model-test PRIVATE cxx_std_17)
 target_compile_options(linux-native-compose-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-native-compose-test PRIVATE .)
 target_link_libraries(linux-native-compose-test PRIVATE PkgConfig::XKBCOMMON)
