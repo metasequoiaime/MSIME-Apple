@@ -1783,11 +1783,20 @@ fn focused_panel_target(state: &tauri::State<'_, PanelInputState>) -> Result<(),
 fn send_panel_key_windows(
     state: &tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
+    keyboard_panel: bool,
 ) -> Result<(), HostActionError> {
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
-    focused_panel_target(state)?;
+    // The on-screen keyboard follows whatever the user is typing into now, as
+    // the reference does with RememberInputTargetWindow on every press. The
+    // panel is WS_EX_NOACTIVATE, so the foreground genuinely is the editor;
+    // re-focusing the handle captured when the panel opened sent every key to
+    // a window the user may have left several clicks ago. Other panels keep
+    // their original destination, which is what being edited implies.
+    if !keyboard_panel || !msime_host_windows::foreground_is_external() {
+        focused_panel_target(state)?;
+    }
     // Sticky modifiers only travel with keys the panel marked as inheriting
     // them; shift always applies to the key being sent.
     let sticky = request.include_sticky_modifiers;
@@ -1936,7 +1945,7 @@ async fn send_key(
         .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(target_os = "windows")]
-    return send_panel_key_windows(&state, request);
+    return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, request);
