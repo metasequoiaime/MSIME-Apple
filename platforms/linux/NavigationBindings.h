@@ -19,6 +19,8 @@ inline std::optional<uint32_t> touch_keyboard_command(guint key) {
   return std::nullopt;
 }
 
+// Accept the Windows compatibility name for arrow navigation while keeping
+// the shared navigation schema canonical.
 // Host key bindings only. Candidate movement and paging belong to the shared
 // runtime. IBus key values describe the active keyboard layout, not Windows
 // VKs.
@@ -38,9 +40,12 @@ struct NavigationBindings {
       const auto it = value.find(key);
       return it != value.end() && it->is_boolean() ? it->get<bool>() : fallback;
     };
+    const bool arrows = value.contains("candidate_arrow_navigation")
+                            ? get("candidate_arrow_navigation", true)
+                            : get("arrows", true);
     return {get("minus_equal", true), get("comma_period", true),
             get("brackets", false), get("tab", true),
-            get("page_up_down", true), get("arrows", true)};
+            get("page_up_down", true), arrows};
   }
 
   std::optional<uint32_t> command(guint key, bool shift) const {
