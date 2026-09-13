@@ -841,3 +841,9 @@ Windows Server 的 `ClipboardMonitor` 在 `WM_CLIPBOARDUPDATE` 成功写入有�
 Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win32 `OpenClipboard`、`CF_UNICODETEXT`、`GlobalLock` 与 `SetClipboardData` 包装，不再为普通剪贴板操作启动 PowerShell。读取严格要求有界、NUL 终止且合法的 UTF-16；写入在清空系统剪贴板前先完成内存分配和内容复制，拒绝内部 NUL 与超大 payload，失败路径释放句柄和内存。剪贴板历史仍由共享 `PreferencesStore`/`ClipboardHistoryStore` 负责归一化、加锁和持久化，文本不进入日志或跨进程事件。
 
 本地验证：`msime-host-windows` 的 x86_64/i686 Windows GNU `cargo check` 通过，桌面 Windows GNU 检查已编译通过新的 host crate 与 Tauri Rust 依赖，随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 处停止。未执行 Windows 原生剪贴板实机、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows 剪贴板粘贴到原应用
+
+共享 Emoji/剪贴板面板现在在 Windows 暴露粘贴动作：宿主先将所选历史文本写入 Unicode 系统剪贴板，再恢复面板打开前记忆的编辑器窗口并注入 Ctrl+V。目标句柄、剪贴板写入和按键注入均经过现有 host-windows 包装；文本继续受非空、NUL 和大小限制，失败不会伪造成功状态。Linux 路径保持原有选择监听与 Ctrl+V 实现，其他平台仍报告不支持。
+
+本地验证：x86_64 Windows GNU `msime-host-windows` 检查通过；桌面 Windows GNU 检查已编译通过更新后的 host crate，随后在既有 `MSIME_WINDOWS_DEPS` 环境要求处停止。未执行 Windows 原生编辑器、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
