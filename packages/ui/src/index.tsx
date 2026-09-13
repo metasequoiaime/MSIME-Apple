@@ -331,25 +331,6 @@ export function aiCredentialOrigin(endpoint: string): string | null {
   } catch { return null; }
 }
 
-/** Mirrors `usable_tencent_secret` in client-core: a placeholder is not a key. */
-export function tencentSecretConfigured(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith("<") && trimmed.endsWith(">")) return false;
-  return !trimmed.startsWith("FAKESECRET_");
-}
-
-/** Mirrors the SecretId/Region rules in `Preferences::validate`. */
-export function tencentCredentialIssue(secretId: string, secretKey: string, region: string): string {
-  if (secretId.length > 4096 || secretKey.length > 4096) return "凭据过长。";
-  if (secretId && !/^[A-Za-z0-9_-]+$/.test(secretId)) return "SecretId 只能包含字母、数字、下划线和连字符。";
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(secretKey)) return "SecretKey 不能包含控制字符。";
-  if (region.length > 64) return "地域过长。";
-  if (region && !/^[A-Za-z0-9-]+$/.test(region)) return "地域只能包含字母、数字和连字符。";
-  return "";
-}
-
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 const defaultTencentTranslation = { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" };
 const defaultNiuTrans = { enabled: false, app_id: "", apikey: "" };
@@ -1510,6 +1491,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             {(draft.navigation ?? defaultNavigation).page_up_down && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Page Up / Page Down</kbd></div>}
             {(draft.navigation ?? defaultNavigation).mouse_wheel && <div className="shortcut-row"><span>候选窗口翻页</span><kbd>鼠标滚轮</kbd></div>}
             {(draft.navigation ?? defaultNavigation).arrows && <div className="shortcut-row"><span>移动候选项</span><kbd>↑ / ↓</kbd></div>}
+            <div className="shortcut-row"><span>移动到当前候选页首 / 尾</span><kbd>Home / End</kbd></div>
             <div className="shortcut-row"><span>编辑输入串</span><kbd>← / → / Backspace</kbd></div>
             <div className="shortcut-row"><span>提交原始输入 / 取消输入</span><kbd>Enter / Esc</kbd></div>
           </div>

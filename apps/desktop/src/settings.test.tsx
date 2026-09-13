@@ -553,6 +553,7 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(await screen.findByText("候选操作")).toBeDefined();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
   expect(screen.getByText("↑ / ↓")).toBeDefined();
+  expect(screen.getByText("Home / End")).toBeDefined();
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
 
