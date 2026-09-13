@@ -44,10 +44,6 @@ IoResult read_message(HANDLE pipe, DWORD max_bytes, DWORD timeout_ms,
                       HANDLE cancel_event = nullptr);
 IoResult read_frame(HANDLE pipe, DWORD expected_bytes, DWORD timeout_ms,
                     HANDLE cancel_event = nullptr);
-// Reads one complete message from a connected message-mode pipe. Unlike
-// read_frame(), the payload may be shorter than max_bytes.
-IoResult read_message(HANDLE pipe, DWORD max_bytes, DWORD timeout_ms,
-                      HANDLE cancel_event = nullptr);
 // Established input stream only: no idle deadline, but cancellation is
 // mandatory and still drained before releasing the operation or buffer.
 // Do not use for handshakes or writes, which must retain finite deadlines.

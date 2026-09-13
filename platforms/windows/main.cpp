@@ -289,17 +289,6 @@ int wmain(int argc, wchar_t **argv) {
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);
         };
-    options.aux_pipe_name = production ? FANY_IME_AUX_NAMED_PIPE : L"";
-    options.aux_message = [&](const std::vector<uint8_t> &frame) {
-      if (frame.empty() || frame.size() % sizeof(wchar_t) != 0)
-        return;
-      const auto *message = reinterpret_cast<const wchar_t *>(frame.data());
-      const size_t length = frame.size() / sizeof(wchar_t);
-      if (std::wstring_view(message, length) == L"RestartServer") {
-        restart_requested.store(true);
-        stopping.store(true);
-      }
-    };
     WindowsServer server(
         options, prepared.at("value").dump(),
         production ? production_key_handler() : preview_key_handler(config),
@@ -507,7 +496,13 @@ int wmain(int argc, wchar_t **argv) {
         [&tray_mailbox](const TrayMenuAnchor &anchor) {
           tray_mailbox.publish(anchor);
         },
-        aux_error);
+        aux_error,
+        [](const std::wstring &message) {
+          if (message == L"RestartServer") {
+            restart_requested.store(true);
+            stopping.store(true);
+          }
+        });
     if (!aux)
       std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
     uint64_t tray_shown_at = 0;

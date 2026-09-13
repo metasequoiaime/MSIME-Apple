@@ -12,7 +12,8 @@ constexpr DWORD aux_backoff_ms = 20;
 } // namespace
 
 std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
-                                                 Sink sink, DWORD &error) {
+                                                 Sink sink, DWORD &error,
+                                                 MessageSink message_sink) {
   error = ERROR_SUCCESS;
   if (!sink) {
     error = ERROR_INVALID_PARAMETER;
@@ -29,6 +30,7 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
   }
   aux->listener_ = std::move(listener);
   aux->sink_ = std::move(sink);
+  aux->message_sink_ = std::move(message_sink);
   aux->worker_ = std::thread([raw = aux.get()] { raw->run(); });
   return aux;
 }
@@ -99,6 +101,8 @@ void AuxListener::run() {
       ++stats_.malformed;
       continue;
     }
+    if (message_sink_)
+      message_sink_(*text);
     const auto click = parse_aux_langbar_right_click(*text);
     if (!click) {
       // The other Aux verbs are not this listener's business; drop them without

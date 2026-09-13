@@ -227,7 +227,7 @@ if(WIN32)
   else()
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
-  add_library(msime-windows-server STATIC WindowsServer.cpp AuxPipeService.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
+  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
   # main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
   target_sources(msime-windows-server PRIVATE ClipboardHistory.cpp ClipboardMonitor.cpp)

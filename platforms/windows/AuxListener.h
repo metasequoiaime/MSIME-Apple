@@ -22,13 +22,15 @@ struct AuxStats {
 
 // A fourth, session-less pipe endpoint. The TSF DLL writes one message and
 // closes; there is no handshake, no registry entry and no client id, so this
-// listener deliberately holds no reference to the input path: its only output
-// is a tray anchor handed to the caller's sink.
+// listener deliberately holds no reference to the input path: its outputs are
+// a tray anchor and optional validated host-action messages.
 class AuxListener final {
 public:
   using Sink = std::function<void(const TrayMenuAnchor &)>;
+  using MessageSink = std::function<void(const std::wstring &)>;
   static std::unique_ptr<AuxListener> create(const std::wstring &name,
-                                             Sink sink, DWORD &error);
+                                             Sink sink, DWORD &error,
+                                             MessageSink message_sink = {});
   ~AuxListener();
   AuxListener(const AuxListener &) = delete;
   AuxListener &operator=(const AuxListener &) = delete;
@@ -43,6 +45,7 @@ private:
   void run();
   std::unique_ptr<PipeListener> listener_;
   Sink sink_;
+  MessageSink message_sink_;
   HANDLE cancel_ = nullptr;
   std::thread worker_;
   std::mutex stop_mutex_;
