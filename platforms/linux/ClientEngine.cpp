@@ -364,7 +364,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
-    wave_overlay = {};
+    wave_overlay.reset();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
     voice_space_consumed = false;
@@ -650,6 +650,9 @@ struct State {
     wubi_code_hint = wubi_code_hint_override.value_or(
         preferences.value("wubi_code_hint", true));
     const auto voice = preferences.value("voice_input", Json::object());
+    wave_overlay.light_theme = msime_voice_overlay_light_theme(
+        preferences.value("voice_theme", "follow"),
+        preferences.value("theme", "dark"), system_dark);
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
@@ -2987,7 +2990,7 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_stopping = false;
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.actions_visible = false;
   if (s.wave_overlay_surface && s.wave_overlay_visible)
     s.wave_overlay_surface->hide();
@@ -3008,7 +3011,7 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   ++s.voice_failure_id;
   if (s.voice_failure_id == 0)
     ++s.voice_failure_id;
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
   s.wave_overlay.actions_visible = false;
@@ -3035,7 +3038,7 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
           if (s.wave_overlay_visible && s.wave_overlay_surface) {
             s.wave_overlay_surface->hide();
             s.wave_overlay_visible = false;
-            s.wave_overlay = {};
+            s.wave_overlay.reset();
           }
         }
         return G_SOURCE_REMOVE;
@@ -3091,7 +3094,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.voice_active = true;
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.listening = true;
   s.wave_overlay.actions_visible = true;
   s.wave_overlay_visible = false;

@@ -358,7 +358,11 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   set_input_region(model.actions_visible);
   if (!model.actions_visible)
     action_pressed_ = false;
-  std::fill(pixels, pixels + kWidth * kHeight, 0xE6202124u);
+  const auto background = model.light_theme ? 0xE6F5F7FAu : 0xE6202124u;
+  const auto border = model.light_theme ? 0xFFE0E4EAu : 0xFF30343Bu;
+  const auto foreground = model.light_theme ? 0xFF202124u : 0xFFF5F7FAu;
+  const auto accent = model.light_theme ? 0xFF3367D6u : 0xFF73A7FFu;
+  std::fill(pixels, pixels + kWidth * kHeight, background);
   const auto status_color = model.locked ? 0xFFFFC857u
                            : model.compact_status == WaveOverlayModel::CompactStatus::Processing
                                ? 0xFFFF8A65u
@@ -366,7 +370,7 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   for (int y = 12; y < 64; ++y)
     for (int x = 0; x < kWidth; ++x)
       if (y < 16 || y >= 60 || x < 12 || x >= kWidth - 12)
-        pixels[y * kWidth + x] = 0xFF30343Bu;
+        pixels[y * kWidth + x] = border;
   const auto width = (kWidth - 48) / 12;
   for (std::size_t index_bar = 0; index_bar < model.levels.size(); ++index_bar) {
     const auto height = std::max(4, static_cast<int>(model.levels[index_bar] * 38.0f));
@@ -382,9 +386,13 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
       reinterpret_cast<unsigned char *>(pixels), CAIRO_FORMAT_ARGB32,
       kWidth, kHeight, kStride);
   auto *cairo = cairo_create(image);
-  cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
+  cairo_set_source_rgb(cairo, model.light_theme ? 0.96 : 0.125,
+                       model.light_theme ? 0.97 : 0.13,
+                       model.light_theme ? 0.98 : 0.145);
   cairo_paint(cairo);
-  cairo_set_source_rgba(cairo, 0.125, 0.13, 0.145, 0.9);
+  cairo_set_source_rgba(cairo, model.light_theme ? 1.0 : 0.125,
+                        model.light_theme ? 1.0 : 0.13,
+                        model.light_theme ? 1.0 : 0.145, 0.9);
   cairo_rectangle(cairo, 12, 12, kWidth - 24, 108);
   cairo_fill(cairo);
   cairo_set_source_rgba(cairo, model.locked ? 1.0 : 0.45,
@@ -406,7 +414,9 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   if (status.empty())
     status = "正在录音…";
   pango_layout_set_text(layout, status.c_str(), -1);
-  cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
+  cairo_set_source_rgb(cairo, model.light_theme ? 0.125 : 0.96,
+                       model.light_theme ? 0.13 : 0.97,
+                       model.light_theme ? 0.145 : 0.98);
   cairo_move_to(cairo, model.actions_visible ? 52 : 24, 70);
   pango_cairo_show_layout(cairo, layout);
   if (model.show_transcript && !model.transcript.empty()) {
@@ -428,13 +438,13 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
           if (x * x + y * y <= kActionRadius * kActionRadius)
             pixels[(kActionCenterY + y) * kWidth + center_x + x] = value;
     };
-    fill_circle(kActionCenterInset, 0xFF73A7FFu);
-    fill_circle(kWidth - kActionCenterInset, 0xFF73A7FFu);
+    fill_circle(kActionCenterInset, accent);
+    fill_circle(kWidth - kActionCenterInset, accent);
     for (int offset = -5; offset <= 5; ++offset) {
       pixels[(kActionCenterY + offset) * kWidth + kActionCenterInset + offset] =
-          0xFF202124u;
+          foreground;
       pixels[(kActionCenterY + offset) * kWidth + kActionCenterInset - offset] =
-          0xFF202124u;
+          foreground;
     }
     for (int offset = -4; offset <= 4; ++offset) {
       pixels[(kActionCenterY + offset) * kWidth + kWidth - kActionCenterInset + offset / 2] =

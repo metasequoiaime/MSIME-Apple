@@ -88,6 +88,9 @@ bool WaveOverlayX11Surface::ensure_window() {
   background_ = attributes.background_pixel;
   foreground_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
   accent_ = color(display_, screen, "#73a7ff", WhitePixel(display_, screen));
+  light_background_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
+  light_foreground_ = color(display_, screen, "#202124", BlackPixel(display_, screen));
+  light_accent_ = color(display_, screen, "#3367d6", BlackPixel(display_, screen));
   char **missing = nullptr;
   int missing_count = 0;
   char *default_string = nullptr;
@@ -199,9 +202,12 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   const auto x = std::max(0, DisplayWidth(display_, screen) - static_cast<int>(kWidth) - 24);
   const auto y = 48;
   XMoveWindow(display_, window_, x, y);
-  XSetForeground(display_, gc_, background_);
+  const auto background = model.light_theme ? light_background_ : background_;
+  const auto foreground = model.light_theme ? light_foreground_ : foreground_;
+  const auto accent = model.light_theme ? light_accent_ : accent_;
+  XSetForeground(display_, gc_, background);
   XFillRectangle(display_, window_, gc_, 0, 0, kWidth, kHeight);
-  XSetForeground(display_, gc_, accent_);
+  XSetForeground(display_, gc_, accent);
   const auto bar_width = (kWidth - 32) / kBarCount;
   for (unsigned index = 0; index < kBarCount; ++index) {
     const auto level = index < model.levels.size() ? model.levels[index] : 0.0f;
@@ -212,7 +218,7 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   }
   if (font_set_) {
     const auto font = font_set_;
-    XSetForeground(display_, gc_, foreground_);
+    XSetForeground(display_, gc_, foreground);
     std::string status = model.locked
                              ? "录音已锁定 · 再按快捷键或点击语音菜单结束 · Esc 取消"
                              : one_line(model.status);
@@ -227,14 +233,14 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
     }
   }
   if (model.actions_visible) {
-    XSetForeground(display_, gc_, accent_);
+    XSetForeground(display_, gc_, accent);
     XFillArc(display_, window_, gc_, kActionCenterInset - kActionRadius,
              66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
              360 * 64);
     XFillArc(display_, window_, gc_, kWidth - kActionCenterInset - kActionRadius,
              66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
              360 * 64);
-    XSetForeground(display_, gc_, background_);
+    XSetForeground(display_, gc_, background);
     XDrawLine(display_, window_, gc_, kActionCenterInset - 5, 61,
               kActionCenterInset + 5, 71);
     XDrawLine(display_, window_, gc_, kActionCenterInset + 5, 61,

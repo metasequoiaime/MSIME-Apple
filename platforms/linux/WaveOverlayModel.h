@@ -16,9 +16,16 @@ struct WaveOverlayModel {
   bool listening = false;
   bool show_transcript = true;
   bool actions_visible = false;
+  bool light_theme = false;
   std::string transcript;
   std::string status;
   bool locked = false;
+
+  void reset() {
+    const auto theme = light_theme;
+    *this = WaveOverlayModel{};
+    light_theme = theme;
+  }
 
   void set_transcript(std::string value) {
     // Provider responses are external input. Keep the model's invariant that

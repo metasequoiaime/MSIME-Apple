@@ -3,6 +3,20 @@
 #include <string>
 #include <string_view>
 
+inline bool msime_voice_overlay_light_theme(std::string_view surface_theme,
+                                            std::string_view global_theme,
+                                            bool system_dark) {
+  if (surface_theme == "light")
+    return true;
+  if (surface_theme == "dark")
+    return false;
+  if (global_theme == "light")
+    return true;
+  if (global_theme == "system")
+    return !system_dark;
+  return false;
+}
+
 inline bool msime_voice_stream_inline_enabled(bool configured,
                                               std::string_view provider,
                                               std::string_view commit_mode = "tsf") {
