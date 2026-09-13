@@ -4278,15 +4278,16 @@ fn sync_clipboard_history_blocking(
     #[cfg(target_os = "linux")]
     let output = linux_clipboard_text();
     #[cfg(target_os = "windows")]
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "Get-Clipboard"])
-        .output();
+    let text = msime_host_windows::read_clipboard_text()
+        .map_err(|_| HostActionError { code: "unavailable" })?
+        .trim_end_matches(['\r', '\n'])
+        .to_owned();
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let output: Result<std::process::Output, std::io::Error> =
         Err(std::io::Error::other("unsupported"));
     #[cfg(target_os = "linux")]
     let text = output?;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
     let text = {
         let output = output.map_err(|_| HostActionError {
             code: "unavailable",
@@ -4477,32 +4478,7 @@ fn copy_text_blocking(
     #[cfg(target_os = "linux")]
     let result = write_linux_clipboard(&text);
     #[cfg(target_os = "windows")]
-    let result = {
-        use std::io::Write;
-        let mut child = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Set-Clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .stdin
-            .take()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-            .write_all(text.as_bytes())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .wait()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .success()
-    };
+    let result = msime_host_windows::write_clipboard_text(&text);
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let result = false;
     if !result {

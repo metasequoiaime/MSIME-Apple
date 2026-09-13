@@ -165,6 +165,148 @@ pub fn wait_for_clipboard_history_change(timeout: Duration) -> bool {
     result == WAIT_OBJECT_0
 }
 
+const CF_UNICODETEXT: u32 = 13;
+const MAX_CLIPBOARD_UNITS: usize = 1_000_000;
+
+// windows-sys 0.59 exposes GlobalAlloc/GlobalLock but omits the matching
+// GlobalFree declaration. Keep the ownership cleanup in this small, local
+// binding rather than leaking a movable block when SetClipboardData rejects it.
+#[link(name = "kernel32")]
+extern "system" {
+    fn GlobalFree(memory: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+}
+
+struct ClipboardGuard;
+
+impl Drop for ClipboardGuard {
+    fn drop(&mut self) {
+        use windows_sys::Win32::System::DataExchange::CloseClipboard;
+        // SAFETY: constructed only after OpenClipboard succeeds on this thread.
+        unsafe {
+            CloseClipboard();
+        }
+    }
+}
+
+struct GlobalLockGuard(*mut core::ffi::c_void);
+
+impl Drop for GlobalLockGuard {
+    fn drop(&mut self) {
+        use windows_sys::Win32::System::Memory::GlobalUnlock;
+        // SAFETY: the handle was successfully locked and remains valid for the
+        // lifetime of this guard because the clipboard is still open.
+        unsafe {
+            GlobalUnlock(self.0);
+        }
+    }
+}
+
+/// Read the current Windows Unicode clipboard without spawning a shell.
+///
+/// The caller owns normalization and persistence. This wrapper only accepts a
+/// bounded, NUL-terminated UTF-16 payload and never returns clipboard data in
+/// logs or diagnostics.
+pub fn read_clipboard_text() -> Result<String, ()> {
+    use windows_sys::Win32::System::DataExchange::{
+        GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize};
+    // SAFETY: a null owner is documented for callers that do not own a window;
+    // all returned clipboard handles are checked before access.
+    let opened = unsafe { OpenClipboard(std::ptr::null_mut()) } != 0;
+    if !opened {
+        return Err(());
+    }
+    let _clipboard = ClipboardGuard;
+    // SAFETY: these calls operate on the clipboard opened above.
+    if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) } == 0 {
+        return Err(());
+    }
+    let handle = unsafe { GetClipboardData(CF_UNICODETEXT) };
+    if handle.is_null() {
+        return Err(());
+    }
+    let bytes = unsafe { GlobalSize(handle) };
+    if bytes < 2 {
+        return Err(());
+    }
+    let units = (bytes / std::mem::size_of::<u16>()).min(MAX_CLIPBOARD_UNITS);
+    let pointer = unsafe { GlobalLock(handle) } as *const u16;
+    if pointer.is_null() {
+        return Err(());
+    }
+    let _lock = GlobalLockGuard(handle);
+    // SAFETY: GlobalSize bounds this slice and the lock guard keeps the memory
+    // pinned until after String::from_utf16 has copied it.
+    let value = unsafe { std::slice::from_raw_parts(pointer, units) };
+    let end = value.iter().position(|unit| *unit == 0).ok_or(())?;
+    String::from_utf16(&value[..end]).map_err(|_| ())
+}
+
+/// Replace the Windows Unicode clipboard without relying on PowerShell.
+///
+/// `SetClipboardData` takes ownership of the movable global allocation on
+/// success, so the allocation is freed only on failure. Interior NULs are
+/// rejected instead of being silently truncated by the Win32 string format.
+pub fn write_clipboard_text(text: &str) -> bool {
+    use windows_sys::Win32::System::DataExchange::{
+        EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    if text.contains('\0') {
+        return false;
+    }
+    let mut value: Vec<u16> = text.encode_utf16().collect();
+    if value.len() >= MAX_CLIPBOARD_UNITS {
+        return false;
+    }
+    value.push(0);
+    let bytes = value.len().saturating_mul(std::mem::size_of::<u16>());
+    let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if memory.is_null() {
+        return false;
+    }
+    let pointer = unsafe { GlobalLock(memory) } as *mut u16;
+    if pointer.is_null() {
+        unsafe {
+            GlobalFree(memory);
+        }
+        return false;
+    }
+    // SAFETY: the allocation is exactly `value.len()` UTF-16 units and is
+    // locked for this copy.
+    unsafe {
+        std::ptr::copy_nonoverlapping(value.as_ptr(), pointer, value.len());
+        GlobalUnlock(memory);
+    }
+    // Allocate and fill before opening/emptying the clipboard, so an
+    // allocation failure leaves the user's existing clipboard untouched.
+    // SAFETY: a null owner is documented; the guard closes the clipboard on
+    // every path after a successful open.
+    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
+        unsafe {
+            GlobalFree(memory);
+        }
+        return false;
+    }
+    let _clipboard = ClipboardGuard;
+    if unsafe { EmptyClipboard() } == 0 {
+        unsafe {
+            GlobalFree(memory);
+        }
+        return false;
+    }
+    // SAFETY: ownership transfers to the clipboard only when the handle is
+    // accepted; failure leaves us responsible for freeing it.
+    if unsafe { SetClipboardData(CF_UNICODETEXT, memory) }.is_null() {
+        unsafe {
+            GlobalFree(memory);
+        }
+        return false;
+    }
+    true
+}
+
 /// Keys that must carry `KEYEVENTF_EXTENDEDKEY`.
 ///
 /// Without the flag these arrive as their numeric-keypad twins: the arrow
