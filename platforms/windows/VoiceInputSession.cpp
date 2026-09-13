@@ -404,10 +404,8 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       const auto model = config.model.empty()
                              ? default_asr_model(config.asr_provider)
                              : config.model;
-      metasequoia::voice::CloudSttWorker recognizer(
-          metasequoia::voice::RequestOptions{endpoint, model,
-                                             config.token, 10000, cancelled});
-      text = recognizer.recognize(samples);
+      text = recognize_cloud_asr(samples, config.asr_provider, endpoint, model,
+                                 config.token, config.language, cancelled);
     }
   } catch (const std::exception &) {
     cancel_inline();
