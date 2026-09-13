@@ -73,7 +73,6 @@ fn host_platform() -> HostPlatform {
 /// The surface a native host asked this shell to present, from `--route=<route>`,
 /// `MSIME_CLIENT_ROUTE`, or the superseded `MSIME_CLIENT_PANEL`. An unparseable
 /// route opens the ordinary settings window rather than failing startup.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn requested_surface_route() -> Option<SurfaceRoute> {
     let argument = std::env::args()
         .skip(1)
@@ -98,7 +97,18 @@ fn host_capabilities() -> HostCapabilities {
 /// its own default when this is absent or unusable.
 #[tauri::command]
 fn initial_settings_page() -> Option<String> {
-    requested_settings_page(std::env::var("MSIME_CLIENT_SETTINGS_PAGE").ok().as_deref())
+    // A `settings:<category>` route is the contract every host now shares; the
+    // dedicated variable stays as the compatibility path for older launchers.
+    settings_page_from_route(requested_surface_route()).or_else(|| {
+        requested_settings_page(std::env::var("MSIME_CLIENT_SETTINGS_PAGE").ok().as_deref())
+    })
+}
+
+/// The settings category a surface route names, if it names one.
+fn settings_page_from_route(route: Option<SurfaceRoute>) -> Option<String> {
+    route
+        .and_then(SurfaceRoute::settings_category)
+        .map(|category| category.as_str().to_owned())
 }
 
 fn requested_settings_page(value: Option<&str>) -> Option<String> {
@@ -3419,6 +3429,30 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn settings_routes_select_a_page_the_shared_ui_accepts() {
+        use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+        // The route wins over the compatibility variable, and every category the
+        // contract accepts survives the settings-page identifier filter.
+        for category in SettingsCategory::ALL {
+            let page =
+                super::settings_page_from_route(Some(SurfaceRoute::Settings(Some(category))));
+            assert_eq!(
+                super::requested_settings_page(page.as_deref()),
+                Some(category.as_str().to_owned()),
+                "category {category:?} is not a usable settings page id"
+            );
+        }
+        assert_eq!(
+            super::settings_page_from_route(Some(SurfaceRoute::Settings(None))),
+            None
+        );
+        assert_eq!(
+            super::settings_page_from_route(Some(SurfaceRoute::Emoji)),
+            None
+        );
+    }
+
     #[test]
     fn requested_settings_page_only_accepts_a_plain_section_identifier() {
         assert_eq!(
