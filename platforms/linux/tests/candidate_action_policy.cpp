@@ -5,6 +5,7 @@
 int main() {
   using msime::linux_host::candidate_dictionary_removal_available;
   using msime::linux_host::candidate_removal_available;
+  using msime::linux_host::candidate_removal_slot;
   assert(!candidate_removal_available(""));
   assert(!candidate_removal_available("a"));
   assert(!candidate_removal_available("字"));
@@ -20,4 +21,9 @@ int main() {
   assert(!candidate_dictionary_removal_available(3, 0, "词语"));
   assert(!candidate_dictionary_removal_available(0, 2, "词语"));
   assert(!candidate_dictionary_removal_available(0, 0, "词"));
+  assert(candidate_removal_slot('1', 0) == 0);
+  assert(candidate_removal_slot('8', 0) == 7);
+  assert(candidate_removal_slot('&', 2) == 0);
+  assert(candidate_removal_slot('x', 9) == 7);
+  assert(!candidate_removal_slot('&', 0));
 }

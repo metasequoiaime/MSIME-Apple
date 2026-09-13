@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace msime::linux_host {
@@ -55,6 +56,19 @@ inline bool candidate_dictionary_removal_available(std::uint64_t scheme,
                                                    std::string_view text) {
   return scheme != 3 && (source == 0 || source == 1 || source == 4) &&
          candidate_removal_available(text);
+}
+
+// IBus keysyms change with the active keyboard layout. Its evdev-derived
+// keycode still identifies the physical number row (2..9 are 1..8), so use it
+// before the ASCII keysym fallback for synthetic events without a keycode.
+inline std::optional<std::size_t>
+candidate_removal_slot(std::uint32_t key, std::uint32_t keycode) {
+  if (keycode >= 2 && keycode <= 9)
+    return static_cast<std::size_t>(keycode - 2);
+  if (key >= static_cast<std::uint32_t>('1') &&
+      key <= static_cast<std::uint32_t>('8'))
+    return static_cast<std::size_t>(key - static_cast<std::uint32_t>('1'));
+  return std::nullopt;
 }
 
 } // namespace msime::linux_host

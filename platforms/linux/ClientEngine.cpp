@@ -4450,15 +4450,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
+  const auto maintenance_candidate_slot =
+      msime::linux_host::candidate_removal_slot(key, keycode);
   const bool maintenance_candidate_key =
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK) &&
-      key >= IBUS_1 && key <= IBUS_8;
+      maintenance_candidate_slot.has_value();
   if (maintenance_candidate_key) {
     const auto candidates = s.view.value("candidates", Json::array());
-    const auto index = static_cast<size_t>(key - IBUS_1);
-    if (!candidates.is_array() || index >= candidates.size())
+    const auto index = maintenance_candidate_slot;
+    if (!index || !candidates.is_array() || *index >= candidates.size())
       return FALSE;
-    const auto &candidate = candidates.at(index);
+    const auto &candidate = candidates.at(*index);
     if (!candidate.is_object() || !candidate.contains("id"))
       return FALSE;
     const auto &id = candidate.at("id");
