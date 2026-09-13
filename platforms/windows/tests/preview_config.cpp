@@ -20,6 +20,7 @@ int main() {
     require(!good.navigation.minus_equal && !good.navigation.comma_period &&
             !good.navigation.brackets && !good.navigation.tab &&
             !good.navigation.page_up_down && !good.navigation.arrows &&
+            !good.navigation.mouse_wheel &&
             good.word_character == WordCharacterBinding::Disabled);
     const auto names = good.pipe_names();
     require(names[0] == L"\\\\.\\pipe\\msime-client-preview-fixture-12-0" &&
@@ -94,7 +95,7 @@ int main() {
         {"page_up_down", false},       {"arrows", false},
         {"word_character", "disabled"}};
     for (const char *name : {"minus_equal", "comma_period", "brackets", "tab",
-                             "page_up_down", "arrows"}) {
+                             "page_up_down", "arrows", "mouse_wheel"}) {
       auto config = document;
       config["key_bindings"] = bindings;
       config["key_bindings"][name] = true;
@@ -108,6 +109,8 @@ int main() {
       require(loaded.navigation.page_up_down ==
               (std::string(name) == "page_up_down"));
       require(loaded.navigation.arrows == (std::string(name) == "arrows"));
+      require(loaded.navigation.mouse_wheel ==
+              (std::string(name) == "mouse_wheel"));
       config["key_bindings"][name] = 1;
       reject(config);
       config["key_bindings"].erase(name);

@@ -289,6 +289,27 @@ nlohmann::json ServerSession::update_preferences(uint64_t epoch,
       session_, reinterpret_cast<const uint8_t *>(snapshot.data()),
       snapshot.size()));
 }
+nlohmann::json ServerSession::page_candidate(uint64_t epoch, uint64_t session,
+                                             uint64_t generation, bool previous,
+                                             unsigned steps) {
+  check_active(epoch);
+  if (!input_enabled_ || session != session_ || !generation || steps == 0 ||
+      steps > 9)
+    throw std::invalid_argument("Invalid Windows candidate paging request");
+  auto current = view();
+  if (current.at("session").get<uint64_t>() != session ||
+      current.at("generation").get<uint64_t>() != generation ||
+      current.at("editing_text").get<std::string>().empty())
+    throw std::invalid_argument("Stale Windows candidate paging request");
+  const auto command = previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE;
+  nlohmann::json result = std::move(current);
+  for (unsigned step = 0; step < steps; ++step) {
+    result = response(msime_client_command(session_, command));
+    if (!result.at("commit").is_null())
+      throw std::logic_error("Candidate paging unexpectedly committed text");
+  }
+  return result;
+}
 nlohmann::json ServerSession::view() const {
   check_thread();
   return response(msime_client_view(session_));

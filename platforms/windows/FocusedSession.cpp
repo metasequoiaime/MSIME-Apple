@@ -151,6 +151,27 @@ FocusedSession::candidate_action(const FocusLease &lease, uint64_t session,
   });
   return result;
 }
+std::optional<nlohmann::json>
+FocusedSession::page_candidate(const FocusLease &lease, uint64_t session,
+                               uint64_t generation, bool previous,
+                               unsigned steps) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      return;
+    const auto current = session_.view();
+    if (!current.at("focused").get<bool>() ||
+        current.at("session").get<uint64_t>() != session ||
+        current.at("generation").get<uint64_t>() != generation)
+      return;
+    result = session_.page_candidate(lease.epoch, session, generation,
+                                     previous, steps);
+  });
+  return result;
+}
 bool FocusedSession::confirm_ui(const FocusLease &lease, uint64_t generation) {
   check_thread();
   if (!prepared(lease))

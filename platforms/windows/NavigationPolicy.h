@@ -15,6 +15,7 @@ struct NavigationBindings {
   bool tab = false;
   bool page_up_down = false;
   bool arrows = false;
+  bool mouse_wheel = false;
 };
 struct NavigationAction {
   std::optional<uint32_t> command;
@@ -24,14 +25,15 @@ struct NavigationAction {
 inline NavigationBindings
 preference_navigation(const nlohmann::json &preferences) {
   if (!preferences.contains("navigation"))
-    return {true, true, false, true, true, true};
+    return {true, true, false, true, true, true, false};
   const auto &value = preferences.at("navigation");
   return {value.at("minus_equal").get<bool>(),
           value.at("comma_period").get<bool>(),
           value.at("brackets").get<bool>(),
           value.at("tab").get<bool>(),
           value.at("page_up_down").get<bool>(),
-          value.at("arrows").get<bool>()};
+          value.at("arrows").get<bool>(),
+          value.value("mouse_wheel", false)};
 }
 inline std::optional<NavigationAction>
 navigation_action(const FanyImeNamedpipeData &packet,

@@ -341,7 +341,11 @@ int wmain(int argc, wchar_t **argv) {
               click.lease, click.session, click.generation, click.index,
               click.action, click.position) ==
           CandidateActionRequestResult::Failed)
-        throw std::runtime_error("Candidate action failed");
+          throw std::runtime_error("Candidate action failed");
+    });
+    CandidatePageWorker pages([&](const CandidatePage &page) {
+      if (server.request_page(page) == CandidatePageRequestResult::Failed)
+        throw std::runtime_error("Candidate paging failed");
     });
     ModeClickWorker mode_clicks([&](const ModeClick &click) {
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
@@ -350,15 +354,18 @@ int wmain(int argc, wchar_t **argv) {
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
+      CandidatePageWorker &pages;
       ModeClickWorker &modes;
       ~ClickShutdown() {
         clicks.request_stop();
+        pages.request_stop();
         modes.request_stop();
         server.request_stop();
         clicks.stop();
+        pages.stop();
         modes.stop();
       }
-    } click_shutdown{server, clicks, mode_clicks};
+    } click_shutdown{server, clicks, pages, mode_clicks};
     std::optional<COLORREF> candidate_text_color;
     if (!config.candidate_text_color.empty() && config.candidate_text_color != "auto" &&
         config.candidate_text_color != "none") {
@@ -373,7 +380,8 @@ int wmain(int argc, wchar_t **argv) {
         static_cast<unsigned>(config.candidate_font_size),
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
         config.candidate_font, {}, config.dark_theme,
-        config.horizontal_candidates);
+        config.horizontal_candidates, true,
+        [&](const CandidatePage &page) { (void)pages.submit(page); });
     const auto palette = resolve_palette(config);
     auto resolved_palette = palette;
     if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
@@ -473,7 +481,7 @@ int wmain(int argc, wchar_t **argv) {
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
-           !candidates.failed() && !clicks.failed() &&
+           !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !modes.failed() && !mode_clicks.failed() && !toolbar.failed() &&
            !tray.failed()) {
       MSG message{};

@@ -1,4 +1,5 @@
 #include "CandidateWindow.h"
+#include "CandidateWheel.h"
 #include "CursorResource.h"
 #include <algorithm>
 
@@ -141,8 +142,9 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
                                  std::optional<bool> dark_theme,
-                                 bool horizontal, bool show_preedit)
-    : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
+                                 bool horizontal, bool show_preedit, Page page)
+    : reader_(std::move(reader)), click_(std::move(click)), page_(std::move(page)),
+      font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
       palette_(dark_theme.value_or(false) ? CandidatePalette{}
                                           : candidate_light_palette()),
@@ -212,6 +214,7 @@ void CandidateWindow::hide() {
   painted_.reset();
   pressed_.reset();
   hovered_.reset();
+  wheel_accumulator_ = 0;
   ShowWindow(window_, SW_HIDE);
 }
 // Measuring the page reads Engine text, so unusable presentation data reaches
@@ -531,6 +534,23 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       switch (message) {
       case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
+      case WM_MOUSEWHEEL: {
+        if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {
+          self->wheel_accumulator_ = 0;
+          return 0;
+        }
+        const auto steps = consume_candidate_wheel_delta(
+            self->wheel_accumulator_, GET_WHEEL_DELTA_WPARAM(wparam),
+            WHEEL_DELTA);
+        const auto &value = *self->painted_;
+        if (steps.page_up > 0)
+          self->page_(CandidatePage{value.lease, value.session, value.generation,
+                                    true, static_cast<unsigned>(steps.page_up)});
+        if (steps.page_down > 0)
+          self->page_(CandidatePage{value.lease, value.session, value.generation,
+                                    false, static_cast<unsigned>(steps.page_down)});
+        return 0;
+      }
       case WM_LBUTTONDOWN:
         self->pressed_ = self->hit(static_cast<short>(LOWORD(lparam)),
                                    static_cast<short>(HIWORD(lparam)));

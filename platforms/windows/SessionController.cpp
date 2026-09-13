@@ -217,6 +217,48 @@ CandidateActionRequestResult SessionController::request_candidate_action(
     return fail();
   }
 }
+CandidatePageRequestResult
+SessionController::request_page(const CandidatePage &page) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Candidate paging cannot reenter controller callbacks");
+  if (!page.lease.epoch || !page.session || !page.generation ||
+      page.steps == 0 || page.steps > 9 || stopping_)
+    return CandidatePageRequestResult::Rejected;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return CandidatePageRequestResult::Busy;
+  const auto fail = [&] {
+    focus_.invalidate(page.lease.transport);
+    transport_.close(page.lease.transport);
+    failure_ = ControllerFailure::Control;
+    request_stop();
+    return CandidatePageRequestResult::Failed;
+  };
+  try {
+    const auto shown = candidate_view();
+    if (!shown || !shown->visible || shown->session != page.session ||
+        shown->generation != page.generation ||
+        shown->lease.epoch != page.lease.epoch ||
+        shown->lease.token != page.lease.token ||
+        !same_ticket(shown->lease.transport, page.lease.transport))
+      return CandidatePageRequestResult::Rejected;
+    std::optional<nlohmann::json> transition;
+    auto prepared = input_.submit([&](InputState &state) {
+      if (!stopping_ && transport_.current(page.lease.transport))
+        transition = state.page_candidate(page.lease, page.session,
+                                          page.generation, page.previous,
+                                          page.steps);
+      if (transition)
+        candidates_.action(page.lease, *transition);
+    });
+    if (!prepared || prepared->get() != InputTaskStatus::Completed)
+      return fail();
+    return transition ? CandidatePageRequestResult::Sent
+                      : CandidatePageRequestResult::Rejected;
+  } catch (...) {
+    return fail();
+  }
+}
 VoiceCompositionResult SessionController::send_voice_composition(
     const FocusLease &lease, uint32_t message, std::wstring_view text,
     wchar_t generation) {

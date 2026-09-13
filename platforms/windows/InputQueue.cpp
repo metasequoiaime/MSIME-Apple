@@ -224,6 +224,17 @@ InputState::update_preferences(const FocusLease &lease,
   auto *owner = session(lease.transport);
   return owner ? owner->update_preferences(lease, snapshot) : std::nullopt;
 }
+std::optional<nlohmann::json>
+InputState::page_candidate(const FocusLease &lease, uint64_t session,
+                           uint64_t generation, bool previous, unsigned steps) {
+  check_thread();
+  if (!navigation_.mouse_wheel)
+    return std::nullopt;
+  auto *owner = this->session(lease.transport);
+  return owner ? owner->page_candidate(lease, session, generation, previous,
+                                       steps)
+               : std::nullopt;
+}
 void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   check_thread();
   if (preferences_ && (snapshot.revision() < preferences_->revision() ||

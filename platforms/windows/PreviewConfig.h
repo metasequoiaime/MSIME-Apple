@@ -170,7 +170,8 @@ struct PreviewConfig {
     if (value.contains("key_bindings")) {
       result.explicit_key_bindings = true;
       const auto &keys = value.at("key_bindings");
-      if (!keys.is_object() || keys.size() != 7)
+      if (!keys.is_object() || (keys.size() != 7 && keys.size() != 8) ||
+          (keys.size() == 8 && !keys.contains("mouse_wheel")))
         throw std::invalid_argument("Invalid preview key bindings");
       result.navigation.minus_equal = keys.at("minus_equal").get<bool>();
       result.navigation.comma_period = keys.at("comma_period").get<bool>();
@@ -178,6 +179,7 @@ struct PreviewConfig {
       result.navigation.tab = keys.at("tab").get<bool>();
       result.navigation.page_up_down = keys.at("page_up_down").get<bool>();
       result.navigation.arrows = keys.at("arrows").get<bool>();
+      result.navigation.mouse_wheel = keys.value("mouse_wheel", false);
       const auto word = keys.at("word_character").get<std::string>();
       if (word == "brackets")
         result.word_character = WordCharacterBinding::Brackets;

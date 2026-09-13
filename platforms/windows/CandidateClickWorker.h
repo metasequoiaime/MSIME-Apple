@@ -14,6 +14,13 @@ struct CandidateClick {
   CandidateAction action = CandidateAction::Select;
   uint8_t position = 0;
 };
+struct CandidatePage {
+  FocusLease lease;
+  uint64_t session;
+  uint64_t generation;
+  bool previous;
+  unsigned steps;
+};
 // One worker and one outstanding click. No backlog/retries. Dependencies must
 // outlive stop(); cancel handler I/O before joining when necessary.
 template <class Task> class SingleClickWorker final {
@@ -83,4 +90,5 @@ private:
   std::thread worker_;
 };
 using CandidateClickWorker = SingleClickWorker<CandidateClick>;
+using CandidatePageWorker = SingleClickWorker<CandidatePage>;
 } // namespace msime::windows

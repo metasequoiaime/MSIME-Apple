@@ -44,6 +44,9 @@ public:
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,
                    uint8_t position = 0);
+  std::optional<nlohmann::json>
+  page_candidate(const FocusLease &lease, uint64_t session,
+                 uint64_t generation, bool previous, unsigned steps);
   bool ui_delivered(const FocusLease &lease, uint64_t generation);
   std::optional<PendingReply> configured_key(
       const FocusLease &lease, const FanyImeNamedpipeData &packet,

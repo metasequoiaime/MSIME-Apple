@@ -42,6 +42,9 @@ public:
     return controller_->request_candidate_action(lease, session, generation,
                                                  index, action, position);
   }
+  CandidatePageRequestResult request_page(const CandidatePage &page) {
+    return controller_->request_page(page);
+  }
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }
