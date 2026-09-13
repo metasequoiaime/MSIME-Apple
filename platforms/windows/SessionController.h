@@ -2,6 +2,7 @@
 #include "ModeMailbox.h"
 #include "CandidateMailbox.h"
 #include "CloudCandidateWorker.h"
+#include "TranslationWorker.h"
 #include "PreferenceMonitor.h"
 #include "RegistrationInbox.h"
 #include "SessionWorkers.h"
@@ -80,6 +81,7 @@ private:
   SessionPump::EventHandler event_;
   InputQueue input_;
   CloudCandidateWorker cloud_;
+  TranslationWorker translations_;
   SessionWorkers workers_;
   std::unique_ptr<PreferenceMonitor> preferences_;
   std::atomic<bool> stopping_{false};

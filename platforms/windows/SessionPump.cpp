@@ -185,6 +185,8 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 });
               if (reply->online_query && presentation_.online)
                 presentation_.online(lease, *reply);
+              if (reply->translation_query && presentation_.translation)
+                presentation_.translation(lease, *reply);
             }
           }))
         return PumpResult::QueueUnavailable;

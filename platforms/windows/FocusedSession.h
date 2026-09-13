@@ -37,6 +37,10 @@ public:
   std::optional<nlohmann::json>
   apply_cloud_response(const FocusLease &lease, const std::string &query,
                        const std::string &body);
+  std::optional<std::string> translation_query(const FocusLease &lease);
+  std::optional<nlohmann::json>
+  apply_translations(const FocusLease &lease, uint64_t generation,
+                     const std::string &translations);
   // Recover the staged result without rerunning Engine. This does NOT permit
   // blindly resending a frame whose previous delivery is uncertain.
   std::optional<PendingReply> pending(const FocusLease &lease);

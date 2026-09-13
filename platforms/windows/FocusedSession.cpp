@@ -13,8 +13,10 @@ bool FocusedSession::prepared(const FocusLease &lease) const {
 }
 void FocusedSession::attach_online_query(
     const FocusLease &lease, std::optional<PendingReply> &reply) {
-  if (reply)
+  if (reply) {
     reply->online_query = session_.online_query(lease.epoch);
+    reply->translation_query = session_.translation_query(lease.epoch);
+  }
 }
 bool FocusedSession::prepare(const FocusLease &lease) {
   check_thread();
@@ -196,6 +198,27 @@ FocusedSession::apply_cloud_response(const FocusLease &lease,
   std::optional<nlohmann::json> result;
   gate_.with_active(lease, [&] {
     result = session_.apply_cloud_response(lease.epoch, query, body);
+  });
+  return result;
+}
+std::optional<std::string>
+FocusedSession::translation_query(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<std::string> result;
+  gate_.with_active(lease, [&] { result = session_.translation_query(lease.epoch); });
+  return result;
+}
+std::optional<nlohmann::json>
+FocusedSession::apply_translations(const FocusLease &lease, uint64_t generation,
+                                   const std::string &translations) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    result = session_.apply_translations(lease.epoch, generation, translations);
   });
   return result;
 }

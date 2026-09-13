@@ -55,6 +55,10 @@ public:
   std::optional<nlohmann::json>
   apply_cloud_response(uint64_t epoch, const std::string &query,
                        const std::string &body);
+  std::optional<std::string> translation_query(uint64_t epoch);
+  std::optional<nlohmann::json>
+  apply_translations(uint64_t epoch, uint64_t generation,
+                     const std::string &translations);
   nlohmann::json update_preferences(uint64_t epoch,
                                     const std::string &snapshot);
   nlohmann::json view() const;

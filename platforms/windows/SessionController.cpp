@@ -25,8 +25,26 @@ SessionController::SessionController(
                   return;
                 auto view = state.apply_cloud_response(
                     result.lease, result.query, result.body);
-                if (view)
+                if (view) {
                   candidates_.online(result.lease, *view);
+                  if (auto query = state.translation_query(result.lease))
+                    (void)translations_.submit(result.lease, std::move(*query));
+                }
+              });
+        } catch (...) {
+          // Optional provider delivery must never stop the input queue.
+        }
+      }),
+      translations_([this](TranslationWorker::Result result) {
+        try {
+          (void)input_.submit(
+              [this, result = std::move(result)](InputState &state) mutable {
+                if (stopping_ || !transport_.current(result.lease.transport))
+                  return;
+                auto view = state.apply_translations(
+                    result.lease, result.generation, result.translations);
+                if (view)
+                  candidates_.translations(result.lease, *view);
               });
         } catch (...) {
           // Optional provider delivery must never stop the input queue.
@@ -56,6 +74,10 @@ SessionController::SessionController(
            [this](const FocusLease &lease, const PendingReply &reply) {
              if (reply.online_query)
                (void)cloud_.submit(lease, *reply.online_query);
+           },
+           [this](const FocusLease &lease, const PendingReply &reply) {
+             if (reply.translation_query)
+               (void)translations_.submit(lease, *reply.translation_query);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
@@ -244,6 +266,7 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
 void SessionController::request_stop() {
   stopping_ = true;
   cloud_.request_stop();
+  translations_.request_stop();
   candidates_.stop();
   modes_.stop();
   inbox_.close();
@@ -297,6 +320,7 @@ void SessionController::run() {
     failure_ = ControllerFailure::Control;
   }
   cloud_.stop();
+  translations_.stop();
   workers_.stop();
   input_.stop();
   if (preferences_)

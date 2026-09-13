@@ -33,6 +33,7 @@ public:
     // Input queue after the original reply is confirmed. The callback may
     // submit bounded work to an external provider, but must not perform I/O.
     std::function<void(const FocusLease &, const PendingReply &)> online;
+    std::function<void(const FocusLease &, const PendingReply &)> translation;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},

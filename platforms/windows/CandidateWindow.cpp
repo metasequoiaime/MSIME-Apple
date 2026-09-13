@@ -257,10 +257,13 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
     input.preedit_width = measured_width(device_, wide(value.preedit),
                                          font_family_,
                                          static_cast<float>(preedit_font_size_));
-  for (const auto &candidate : value.candidates)
+  for (const auto &candidate : value.candidates) {
+    auto label = candidate.text;
+    if (!candidate.translation.empty())
+      label += "  · " + candidate.translation;
     input.item_widths.push_back(measured_width(
-        device_, wide(candidate.text), font_family_,
-        static_cast<float>(font_size_)));
+        device_, wide(label), font_family_, static_cast<float>(font_size_)));
+  }
   const auto card = candidate_card_size(input);
   const auto width =
       (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
@@ -370,7 +373,10 @@ void CandidateWindow::paint() {
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.bottom},
                       brush(palette_.number));
-    const auto text = wide(value->candidates[i].text);
+    auto candidate_label = value->candidates[i].text;
+    if (!value->candidates[i].translation.empty())
+      candidate_label += "  · " + value->candidates[i].translation;
+    const auto text = wide(candidate_label);
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,

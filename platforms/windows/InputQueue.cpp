@@ -193,6 +193,20 @@ InputState::apply_cloud_response(const FocusLease &lease,
   return owner ? owner->apply_cloud_response(lease, query, body)
                : std::nullopt;
 }
+std::optional<std::string>
+InputState::translation_query(const FocusLease &lease) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->translation_query(lease) : std::nullopt;
+}
+std::optional<nlohmann::json>
+InputState::apply_translations(const FocusLease &lease, uint64_t generation,
+                               const std::string &translations) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->apply_translations(lease, generation, translations)
+               : std::nullopt;
+}
 std::optional<nlohmann::json>
 InputState::update_preferences(const FocusLease &lease,
                                const std::string &snapshot) {

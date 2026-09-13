@@ -9,6 +9,7 @@ struct PresentationCandidate {
   size_t index;
   std::string text;
   bool highlighted;
+  std::string translation;
 };
 struct CandidatePresentation {
   FocusLease lease;
@@ -46,9 +47,11 @@ candidate_presentation_from_view(const FocusLease &lease,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(), candidate.at("text").get<std::string>(),
-        candidate.at("highlighted").get<bool>()};
+        candidate.at("highlighted").get<bool>(),
+        candidate.value("translation", std::string{})};
     if (item.session != output.session ||
-        item.generation != output.generation || item.text.size() > 4096)
+        item.generation != output.generation || item.text.size() > 4096 ||
+        item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
     highlighted += item.highlighted;
     output.candidates.push_back(std::move(item));
@@ -95,9 +98,11 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(), candidate.at("text").get<std::string>(),
-        candidate.at("highlighted").get<bool>()};
+        candidate.at("highlighted").get<bool>(),
+        candidate.value("translation", std::string{})};
     if (item.session != output.session ||
-        item.generation != output.generation || item.text.size() > 4096)
+        item.generation != output.generation || item.text.size() > 4096 ||
+        item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
     highlighted += item.highlighted;
     output.candidates.push_back(std::move(item));

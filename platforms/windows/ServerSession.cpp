@@ -217,6 +217,38 @@ ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
     return std::nullopt;
   }
 }
+std::optional<std::string> ServerSession::translation_query(uint64_t epoch) {
+  check_active(epoch);
+  try {
+    const auto value = response(msime_client_translation_query(session_));
+    if (value.is_null() || !value.is_object())
+      return std::nullopt;
+    auto serialized = value.dump();
+    if (serialized.empty() || serialized.size() > 65536)
+      return std::nullopt;
+    return serialized;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+std::optional<nlohmann::json>
+ServerSession::apply_translations(uint64_t epoch, uint64_t generation,
+                                  const std::string &translations) {
+  check_active(epoch);
+  if (translations.empty() || translations.size() > 1024 * 1024)
+    return std::nullopt;
+  try {
+    const auto value = response(msime_client_apply_translations(
+        session_, generation, reinterpret_cast<const uint8_t *>(translations.data()),
+        translations.size()));
+    if (!value.is_object() || !value.value("applied", false) ||
+        !value.contains("view") || !value.at("view").is_object())
+      return std::nullopt;
+    return value.at("view");
+  } catch (...) {
+    return std::nullopt;
+  }
+}
 nlohmann::json ServerSession::update_preferences(uint64_t epoch,
                                                  const std::string &snapshot) {
   check_active(epoch);
