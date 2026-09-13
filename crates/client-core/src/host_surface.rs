@@ -120,10 +120,12 @@ impl HostCapabilities {
             // IBus keeps a session-wide mode; the other hosts track it per application.
             ime_mode_scope: platform == HostPlatform::Linux,
             typing_statistics: true,
-            // Linux and Android already apply the shared fuzzy-pinyin options;
-            // the remaining desktop hosts will opt in when their settings
-            // surfaces consume the contract.
-            fuzzy_pinyin: matches!(platform, HostPlatform::Linux | HostPlatform::Android),
+            // Windows, Linux and Android apply the shared fuzzy-pinyin options;
+            // macOS and iOS will opt in when their hosts consume the contract.
+            fuzzy_pinyin: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Linux | HostPlatform::Android
+            ),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
             floating_toolbar: platform.is_desktop(),
@@ -554,7 +556,7 @@ mod tests {
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).typing_statistics);
         assert!(linux.fuzzy_pinyin);
         assert!(android.fuzzy_pinyin);
-        assert!(!HostCapabilities::for_platform(HostPlatform::Windows).fuzzy_pinyin);
+        assert!(windows.fuzzy_pinyin);
     }
 
     #[test]

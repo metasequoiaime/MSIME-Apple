@@ -70,7 +70,13 @@ test("typing statistics follow the injected client on any platform", async () =>
   expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
 });
 
-test("Linux host exposes the shared fuzzy-pinyin settings", async () => {
+test("Windows and Linux hosts expose the shared fuzzy-pinyin settings", async () => {
+  mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
+
+  cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
