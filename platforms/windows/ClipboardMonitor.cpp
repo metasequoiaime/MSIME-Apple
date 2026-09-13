@@ -5,6 +5,9 @@
 
 namespace msime::windows {
 namespace {
+constexpr UINT_PTR capture_timer_id = 1;
+constexpr UINT capture_debounce_ms = 80;
+
 std::string wide_to_utf8(const std::wstring &text) {
   if (text.empty()) return {};
   const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
@@ -23,15 +26,29 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
     monitor = static_cast<ClipboardMonitor *>(create->lpCreateParams);
     SetWindowLongPtrW(static_cast<HWND>(window), GWLP_USERDATA, reinterpret_cast<LONG_PTR>(monitor));
   }
-  if (monitor && message == WM_CLIPBOARDUPDATE && monitor->history_.enabled() && GetClipboardSequenceNumber() != monitor->sequence_) {
-    monitor->sequence_ = GetClipboardSequenceNumber();
-    if (IsClipboardFormatAvailable(CF_UNICODETEXT) && OpenClipboard(static_cast<HWND>(window))) {
+  if (monitor && message == WM_CLIPBOARDUPDATE) {
+    SetTimer(static_cast<HWND>(window), capture_timer_id, capture_debounce_ms,
+             nullptr);
+    return 0;
+  }
+  if (monitor && message == WM_TIMER && wparam == capture_timer_id) {
+    KillTimer(static_cast<HWND>(window), capture_timer_id);
+    if (!monitor->history_.enabled()) return 0;
+    const auto sequence = GetClipboardSequenceNumber();
+    if (sequence == monitor->sequence_ ||
+        !IsClipboardFormatAvailable(CF_UNICODETEXT) ||
+        !OpenClipboard(static_cast<HWND>(window)))
+      return 0;
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
       auto data = GetClipboardData(CF_UNICODETEXT);
       const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
       const std::wstring value = text ? text : L"";
       if (text) GlobalUnlock(data);
       CloseClipboard();
-      if (auto utf8 = wide_to_utf8(value); !utf8.empty() && monitor->history_.add(utf8) && monitor->callback_) monitor->callback_(std::move(utf8));
+      monitor->sequence_ = sequence;
+      if (auto utf8 = wide_to_utf8(value); !utf8.empty() &&
+          monitor->history_.add(utf8) && monitor->callback_)
+        monitor->callback_(std::move(utf8));
     }
     return 0;
   }
@@ -54,6 +71,7 @@ bool ClipboardMonitor::start() {
 }
 void ClipboardMonitor::stop() {
   if (!window_) return;
+  KillTimer(static_cast<HWND>(window_), capture_timer_id);
   RemoveClipboardFormatListener(static_cast<HWND>(window_));
   DestroyWindow(static_cast<HWND>(window_)); window_ = nullptr;
 }

@@ -156,6 +156,8 @@ int wmain(int argc, wchar_t **argv) {
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
+    clipboard_history.set_enabled(
+        prepared.at("value").at("preferences").value("clipboard_history", false));
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
     WindowsServerOptions options;

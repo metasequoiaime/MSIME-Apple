@@ -37,7 +37,7 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(mobile))]
@@ -564,8 +564,8 @@ fn sync_linux_runtime_options(
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn start_linux_preferences_monitor(
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn start_desktop_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
     history: Arc<Mutex<ClipboardHistoryStore>>,
@@ -3230,8 +3230,8 @@ pub fn run() {
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
-            #[cfg(target_os = "linux")]
-            start_linux_preferences_monitor(
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            start_desktop_preferences_monitor(
                 app.handle(),
                 preferences.clone(),
                 Arc::clone(&clipboard_state.0),
