@@ -15,6 +15,15 @@ public final class JapaneseNineKeyLayoutSmoke {
         check(keys.get(7).strokes().equals(List.of("ya", "", "yu", "", "yo")));
         check(keys.get(9).kana().equals(List.of("わ", "を", "ん", "ー", "〜")));
         check(keys.get(9).strokes().equals(List.of("wa", "wo", "n'", "-", "")));
+        List<JapaneseNineKeyLayout.Key> digitKeys = JapaneseNineKeyLayout.digitKeys();
+        check(digitKeys.size() == 10);
+        check(digitKeys.stream().map(key -> key.kana().get(0)).toList().equals(
+            List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
+        check(digitKeys.get(0).kana().equals(List.of("1", "☆", "♪", "→", "")));
+        check(digitKeys.get(9).kana().equals(List.of("0", "〜", "…", "ー", "")));
+        check(digitKeys.stream().allMatch(key -> key.strokes().stream().allMatch(String::isEmpty)));
+        check(JapaneseNineKeyLayout.digitBrackets().equals(
+            List.of("（", "）", "「", "」", "『", "』", "【", "】")));
         check(JapaneseNineKeyLayout.variants().stream().map(
             JapaneseNineKeyLayout.VariantGroup::title).toList().equals(
                 List.of("小假名", "浊音", "半浊音")));

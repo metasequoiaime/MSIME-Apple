@@ -1282,12 +1282,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (japaneseVariantsButton != null) {
             boolean composing = view != null
                 && !view.optString("editing_text", "").isEmpty();
-            boolean enabled = JapaneseVariantPolicy.enabled(
-                japaneseNineKeyActive(), keyboardLayer == KeyboardLayout.Layer.SYMBOLS,
-                composing);
+            boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+            boolean enabled = symbols ? japaneseNineKeyActive() : JapaneseVariantPolicy.enabled(
+                japaneseNineKeyActive(), false, composing);
             japaneseVariantsButton.setEnabled(enabled);
             japaneseVariantsButton.setContentDescription(
-                JapaneseVariantPolicy.accessibilityLabel(enabled));
+                symbols ? "括号；长按选择其他括号"
+                    : JapaneseVariantPolicy.accessibilityLabel(enabled));
         }
         if (spaceButton != null && !cursorMovement.isActive()) {
             spaceButton.setText(spaceKeyTitle());
@@ -4332,8 +4333,7 @@ public final class MSIMEInputService extends InputMethodService {
         japaneseReturnKey = null;
         japaneseVariantsButton = null;
         keyRows.removeAllViews();
-        if (keyboardLayer == KeyboardLayout.Layer.LETTERS
-                && displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+        if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
             rebuildJapaneseNineKeyRows();
             applyKeyboardGeometry();
             return;
@@ -4539,6 +4539,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void selectJapaneseKey(JapaneseNineKeyLayout.Key key, int direction) {
         if (direction < 0 || direction >= key.kana().size()) return;
+        if (key.kana().get(direction).isEmpty()) return;
         String stroke = key.strokes().get(direction);
         if (stroke.isEmpty()) commitNineKeyLiteral(key.kana().get(direction));
         else inputJapaneseStroke(stroke);
@@ -4616,6 +4617,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showJapaneseKeyOptions(Button anchor, JapaneseNineKeyLayout.Key key) {
         PopupMenu popup = new PopupMenu(this, anchor);
         for (int index = 0; index < key.kana().size(); index++) {
+            if (key.kana().get(index).isEmpty()) continue;
             int direction = index;
             popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
                 playFeedback(anchor);
@@ -4651,12 +4653,27 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
+    private void showJapaneseBracketOptions(Button anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (String bracket : JapaneseNineKeyLayout.digitBrackets()) {
+            popup.getMenu().add(bracket).setOnMenuItemClickListener(ignored -> {
+                playFeedback(anchor);
+                commitNineKeyLiteral(bracket);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
     private Button japaneseVariantsKey() {
-        Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
+        boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        Button variants = keyboardKey(symbols ? "（）" : "小゛゜",
+            symbols ? "括号；长按选择其他括号" : "小假名、浊音和半浊音", () -> {});
         japaneseVariantsButton = variants;
         variants.setOnClickListener(ignored -> {
             playFeedback(variants);
-            showJapaneseVariants(variants);
+            if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) showJapaneseBracketOptions(variants);
+            else showJapaneseVariants(variants);
         });
         return variants;
     }
@@ -4670,7 +4687,8 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        java.util.List<JapaneseNineKeyLayout.Key> keys = JapaneseNineKeyLayout.keys();
+        java.util.List<JapaneseNineKeyLayout.Key> keys = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
         for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
             for (int column = 0; column < 3; column++) {

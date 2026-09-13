@@ -36,6 +36,22 @@ public final class JapaneseNineKeyLayout {
         key("ら", "り", "る", "れ", "ろ", "ra", "ri", "ru", "re", "ro"),
         key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "-", ""));
 
+    /** Symbols printed on the Japanese nine-key digit layer. All choices commit directly. */
+    private static final List<Key> DIGIT_KEYS = List.of(
+        key("1", "☆", "♪", "→", "", "", "", "", "", ""),
+        key("2", "¥", "$", "€", "", "", "", "", "", ""),
+        key("3", "%", "°", "#", "", "", "", "", "", ""),
+        key("4", "○", "*", "・", "", "", "", "", "", ""),
+        key("5", "+", "-", "=", "", "", "", "", "", ""),
+        key("6", "<", "^", ">", "", "", "", "", "", ""),
+        key("7", "「", "」", "：", "", "", "", "", "", ""),
+        key("8", "〒", "※", "♂", "", "", "", "", "", ""),
+        key("9", "（", "）", "／", "", "", "", "", "", ""),
+        key("0", "〜", "…", "ー", "", "", "", "", "", ""));
+
+    private static final List<String> DIGIT_BRACKETS = List.of(
+        "（", "）", "「", "」", "『", "』", "【", "】");
+
     private static final List<VariantGroup> VARIANTS = List.of(
         group("小假名", List.of("ぁ", "ぃ", "ぅ", "ぇ", "ぉ", "ゃ", "ゅ", "ょ", "っ", "ゎ"),
             List.of("xa", "xi", "xu", "xe", "xo", "xya", "xyu", "xyo", "xtsu", "xwa")),
@@ -60,6 +76,8 @@ public final class JapaneseNineKeyLayout {
     }
 
     public static List<Key> keys() { return KEYS; }
+    public static List<Key> digitKeys() { return DIGIT_KEYS; }
+    public static List<String> digitBrackets() { return DIGIT_BRACKETS; }
     public static List<VariantGroup> variants() { return VARIANTS; }
 
     /** Center, left, up, right and down use the same direction indices as the Apple host. */
