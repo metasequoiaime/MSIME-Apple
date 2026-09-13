@@ -6,6 +6,7 @@ use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRou
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
 pub mod system_fonts;
+use msime_client_core::doubao_frame::{decode_error_code, decode_json_frame};
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
     TouchKeyboardLayout,
@@ -2408,6 +2409,32 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
     })
 }
 
+/// Decode one Doubao v1 response frame for Apple hosts. The returned payload
+/// is UTF-8 JSON text; no frame bytes or credentials are retained.
+///
+/// # Safety
+/// `frame` must reference a readable buffer for the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_doubao_decode_frame(
+    frame: *const u8,
+    frame_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if frame.is_null() || frame_length == 0 || frame_length > 1_048_576 {
+            return Err("invalid Doubao frame buffer".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(frame, frame_length) };
+        if let Some((last, _sequence, payload)) = decode_json_frame(bytes) {
+            let text = String::from_utf8(payload).map_err(|_| "Doubao payload is not UTF-8")?;
+            return Ok(json!({ "last": last, "payload": text }));
+        }
+        if let Some(code) = decode_error_code(bytes) {
+            return Ok(json!({ "error_code": code }));
+        }
+        Err("invalid Doubao response frame".into())
+    })
+}
+
 /// Run one bounded voice capture/ASR request through a user-owned Unix socket.
 /// The socket service owns microphone access, credentials and network policy.
 /// The query is a bounded JSON object containing `language`, `generation`,
@@ -2821,6 +2848,25 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doubao_frame_codec_is_available_through_c_abi() {
+        let request = msime_client_core::doubao_frame::encode_json_frame(9, 0, 1, br#"{"result":{"text":"fixture"}}"#);
+        let mut response = request[..4].to_vec();
+        response.extend_from_slice(&request[8..12]);
+        response.extend_from_slice(&request[12..]);
+        let decoded = read(unsafe {
+            msime_client_doubao_decode_frame(response.as_ptr(), response.len())
+        });
+        assert_eq!(decoded["ok"], true);
+        assert_eq!(decoded["value"]["last"], false);
+        assert_eq!(decoded["value"]["payload"], r#"{"result":{"text":"fixture"}}"#);
+
+        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        let decoded_error = read(unsafe { msime_client_doubao_decode_frame(error.as_ptr(), error.len()) });
+        assert_eq!(decoded_error["value"]["error_code"], 7);
+    }
+
     #[test]
     fn surface_route_boundary_resolves_panels_and_rejects_bad_buffers() {
         let parse = |value: &str| {

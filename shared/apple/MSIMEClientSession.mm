@@ -73,6 +73,13 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音停止路径无效");return NO;}
     return decode(msime_client_voice_provider_stop((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
 }
++ (NSDictionary<NSString *, id> *)doubaoDecodeFrame:(NSData *)frame error:(NSError **)error {
+    if (![frame isKindOfClass:NSData.class] || frame.length == 0 || frame.length > 1048576) {
+        setError(error, @"Doubao 响应帧无效");
+        return nil;
+    }
+    return decode(msime_client_doubao_decode_frame((const uint8_t *)frame.bytes, frame.length), error);
+}
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;

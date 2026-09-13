@@ -359,6 +359,10 @@ char *msime_client_voice_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
+/* Decode one Doubao v1 response frame. The value contains either {last,payload}
+ * for a UTF-8 JSON response or {error_code} for a type-0xF error frame. */
+char *msime_client_doubao_decode_frame(const uint8_t *frame,
+                                       size_t frame_length);
 typedef void (*msime_client_voice_update_callback)(const uint8_t *text,
                                                    size_t text_length,
                                                    bool final,
