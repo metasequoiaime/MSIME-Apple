@@ -157,6 +157,9 @@ export interface HostCapabilities {
   system_fonts: boolean;
   window_chrome: boolean;
   floating_toolbar: boolean;
+  mode_switch_shortcuts: boolean;
+  panel_shortcuts: boolean;
+  voice_capture_devices: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -464,6 +467,15 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
+  // Functional controls follow what the host declares it can do. Only the prose
+  // below still varies by platform name. A host that predates the contract keeps
+  // the previous Linux-only behaviour.
+  const host = client.host;
+  const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
+  const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
+  const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
+  const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
+  const showVoiceCaptureDevices = (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = linuxPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = linuxPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
@@ -986,7 +998,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
-        {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>应用范围只影响当前输入上下文；全局范围在 Linux 输入法会话之间保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
+        {showModeScope && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>应用范围只影响当前输入上下文；全局范围在 Linux 输入法会话之间保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
         {client.touchKeyboardSchemes && <div className="section touch-keyboard-schemes" role="group" aria-labelledby="touch-keyboard-schemes-title">
           <div className="section-title" id="touch-keyboard-schemes-title">输入方案</div>
           <div className="input-setting-description">开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。</div>
@@ -1147,8 +1159,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
         <div className="section shortcut-intro">输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。</div>
-        {linuxPlatform && <div className="section" role="group" aria-label="Linux 输入模式切换快捷键">
-          <div className="section-title">Linux 输入模式切换</div>
+        {showModeSwitchShortcuts && <div className="section" role="group" aria-label="输入模式切换快捷键">
+          <div className="section-title">输入模式切换</div>
           <small>在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。</small>
           {([[
             "switch_language_shift", "Shift 切换中英文",
@@ -1163,8 +1175,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
         </div>}
-        {linuxPlatform && <div className="section" role="group" aria-label="Linux 面板快捷键">
-          <div className="section-title">Linux 面板快捷键</div>
+        {showPanelShortcuts && <div className="section" role="group" aria-label="面板快捷键">
+          <div className="section-title">面板快捷键</div>
           <small>桌面环境转发 Super 组合键时可从当前输入上下文打开面板。</small>
           <div className="shortcut-list">
             <div className="shortcut-row"><span>打开屏幕键盘</span><kbd>Ctrl+Shift+Super+K</kbd></div>
@@ -1200,7 +1212,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             </>}
           </div>
         </div>
-        {linuxPlatform && client.restartInputMethod && <div className="section shortcut-section">
+        {showRestartInputMethod && <div className="section shortcut-section">
           <div className="section-title">输入法服务</div>
           <small>IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。</small>
           <div className="service-action-row">
@@ -1298,7 +1310,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>
-        {linuxPlatform && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
+        {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
           <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option></select></label>
           {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
           <label className="section-header"><span className="section-title">麦克风设备<small>填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。</small></span><input aria-label="麦克风设备" maxLength={128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>

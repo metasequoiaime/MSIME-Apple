@@ -21,6 +21,9 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     system_fonts: true,
     window_chrome: true,
     floating_toolbar: true,
+    mode_switch_shortcuts: false,
+    panel_shortcuts: false,
+    voice_capture_devices: false,
     ...overrides,
   };
 }
@@ -30,9 +33,9 @@ function mount(client: Partial<SettingsClient>) {
 }
 
 test("host capabilities decide platform-specific settings instead of the user agent", async () => {
-  // jsdom reports a Linux-like user agent, so the legacy probe would say "not Linux".
-  // A host that declares itself Linux must win regardless.
-  mount({ host: capabilities({ platform: "linux", ime_mode_scope: true }) });
+  // A Windows host that tracks session-wide mode gets the control; the gate is
+  // the capability, not the platform name.
+  mount({ host: capabilities({ platform: "windows", ime_mode_scope: true }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
 });
@@ -63,15 +66,35 @@ test("typing statistics follow the injected client on any platform", async () =>
   expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
 });
 
-test("host-gated shortcut groups follow the declared platform", async () => {
-  const linux = mount({ host: capabilities({ platform: "linux" }), restartInputMethod: vi.fn() });
+test("shortcut groups follow declared capabilities, not the platform name", async () => {
+  // A Windows host that declares the capabilities gets the controls, proving the
+  // gate is the capability and not a platform-name or user-agent match.
+  const capable = mount({
+    host: capabilities({ platform: "windows", mode_switch_shortcuts: true, panel_shortcuts: true }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(screen.getByRole("group", { name: "Linux 面板快捷键" })).toBeTruthy();
-  linux.unmount();
+  expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
+  capable.unmount();
 
-  mount({ host: capabilities({ platform: "windows" }), restartInputMethod: vi.fn() });
+  // A Linux host that does not declare them keeps them hidden.
+  mount({ host: capabilities({ platform: "linux" }) });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(screen.queryByRole("group", { name: "Linux 面板快捷键" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "面板快捷键" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
+});
+
+test("the restart action needs both the capability and an injected handler", async () => {
+  const withoutHandler = mount({ host: capabilities({ platform: "linux", restart_input_method: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
+  withoutHandler.unmount();
+
+  mount({ host: capabilities({ platform: "linux", restart_input_method: true }), restartInputMethod: vi.fn() });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
 });

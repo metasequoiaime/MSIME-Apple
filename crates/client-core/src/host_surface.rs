@@ -88,6 +88,13 @@ pub struct HostCapabilities {
     pub window_chrome: bool,
     /// The host renders a floating toolbar surface.
     pub floating_toolbar: bool,
+    /// The host consumes the shared `keybindings` preferences to switch
+    /// Chinese/English and simplified/traditional mode.
+    pub mode_switch_shortcuts: bool,
+    /// The desktop environment forwards a shortcut that opens a shared panel.
+    pub panel_shortcuts: bool,
+    /// The host can enumerate audio capture devices for voice input.
+    pub voice_capture_devices: bool,
 }
 
 impl HostCapabilities {
@@ -105,6 +112,11 @@ impl HostCapabilities {
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
             floating_toolbar: platform.is_desktop(),
+            // Only the IBus host consumes the shared keybindings and forwards
+            // panel shortcuts so far; a host flips these once it does.
+            mode_switch_shortcuts: platform == HostPlatform::Linux,
+            panel_shortcuts: platform == HostPlatform::Linux,
+            voice_capture_devices: platform == HostPlatform::Linux,
         }
     }
 }
@@ -429,11 +441,18 @@ mod tests {
         assert!(linux.restart_input_method);
         assert!(linux.ime_mode_scope);
         assert!(linux.panel_windows);
+        assert!(linux.mode_switch_shortcuts);
+        assert!(linux.panel_shortcuts);
+        assert!(linux.voice_capture_devices);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(!windows.restart_input_method);
         assert!(!windows.ime_mode_scope);
         assert!(windows.panel_windows);
+        // These stay false until the Windows host actually consumes them;
+        // showing the controls earlier would offer settings that do nothing.
+        assert!(!windows.mode_switch_shortcuts);
+        assert!(!windows.panel_shortcuts);
         assert!(windows.system_fonts);
 
         let android = HostCapabilities::for_platform(HostPlatform::Android);
