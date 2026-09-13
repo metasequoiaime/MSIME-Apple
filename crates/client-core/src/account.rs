@@ -20,6 +20,12 @@ const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
 const MAX_DICTIONARY_PAGE_ENTRIES: usize = 100;
 const MAX_DICTIONARY_EXPORT_BYTES: usize = 384 * 1024 * 1024;
 const MAX_DICTIONARY_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
+const MAX_CHAT_MODELS: usize = 33;
+const MAX_CHAT_MODEL_ID_BYTES: usize = 200;
+const MAX_CHAT_MESSAGES: usize = 16;
+const MAX_CHAT_MESSAGE_BYTES: usize = 16 * 1024;
+const MAX_CHAT_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -108,6 +114,23 @@ pub struct AccountCandidateQuery {
     pub scheme: String,
     pub profile: String,
     pub limit: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatModel {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatModels {
+    pub data: Vec<AccountChatModel>,
+    pub default_model: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -314,6 +337,19 @@ pub trait AccountApi: Send + Sync + 'static {
     fn rename(&self, display_name: &str, access_token: &str) -> Result<(), AccountError>;
     fn logout(&self, access_token: &str, all: bool) -> Result<(), AccountError>;
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError>;
+
+    fn chat_models(&self, _access_token: &str) -> Result<AccountChatModels, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn chat(
+        &self,
+        _messages: &[AccountChatMessage],
+        _model: &str,
+        _access_token: &str,
+    ) -> Result<String, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 
     fn preference_schema(
         &self,
@@ -1969,6 +2005,79 @@ impl AccountApi for BackendAccountClient {
         self.empty::<()>(Method::DELETE, "/v1/users/me", Some(access_token), None)
     }
 
+    fn chat_models(&self, access_token: &str) -> Result<AccountChatModels, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let models = self.json::<AccountChatModels, ()>(
+            Method::GET,
+            "/v1/models",
+            Some(access_token),
+            None,
+        )?;
+        validate_chat_models(&models)?;
+        Ok(models)
+    }
+
+    fn chat(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+    ) -> Result<String, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        validate_chat_request(messages, model)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            messages: &'a [AccountChatMessage],
+            model: &'a str,
+            max_tokens: u16,
+            stream: bool,
+        }
+        #[derive(Deserialize)]
+        struct Response {
+            choices: Vec<Choice>,
+        }
+        #[derive(Deserialize)]
+        struct Choice {
+            message: AccountChatMessage,
+        }
+        let body = Body {
+            messages,
+            model,
+            max_tokens: 2048,
+            stream: false,
+        };
+        let body_bytes = serde_json::to_vec(&body).map_err(|_| AccountError::Invalid)?;
+        if body_bytes.len() > MAX_CHAT_REQUEST_BYTES {
+            return Err(AccountError::Invalid);
+        }
+        let response = self.json_with_limit_timeout::<Response, _>(
+            Method::POST,
+            "/v1/chat/completions",
+            Some(access_token),
+            Some(&body),
+            MAX_CHAT_RESPONSE_BYTES,
+            Duration::from_secs(125),
+        )?;
+        let reply = response
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message)
+            .ok_or(AccountError::Unavailable)?;
+        if reply.role != "assistant"
+            || reply.content.trim().is_empty()
+            || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
+            || reply.content.chars().any(char::is_control)
+        {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(reply.content)
+    }
+
     fn preference_schema(
         &self,
         access_token: &str,
@@ -2370,6 +2479,51 @@ fn validate_display_name(value: &str) -> Result<(), AccountError> {
     Ok(())
 }
 
+fn validate_chat_models(value: &AccountChatModels) -> Result<(), AccountError> {
+    if value.data.is_empty()
+        || value.data.len() > MAX_CHAT_MODELS
+        || value.default_model.is_empty()
+        || value.default_model.len() > MAX_CHAT_MODEL_ID_BYTES
+        || !value
+            .data
+            .iter()
+            .any(|model| model.id == value.default_model)
+        || value.data.iter().any(|model| {
+            model.id.is_empty()
+                || model.id.len() > MAX_CHAT_MODEL_ID_BYTES
+                || model.id.chars().any(char::is_control)
+        })
+        || value
+            .data
+            .iter()
+            .map(|model| &model.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != value.data.len()
+    {
+        return Err(AccountError::Unavailable);
+    }
+    Ok(())
+}
+
+fn validate_chat_request(messages: &[AccountChatMessage], model: &str) -> Result<(), AccountError> {
+    if model.is_empty()
+        || model.len() > MAX_CHAT_MODEL_ID_BYTES
+        || model.chars().any(char::is_control)
+        || messages.is_empty()
+        || messages.len() > MAX_CHAT_MESSAGES
+        || messages.iter().any(|message| {
+            !matches!(message.role.as_str(), "user" | "assistant" | "system")
+                || message.content.is_empty()
+                || message.content.len() > MAX_CHAT_MESSAGE_BYTES
+                || message.content.chars().any(char::is_control)
+        })
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
 fn validate_tokens(tokens: &AccountTokens) -> Result<(), AccountError> {
     if tokens.token_type != "Bearer"
         || tokens.expires_in == 0
@@ -2695,6 +2849,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         };
         result?;
         self.forget()
+    }
+
+    pub fn chat_models(&self) -> Result<AccountChatModels, AccountError> {
+        self.authenticated(|api, token| api.chat_models(token))
+    }
+
+    pub fn chat(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+    ) -> Result<String, AccountError> {
+        self.authenticated(|api, token| api.chat(messages, model, token))
     }
 
     fn authenticated<T, F>(&self, operation: F) -> Result<T, AccountError>
@@ -3063,6 +3229,51 @@ mod tests {
             items: too_many,
         })
         .is_err());
+    }
+
+    #[test]
+    fn validates_chat_catalog_and_request_boundaries() {
+        let models = AccountChatModels {
+            data: vec![
+                AccountChatModel {
+                    id: "fixture-chat".into(),
+                },
+                AccountChatModel {
+                    id: "fixture-fast".into(),
+                },
+            ],
+            default_model: "fixture-chat".into(),
+        };
+        assert!(validate_chat_models(&models).is_ok());
+
+        let messages = vec![AccountChatMessage {
+            role: "user".into(),
+            content: "fixture message".into(),
+        }];
+        assert!(validate_chat_request(&messages, "fixture-chat").is_ok());
+        assert!(validate_chat_request(&messages, "").is_err());
+        assert!(validate_chat_request(
+            &[AccountChatMessage {
+                role: "tool".into(),
+                content: "x".into(),
+            }],
+            "fixture-chat",
+        )
+        .is_err());
+        assert!(validate_chat_request(
+            &[AccountChatMessage {
+                role: "user".into(),
+                content: "\n".into(),
+            }],
+            "fixture-chat",
+        )
+        .is_err());
+
+        let mut duplicate = models.clone();
+        duplicate.data.push(AccountChatModel {
+            id: "fixture-chat".into(),
+        });
+        assert!(validate_chat_models(&duplicate).is_err());
     }
 
     #[test]

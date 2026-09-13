@@ -90,6 +90,9 @@ const client: SettingsClient = {
       upload: () => invoke("account_preferences_upload"),
       apply: (userId, preferences) => invoke("account_preferences_apply", { userId, preferences }),
     },
+  }, chat: {
+    models: () => invoke("account_chat_models"),
+    complete: (messages, model) => invoke<{ content: string }>("account_chat", { messages, model }).then(response => response.content),
   }, communitySkins: {
     list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
     detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),

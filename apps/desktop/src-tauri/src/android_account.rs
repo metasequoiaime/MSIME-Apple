@@ -1,8 +1,8 @@
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
-    AccountChallenge, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
-    AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser, BackendAccountClient,
-    BackendAccountSession, SavedAccountSession,
+    AccountChallenge, AccountChatMessage, AccountChatModels, AccountError, AccountPreferenceSchema,
+    AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser,
+    BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
 use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
 use msime_client_core::cloud_dictionary::DictionaryKind;
@@ -1043,6 +1043,38 @@ pub struct ProfileResponse {
     providers: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelResponse {
+    id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelsResponse {
+    data: Vec<ChatModelResponse>,
+    default_model: String,
+}
+
+impl From<AccountChatModels> for ChatModelsResponse {
+    fn from(models: AccountChatModels) -> Self {
+        Self {
+            data: models
+                .data
+                .into_iter()
+                .map(|model| ChatModelResponse { id: model.id })
+                .collect(),
+            default_model: models.default_model,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatResponse {
+    content: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppIconResponse {
@@ -1576,6 +1608,27 @@ pub async fn account_profile(
 ) -> Result<ProfileResponse, super::CommandError> {
     call(state, |session| {
         session.profile().map(ProfileResponse::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn account_chat_models(
+    state: State<'_, AccountState>,
+) -> Result<ChatModelsResponse, super::CommandError> {
+    call(state, |session| session.chat_models().map(Into::into)).await
+}
+
+#[tauri::command]
+pub async fn account_chat(
+    state: State<'_, AccountState>,
+    messages: Vec<AccountChatMessage>,
+    model: String,
+) -> Result<ChatResponse, super::CommandError> {
+    call(state, move |session| {
+        session
+            .chat(&messages, &model)
+            .map(|content| ChatResponse { content })
     })
     .await
 }

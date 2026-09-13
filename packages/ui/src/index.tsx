@@ -22,10 +22,12 @@ export type { AiSkinClient, AiSkinProposal, AiSkinProgress, CustomSkinLibraryAct
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 import { AccountPage, type AccountClient } from "./account-page";
+import { ChatPage, type ChatClient } from "./chat-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export { AccountPage, type AccountChallenge, type AccountClient, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type AppIconClient, type AppIconInfo, type SettingsSyncClient } from "./account-page";
+export { ChatPage, type ChatClient, type ChatMessage, type ChatModel, type ChatModels } from "./chat-page";
 export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
 export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -118,6 +120,7 @@ function selectTouchKeyboardScheme(preferences: Preferences, selected: TouchKeyb
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
+  { id: "chat", title: "AI 对话", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
@@ -536,6 +539,8 @@ export interface SettingsClient {
   host?: HostCapabilities;
   /** Android account commands expose user/profile DTOs but never session tokens. */
   account?: AccountClient;
+  /** Android account commands expose the authenticated EveryAPI chat surface. */
+  chat?: ChatClient;
   /** Android community commands expose bounded public skin metadata and designs. */
   communitySkins?: CommunitySkinClient;
   /** Android community commands expose dictionaries and reply templates. */
@@ -1119,6 +1124,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const availablePages = pages.filter(item =>
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
     && (item.id !== "account" || Boolean(client.account))
+    && (item.id !== "chat" || Boolean(client.chat))
     && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)));
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
@@ -1218,11 +1224,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
+    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityMine ? "mine" : "all"} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityMine} localDictionary={client.dictionary} />}
     {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
     {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind="dictionary" />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
-    {draft && page !== "typing-statistics" && page !== "account" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
+    {draft && page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1745,7 +1752,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
-    {page !== "typing-statistics" && page !== "account" && page !== "community" && <button className="secondary" disabled={busy} onClick={() => {
+    {page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();
     }}>重新读取</button>}
   </div></main></div></div>;
