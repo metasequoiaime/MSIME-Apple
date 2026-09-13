@@ -4,6 +4,11 @@
 
 #include <wayland-client.h>
 
+#ifdef MSIME_LINUX_WAYLAND_TEXT
+#include <cairo/cairo.h>
+#include <pango/pangocairo.h>
+#endif
+
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -21,7 +26,7 @@ namespace msime::linux_host {
 namespace {
 
 constexpr int kWidth = 420;
-constexpr int kHeight = 88;
+constexpr int kHeight = 132;
 constexpr int kStride = kWidth * 4;
 constexpr std::size_t kBufferBytes = static_cast<std::size_t>(kStride) * kHeight;
 
@@ -210,7 +215,51 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   }
   const auto transcript_marker = std::min<std::size_t>(kWidth - 48, model.transcript.size());
   for (std::size_t x = 0; x < transcript_marker; ++x)
-    pixels[72 * kWidth + 24 + x] = 0xFF9AA4B2u;
+    pixels[112 * kWidth + 24 + x] = 0xFF9AA4B2u;
+#ifdef MSIME_LINUX_WAYLAND_TEXT
+  auto *image = cairo_image_surface_create_for_data(
+      reinterpret_cast<unsigned char *>(pixels), CAIRO_FORMAT_ARGB32,
+      kWidth, kHeight, kStride);
+  auto *cairo = cairo_create(image);
+  cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
+  cairo_paint(cairo);
+  cairo_set_source_rgba(cairo, 0.125, 0.13, 0.145, 0.9);
+  cairo_rectangle(cairo, 12, 12, kWidth - 24, 108);
+  cairo_fill(cairo);
+  cairo_set_source_rgba(cairo, model.locked ? 1.0 : 0.45,
+                        model.locked ? 0.78 : 0.65,
+                        model.locked ? 0.34 : 1.0, 1.0);
+  for (std::size_t index_bar = 0; index_bar < model.levels.size(); ++index_bar) {
+    const auto height = std::max(4, static_cast<int>(model.levels[index_bar] * 38.0f));
+    cairo_rectangle(cairo, 24 + static_cast<int>(index_bar) * width,
+                    56 - height / 2, width - 3, height);
+  }
+  cairo_fill(cairo);
+  auto *layout = pango_cairo_create_layout(cairo);
+  auto *font = pango_font_description_from_string("Sans 12");
+  pango_layout_set_font_description(layout, font);
+  pango_font_description_free(font);
+  std::string status = model.locked
+                           ? "录音已锁定 · 再按快捷键结束 · Esc 取消"
+                           : model.status;
+  if (status.empty())
+    status = "正在录音…";
+  pango_layout_set_text(layout, status.c_str(), -1);
+  cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
+  cairo_move_to(cairo, 24, 70);
+  pango_cairo_show_layout(cairo, layout);
+  if (model.show_transcript && !model.transcript.empty()) {
+    auto transcript = model.transcript;
+    if (transcript.size() > 240)
+      transcript.resize(240);
+    pango_layout_set_text(layout, transcript.c_str(), -1);
+    cairo_move_to(cairo, 24, 100);
+    pango_cairo_show_layout(cairo, layout);
+  }
+  g_object_unref(layout);
+  cairo_destroy(cairo);
+  cairo_surface_destroy(image);
+#endif
   wl_surface_attach(surface_, buffers_[index], 0, 0);
   wl_surface_damage(surface_, 0, 0, kWidth, kHeight);
   wl_surface_commit(surface_);
