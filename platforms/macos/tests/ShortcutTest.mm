@@ -35,7 +35,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
         @"showCloudClipboard:", @"showHandwriting:", @"prepareDictionary:", @"",
-        @"checkForUpdates:", @"openWebsite:", @"toggleVoiceInput:", @"showVoiceSettings:"
+        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"toggleVoiceInput:", @"showVoiceSettings:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
