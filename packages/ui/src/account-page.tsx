@@ -35,6 +35,16 @@ export type AccountPreferenceSchema = {
   revisionRequired: boolean;
 };
 
+export type AppIconInfo = {
+  supported: boolean;
+  selected: string;
+};
+
+export interface AppIconClient {
+  info(): Promise<AppIconInfo>;
+  set(style: string): Promise<AppIconInfo>;
+}
+
 export interface SettingsSyncClient {
   schema(): Promise<AccountPreferenceSchema>;
   load(): Promise<AccountPreferences>;
@@ -53,6 +63,7 @@ export interface AccountClient {
   deleteAccount(): Promise<void>;
   clearExpired(): Promise<void>;
   settingsSync?: SettingsSyncClient;
+  appIcon?: AppIconClient;
 }
 
 type Channel = "email" | "phone";
@@ -81,6 +92,73 @@ function providerName(provider: string): string {
   if (provider === "email") return "邮箱";
   if (provider === "phone" || provider === "sms") return "手机号";
   return provider;
+}
+
+const appIconOptions = [
+  { id: "classic", title: "原版", detail: "经典黑白，简洁如初", color: "#252525" },
+  { id: "forest", title: "杉林", detail: "杉叶青绿，沉静自然", color: "#2f6b4f" },
+  { id: "sky", title: "晴空", detail: "清透蓝调，轻盈明亮", color: "#4e8fc8" },
+  { id: "dusk", title: "暮紫", detail: "晚霞淡紫，温柔入夜", color: "#71618f" },
+  { id: "vermilion", title: "朱砂", detail: "朱红印记，纸上东方", color: "#b9473f" },
+] as const;
+
+function AppIconSettingsCard({ client }: { client: AppIconClient }) {
+  const [info, setInfo] = useState<AppIconInfo | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setInfo(null);
+    setError("");
+    void client.info().then(value => {
+      if (active) setInfo(value);
+    }).catch(() => {
+      if (active) setError("暂时无法读取 App 图标状态，请稍后重试。");
+    });
+    return () => { active = false; };
+  }, [client]);
+
+  const choose = async (style: string) => {
+    if (!info?.supported || pending || info.selected === style) return;
+    setPending(style);
+    setError("");
+    try {
+      setInfo(await client.set(style));
+    } catch {
+      // A launcher may apply the alias before reporting a package-manager
+      // error. Read the OS state again before showing a failure.
+      try { setInfo(await client.info()); }
+      catch { setError("图标未能更换，请稍后重试。"); }
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return <section className="section app-icon-settings">
+    <div>
+      <h2>App 图标</h2>
+      <p>给主屏幕上的水杉换个颜色。Android 会使用系统启动器的图标别名保存选择。</p>
+    </div>
+    {info === null && !error && <p role="status">正在读取图标状态…</p>}
+    {error && <p role="alert" className="error">{error}</p>}
+    {info && !info.supported && <p className="account-muted">当前设备暂不支持更换 App 图标。</p>}
+    {info && <div className="app-icon-grid">
+      {appIconOptions.map(option => {
+        const selected = info.selected === option.id;
+        const changing = pending === option.id;
+        return <button type="button" className={`app-icon-card${selected ? " selected" : ""}`}
+          key={option.id} disabled={!info.supported || pending !== null}
+          aria-label={`${option.title}，${option.detail}`} aria-pressed={selected}
+          onClick={() => void choose(option.id)}>
+          <span className="app-icon-preview" style={{ backgroundColor: option.color }} aria-hidden="true">杉</span>
+          <span className="app-icon-copy"><strong>{option.title}</strong><small>{option.detail}</small></span>
+          <span className="app-icon-state">{changing ? "更换中" : selected ? "使用中" : "使用此图标"}</span>
+        </button>;
+      })}
+    </div>}
+    <p className="account-muted">更换后，系统启动器可能需要片刻刷新。随时可以切回原版。</p>
+  </section>;
 }
 
 function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
@@ -329,6 +407,7 @@ export function AccountPage({ client, onOpenPublishedSkins }: {
         <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
       </div>
     </section>
+    {client.appIcon && <AppIconSettingsCard client={client.appIcon} />}
     {user ? <>
       <section className="section account-profile">
         <div>

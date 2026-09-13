@@ -3393,6 +3393,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_forget,
             #[cfg(target_os = "android")]
+            android_account::app_icon_info,
+            #[cfg(target_os = "android")]
+            android_account::app_icon_set,
+            #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]
             android_account::account_preferences_load,

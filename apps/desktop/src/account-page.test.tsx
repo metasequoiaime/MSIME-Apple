@@ -107,6 +107,21 @@ test("logged-in accounts can open their published skin list", async () => {
   expect(openPublishedSkins).toHaveBeenCalledTimes(1);
 });
 
+test("Android app icon choices read the launcher state and use an explicit selection", async () => {
+  const set = vi.fn().mockResolvedValue({ supported: true, selected: "forest" });
+  const client = account({
+    appIcon: {
+      info: vi.fn().mockResolvedValue({ supported: true, selected: "classic" }),
+      set,
+    },
+  });
+  render(<AccountPage client={client} />);
+  expect((await screen.findByRole("button", { name: "原版，经典黑白，简洁如初" })).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }));
+  await waitFor(() => expect(set).toHaveBeenCalledWith("forest"));
+  expect(screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }).getAttribute("aria-pressed")).toBe("true");
+});
+
 test("settings sync requires confirmation and preserves a remote conflict error", async () => {
   const upload = vi.fn().mockResolvedValue({ revision: 8, settings: { "input.schema": "shuangpin" } });
   const apply = vi.fn().mockRejectedValue({ code: "account_conflict" });

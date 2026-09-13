@@ -76,7 +76,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。gen 中的本机路径、生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
 
-Android“我的”页通过 Rust account session 访问固定的 https://api.msime.app 账号服务。邮箱和手机号验证码、刷新、资料更新、退出及注销请求都在原生宿主内完成，WebView 只接收不含凭据的用户和 provider DTO。会话 JSON 由包私有 Android Keystore AES-GCM 密钥加密后写入 SharedPreferences，密钥和密文不跨应用包共享；请求不跟随重定向，普通 JSON 请求和响应均限制为 1 MiB。日常输入不需要登录，账号登录不会上传本地输入或统计。
+Android“我的”页通过 Rust account session 访问固定的 https://api.msime.app 账号服务。邮箱和手机号验证码、刷新、资料更新、退出及注销请求都在原生宿主内完成，WebView 只接收不含凭据的用户和 provider DTO。会话 JSON 由包私有 Android Keystore AES-GCM 密钥加密后写入 SharedPreferences，密钥和密文不跨应用包共享；请求不跟随重定向，普通 JSON 请求和响应均限制为 1 MiB。日常输入不需要登录，账号登录不会上传本地输入或统计。页面同时提供 Apple 对齐的五种 App 图标选择；Android 通过 launcher `activity-alias` 持久化系统选择，切换只启用目标入口并保留原版回退，不进入设置同步或账号云端数据。
 
 Android“社区”页以 Apple 远端默认分支 `develop` 的固定来源 `MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0` 为浏览基线，提供公开皮肤双列列表、原样 UTF-8 搜索、分页去重和详情预览。匿名用户可直接浏览；已有账号会话时请求携带同一 Bearer token，使服务返回“我的作品”和个人评分状态，401 只刷新一次，账号在请求期间变化会废弃结果。next42 增加登录后的下载：设计以社区 UUID 稳定保存到本地最多 12 项图库，写入前持久化原皮肤和试用记录，主应用重启时恢复未完成试用；详情页支持恢复原皮肤、保留使用及下载后的 1–5 星评分，自己的作品隐藏评分入口。next43 增加发布本地命名皮肤、公开素材权利确认、失败安全重试、全部/我的作品范围切换和作者下架；下架沿用后端语义，已下载的本地副本保留。Rust transport 对 offset、查询、页长、UUID、文本、评分、发布和完整设计做边界校验，WebView 只接收稳定脱敏错误码。该切片不访问生产社区做设备验收，账号配额、真实发布/下架、本地图库与社区列表分页仍需 Android 原生宿主和产品验收。
 

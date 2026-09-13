@@ -99,6 +99,7 @@ type AiSkinService = BackendAiSkinService<BackendAccountClient, AndroidAccountSt
 
 pub struct AccountState {
     session: Arc<Session>,
+    platform: PluginHandle<Wry>,
     feedback: PluginHandle<Wry>,
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
@@ -110,6 +111,7 @@ pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
             let handle = api.register_android_plugin("app.msime.client", "AccountPlugin")?;
+            let platform = handle.clone();
             let feedback = handle.clone();
             let client = BackendAccountClient::new()?;
             let session = Arc::new(BackendAccountSession::new(
@@ -131,6 +133,7 @@ pub fn init() -> TauriPlugin<Wry> {
             ));
             app.manage(AccountState {
                 session,
+                platform,
                 feedback,
                 community,
                 resources,
@@ -193,6 +196,18 @@ impl From<AccountChallenge> for ChallengeResponse {
 pub struct ProfileResponse {
     user: UserResponse,
     providers: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppIconResponse {
+    pub supported: bool,
+    pub selected: String,
+}
+
+#[derive(Serialize)]
+struct AppIconRequest<'a> {
+    style: &'a str,
 }
 
 #[derive(Serialize)]
@@ -747,6 +762,40 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
     call(state, |session| session.forget()).await
+}
+
+#[tauri::command]
+pub async fn app_icon_info(
+    state: State<'_, AccountState>,
+) -> Result<AppIconResponse, super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<AppIconResponse>("appIconInfo", ())
+            .map_err(|_| super::CommandError { code: "app_icon" })
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "app_icon" })?
+}
+
+#[tauri::command]
+pub async fn app_icon_set(
+    state: State<'_, AccountState>,
+    style: String,
+) -> Result<AppIconResponse, super::CommandError> {
+    if !matches!(style.as_str(), "classic" | "forest" | "sky" | "dusk" | "vermilion") {
+        return Err(super::CommandError {
+            code: "invalid_app_icon",
+        });
+    }
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<AppIconResponse>("setAppIcon", AppIconRequest { style: &style })
+            .map_err(|_| super::CommandError { code: "app_icon" })
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "app_icon" })?
 }
 
 fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {

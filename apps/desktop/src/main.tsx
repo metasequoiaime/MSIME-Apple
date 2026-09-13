@@ -68,6 +68,10 @@ const client: SettingsClient = {
     load: () => invoke("load_custom_skin_library"),
     mutate: action => invoke("mutate_custom_skin_library", { action }),
   }, account: {
+    appIcon: {
+      info: () => invoke("app_icon_info"),
+      set: style => invoke("app_icon_set", { style }),
+    },
     status: () => invoke("account_status"),
     providers: () => invoke("account_providers"),
     requestCode: (provider, target) => invoke("account_request_code", { provider, target }),

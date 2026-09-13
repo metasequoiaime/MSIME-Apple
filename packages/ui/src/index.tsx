@@ -23,7 +23,7 @@ import { AccountPage, type AccountClient } from "./account-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
-export { AccountPage, type AccountChallenge, type AccountClient, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type SettingsSyncClient } from "./account-page";
+export { AccountPage, type AccountChallenge, type AccountClient, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type AppIconClient, type AppIconInfo, type SettingsSyncClient } from "./account-page";
 export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
 export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
