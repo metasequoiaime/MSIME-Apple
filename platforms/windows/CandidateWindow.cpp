@@ -258,7 +258,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                          font_family_,
                                          static_cast<float>(preedit_font_size_));
   for (const auto &candidate : value.candidates) {
-    auto label = candidate.text;
+    auto label = candidate.text + candidate.annotation + candidate.badge;
     if (!candidate.translation.empty())
       label += "  · " + candidate.translation;
     input.item_widths.push_back(measured_width(
@@ -373,7 +373,9 @@ void CandidateWindow::paint() {
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.bottom},
                       brush(palette_.number));
-    auto candidate_label = value->candidates[i].text;
+    auto candidate_label = value->candidates[i].text +
+                           value->candidates[i].annotation +
+                           value->candidates[i].badge;
     if (!value->candidates[i].translation.empty())
       candidate_label += "  · " + value->candidates[i].translation;
     const auto text = wide(candidate_label);
@@ -381,7 +383,9 @@ void CandidateWindow::paint() {
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
                                   rect.bottom},
-                      brush(text_color));
+                      brush(value->candidates[i].fixed_position
+                                ? palette_.accent
+                                : text_color));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

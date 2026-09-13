@@ -9,6 +9,9 @@ struct PresentationCandidate {
   size_t index;
   std::string text;
   bool highlighted;
+  std::string annotation;
+  std::string badge;
+  bool fixed_position = false;
   std::string translation;
 };
 struct CandidatePresentation {
@@ -48,9 +51,14 @@ candidate_presentation_from_view(const FocusLease &lease,
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(), candidate.at("text").get<std::string>(),
         candidate.at("highlighted").get<bool>(),
+        candidate.value("annotation", std::string{}),
+        candidate.value("source", uint8_t{}) == 2 ? " ☁️" :
+            candidate.value("source", uint8_t{}) == 3 ? " 🤖" : "",
+        candidate.value("fixed_position", uint8_t{}) != 0,
         candidate.value("translation", std::string{})};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
+        item.annotation.size() > 4096 || item.badge.size() > 4096 ||
         item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
     highlighted += item.highlighted;
@@ -99,9 +107,14 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(), candidate.at("text").get<std::string>(),
         candidate.at("highlighted").get<bool>(),
+        candidate.value("annotation", std::string{}),
+        candidate.value("source", uint8_t{}) == 2 ? " ☁️" :
+            candidate.value("source", uint8_t{}) == 3 ? " 🤖" : "",
+        candidate.value("fixed_position", uint8_t{}) != 0,
         candidate.value("translation", std::string{})};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
+        item.annotation.size() > 4096 || item.badge.size() > 4096 ||
         item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
     highlighted += item.highlighted;
