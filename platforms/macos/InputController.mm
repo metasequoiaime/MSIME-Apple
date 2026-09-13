@@ -928,6 +928,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [_session closeWithError:nil];
         _session = nil;
         [_preferencesTimer invalidate];
+    if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
         _preferencesTimer = nil;
     }
     NSOpenPanel *panel = [NSOpenPanel openPanel];
@@ -1145,7 +1146,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
-    if (_globalVoiceHotkeyMonitor) { [NSEvent removeMonitor:_globalVoiceHotkeyMonitor]; _globalVoiceHotkeyMonitor = nil; }
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
@@ -1191,17 +1191,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_toolbar setVisible:NO forDelegate:self];
 }
 
-- (void)dealloc {
-    [_customTimer invalidate];
-    [_customBatch cancel];
-    [_aiTimer invalidate];
-    [_aiBatch cancel];
-    [_glossQueue cancelAllOperations];
-    [_cloudTimer invalidate];
-    [_cloudRequest cancel];
-    [_preferencesTimer invalidate];
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
+
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
