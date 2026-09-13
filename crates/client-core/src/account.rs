@@ -100,6 +100,71 @@ pub struct AccountDictionaryCatalogPage {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountCandidateQuery {
+    pub text: String,
+    pub kind: String,
+    pub scheme: String,
+    pub profile: String,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountPersonalCandidate {
+    pub code: String,
+    pub word: String,
+    pub weight: i64,
+    pub canonical_pinyin: Option<String>,
+}
+
+impl AccountPersonalCandidate {
+    pub fn mutation_code(&self) -> &str {
+        self.canonical_pinyin
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&self.code)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountPersonalCandidates {
+    pub candidates: Vec<AccountPersonalCandidate>,
+    pub context: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountRankingSelection {
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountRankingResult {
+    pub revision: i64,
+    pub changed: bool,
+    pub selection: AccountRankingSelection,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountFixedPosition {
+    pub context: String,
+    pub code: String,
+    pub word: String,
+    pub position: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountFixedPositions {
+    pub positions: Vec<AccountFixedPosition>,
+    pub offset: usize,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryRevision {
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountDictionaryChange {
     pub revision: i64,
     pub previous: Option<AccountDictionaryEntry>,
@@ -314,6 +379,62 @@ pub trait AccountApi: Send + Sync + 'static {
         _replacement: Option<(&str, &str, i64)>,
         _access_token: &str,
     ) -> Result<AccountDictionaryChange, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn personal_candidates(
+        &self,
+        _query: &AccountCandidateQuery,
+        _access_token: &str,
+    ) -> Result<AccountPersonalCandidates, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rank_candidate(
+        &self,
+        _query: &AccountCandidateQuery,
+        _code: &str,
+        _word: &str,
+        _revision: i64,
+        _mode: &str,
+        _linear_step: i64,
+        _trigger_count: i64,
+        _force_top: bool,
+        _access_token: &str,
+    ) -> Result<AccountRankingResult, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn remove_candidate(
+        &self,
+        _query: &AccountCandidateQuery,
+        _code: &str,
+        _word: &str,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn fixed_positions(
+        &self,
+        _context: &str,
+        _offset: usize,
+        _access_token: &str,
+    ) -> Result<AccountFixedPositions, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn set_fixed_position(
+        &self,
+        _context: &str,
+        _code: &str,
+        _word: &str,
+        _position: Option<i64>,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryRevision, AccountError> {
         Err(AccountError::Unavailable)
     }
 
@@ -751,6 +872,178 @@ impl BackendAccountClient {
         Ok(change)
     }
 
+    pub fn personal_candidates(
+        &self,
+        query: &AccountCandidateQuery,
+        access_token: &str,
+    ) -> Result<AccountPersonalCandidates, AccountError> {
+        validate_candidate_query(query)?;
+        let result: AccountPersonalCandidates = self.json(
+            Method::POST,
+            "/v1/users/me/dictionary/candidates",
+            Some(access_token),
+            Some(query),
+        )?;
+        validate_personal_candidates(&result)?;
+        Ok(result)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn rank_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+        mode: &str,
+        linear_step: i64,
+        trigger_count: i64,
+        force_top: bool,
+        access_token: &str,
+    ) -> Result<AccountRankingResult, AccountError> {
+        validate_candidate_query(query)?;
+        validate_candidate_value(query, code, word)?;
+        validate_ranking_arguments(query, revision, mode, linear_step, trigger_count)?;
+        #[derive(Serialize)]
+        struct Action<'a> {
+            code: &'a str,
+            word: &'a str,
+            mode: &'a str,
+            linear_step: i64,
+            trigger_count: i64,
+            force_top: bool,
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            revision: i64,
+            query: &'a AccountCandidateQuery,
+            action: Action<'a>,
+        }
+        let result = self.json(
+            Method::POST,
+            "/v1/users/me/dictionary/ranking",
+            Some(access_token),
+            Some(&Body {
+                revision,
+                query,
+                action: Action {
+                    code,
+                    word,
+                    mode,
+                    linear_step,
+                    trigger_count,
+                    force_top,
+                },
+            }),
+        )?;
+        validate_ranking_result(&result)?;
+        Ok(result)
+    }
+
+    pub fn remove_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        validate_candidate_query(query)?;
+        validate_candidate_value(query, code, word)?;
+        if revision < 0 || query.kind == "quick" {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            revision: i64,
+            query: &'a AccountCandidateQuery,
+            code: &'a str,
+            word: &'a str,
+        }
+        let change = self.json(
+            Method::DELETE,
+            "/v1/users/me/dictionary/candidates",
+            Some(access_token),
+            Some(&Body {
+                revision,
+                query,
+                code,
+                word,
+            }),
+        )?;
+        validate_dictionary_change(&change, dictionary_kind_for_candidate(query)?)?;
+        Ok(change)
+    }
+
+    pub fn fixed_positions(
+        &self,
+        context: &str,
+        offset: usize,
+        access_token: &str,
+    ) -> Result<AccountFixedPositions, AccountError> {
+        validate_bounded_text(context, 1024)?;
+        if offset > 1_000_000 {
+            return Err(AccountError::Invalid);
+        }
+        let path = format!(
+            "/v1/users/me/dictionary/positions?context={}&offset={offset}&limit=100",
+            percent_encode_query(context)
+        );
+        let result = self.json::<AccountFixedPositions, ()>(
+            Method::GET,
+            &path,
+            Some(access_token),
+            None,
+        )?;
+        validate_fixed_positions(&result)?;
+        Ok(result)
+    }
+
+    pub fn set_fixed_position(
+        &self,
+        context: &str,
+        code: &str,
+        word: &str,
+        position: Option<i64>,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryRevision, AccountError> {
+        validate_bounded_text(context, 1024)?;
+        validate_bounded_text(code, 256)?;
+        validate_bounded_text(word, 1024)?;
+        if revision < 0 || position.is_some_and(|value| !(1..=5).contains(&value)) {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            context: &'a str,
+            code: &'a str,
+            word: &'a str,
+            position: Option<i64>,
+            revision: i64,
+        }
+        let result: AccountDictionaryRevision = self.json(
+            if position.is_some() {
+                Method::PUT
+            } else {
+                Method::DELETE
+            },
+            "/v1/users/me/dictionary/positions",
+            Some(access_token),
+            Some(&Body {
+                context,
+                code,
+                word,
+                position,
+                revision,
+            }),
+        )?;
+        if result.revision < 0 {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(result)
+    }
+
     pub fn add_dictionary(
         &self,
         kind: DictionaryKind,
@@ -1094,6 +1387,124 @@ fn validate_dictionary_catalog_page(
     }
     for entry in &page.entries {
         validate_dictionary_catalog_entry(entry, expected_kind)?;
+    }
+    Ok(())
+}
+
+fn validate_bounded_text(value: &str, maximum_bytes: usize) -> Result<(), AccountError> {
+    if value.len() > maximum_bytes || value.chars().any(char::is_control) {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_candidate_query(query: &AccountCandidateQuery) -> Result<(), AccountError> {
+    if query.text.is_empty()
+        || query.text.len() > 256
+        || query.text.chars().any(char::is_control)
+        || !matches!(
+            query.kind.as_str(),
+            "pinyin" | "jianpin" | "wubi" | "quick" | "english"
+        )
+        || !matches!(query.scheme.as_str(), "pinyin" | "shuangpin")
+        || !matches!(
+            query.profile.as_str(),
+            "xiaohe" | "ziranma" | "microsoft" | "shoudao"
+        )
+        || !(1..=100).contains(&query.limit)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn dictionary_kind_for_candidate(
+    query: &AccountCandidateQuery,
+) -> Result<DictionaryKind, AccountError> {
+    match query.kind.as_str() {
+        "pinyin" | "jianpin" => Ok(DictionaryKind::Pinyin),
+        "wubi" => Ok(DictionaryKind::Wubi),
+        "quick" => Ok(DictionaryKind::Quick),
+        "english" => Ok(DictionaryKind::English),
+        _ => Err(AccountError::Invalid),
+    }
+}
+
+fn validate_candidate_value(
+    query: &AccountCandidateQuery,
+    code: &str,
+    word: &str,
+) -> Result<(), AccountError> {
+    validate_bounded_text(code, 256)?;
+    validate_bounded_text(word, 1024)?;
+    if code.is_empty() || word.is_empty() || (query.kind == "quick" && word.encode_utf16().count() > 199) {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_ranking_arguments(
+    query: &AccountCandidateQuery,
+    revision: i64,
+    mode: &str,
+    linear_step: i64,
+    trigger_count: i64,
+) -> Result<(), AccountError> {
+    if revision < 0
+        || query.kind == "quick"
+        || !matches!(mode, "disabled" | "pin" | "halve" | "linear" | "promote")
+        || !(1..=100).contains(&linear_step)
+        || !(1..=10).contains(&trigger_count)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_personal_candidates(result: &AccountPersonalCandidates) -> Result<(), AccountError> {
+    if result.candidates.len() > 100
+        || result.revision < 0
+        || result.context.len() > 1024
+        || result.context.chars().any(char::is_control)
+    {
+        return Err(AccountError::Unavailable);
+    }
+    for candidate in &result.candidates {
+        validate_bounded_text(&candidate.code, 256).map_err(|_| AccountError::Unavailable)?;
+        validate_bounded_text(&candidate.word, 1024).map_err(|_| AccountError::Unavailable)?;
+        if candidate.code.is_empty() || candidate.word.is_empty() || candidate.weight < 0 {
+            return Err(AccountError::Unavailable);
+        }
+        if let Some(canonical) = candidate.canonical_pinyin.as_deref() {
+            validate_bounded_text(canonical, 256).map_err(|_| AccountError::Unavailable)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_ranking_result(result: &AccountRankingResult) -> Result<(), AccountError> {
+    if result.revision < 0 || result.selection.count < 0 {
+        Err(AccountError::Unavailable)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_fixed_positions(result: &AccountFixedPositions) -> Result<(), AccountError> {
+    if result.positions.len() > 100 || result.offset > 1_000_000 {
+        return Err(AccountError::Unavailable);
+    }
+    for item in &result.positions {
+        validate_bounded_text(&item.context, 1024).map_err(|_| AccountError::Unavailable)?;
+        validate_bounded_text(&item.code, 256).map_err(|_| AccountError::Unavailable)?;
+        validate_bounded_text(&item.word, 1024).map_err(|_| AccountError::Unavailable)?;
+        if item.position <= 0 || item.position > 5 {
+            return Err(AccountError::Unavailable);
+        }
     }
     Ok(())
 }
@@ -1471,6 +1882,72 @@ impl AccountApi for BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionaryChange, AccountError> {
         self.edit_dictionary_catalog(kind, code, word, revision, replacement, access_token)
+    }
+
+    fn personal_candidates(
+        &self,
+        query: &AccountCandidateQuery,
+        access_token: &str,
+    ) -> Result<AccountPersonalCandidates, AccountError> {
+        self.personal_candidates(query, access_token)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rank_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+        mode: &str,
+        linear_step: i64,
+        trigger_count: i64,
+        force_top: bool,
+        access_token: &str,
+    ) -> Result<AccountRankingResult, AccountError> {
+        self.rank_candidate(
+            query,
+            code,
+            word,
+            revision,
+            mode,
+            linear_step,
+            trigger_count,
+            force_top,
+            access_token,
+        )
+    }
+
+    fn remove_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.remove_candidate(query, code, word, revision, access_token)
+    }
+
+    fn fixed_positions(
+        &self,
+        context: &str,
+        offset: usize,
+        access_token: &str,
+    ) -> Result<AccountFixedPositions, AccountError> {
+        self.fixed_positions(context, offset, access_token)
+    }
+
+    fn set_fixed_position(
+        &self,
+        context: &str,
+        code: &str,
+        word: &str,
+        position: Option<i64>,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryRevision, AccountError> {
+        self.set_fixed_position(context, code, word, position, revision, access_token)
     }
 
     fn add_dictionary(
@@ -2081,6 +2558,73 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     ) -> Result<AccountDictionaryChange, AccountError> {
         self.authenticated(|api, token| {
             api.edit_dictionary_catalog(kind, code, word, revision, replacement, token)
+        })
+    }
+
+    pub fn personal_candidates(
+        &self,
+        query: &AccountCandidateQuery,
+    ) -> Result<AccountPersonalCandidates, AccountError> {
+        self.authenticated(|api, token| api.personal_candidates(query, token))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn rank_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+        mode: &str,
+        linear_step: i64,
+        trigger_count: i64,
+        force_top: bool,
+    ) -> Result<AccountRankingResult, AccountError> {
+        self.authenticated(|api, token| {
+            api.rank_candidate(
+                query,
+                code,
+                word,
+                revision,
+                mode,
+                linear_step,
+                trigger_count,
+                force_top,
+                token,
+            )
+        })
+    }
+
+    pub fn remove_candidate(
+        &self,
+        query: &AccountCandidateQuery,
+        code: &str,
+        word: &str,
+        revision: i64,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.authenticated(|api, token| {
+            api.remove_candidate(query, code, word, revision, token)
+        })
+    }
+
+    pub fn fixed_positions(
+        &self,
+        context: &str,
+        offset: usize,
+    ) -> Result<AccountFixedPositions, AccountError> {
+        self.authenticated(|api, token| api.fixed_positions(context, offset, token))
+    }
+
+    pub fn set_fixed_position(
+        &self,
+        context: &str,
+        code: &str,
+        word: &str,
+        position: Option<i64>,
+        revision: i64,
+    ) -> Result<AccountDictionaryRevision, AccountError> {
+        self.authenticated(|api, token| {
+            api.set_fixed_position(context, code, word, position, revision, token)
         })
     }
 
@@ -2870,5 +3414,124 @@ mod tests {
             )
             .unwrap();
         assert_eq!(change.revision, 43);
+    }
+
+    #[test]
+    fn validates_candidate_transport_boundaries() {
+        let query = AccountCandidateQuery {
+            text: "nihc".into(),
+            kind: "pinyin".into(),
+            scheme: "shuangpin".into(),
+            profile: "xiaohe".into(),
+            limit: 100,
+        };
+        assert!(validate_candidate_query(&query).is_ok());
+        assert!(validate_candidate_query(&AccountCandidateQuery {
+            text: "".into(),
+            ..query.clone()
+        })
+        .is_err());
+        assert!(validate_ranking_arguments(&query, 42, "pin", 1, 1).is_ok());
+        assert!(validate_ranking_arguments(&AccountCandidateQuery {
+            kind: "quick".into(),
+            ..query.clone()
+        }, 42, "pin", 1, 1)
+        .is_err());
+        assert!(validate_candidate_value(&query, "nihc", "你好").is_ok());
+        assert!(validate_candidate_value(&query, "", "你好").is_err());
+    }
+
+    #[test]
+    fn account_candidate_transport_maps_canonical_and_fixed_state() {
+        let candidate_body = serde_json::json!({
+            "candidates": [{
+                "code": "nihc",
+                "word": "你好",
+                "weight": 10,
+                "canonical_pinyin": "ni'hao"
+            }],
+            "context": "server:context",
+            "revision": 42
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            candidate_body.len(),
+            candidate_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let query = AccountCandidateQuery {
+            text: "nihc".into(),
+            kind: "pinyin".into(),
+            scheme: "shuangpin".into(),
+            profile: "xiaohe".into(),
+            limit: 100,
+        };
+        let candidates = client
+            .personal_candidates(&query, &token(b'a'))
+            .unwrap();
+        assert_eq!(candidates.candidates[0].mutation_code(), "ni'hao");
+
+        let ranking_body = serde_json::json!({
+            "revision": 43,
+            "changed": true,
+            "selection": { "count": 0 }
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            ranking_body.len(),
+            ranking_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let ranking = client
+            .rank_candidate(
+                &query,
+                "ni'hao",
+                "你好",
+                42,
+                "pin",
+                1,
+                1,
+                false,
+                &token(b'a'),
+            )
+            .unwrap();
+        assert!(ranking.changed);
+        assert_eq!(ranking.revision, 43);
+
+        let positions_body = serde_json::json!({
+            "positions": [{
+                "context": "server:context",
+                "code": "ni'hao",
+                "word": "你好",
+                "position": 1
+            }],
+            "offset": 0,
+            "has_more": false
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            positions_body.len(),
+            positions_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let positions = client
+            .fixed_positions("server:context", 0, &token(b'a'))
+            .unwrap();
+        assert_eq!(positions.positions[0].position, 1);
+
+        let revision_body = r#"{"revision":44}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            revision_body.len(),
+            revision_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let revision = client
+            .set_fixed_position("server:context", "ni'hao", "你好", None, 43, &token(b'a'))
+            .unwrap();
+        assert_eq!(revision.revision, 44);
     }
 }

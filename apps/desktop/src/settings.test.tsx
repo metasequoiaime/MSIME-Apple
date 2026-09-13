@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -1448,6 +1448,33 @@ test("cloud dictionary catalog panel queries and edits complete directory entrie
   await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+});
+
+test("cloud candidates panel uses canonical pinyin and manages ranking and fixed positions", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const back = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "candidates") return { candidates: [{ code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 }], context: "server:context", revision: 42 };
+    if (action.operation === "fixed_positions") return { positions: [{ context: "server:context", code: "ni'hao", word: "你好", position: 1 }], offset: 0, has_more: false };
+    if (action.operation === "rank") return { revision: 43, changed: true, selection_count: 0 };
+    return { revision: 43 };
+  });
+  render(<CloudCandidatesPanel client={{ close, back, request }} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), { target: { value: "nihc" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
+  expect(await screen.findByText("你好")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "调频" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "rank", code: "ni'hao", revision: 42 })));
+  fireEvent.click(screen.getByRole("button", { name: "固定" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "set_fixed_position", code: "ni'hao", position: 1 })));
+  fireEvent.click(screen.getByRole("button", { name: "取消固定" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "set_fixed_position", position: null })));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  confirm.mockRestore();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {

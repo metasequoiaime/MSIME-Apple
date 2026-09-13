@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -219,7 +219,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
-  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
   const [initialPage, setInitialPage] = useState<string | undefined>();
@@ -268,11 +268,19 @@ function DesktopSettings() {
     return <CloudDictionaryPanel client={{
       ...panelClients.cloudDictionary,
       openCatalog: async () => setMobilePanel("cloud-dictionary-catalog"),
+      openCandidates: async () => setMobilePanel("cloud-candidates"),
       close: async () => setMobilePanel(null),
     }} />;
   }
   if (mobilePanel === "cloud-dictionary-catalog") {
     return <CloudDictionaryCatalogPanel client={{
+      ...panelClients.cloudDictionary,
+      back: async () => setMobilePanel("cloud-dictionary"),
+      close: async () => setMobilePanel(null),
+    }} />;
+  }
+  if (mobilePanel === "cloud-candidates") {
+    return <CloudCandidatesPanel client={{
       ...panelClients.cloudDictionary,
       back: async () => setMobilePanel("cloud-dictionary"),
       close: async () => setMobilePanel(null),

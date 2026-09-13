@@ -1,8 +1,8 @@
 use msime_client_core::account::{
-    merge_account_preferences, validate_account_preferences, AccountChallenge, AccountError,
-    AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences, AccountProfile,
-    AccountSessionStorage, AccountUser, BackendAccountClient, BackendAccountSession,
-    SavedAccountSession,
+    merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
+    AccountChallenge, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
+    AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
 };
 use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
 use msime_client_core::cloud_dictionary::DictionaryKind;
@@ -951,6 +951,120 @@ pub async fn cloud_dictionary_request(
                     .edit_dictionary_catalog(kind, &code, &word, revision, replacement)
                     .and_then(|change| {
                         serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Candidates {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| {
+                session.personal_candidates(&query).and_then(|result| {
+                    serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Rank {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+            mode,
+            linear_step,
+            trigger_count,
+            force_top,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| {
+                session
+                    .rank_candidate(
+                        &query,
+                        &code,
+                        &word,
+                        revision,
+                        &mode,
+                        linear_step,
+                        trigger_count,
+                        force_top,
+                    )
+                    .map(|result| {
+                        serde_json::json!({
+                            "revision": result.revision,
+                            "changed": result.changed,
+                            "selection_count": result.selection.count,
+                        })
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::RemoveCandidate {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| {
+                session
+                    .remove_candidate(&query, &code, &word, revision)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::FixedPositions { context, offset } => {
+            call(state, move |session| {
+                session.fixed_positions(&context, offset).and_then(|result| {
+                    serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::SetFixedPosition {
+            context,
+            code,
+            word,
+            position,
+            revision,
+        } => {
+            call(state, move |session| {
+                session
+                    .set_fixed_position(&context, &code, &word, position, revision)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
                     })
             })
             .await

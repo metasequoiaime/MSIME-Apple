@@ -40,6 +40,48 @@ pub enum CloudDictionaryRequest {
         revision: i64,
         replacement: Option<CloudDictionaryValue>,
     },
+    Candidates {
+        text: String,
+        kind: String,
+        scheme: String,
+        profile: String,
+        limit: usize,
+    },
+    Rank {
+        text: String,
+        kind: String,
+        scheme: String,
+        profile: String,
+        limit: usize,
+        code: String,
+        word: String,
+        revision: i64,
+        mode: String,
+        linear_step: i64,
+        trigger_count: i64,
+        force_top: bool,
+    },
+    RemoveCandidate {
+        text: String,
+        kind: String,
+        scheme: String,
+        profile: String,
+        limit: usize,
+        code: String,
+        word: String,
+        revision: i64,
+    },
+    FixedPositions {
+        context: String,
+        offset: usize,
+    },
+    SetFixedPosition {
+        context: String,
+        code: String,
+        word: String,
+        position: Option<i64>,
+        revision: i64,
+    },
     Delete {
         kind: String,
         id: String,
@@ -195,6 +237,93 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 Err("invalid cloud dictionary request")
             }
         }
+        CloudDictionaryRequest::Candidates {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+        } => {
+            if valid_candidate_query(text, kind, scheme, profile, *limit) {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::Rank {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+            mode,
+            linear_step,
+            trigger_count,
+            ..
+        } => {
+            if valid_candidate_query(text, kind, scheme, profile, *limit)
+                && valid_candidate_value(code, word)
+                && *revision >= 0
+                && kind != "quick"
+                && matches!(mode.as_str(), "disabled" | "pin" | "halve" | "linear" | "promote")
+                && (1..=100).contains(linear_step)
+                && (1..=10).contains(trigger_count)
+            {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::RemoveCandidate {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+        } => {
+            if valid_candidate_query(text, kind, scheme, profile, *limit)
+                && valid_candidate_value(code, word)
+                && *revision >= 0
+                && kind != "quick"
+            {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::FixedPositions { context, offset } => {
+            if valid_text(context, 1024) && *offset <= 1_000_000 {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::SetFixedPosition {
+            context,
+            code,
+            word,
+            position,
+            revision,
+        } => {
+            if valid_text(context, 1024)
+                && valid_text(code, 256)
+                && valid_text(word, 1024)
+                && !code.is_empty()
+                && !word.is_empty()
+                && *revision >= 0
+                && position.is_none_or(|value| (1..=5).contains(&value))
+            {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
         CloudDictionaryRequest::Import { kind, format, text } => {
             if valid_kind(kind)
                 && valid_format(kind, format)
@@ -218,6 +347,29 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
     }
+}
+
+fn valid_text(value: &str, maximum_bytes: usize) -> bool {
+    value.len() <= maximum_bytes && !value.chars().any(char::is_control)
+}
+
+fn valid_candidate_query(
+    text: &str,
+    kind: &str,
+    scheme: &str,
+    profile: &str,
+    limit: usize,
+) -> bool {
+    !text.is_empty()
+        && valid_text(text, 256)
+        && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
+        && matches!(scheme, "pinyin" | "shuangpin")
+        && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
+        && (1..=100).contains(&limit)
+}
+
+fn valid_candidate_value(code: &str, word: &str) -> bool {
+    !code.is_empty() && !word.is_empty() && valid_text(code, 256) && valid_text(word, 1024)
 }
 
 #[cfg(test)]
@@ -286,6 +438,52 @@ mod tests {
             }),
         })
         .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::Candidates {
+            text: "nihc".into(),
+            kind: "pinyin".into(),
+            scheme: "shuangpin".into(),
+            profile: "xiaohe".into(),
+            limit: 100,
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::Rank {
+            text: "nihc".into(),
+            kind: "pinyin".into(),
+            scheme: "shuangpin".into(),
+            profile: "xiaohe".into(),
+            limit: 100,
+            code: "ni'hao".into(),
+            word: "你好".into(),
+            revision: 42,
+            mode: "pin".into(),
+            linear_step: 1,
+            trigger_count: 1,
+            force_top: false,
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SetFixedPosition {
+            context: "server:context".into(),
+            code: "ni'hao".into(),
+            word: "你好".into(),
+            position: None,
+            revision: 42,
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::Rank {
+            text: "nihc".into(),
+            kind: "quick".into(),
+            scheme: "pinyin".into(),
+            profile: "xiaohe".into(),
+            limit: 100,
+            code: "k".into(),
+            word: "短语".into(),
+            revision: 42,
+            mode: "pin".into(),
+            linear_step: 1,
+            trigger_count: 1,
+            force_top: false,
+        })
+        .is_err());
     }
 
     #[test]
