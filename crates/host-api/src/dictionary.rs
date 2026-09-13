@@ -94,6 +94,10 @@ enum Operation {
         text: String,
         request_id: String,
     },
+    ImportPersonal {
+        text: String,
+        request_id: String,
+    },
     Export {
         kind: Kind,
         format: String,
@@ -113,6 +117,38 @@ enum Operation {
 struct Request {
     options: HostOptions,
     action: Operation,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersonalDictionaryImport {
+    format: String,
+    version: u32,
+    entries: Vec<PersonalWord>,
+}
+
+fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, String> {
+    if text.len() > 1_048_576 {
+        return Err("personal dictionary file is too large".into());
+    }
+    let file: PersonalDictionaryImport =
+        serde_json::from_str(text).map_err(|_| "invalid personal dictionary file".to_owned())?;
+    if file.format != "msime-personal-dictionary" || file.version != 1 {
+        return Err("unsupported personal dictionary file".into());
+    }
+    if file.entries.is_empty() || file.entries.len() > 128 {
+        return Err("invalid personal dictionary entry count".into());
+    }
+    let mut identities = std::collections::HashSet::new();
+    for entry in &file.entries {
+        entry
+            .validate()
+            .map_err(|_| "invalid personal dictionary entry".to_owned())?;
+        if !identities.insert(entry.identity()) {
+            return Err("duplicate personal dictionary entry".into());
+        }
+    }
+    Ok(file.entries)
 }
 
 /// Native management requests return only redacted errors.
@@ -225,6 +261,9 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             }
             Ok(result)
         }
+        Operation::ImportPersonal { .. } => {
+            Err("personal dictionary import requires the Android queue".into())
+        }
         Operation::Export {
             kind,
             format,
@@ -296,7 +335,9 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
 /// Engine while the IME may still own a session. The queue is intentionally a
 /// separate entry point so desktop hosts retain their synchronous contract.
 pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
-    if bytes.len() > 65536 {
+    // JSON imports are bounded by the Apple-compatible 1 MiB file limit; the
+    // small amount of request framing needs room in addition to the file.
+    if bytes.len() > 1_200_000 {
         return Err("invalid dictionary buffer".into());
     }
     let request: Request =
@@ -403,6 +444,14 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
                 .collect();
             store
                 .enqueue_import(words, request_id)
+                .map_err(personal_dictionary_error)?;
+            let state = store.read().map_err(personal_dictionary_error)?;
+            Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
+        }
+        Operation::ImportPersonal { text, request_id } => {
+            let entries = parse_personal_dictionary_import(&text)?;
+            store
+                .enqueue_import(entries, request_id)
                 .map_err(personal_dictionary_error)?;
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
@@ -749,6 +798,48 @@ mod tests {
         assert_eq!(windows[0].key, "wq");
         assert_eq!(windows[0].value, "你好");
         assert_eq!(windows[0].kind, Kind::Wubi.into());
+    }
+
+    #[test]
+    fn personal_import_accepts_the_apple_envelope_and_rejects_duplicates() {
+        let text = r#"{
+          "format": "msime-personal-dictionary",
+          "version": 1,
+          "entries": [
+            {"kind":"pinyin","key":"ni hao","value":"你好","weight":100000},
+            {"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}
+          ]
+        }"#;
+        let entries = parse_personal_dictionary_import(text).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].kind, PersonalWordKind::QuickPhrase);
+
+        let duplicate = text.replace(
+            r#"{"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}"#,
+            r#"{"kind":"pinyin","key":"ni hao","value":"你好","weight":3}"#,
+        );
+        assert_eq!(
+            parse_personal_dictionary_import(&duplicate).unwrap_err(),
+            "duplicate personal dictionary entry"
+        );
+    }
+
+    #[test]
+    fn personal_import_enforces_file_and_entry_bounds() {
+        let empty = r#"{"format":"msime-personal-dictionary","version":1,"entries":[]}"#;
+        assert_eq!(
+            parse_personal_dictionary_import(empty).unwrap_err(),
+            "invalid personal dictionary entry count"
+        );
+        let malformed = r#"{"format":"msime-personal-dictionary","version":1,"entries":[{"kind":"pinyin","key":"NI","value":"坏","weight":1}]}"#;
+        assert_eq!(
+            parse_personal_dictionary_import(malformed).unwrap_err(),
+            "invalid personal dictionary entry"
+        );
+        assert_eq!(
+            parse_personal_dictionary_import(&"x".repeat(1_048_577)).unwrap_err(),
+            "personal dictionary file is too large"
+        );
     }
 
     #[test]

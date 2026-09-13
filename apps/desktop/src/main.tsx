@@ -14,6 +14,9 @@ const dictionary: DictionaryClient = {
   list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
   edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
   import: (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import", kind, format, text, request_id } }),
+  ...(/\bAndroid\b/i.test(navigator.userAgent) ? {
+    importPersonal: (text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
+  } : {}),
   export: (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number) => invoke("dictionary_request", { action: { operation: "export", kind, format, offset, limit } }),
   retry: request_id => invoke("dictionary_request", { action: { operation: "retry", request_id } }).then(() => undefined),
   dismissFailure: request_id => invoke("dictionary_request", { action: { operation: "dismiss_failure", request_id } }).then(() => undefined),

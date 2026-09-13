@@ -298,6 +298,15 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .quick-phrase-manager .section-header { align-items: flex-start; }
 .quick-phrase-manager .section-header > span:last-child { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .quick-phrase-manager .secondary { margin-top: 0; }
+.personal-dictionary-import { display: flex; flex-direction: column; gap: 12px; }
+.personal-dictionary-import .section-header { align-items: flex-start; }
+.personal-dictionary-import .section-header > span:last-child { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.personal-dictionary-import .secondary, .personal-dictionary-import .primary { margin-top: 0; }
+.personal-dictionary-preview { display: flex; max-height: 280px; flex-direction: column; gap: 7px; padding: 10px 12px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-raised); }
+.personal-dictionary-preview > span { color: var(--text-muted); font-size: 12px; }
+.personal-dictionary-preview > div { display: flex; flex-direction: column; gap: 2px; padding-top: 7px; border-top: 1px solid var(--divider-color); }
+.personal-dictionary-preview > div span { overflow-wrap: anywhere; }
+.personal-dictionary-preview code { color: var(--text-muted); font-size: 11px; }
 .dictionary-manager-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
 .dictionary-manager-controls label { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); font-size: 12px; }
 .dictionary-manager-controls select { min-width: 150px; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--dropdown-bg); color: var(--text-color); }

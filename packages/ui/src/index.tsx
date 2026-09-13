@@ -1,7 +1,7 @@
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice-device-picker";
 import { useEffect, useRef, useState } from "react";
 import { HostActionButton } from "./HostActionButton";
-import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, readDictionaryFile } from "./dictionary-file";
+import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, parsePersonalDictionaryImport, personalDictionaryExample, readDictionaryFile, type PersonalDictionaryImportEntry } from "./dictionary-file";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
 import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
@@ -334,6 +334,7 @@ export interface DictionaryClient {
   list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
   import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<{ applied: number }>;
+  importPersonal?(text: string, request_id: string): Promise<{ queued: boolean; pending_count: number }>;
   export?(kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number): Promise<{ text: string; has_more: boolean }>;
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
@@ -485,6 +486,80 @@ type SettingsPageId = (typeof pages)[number]["id"];
 // default page rather than opening an empty one.
 function requestedPage(value: string | undefined): SettingsPageId {
   return pages.some(page => page.id === value) ? (value as SettingsPageId) : "appearance";
+}
+
+function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {
+  return kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quickPhrase" ? "快捷短语" : "英文";
+}
+
+function PersonalDictionaryImportCard({ dictionary }: { dictionary: DictionaryClient }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [entries, setEntries] = useState<PersonalDictionaryImportEntry[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const chooseFile = async (file: File | undefined) => {
+    if (!file) return;
+    setEntries(null);
+    setFileName(file.name);
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      if (file.size > 1_048_576) throw new Error("文件不能超过 1 MB。");
+      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file)));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importEntries = async () => {
+    if (!entries || !dictionary.importPersonal) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
+      const result = await dictionary.importPersonal(text, `ui-personal-import-${Date.now()}`);
+      setNotice(`已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`);
+      setEntries(null);
+      setFileName("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveExample = () => {
+    const blob = new Blob([personalDictionaryExample], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "msime-personal-dictionary-example.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const countByKind = entries ? Array.from(new Set(entries.map(entry => entry.kind)))
+    .map(kind => `${personalDictionaryKindTitle(kind)} ${entries.filter(entry => entry.kind === kind).length} 条`).join(" · ") : "";
+
+  return <div className="section personal-dictionary-import" role="region" aria-label="个人词库文件导入">
+    <div className="section-header"><span className="section-title">个人词库文件<small>导入 Apple 兼容的 JSON 词条，确认后加入 Android 键盘同步队列；文件内容不会上传。</small></span><span>
+      <button type="button" className="secondary" disabled={busy} onClick={() => input.current?.click()}>选择 JSON 文件</button>{" "}
+      <button type="button" className="secondary" disabled={busy} onClick={saveExample}>保存示例文件</button>
+      <input ref={input} hidden type="file" aria-label="选择个人词库 JSON 文件" accept=".json,application/json" onChange={event => { void chooseFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
+    </span></div>
+    {busy && <p role="status">正在读取或加入同步队列…</p>}
+    {fileName && entries && <div className="personal-dictionary-preview"><strong>{fileName}</strong><span>已校验 {entries.length} 条（{countByKind}），确认后逐条同步。</span>{entries.map((entry, index) => <div key={`${entry.kind}-${entry.key}-${index}`}><span>{entry.value}</span><code>{personalDictionaryKindTitle(entry.kind)} · {entry.key}</code></div>)}</div>}
+    {error && <p role="alert" className="error">{error}</p>}
+    {notice && <p role="status" className="notice">{notice}</p>}
+    {entries && <button type="button" className="primary" disabled={busy} onClick={() => void importEntries()}>确认导入</button>}
+  </div>;
 }
 
 /** Mirrors `client-core::translation::is_supported_endpoint`. */
@@ -1036,6 +1111,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
+        {client.dictionary?.importPersonal && <PersonalDictionaryImportCard dictionary={client.dictionary} />}
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases(dictionaryKind, 0)}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy || dictionaryFormat === "hans"} onClick={() => void exportPhrases()}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
           {dictionaryPendingCount > 0 && <p className="input-setting-description" role="status">{dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。</p>}

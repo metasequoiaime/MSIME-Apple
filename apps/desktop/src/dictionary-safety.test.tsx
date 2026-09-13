@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
 // Not re-exported from the package root; take it from the module that owns it.
-import { DICTIONARY_PAGE_SIZE } from "../../../packages/ui/src/dictionary-file";
+import { DICTIONARY_PAGE_SIZE, parsePersonalDictionaryImport } from "../../../packages/ui/src/dictionary-file";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -79,4 +79,40 @@ test("deleting the only row on a later page steps back instead of showing nothin
   fireEvent.click(screen.getAllByRole("button", { name: "删除" })[0]);
   await waitFor(() => expect(dictionary.list).toHaveBeenCalledTimes(3));
   expect(dictionary.list.mock.calls[2][0]).toBe(0);
+});
+
+test("Android personal dictionary JSON import previews and queues only after confirmation", async () => {
+  const importPersonal = vi.fn().mockResolvedValue({ queued: true, pending_count: 2 });
+  const dictionary = dictionaryClient({ importPersonal });
+  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+
+  const file = new File([JSON.stringify({
+    format: "msime-personal-dictionary", version: 1,
+    entries: [
+      { kind: "pinyin", key: "ni hao", value: "你好", weight: 100000 },
+      { kind: "quickPhrase", key: "hello1", value: "你好！", weight: 3 },
+    ],
+  })], "personal.json", { type: "application/json" });
+  fireEvent.change(screen.getByLabelText("选择个人词库 JSON 文件"), { target: { files: [file] } });
+  expect(importPersonal).not.toHaveBeenCalled();
+  expect(await screen.findByText(/已校验 2 条（/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "确认导入" }));
+  await waitFor(() => expect(importPersonal).toHaveBeenCalledWith(expect.stringContaining("msime-personal-dictionary"), expect.stringMatching(/^ui-personal-import-/)));
+  expect(await screen.findByText(/已加入本机同步队列/)).not.toBeNull();
+});
+
+test("personal dictionary JSON validation keeps malformed and duplicate entries out of the preview", () => {
+  expect(() => parsePersonalDictionaryImport(JSON.stringify({
+    format: "msime-personal-dictionary", version: 1,
+    entries: [
+      { kind: "pinyin", key: "ni hao", value: "你好", weight: 1 },
+      { kind: "pinyin", key: "ni hao", value: "你好", weight: 2 },
+    ],
+  }))).toThrow("重复");
+  expect(() => parsePersonalDictionaryImport(JSON.stringify({
+    format: "msime-personal-dictionary", version: 1,
+    entries: [{ kind: "pinyin", key: "NI", value: "坏", weight: 1 }],
+  }))).toThrow("输入引擎规则");
 });

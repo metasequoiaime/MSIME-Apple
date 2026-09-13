@@ -64,6 +64,8 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 “更多”工具页提供键盘内剪贴板历史面板。与 Apple 一致，只有用户点按“保存当前剪贴板”时才读取 Android 文本剪贴板，不后台监听；最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空并禁用入口。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
 
+个人词库设置同时提供 Apple 对齐的 `msime-personal-dictionary` JSON 导入：文件最多 1 MiB、每次 1–128 条，支持拼音、五笔、快捷短语和英文，页面先在本地校验格式、编码、重复项和长度并展示预览，用户确认后才加入 Android 与 `:ime` 进程共享的逐条同步队列。导入文件不上传；同步失败的条目沿用现有重试/移除记录机制，Engine 仍负责最终规范化和应用。
+
 配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备；源码、打包与签名检查通过不代表设备运行通过。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0。脚本编译全部服务 Java、执行不依赖 Android 运行时的文本/敏感字段策略测试，并校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
