@@ -2,6 +2,7 @@
 #include "EditPolicy.h"
 #include "NavigationPolicy.h"
 #include "WordCharacterPolicy.h"
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <nlohmann/json.hpp>
