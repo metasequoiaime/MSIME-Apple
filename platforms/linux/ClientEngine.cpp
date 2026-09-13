@@ -7,6 +7,7 @@
 #include "WordCharacterBinding.h"
 #include "VoiceAction.h"
 #include "VoiceWorker.h"
+#include "WaveOverlayModel.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -253,6 +254,7 @@ struct State {
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
   std::optional<unsigned> voice_level;
+  msime::linux_host::WaveOverlayModel wave_overlay;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -2815,6 +2817,8 @@ void voice_start_impl(IBusEngine *engine) {
               return G_SOURCE_REMOVE;
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
+              s.wave_overlay.listening = true;
+              s.wave_overlay.set_input_level(result->level / 10.0f);
               render(result->engine, s.view);
             }
             return G_SOURCE_REMOVE;
