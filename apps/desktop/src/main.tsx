@@ -77,6 +77,12 @@ const client: SettingsClient = {
     logout: all => invoke("account_logout", { all }),
     deleteAccount: () => invoke("account_delete"),
     clearExpired: () => invoke("account_forget"),
+    settingsSync: {
+      schema: () => invoke("account_preferences_schema"),
+      load: () => invoke("account_preferences_load"),
+      upload: () => invoke("account_preferences_upload"),
+      apply: (userId, preferences) => invoke("account_preferences_apply", { userId, preferences }),
+    },
   }, communitySkins: {
     list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
     detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),

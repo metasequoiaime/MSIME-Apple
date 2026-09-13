@@ -21,6 +21,27 @@ export type AccountProfile = {
   providers: string[];
 };
 
+export type AccountPreferenceValue = boolean | number | string;
+
+export type AccountPreferences = {
+  revision: number;
+  settings: Record<string, AccountPreferenceValue>;
+};
+
+export type AccountPreferenceSchema = {
+  fields: Record<string, { type: string }>;
+  maximumBytes: number;
+  updateMode: string;
+  revisionRequired: boolean;
+};
+
+export interface SettingsSyncClient {
+  schema(): Promise<AccountPreferenceSchema>;
+  load(): Promise<AccountPreferences>;
+  upload(): Promise<AccountPreferences>;
+  apply(userId: string, preferences: AccountPreferences): Promise<void>;
+}
+
 export interface AccountClient {
   status(): Promise<{ user?: AccountUser | null }>;
   providers(): Promise<AccountProviders>;
@@ -31,6 +52,7 @@ export interface AccountClient {
   logout(all: boolean): Promise<void>;
   deleteAccount(): Promise<void>;
   clearExpired(): Promise<void>;
+  settingsSync?: SettingsSyncClient;
 }
 
 type Channel = "email" | "phone";
@@ -41,6 +63,7 @@ function accountMessage(error: unknown): string {
     switch (error.code) {
       case "account_invalid": return "填写的内容无效，请检查后重试。";
       case "account_unauthorized": return "登录已失效，请重新登录。";
+      case "account_conflict": return "云端设置已被其他设备更新，请刷新后重新确认。";
       case "account_rate_limited": return "操作过于频繁，请稍后再试。";
       case "account_storage": return "无法安全读取登录状态，请检查设备安全设置。";
       case "account_cancelled": return "操作已取消，请重试。";
@@ -58,6 +81,87 @@ function providerName(provider: string): string {
   if (provider === "email") return "邮箱";
   if (provider === "phone" || provider === "sms") return "手机号";
   return provider;
+}
+
+function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
+  const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
+  const [cloud, setCloud] = useState<AccountPreferences | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
+
+  const load = async () => {
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
+      setSchema(nextSchema);
+      setCloud(nextCloud);
+    } catch (error) {
+      setMessage(accountMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    setSchema(null);
+    setCloud(null);
+    setMessage("");
+    setBusy(true);
+    void Promise.all([client.schema(), client.load()]).then(([nextSchema, nextCloud]) => {
+      if (!active) return;
+      setSchema(nextSchema);
+      setCloud(nextCloud);
+    }).catch(error => {
+      if (active) setMessage(accountMessage(error));
+    }).finally(() => {
+      if (active) setBusy(false);
+    });
+    return () => { active = false; };
+  }, [client, userId]);
+
+  const runConfirmed = async () => {
+    if (!cloud || !schema || !confirmation || busy) return;
+    setBusy(true);
+    setMessage("");
+    const operation = confirmation;
+    setConfirmation(null);
+    try {
+      if (operation === "upload") setCloud(await client.upload());
+      else await client.apply(userId, cloud);
+      setMessage(operation === "upload" ? "本机设置已上传。" : "已应用云端设置。请重新打开键盘使部分设置生效。");
+    } catch (error) {
+      setMessage(accountMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
+  return <section className="section account-settings-sync">
+    <h2>设置同步</h2>
+    <p>同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。</p>
+    {cloud && <p className="account-muted">云端版本：{cloud.revision}</p>}
+    <div className="account-inline-actions">
+      <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>刷新云端设置</button>
+      <button type="button" className="account-primary" disabled={busy || !cloud || !schema} onClick={() => setConfirmation("upload")}>上传本机设置</button>
+      <button type="button" className="secondary" disabled={busy || !cloud || !schema || !hasCloudSettings} onClick={() => setConfirmation("apply")}>下载并应用云端设置</button>
+    </div>
+    {busy && <p role="status">正在处理…</p>}
+    {message && <p role="status">{message}</p>}
+    {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "upload" ? "确认上传本机设置" : "确认应用云端设置"}>
+      <p>{confirmation === "upload"
+        ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
+        : "将替换本机对应设置，不会下载词库或开启数据上传。"}</p>
+      <div>
+        <button type="button" className="account-primary" disabled={busy} onClick={() => void runConfirmed()}>{confirmation === "upload" ? "确认上传" : "确认应用"}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button>
+      </div>
+    </div>}
+  </section>;
 }
 
 export function AccountPage({ client, onOpenPublishedSkins }: {
@@ -264,6 +368,7 @@ export function AccountPage({ client, onOpenPublishedSkins }: {
           </div>
         </div>}
       </section>
+      {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
       {onOpenPublishedSkins && <section className="section account-community-actions">
         <div><h2>我的创作</h2><p>查看和管理你已经公开发布的键盘皮肤。</p></div>
         <button type="button" className="secondary" disabled={busy} onClick={onOpenPublishedSkins}>我发布的皮肤</button>

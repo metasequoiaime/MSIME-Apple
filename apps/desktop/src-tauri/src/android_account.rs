@@ -1,6 +1,8 @@
 use msime_client_core::account::{
-    AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountUser,
-    BackendAccountClient, BackendAccountSession, SavedAccountSession,
+    merge_account_preferences, validate_account_preferences, AccountChallenge, AccountError,
+    AccountPreferenceValue, AccountPreferences, AccountPreferenceSchema, AccountProfile,
+    AccountSessionStorage, AccountUser, BackendAccountClient, BackendAccountSession,
+    SavedAccountSession,
 };
 use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
 use msime_client_core::community_resource::{
@@ -20,9 +22,12 @@ use msime_client_core::custom_skin_library::{
 use msime_client_core::keyboard_skin_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
-use msime_client_core::preferences::TouchKeyboardSkinDesign;
+use msime_client_core::preferences::{
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
+    ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -38,6 +43,14 @@ struct LoadResponse {
 #[derive(Serialize)]
 struct SaveRequest<'a> {
     value: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FeedbackSettings {
+    sound_enabled: bool,
+    haptics_enabled: bool,
+    haptic_strength: String,
 }
 
 #[derive(Clone)]
@@ -86,6 +99,7 @@ type AiSkinService = BackendAiSkinService<BackendAccountClient, AndroidAccountSt
 
 pub struct AccountState {
     session: Arc<Session>,
+    feedback: PluginHandle<Wry>,
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
@@ -96,6 +110,7 @@ pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
             let handle = api.register_android_plugin("app.msime.client", "AccountPlugin")?;
+            let feedback = handle.clone();
             let client = BackendAccountClient::new()?;
             let session = Arc::new(BackendAccountSession::new(
                 client.clone(),
@@ -116,6 +131,7 @@ pub fn init() -> TauriPlugin<Wry> {
             ));
             app.manage(AccountState {
                 session,
+                feedback,
                 community,
                 resources,
                 ai_skin,
@@ -179,6 +195,26 @@ pub struct ProfileResponse {
     providers: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferenceSchemaResponse {
+    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
+    maximum_bytes: usize,
+    update_mode: String,
+    revision_required: bool,
+}
+
+impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
+    fn from(schema: AccountPreferenceSchema) -> Self {
+        Self {
+            fields: schema.fields,
+            maximum_bytes: schema.maximum_bytes,
+            update_mode: schema.update_mode,
+            revision_required: schema.revision_required,
+        }
+    }
+}
+
 impl From<AccountProfile> for ProfileResponse {
     fn from(profile: AccountProfile) -> Self {
         let mut providers = Vec::new();
@@ -240,7 +276,7 @@ fn valid_ai_skin_request_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSkinProgress {
     request_id: String,
@@ -711,4 +747,487 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
     call(state, |session| session.forget()).await
+}
+
+fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
+    settings.insert(
+        key.to_owned(),
+        AccountPreferenceValue::String(value.to_owned()),
+    );
+}
+
+fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
+    settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
+}
+
+fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
+    settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
+}
+
+fn local_account_preferences(
+    snapshot: &PreferencesSnapshot,
+    feedback: &PluginHandle<Wry>,
+) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
+    let preferences = &snapshot.preferences;
+    let mut settings = BTreeMap::new();
+    insert_string(
+        &mut settings,
+        "input.schema",
+        match preferences.scheme {
+            InputScheme::Quanpin => "quanpin",
+            InputScheme::Shuangpin => "shuangpin",
+            InputScheme::Wubi => "wubi",
+            InputScheme::Japanese => "japanese",
+        },
+    );
+    insert_string(
+        &mut settings,
+        "input.character_set",
+        if preferences.traditional_chinese_output {
+            "traditional"
+        } else {
+            "simplified"
+        },
+    );
+    insert_string(
+        &mut settings,
+        "input.shuangpin_schema",
+        match preferences.shuangpin_profile {
+            ShuangpinProfile::Xiaohe => "xiaohe",
+            ShuangpinProfile::Ziranma => "ziranma",
+            ShuangpinProfile::Shoudao => "shoudao",
+            ShuangpinProfile::Microsoft => "microsoft",
+        },
+    );
+    insert_bool(&mut settings, "input.learning", preferences.learning);
+    insert_bool(
+        &mut settings,
+        "input.chinese_punctuation",
+        preferences.chinese_punctuation,
+    );
+    insert_bool(
+        &mut settings,
+        "input.smart_punctuation",
+        preferences.smart_punctuation,
+    );
+    insert_bool(
+        &mut settings,
+        "input.paired_punctuation",
+        preferences.paired_punctuation,
+    );
+    insert_bool(
+        &mut settings,
+        "input.wubi_code_hint",
+        preferences.wubi_code_hint.unwrap_or(true),
+    );
+    insert_string(
+        &mut settings,
+        "platform.android.keyboard_layout",
+        match preferences.touch_keyboard_layout {
+            TouchKeyboardLayout::TwentySixKey => "twenty_six_key",
+            TouchKeyboardLayout::NineKey => "nine_key",
+            TouchKeyboardLayout::Handwriting => "handwriting",
+        },
+    );
+    insert_string(
+        &mut settings,
+        "platform.android.keyboard_skin",
+        match preferences.touch_keyboard_skin {
+            TouchKeyboardSkin::Forest => "forest",
+            TouchKeyboardSkin::Ocean => "ocean",
+            TouchKeyboardSkin::Rose => "rose",
+            TouchKeyboardSkin::Porcelain => "porcelain",
+            TouchKeyboardSkin::Typewriter => "typewriter",
+            TouchKeyboardSkin::Candy => "candy",
+            TouchKeyboardSkin::Midnight => "midnight",
+            TouchKeyboardSkin::Blueprint => "blueprint",
+            TouchKeyboardSkin::Custom => "custom",
+        },
+    );
+    let custom_skin = serde_json::to_string(&preferences.custom_touch_keyboard_skin)
+        .map_err(|_| AccountError::Invalid)?;
+    insert_string(
+        &mut settings,
+        "platform.android.custom_keyboard_skin",
+        &custom_skin,
+    );
+    insert_string(
+        &mut settings,
+        "platform.android.theme",
+        match preferences.theme {
+            ThemeMode::Dark => "dark",
+            ThemeMode::Light => "light",
+            ThemeMode::System => "system",
+        },
+    );
+    insert_string(
+        &mut settings,
+        "platform.android.candidate_skin",
+        &preferences.candidate_skin,
+    );
+    insert_integer(
+        &mut settings,
+        "platform.android.touch_key_spacing_tenths",
+        i64::from(preferences.touch_key_spacing_tenths),
+    );
+    insert_integer(
+        &mut settings,
+        "platform.android.touch_row_spacing_tenths",
+        i64::from(preferences.touch_row_spacing_tenths),
+    );
+    insert_integer(
+        &mut settings,
+        "platform.android.keyboard_height_adjustment",
+        i64::from(preferences.touch_keyboard_height_adjustment),
+    );
+    insert_bool(
+        &mut settings,
+        "platform.android.voice_shortcut",
+        preferences.touch_voice_shortcut,
+    );
+
+    let feedback = feedback
+        .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
+        .map_err(|_| AccountError::Storage)?;
+    insert_bool(
+        &mut settings,
+        "platform.android.sound_enabled",
+        feedback.sound_enabled,
+    );
+    insert_bool(
+        &mut settings,
+        "platform.android.haptics_enabled",
+        feedback.haptics_enabled,
+    );
+    insert_string(
+        &mut settings,
+        "platform.android.haptic_strength",
+        &feedback.haptic_strength,
+    );
+    Ok(settings)
+}
+
+fn string_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<String>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Ok(None),
+    }
+}
+
+fn bool_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<bool>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::Boolean(value)) => Ok(Some(*value)),
+        Some(_) => Ok(None),
+    }
+}
+
+fn integer_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<i64>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::Integer(value)) => Ok(Some(*value)),
+        Some(AccountPreferenceValue::Number(value)) if value.is_finite() => {
+            if value.fract() == 0.0 {
+                Ok(Some(*value as i64))
+            } else {
+                Err(AccountError::Invalid)
+            }
+        }
+        Some(_) => Ok(None),
+    }
+}
+
+fn apply_local_account_preferences(
+    snapshot: &PreferencesSnapshot,
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+    feedback: &PluginHandle<Wry>,
+) -> Result<Preferences, AccountError> {
+    validate_account_preferences(cloud)?;
+    for (key, value) in &cloud.settings {
+        if let Some(field) = schema.fields.get(key) {
+            if field.value_type != value.kind()
+                && !(field.value_type == "number" && value.kind() == "integer")
+            {
+                return Err(AccountError::Invalid);
+            }
+        }
+    }
+    let mut preferences = snapshot.preferences.clone();
+    let values = &cloud.settings;
+    let supports = |key: &str, expected: &str| -> Result<bool, AccountError> {
+        match schema.fields.get(key) {
+            None => Ok(false),
+            Some(field)
+                if field.value_type == expected
+                    || ((expected == "number" || expected == "integer")
+                        && matches!(field.value_type.as_str(), "integer" | "number")) =>
+            {
+                Ok(true)
+            }
+            Some(_) => Err(AccountError::Invalid),
+        }
+    };
+    if let Some(value) = string_setting(values, "input.schema")? {
+        if supports("input.schema", "string")? {
+            preferences.scheme = match value.as_str() {
+                "quanpin" => InputScheme::Quanpin,
+                "shuangpin" => InputScheme::Shuangpin,
+                "wubi" => InputScheme::Wubi,
+                "japanese" => InputScheme::Japanese,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = string_setting(values, "input.character_set")? {
+        if supports("input.character_set", "string")? {
+            preferences.traditional_chinese_output = match value.as_str() {
+                "traditional" => true,
+                "simplified" => false,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = string_setting(values, "input.shuangpin_schema")? {
+        if supports("input.shuangpin_schema", "string")? {
+            preferences.shuangpin_profile = match value.as_str() {
+                "xiaohe" => ShuangpinProfile::Xiaohe,
+                "ziranma" => ShuangpinProfile::Ziranma,
+                "shoudao" => ShuangpinProfile::Shoudao,
+                "microsoft" => ShuangpinProfile::Microsoft,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = bool_setting(values, "input.learning")? {
+        if supports("input.learning", "boolean")? {
+            preferences.learning = value;
+        }
+    }
+    if let Some(value) = bool_setting(values, "input.chinese_punctuation")? {
+        if supports("input.chinese_punctuation", "boolean")? {
+            preferences.chinese_punctuation = value;
+        }
+    }
+    if let Some(value) = bool_setting(values, "input.smart_punctuation")? {
+        if supports("input.smart_punctuation", "boolean")? {
+            preferences.smart_punctuation = value;
+        }
+    }
+    if let Some(value) = bool_setting(values, "input.paired_punctuation")? {
+        if supports("input.paired_punctuation", "boolean")? {
+            preferences.paired_punctuation = value;
+        }
+    }
+    if let Some(value) = bool_setting(values, "input.wubi_code_hint")? {
+        if supports("input.wubi_code_hint", "boolean")? {
+            preferences.wubi_code_hint = Some(value);
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.keyboard_layout")? {
+        if supports("platform.android.keyboard_layout", "string")? {
+            preferences.touch_keyboard_layout = match value.as_str() {
+                "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
+                "nine_key" => TouchKeyboardLayout::NineKey,
+                "handwriting" => TouchKeyboardLayout::Handwriting,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.keyboard_skin")? {
+        if supports("platform.android.keyboard_skin", "string")? {
+            preferences.touch_keyboard_skin = match value.as_str() {
+                "forest" => TouchKeyboardSkin::Forest,
+                "ocean" => TouchKeyboardSkin::Ocean,
+                "rose" => TouchKeyboardSkin::Rose,
+                "porcelain" => TouchKeyboardSkin::Porcelain,
+                "typewriter" => TouchKeyboardSkin::Typewriter,
+                "candy" => TouchKeyboardSkin::Candy,
+                "midnight" => TouchKeyboardSkin::Midnight,
+                "blueprint" => TouchKeyboardSkin::Blueprint,
+                "custom" => TouchKeyboardSkin::Custom,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.custom_keyboard_skin")? {
+        if supports("platform.android.custom_keyboard_skin", "string")? {
+            preferences.custom_touch_keyboard_skin =
+                serde_json::from_str(&value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.theme")? {
+        if supports("platform.android.theme", "string")? {
+            preferences.theme = match value.as_str() {
+                "dark" => ThemeMode::Dark,
+                "light" => ThemeMode::Light,
+                "system" => ThemeMode::System,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.candidate_skin")? {
+        if supports("platform.android.candidate_skin", "string")? {
+            if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+                return Err(AccountError::Invalid);
+            }
+            preferences.candidate_skin = value;
+        }
+    }
+    if let Some(value) = integer_setting(values, "platform.android.touch_key_spacing_tenths")? {
+        if supports("platform.android.touch_key_spacing_tenths", "integer")? {
+            preferences.touch_key_spacing_tenths =
+                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    if let Some(value) = integer_setting(values, "platform.android.touch_row_spacing_tenths")? {
+        if supports("platform.android.touch_row_spacing_tenths", "integer")? {
+            preferences.touch_row_spacing_tenths =
+                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    if let Some(value) = integer_setting(values, "platform.android.keyboard_height_adjustment")? {
+        if supports("platform.android.keyboard_height_adjustment", "integer")? {
+            preferences.touch_keyboard_height_adjustment =
+                i8::try_from(value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    if let Some(value) = bool_setting(values, "platform.android.voice_shortcut")? {
+        if supports("platform.android.voice_shortcut", "boolean")? {
+            preferences.touch_voice_shortcut = value;
+        }
+    }
+
+    let feedback_keys = [
+        "platform.android.sound_enabled",
+        "platform.android.haptics_enabled",
+        "platform.android.haptic_strength",
+    ];
+    let mut feedback_values = if feedback_keys
+        .iter()
+        .any(|key| schema.fields.contains_key(*key) && values.contains_key(*key))
+    {
+        Some(
+            feedback
+                .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
+                .map_err(|_| AccountError::Storage)?,
+        )
+    } else {
+        None
+    };
+    if let Some(value) = bool_setting(values, "platform.android.sound_enabled")? {
+        if supports("platform.android.sound_enabled", "boolean")? {
+            feedback_values
+                .as_mut()
+                .ok_or(AccountError::Storage)?
+                .sound_enabled = value;
+        }
+    }
+    if let Some(value) = bool_setting(values, "platform.android.haptics_enabled")? {
+        if supports("platform.android.haptics_enabled", "boolean")? {
+            feedback_values
+                .as_mut()
+                .ok_or(AccountError::Storage)?
+                .haptics_enabled = value;
+        }
+    }
+    if let Some(value) = string_setting(values, "platform.android.haptic_strength")? {
+        if supports("platform.android.haptic_strength", "string")? {
+            if !matches!(value.as_str(), "light" | "medium" | "strong") {
+                return Err(AccountError::Invalid);
+            }
+            feedback_values
+                .as_mut()
+                .ok_or(AccountError::Storage)?
+                .haptic_strength = value;
+        }
+    }
+    if let Some(feedback_values) = feedback_values {
+        let request = serde_json::json!({
+            "soundEnabled": feedback_values.sound_enabled,
+            "hapticsEnabled": feedback_values.haptics_enabled,
+            "hapticStrength": feedback_values.haptic_strength,
+        });
+        feedback
+            .run_mobile_plugin::<()>("saveFeedback", request)
+            .map_err(|_| AccountError::Storage)?;
+    }
+    preferences.validate().map_err(|_| AccountError::Invalid)?;
+    Ok(preferences)
+}
+
+#[tauri::command]
+pub async fn account_preferences_schema(
+    state: State<'_, AccountState>,
+) -> Result<PreferenceSchemaResponse, super::CommandError> {
+    call(state, |session| session.preference_schema().map(Into::into)).await
+}
+
+#[tauri::command]
+pub async fn account_preferences_load(
+    state: State<'_, AccountState>,
+) -> Result<AccountPreferences, super::CommandError> {
+    call(state, |session| session.preferences()).await
+}
+
+#[tauri::command]
+pub async fn account_preferences_upload(
+    state: State<'_, AccountState>,
+    store: State<'_, Arc<PreferencesStore>>,
+) -> Result<AccountPreferences, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let feedback = state.feedback.clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let schema = session.preference_schema()?;
+        let cloud = session.preferences()?;
+        let local = store.load().map_err(|_| AccountError::Storage)?;
+        let values = local_account_preferences(&local, &feedback)?
+            .into_iter()
+            .filter(|(key, _)| schema.fields.contains_key(key))
+            .collect::<BTreeMap<_, _>>();
+        if values.is_empty() {
+            return Err(AccountError::Unavailable);
+        }
+        let merged = merge_account_preferences(&cloud, &values, &schema)?;
+        session.put_preferences(&merged)
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "account_unavailable" })?
+    .map_err(|error| super::CommandError { code: error.code() })
+}
+
+#[tauri::command]
+pub async fn account_preferences_apply(
+    state: State<'_, AccountState>,
+    store: State<'_, Arc<PreferencesStore>>,
+    user_id: String,
+    preferences: AccountPreferences,
+) -> Result<(), super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let feedback = state.feedback.clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session.credentials(None, Some(&user_id))?;
+        let schema = session.preference_schema()?;
+        let local = store.load().map_err(|_| AccountError::Storage)?;
+        let next = apply_local_account_preferences(&local, &preferences, &schema, &feedback)?;
+        store
+            .save(local.revision, next)
+            .map_err(|_| AccountError::Storage)?;
+        Ok::<(), AccountError>(())
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "account_unavailable" })?
+    .map_err(|error| super::CommandError { code: error.code() })
 }

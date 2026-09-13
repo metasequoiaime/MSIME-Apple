@@ -37,7 +37,7 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
 use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(mobile))]
@@ -3392,6 +3392,14 @@ pub fn run() {
             android_account::account_delete,
             #[cfg(target_os = "android")]
             android_account::account_forget,
+            #[cfg(target_os = "android")]
+            android_account::account_preferences_schema,
+            #[cfg(target_os = "android")]
+            android_account::account_preferences_load,
+            #[cfg(target_os = "android")]
+            android_account::account_preferences_upload,
+            #[cfg(target_os = "android")]
+            android_account::account_preferences_apply,
             #[cfg(target_os = "android")]
             android_account::community_skin_list,
             #[cfg(target_os = "android")]

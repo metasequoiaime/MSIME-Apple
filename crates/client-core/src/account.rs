@@ -4,6 +4,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -11,6 +12,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ACCOUNT_ORIGIN: &str = "https://api.msime.app";
 const MAX_JSON_BYTES: usize = 1024 * 1024;
+const MAX_ACCOUNT_PREFERENCE_FIELDS: usize = 512;
+const MAX_ACCOUNT_PREFERENCE_KEY_BYTES: usize = 128;
+const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -43,6 +47,49 @@ pub struct AccountProfileIdentity {
 pub struct AccountProfile {
     pub user: AccountUser,
     pub identities: Vec<AccountProfileIdentity>,
+}
+
+/// The deliberately small value set accepted by the account preferences API.
+/// Credentials, arbitrary JSON objects, and input contents never cross this
+/// boundary; platform hosts map their safe local settings to these scalars.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AccountPreferenceValue {
+    Boolean(bool),
+    Integer(i64),
+    Number(f64),
+    String(String),
+}
+
+impl AccountPreferenceValue {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Boolean(_) => "boolean",
+            Self::Integer(_) => "integer",
+            Self::Number(_) => "number",
+            Self::String(_) => "string",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AccountPreferences {
+    pub revision: i64,
+    pub settings: BTreeMap<String, AccountPreferenceValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountPreferenceField {
+    #[serde(rename = "type")]
+    pub value_type: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountPreferenceSchema {
+    pub fields: BTreeMap<String, AccountPreferenceField>,
+    pub maximum_bytes: usize,
+    pub update_mode: String,
+    pub revision_required: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -90,7 +137,8 @@ impl AccountError {
             Self::RateLimited => "account_rate_limited",
             Self::Storage => "account_storage",
             Self::Cancelled => "account_cancelled",
-            Self::Conflict | Self::NotFound | Self::Unavailable => "account_unavailable",
+            Self::Conflict => "account_conflict",
+            Self::NotFound | Self::Unavailable => "account_unavailable",
         }
     }
 
@@ -117,6 +165,25 @@ pub trait AccountApi: Send + Sync + 'static {
     fn rename(&self, display_name: &str, access_token: &str) -> Result<(), AccountError>;
     fn logout(&self, access_token: &str, all: bool) -> Result<(), AccountError>;
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError>;
+
+    fn preference_schema(
+        &self,
+        _access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn preferences(&self, _access_token: &str) -> Result<AccountPreferences, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn put_preferences(
+        &self,
+        _preferences: &AccountPreferences,
+        _access_token: &str,
+    ) -> Result<AccountPreferences, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {
@@ -446,6 +513,144 @@ impl AccountApi for BackendAccountClient {
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError> {
         self.empty::<()>(Method::DELETE, "/v1/users/me", Some(access_token), None)
     }
+
+    fn preference_schema(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let schema = self.json::<AccountPreferenceSchema, ()>(
+            Method::GET,
+            "/v1/users/me/preferences/schema",
+            Some(access_token),
+            None,
+        )?;
+        validate_preference_schema(&schema)?;
+        Ok(schema)
+    }
+
+    fn preferences(&self, access_token: &str) -> Result<AccountPreferences, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let preferences = self.json::<AccountPreferences, ()>(
+            Method::GET,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            None,
+        )?;
+        validate_account_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    fn put_preferences(
+        &self,
+        preferences: &AccountPreferences,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        validate_account_preferences(preferences)?;
+        let updated = self.json(
+            Method::PUT,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            Some(preferences),
+        )?;
+        validate_account_preferences(&updated)?;
+        Ok(updated)
+    }
+}
+
+pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {
+    if value.revision < 0 || value.settings.len() > MAX_ACCOUNT_PREFERENCE_FIELDS {
+        return Err(AccountError::Unavailable);
+    }
+    for (key, value) in &value.settings {
+        if !valid_preference_key(key) {
+            return Err(AccountError::Unavailable);
+        }
+        match value {
+            AccountPreferenceValue::Number(number) if !number.is_finite() => {
+                return Err(AccountError::Unavailable);
+            }
+            AccountPreferenceValue::String(string)
+                if string.len() > MAX_ACCOUNT_PREFERENCE_STRING_BYTES
+                    || string.chars().any(char::is_control) =>
+            {
+                return Err(AccountError::Unavailable);
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_preference_schema(value: &AccountPreferenceSchema) -> Result<(), AccountError> {
+    if value.fields.len() > MAX_ACCOUNT_PREFERENCE_FIELDS
+        || !(1..=MAX_JSON_BYTES).contains(&value.maximum_bytes)
+        || value.update_mode != "replace"
+        || !value.revision_required
+    {
+        return Err(AccountError::Unavailable);
+    }
+    for (key, field) in &value.fields {
+        if !valid_preference_key(key)
+            || !matches!(
+                field.value_type.as_str(),
+                "boolean" | "integer" | "number" | "string"
+            )
+        {
+            return Err(AccountError::Unavailable);
+        }
+    }
+    Ok(())
+}
+
+/// Merge a host's supported values into a previously downloaded cloud
+/// snapshot. Unknown platform fields are intentionally retained, while a
+/// caller that tries to write an unknown or incorrectly typed field is rejected.
+pub fn merge_account_preferences(
+    base: &AccountPreferences,
+    replacing: &BTreeMap<String, AccountPreferenceValue>,
+    schema: &AccountPreferenceSchema,
+) -> Result<AccountPreferences, AccountError> {
+    validate_account_preferences(base)?;
+    validate_preference_schema(schema)?;
+    if base.revision < 0 {
+        return Err(AccountError::Invalid);
+    }
+    let mut settings = base.settings.clone();
+    for (key, value) in replacing {
+        let field = schema.fields.get(key).ok_or(AccountError::Invalid)?;
+        if field.value_type != value.kind()
+            && !(field.value_type == "number" && value.kind() == "integer")
+        {
+            return Err(AccountError::Invalid);
+        }
+        settings.insert(key.clone(), value.clone());
+    }
+    let merged = AccountPreferences {
+        revision: base.revision,
+        settings,
+    };
+    validate_account_preferences(&merged)?;
+    let bytes = serde_json::to_vec(&merged).map_err(|_| AccountError::Invalid)?;
+    if bytes.len() > schema.maximum_bytes.min(MAX_JSON_BYTES) {
+        return Err(AccountError::Invalid);
+    }
+    Ok(merged)
+}
+
+fn valid_preference_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_ACCOUNT_PREFERENCE_KEY_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn validate_provider_target(provider: &str, target: &str) -> Result<(), AccountError> {
@@ -829,6 +1034,42 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.forget()
     }
 
+    fn authenticated<T, F>(&self, operation: F) -> Result<T, AccountError>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountError>,
+    {
+        let (user_id, token) = self.credentials(None, None)?;
+        match operation(&self.api, &token) {
+            Err(AccountError::Unauthorized) => {
+                let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
+                operation(&self.api, &replacement)
+            }
+            result => result,
+        }
+    }
+
+    pub fn preference_schema(&self) -> Result<AccountPreferenceSchema, AccountError> {
+        let schema = self.authenticated(|api, token| api.preference_schema(token))?;
+        validate_preference_schema(&schema)?;
+        Ok(schema)
+    }
+
+    pub fn preferences(&self) -> Result<AccountPreferences, AccountError> {
+        let preferences = self.authenticated(|api, token| api.preferences(token))?;
+        validate_account_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    pub fn put_preferences(
+        &self,
+        preferences: &AccountPreferences,
+    ) -> Result<AccountPreferences, AccountError> {
+        validate_account_preferences(preferences)?;
+        let updated = self.authenticated(|api, token| api.put_preferences(preferences, token))?;
+        validate_account_preferences(&updated)?;
+        Ok(updated)
+    }
+
     pub fn forget(&self) -> Result<(), AccountError> {
         let mut state = self.lock()?;
         state.generation = state.generation.wrapping_add(1);
@@ -1035,6 +1276,67 @@ mod tests {
         fn delete_account(&self, _access_token: &str) -> Result<(), AccountError> {
             Ok(())
         }
+
+        fn preference_schema(
+            &self,
+            access_token: &str,
+        ) -> Result<AccountPreferenceSchema, AccountError> {
+            if access_token == token(b'a') {
+                return Err(AccountError::Unauthorized);
+            }
+            Ok(AccountPreferenceSchema {
+                fields: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceField {
+                            value_type: "string".into(),
+                        },
+                    ),
+                    (
+                        "platform.ios.nine_key".into(),
+                        AccountPreferenceField {
+                            value_type: "boolean".into(),
+                        },
+                    ),
+                ]),
+                maximum_bytes: 65_536,
+                update_mode: "replace".into(),
+                revision_required: true,
+            })
+        }
+
+        fn preferences(&self, access_token: &str) -> Result<AccountPreferences, AccountError> {
+            if access_token == token(b'a') {
+                return Err(AccountError::Unauthorized);
+            }
+            Ok(AccountPreferences {
+                revision: 42,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String("quanpin".into()),
+                    ),
+                    (
+                        "platform.ios.nine_key".into(),
+                        AccountPreferenceValue::Boolean(true),
+                    ),
+                ]),
+            })
+        }
+
+        fn put_preferences(
+            &self,
+            preferences: &AccountPreferences,
+            access_token: &str,
+        ) -> Result<AccountPreferences, AccountError> {
+            if access_token == token(b'a') {
+                return Err(AccountError::Unauthorized);
+            }
+            Ok(AccountPreferences {
+                revision: preferences.revision + 1,
+                settings: preferences.settings.clone(),
+            })
+        }
     }
 
     fn installed(storage: &MemoryStorage, expires_at_unix_ms: u64) {
@@ -1065,6 +1367,97 @@ mod tests {
         let mut invalid = tokens(b'a', b'b', 900);
         invalid.access_token = token(b'A');
         assert_eq!(validate_tokens(&invalid), Err(AccountError::Unavailable));
+    }
+
+    #[test]
+    fn account_preferences_validate_and_merge_preserves_other_platforms() {
+        let base = AccountPreferences {
+            revision: 42,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("quanpin".into()),
+                ),
+                (
+                    "platform.ios.nine_key".into(),
+                    AccountPreferenceValue::Boolean(true),
+                ),
+            ]),
+        };
+        let schema = AccountPreferenceSchema {
+            fields: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceField {
+                        value_type: "string".into(),
+                    },
+                ),
+                (
+                    "platform.android.nine_key".into(),
+                    AccountPreferenceField {
+                        value_type: "boolean".into(),
+                    },
+                ),
+            ]),
+            maximum_bytes: 65_536,
+            update_mode: "replace".into(),
+            revision_required: true,
+        };
+        let replacing = BTreeMap::from([
+            (
+                "input.schema".into(),
+                AccountPreferenceValue::String("shuangpin".into()),
+            ),
+            (
+                "platform.android.nine_key".into(),
+                AccountPreferenceValue::Boolean(false),
+            ),
+        ]);
+        let merged = merge_account_preferences(&base, &replacing, &schema).unwrap();
+        assert_eq!(merged.revision, 42);
+        assert_eq!(
+            merged.settings["input.schema"],
+            AccountPreferenceValue::String("shuangpin".into())
+        );
+        assert_eq!(
+            merged.settings["platform.ios.nine_key"],
+            AccountPreferenceValue::Boolean(true)
+        );
+        assert_eq!(
+            merged.settings["platform.android.nine_key"],
+            AccountPreferenceValue::Boolean(false)
+        );
+        assert_eq!(
+            merge_account_preferences(
+                &base,
+                &BTreeMap::from([(
+                    "input.schema".into(),
+                    AccountPreferenceValue::Boolean(true),
+                )]),
+                &schema
+            ),
+            Err(AccountError::Invalid)
+        );
+    }
+
+    #[test]
+    fn account_preferences_refresh_after_unauthorized_and_preserve_revision_conflicts() {
+        let storage = MemoryStorage::default();
+        installed(&storage, u64::MAX);
+        let api = FakeApi::new();
+        let refreshes = Arc::clone(&api.refreshes);
+        let session = BackendAccountSession::new(api, storage);
+        let schema = session.preference_schema().unwrap();
+        assert!(schema.fields.contains_key("input.schema"));
+        let cloud = session.preferences().unwrap();
+        assert_eq!(cloud.revision, 42);
+        let updated = session
+            .put_preferences(&cloud)
+            .expect("refresh should make the write succeed");
+        assert_eq!(updated.revision, 43);
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+        assert_eq!(AccountError::from_status(StatusCode::CONFLICT), AccountError::Conflict);
+        assert_eq!(AccountError::Conflict.code(), "account_conflict");
     }
 
     #[test]

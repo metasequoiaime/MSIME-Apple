@@ -179,7 +179,7 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .account-page p { margin: 7px 0 0; color: var(--text-secondary); line-height: 1.6; }
 .account-hero { display: flex; align-items: center; gap: 16px; }
 .account-avatar { display: grid; width: 58px; height: 58px; flex: 0 0 58px; place-items: center; border-radius: 50%; background: var(--accent-strong); color: #fff; font-size: 24px; font-weight: 650; }
-.account-profile, .account-login, .account-actions, .account-privacy { display: flex; flex-direction: column; gap: 16px; }
+.account-profile, .account-login, .account-actions, .account-settings-sync, .account-privacy { display: flex; flex-direction: column; gap: 16px; }
 .account-page label { display: flex; flex-direction: column; gap: 7px; color: var(--text-secondary); font-size: 12px; }
 .account-page input { width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--control-border); border-radius: 8px; background: var(--dropdown-bg); color: var(--text-color); font: inherit; }
 .account-page input:focus { border-color: var(--accent-color); }

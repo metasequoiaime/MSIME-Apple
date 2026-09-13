@@ -107,6 +107,34 @@ test("logged-in accounts can open their published skin list", async () => {
   expect(openPublishedSkins).toHaveBeenCalledTimes(1);
 });
 
+test("settings sync requires confirmation and preserves a remote conflict error", async () => {
+  const upload = vi.fn().mockResolvedValue({ revision: 8, settings: { "input.schema": "shuangpin" } });
+  const apply = vi.fn().mockRejectedValue({ code: "account_conflict" });
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    settingsSync: {
+      schema: vi.fn().mockResolvedValue({
+        fields: { "input.schema": { type: "string" } }, maximumBytes: 65536,
+        updateMode: "replace", revisionRequired: true,
+      }),
+      load: vi.fn().mockResolvedValue({ revision: 7, settings: { "input.schema": "quanpin" } }),
+      upload,
+      apply,
+    },
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByText("云端版本：7")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "上传本机设置" }));
+  expect(upload).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "确认上传" }));
+  await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole("button", { name: "下载并应用云端设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+  await waitFor(() => expect(apply).toHaveBeenCalledWith("fixture-user-id", { revision: 8, settings: { "input.schema": "shuangpin" } }));
+  expect(await screen.findByText("云端设置已被其他设备更新，请刷新后重新确认。")).not.toBeNull();
+});
+
 const preferences: Snapshot = {
   format_version: 1,
   revision: 1,
