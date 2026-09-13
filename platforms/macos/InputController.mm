@@ -873,8 +873,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 [controller->_session voiceProviderStream:query socket:socket update:^(NSString *text, BOOL final) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         if (controller->_voiceGeneration != generation || !controller->_voiceService.active) return;
-                        [controller->_voiceService applyText:text generation:generation completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
-                        (void)final;
+                        BOOL streamInline = [[NSUserDefaults standardUserDefaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]);
+                        if (final || streamInline)
+                            [controller->_voiceService applyText:text generation:generation completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
                     });
                 } phase:^(NSUInteger phase) { (void)phase; } error:&providerError];
                 dispatch_async(dispatch_get_main_queue(), ^{ if (controller->_voiceGeneration == generation && controller->_voiceService.active) { [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; [controller->_voiceOverlay setListening:NO]; } });
@@ -882,8 +883,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             return;
         }
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
-            (void)final;
-            [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
+            BOOL streamInline = [[NSUserDefaults standardUserDefaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]);
+            if (final || streamInline)
+                [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
         } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
             const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : NULL;
