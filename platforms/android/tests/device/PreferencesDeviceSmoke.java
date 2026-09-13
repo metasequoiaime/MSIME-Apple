@@ -41,7 +41,8 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "baseline typing";
             typePhrase();
             stage = "baseline five candidates";
-            await(node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("5. "));
+            await(candidateAt(5));
+            assertNoVisible(candidateAt(6));
             stage = "active composition defers preferences";
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
@@ -57,13 +58,10 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
             stage = "updated page size";
             typePhrase();
-            await(node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("2. "));
-            for (var window : automation.getWindows()) {
-                if (find(window.getRoot(), node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("3. ")) != null) throw new AssertionError("Old page size remains active");
-            }
+            await(candidateAt(2));
+            assertNoVisible(candidateAt(3));
             stage = "updated second candidate selection";
-            tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
-                && node.getText() != null && node.getText().toString().startsWith("2. "));
+            tap(candidateAt(2));
             await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
             stage = "malformed preferences preserve working input";
             byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
@@ -92,6 +90,22 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
     private void typePhrase() throws Exception {
         String prefix = stage;
         for (String key : new String[] {"n", "i", "h", "a", "o"}) { stage = prefix + ": " + key; tap(key(key)); }
+    }
+
+    private java.util.function.Predicate<android.view.accessibility.AccessibilityNodeInfo> candidateAt(
+            int index) {
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith("候选 " + index + "：")
+            && node.isClickable();
+    }
+
+    private void assertNoVisible(
+            java.util.function.Predicate<android.view.accessibility.AccessibilityNodeInfo> match) {
+        for (var window : automation.getWindows()) {
+            if (find(window.getRoot(), match) != null)
+                throw new AssertionError("Unexpected visible candidate slot");
+        }
     }
     private void shell(String command) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {

@@ -79,6 +79,7 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout verticalCandidates;
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
+    private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
     private LinearLayout candidatePaging;
     private LinearLayout expandedCandidates;
     private ScrollView expandedCandidateScroll;
@@ -3297,42 +3298,56 @@ public final class MSIMEInputService extends InputMethodService {
         return hint.isEmpty() ? candidateAccessibilitySuffix(candidate) : "，还需输入 " + hint;
     }
 
-    private Button candidateButton(JSONObject candidate, int slot) {
-        JSONObject id = candidate.optJSONObject("id");
+    private Button makeCandidateButton(int slot) {
         Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setOnClickListener(ignored -> selectVisibleCandidate(button, slot));
+        button.setOnLongClickListener(ignored -> {
+            JSONObject current = visibleCandidate(slot);
+            JSONObject id = current == null ? null : current.optJSONObject("id");
+            if (id == null || !candidateManagementEnabled()) return false;
+            String text = chineseOutput(current.optString("text"), view);
+            showCandidateMenu(button, id, text);
+            return true;
+        });
+        return button;
+    }
+
+    private JSONObject visibleCandidate(int slot) {
+        if (view == null || slot < 0) return null;
+        JSONArray entries = view.optJSONArray("candidates");
+        return entries == null ? null : entries.optJSONObject(slot);
+    }
+
+    private void selectVisibleCandidate(Button button, int slot) {
+        JSONObject candidate = visibleCandidate(slot);
+        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+        if (id == null) return;
+        playFeedback(button);
+        if (session == 0 || id.optLong("session") != session) return;
+        candidatePanelOpen = false;
+        try {
+            apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index")));
+        } catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
-        button.setAllCaps(false);
-        button.setText(candidateLabel((slot + 1) + ". ", text, annotation, highlighted));
+        button.setText(candidateLabel("", text, annotation, highlighted));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+        button.setSelected(highlighted);
         styleButton(button, false);
         String description = "候选 " + (slot + 1) + "：" + text
             + candidateAccessibilitySuffix(candidate, typed);
-        button.setContentDescription(description);
-        button.setSelected(highlighted);
+        JSONObject id = candidate.optJSONObject("id");
+        button.setContentDescription(id != null && candidateManagementEnabled()
+            ? description + "；长按管理" : description);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
-        if (id != null && candidateManagementEnabled()) {
-            button.setContentDescription(description + "；长按管理");
-            button.setOnLongClickListener(ignored -> {
-                showCandidateMenu(button, id, text);
-                return true;
-            });
-        }
-        if (id == null) {
-            button.setEnabled(false);
-        } else {
-            button.setOnClickListener(ignored -> {
-                playFeedback(button);
-                if (session == 0 || id.optLong("session") != session) return;
-                candidatePanelOpen = false;
-                try { apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index"))); }
-                catch (JSONException | LinkageError error) { fail(); }
-            });
-        }
-        return button;
+        button.setEnabled(id != null);
     }
 
     private Button expandedCandidateButton(JSONObject candidate) {
@@ -4072,6 +4087,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public View onCreateInputView() {
         deactivateHandwriting();
+        candidateButtons.clear();
         nineKeySpellingButtons.clear();
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
@@ -4590,7 +4606,11 @@ public final class MSIMEInputService extends InputMethodService {
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
-                Button candidateView = candidateButton(candidate, slot);
+                while (candidateButtons.size() <= slot)
+                    candidateButtons.add(makeCandidateButton(candidateButtons.size()));
+                Button candidateView = candidateButtons.get(slot);
+                candidateView.setVisibility(View.VISIBLE);
+                updateCandidateButton(candidateView, candidate, slot);
                 activeCandidates.addView(candidateView, new LinearLayout.LayoutParams(
                     candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
                         : LinearLayout.LayoutParams.MATCH_PARENT,
@@ -4599,6 +4619,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (view.optInt("page_count", 0) > 1 && expandCandidates != null)
                 expandCandidates.setVisibility(View.VISIBLE);
         }
+        int visibleSlots = entries == null ? 0 : entries.length();
+        for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)
+            candidateButtons.get(slot).setVisibility(View.GONE);
         if (candidatePaging != null) {
             button(candidatePaging, "上词", () -> command(103));
             button(candidatePaging, "下词", () -> command(102));
