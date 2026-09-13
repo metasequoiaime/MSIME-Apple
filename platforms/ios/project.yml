@@ -18,6 +18,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
+        PRODUCT_NAME: MSIMEClientApp
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
     dependencies:
       - target: MSIMEKeyboardExtension
@@ -26,10 +27,13 @@ targets:
     platform: iOS
     sources:
       - path: KeyboardExtension/Sources
+        excludes:
+          - HandwritingInputView.swift
       - path: SharedUI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
+        PRODUCT_NAME: MSIMEKeyboardExtension
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
   MSIMEClientTests:
     type: bundle.unit-test
