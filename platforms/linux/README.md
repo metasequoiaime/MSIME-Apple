@@ -112,6 +112,8 @@ Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工
 
 双拼方案提供 IBus 属性“双拼原始预编辑”，对应共享 `shuangpin_preedit_uses_raw`：开启时预编辑保留原始双拼编码，关闭时显示 Engine 展开的拼音。该选项仅在双拼方案下可用；有共享偏好目录时按 revision 持久化并由 Engine 在组合空闲后应用，没有偏好目录时切换会结束当前组合并重建当前会话。
 
+五笔方案提供 IBus 属性“五笔剩余编码”，对应共享 `wubi_code_hint`，默认开启；关闭后候选仍按 Engine 原文显示，但隐藏候选后的剩余五笔编码提示。该设置仅影响展示，不改变候选身份或提交文本；配置共享偏好目录时持久化，未配置时保留在当前会话。
+
 Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件。Linux IBus 宿主只读取用户明确配置的历史文件，并通过属性菜单提供最近条目、删除和清空操作，不读取系统剪贴板，也不在输入线程监听剪贴板。Linux 桌面面板的剪贴板同步仍由独立 Tauri 服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，`remove-index INDEX` 按历史位置删除单个条目，供桌面服务或 compositor 显式接管粘贴和删除动作；它不会写入或读取系统剪贴板。
 
 `candidate_theme` 是 Windows 候选窗口的整体深浅主题覆盖。IBus Engine 只提交 lookup table 内容与文本属性，候选 panel 的边框、间距和主题切换由桌面环境控制；Linux 保留共享设置，但不伪造 panel 主题覆盖。显式文字、编号和表面色按 IBus 属性传递。

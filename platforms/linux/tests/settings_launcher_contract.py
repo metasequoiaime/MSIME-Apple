@@ -26,4 +26,7 @@ assert "MenuPreference::FrequencyLinearStep" in engine
 assert '"ShuangpinPreedit"' in engine
 assert "MenuPreference::ShuangpinPreedit" in engine
 assert 'shuangpin_preedit_uses_raw' in engine
+assert '"WubiCodeHint"' in engine
+assert 'wubi_code_hint' in engine
+assert "MenuPreference::WubiCodeHint" in engine
 print("settings launcher contract: ok")
