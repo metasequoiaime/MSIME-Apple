@@ -1441,14 +1441,7 @@ test("cloud dictionary snapshot requires preview and explicit confirmation", asy
     if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
     if (action.operation === "snapshot_preview") return {
       previewToken: "snapshot-token",
-      cloudRevision: 42,
-      sha256: "a".repeat(64),
-      bytes: 2048,
-      records: 12,
-      entries: 4,
-      overlays: 4,
-      positions: 2,
-      selections: 2,
+      snapshot: { cloudRevision: 42, sha256: "a".repeat(64), bytes: 2048, records: 12, entries: 4, overlays: 4, positions: 2, selections: 2 },
     };
     return { request: { id: "request", cloudRevision: 42, fileSha256: "a".repeat(64), status: action.operation === "snapshot_cancel" ? "cancelled" : "queued" } };
   });

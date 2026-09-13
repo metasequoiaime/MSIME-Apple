@@ -380,12 +380,10 @@ async fn dictionary_snapshot_preview(
         old
     };
     for path in old { let _ = fs::remove_file(path); }
-    let mut response = serde_json::to_value(metadata).map_err(|_| snapshot_command_error())?;
-    response
-        .as_object_mut()
-        .ok_or_else(snapshot_command_error)?
-        .insert("previewToken".into(), Value::String(token));
-    Ok(response)
+    Ok(serde_json::json!({
+        "previewToken": token,
+        "snapshot": metadata,
+    }))
 }
 
 async fn dictionary_snapshot_enqueue(
