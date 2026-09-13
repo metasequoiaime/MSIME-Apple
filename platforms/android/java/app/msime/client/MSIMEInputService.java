@@ -86,6 +86,9 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView candidatePage;
     private LinearLayout nineKeySpellings;
     private HorizontalScrollView nineKeySpellingScroll;
+    private final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
+    private java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
+    private long nineKeySpellingGeneration = -1;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private JSONObject candidatePanelSnapshot;
@@ -4019,29 +4022,59 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void renderNineKeySpellings() {
         if (nineKeySpellings == null || nineKeySpellingScroll == null) return;
-        nineKeySpellings.removeAllViews();
         JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
         boolean visible = displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT
             && spellings != null && spellings.length() > 0;
         nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (!visible) return;
-        long generation = view.optLong("generation", -1);
+        if (!visible) {
+            nineKeySpellingIndices = java.util.List.of();
+            nineKeySpellingGeneration = -1;
+            for (Button key : nineKeySpellingButtons) key.setVisibility(View.GONE);
+            return;
+        }
+        nineKeySpellingGeneration = view.optLong("generation", -1);
+        java.util.List<String> values = new java.util.ArrayList<>();
+        java.util.List<Integer> indices = new java.util.ArrayList<>();
         for (int index = 0; index < spellings.length(); index++) {
             String spelling = spellings.optString(index, "");
-            if (spelling.isEmpty()) continue;
-            final int choice = index;
-            Button key = button(nineKeySpellings, spelling,
-                () -> chooseNineKeySpelling(generation, choice));
-            key.setContentDescription("选择拼音 " + spelling);
+            if (!spelling.isEmpty()) {
+                values.add(spelling);
+                indices.add(index);
+            }
+        }
+        nineKeySpellingIndices = java.util.List.copyOf(indices);
+        while (nineKeySpellingButtons.size() < values.size()) {
+            int slot = nineKeySpellingButtons.size();
+            Button key = button(nineKeySpellings, "", () -> {
+                if (slot < nineKeySpellingIndices.size()) {
+                    chooseNineKeySpelling(nineKeySpellingGeneration,
+                        nineKeySpellingIndices.get(slot));
+                }
+            });
+            key.setContentDescription("选择拼音");
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
             params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
             params.weight = 0;
             key.setLayoutParams(params);
+            nineKeySpellingButtons.add(key);
+        }
+        for (int slot = 0; slot < nineKeySpellingButtons.size(); slot++) {
+            Button key = nineKeySpellingButtons.get(slot);
+            boolean slotVisible = slot < values.size();
+            key.setVisibility(slotVisible ? View.VISIBLE : View.GONE);
+            if (slotVisible) {
+                String spelling = values.get(slot);
+                key.setText(spelling);
+                key.setContentDescription("选择拼音 " + spelling);
+            }
         }
     }
 
     @Override public View onCreateInputView() {
         deactivateHandwriting();
+        nineKeySpellingButtons.clear();
+        nineKeySpellingIndices = java.util.List.of();
+        nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
