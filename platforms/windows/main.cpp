@@ -492,6 +492,20 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_items(config.floating_toolbar_items);
     if (config.floating_toolbar_x && config.floating_toolbar_y)
       toolbar.set_position(POINT{*config.floating_toolbar_x, *config.floating_toolbar_y});
+    if (!production) {
+      toolbar.set_position_changed([&document, &config_path](POINT position) {
+        try {
+          auto updated = nlohmann::json::parse(document);
+          updated["floating_toolbar_x"] = position.x;
+          updated["floating_toolbar_y"] = position.y;
+          const auto serialized = updated.dump();
+          write_document_atomic(config_path, serialized);
+          document = serialized;
+        } catch (...) {
+          // A transient write failure must not tear down the input server.
+        }
+      });
+    }
     toolbar.set_character_set_reader([traditional_output] {
       return std::optional<bool>(
           traditional_output->load(std::memory_order_acquire));
