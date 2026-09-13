@@ -26,10 +26,12 @@ std::optional<POINT> clamp_position(POINT position, int width, int height) {
   MONITORINFO info{};
   info.cbSize = sizeof(info);
   if (!GetMonitorInfoW(monitor, &info)) return std::nullopt;
-  const int right = std::max(info.rcWork.left, info.rcWork.right - width);
-  const int bottom = std::max(info.rcWork.top, info.rcWork.bottom - height);
-  return POINT{std::clamp(position.x, info.rcWork.left, right),
-               std::clamp(position.y, info.rcWork.top, bottom)};
+  const LONG right = std::max(info.rcWork.left,
+                              info.rcWork.right - static_cast<LONG>(width));
+  const LONG bottom = std::max(info.rcWork.top,
+                               info.rcWork.bottom - static_cast<LONG>(height));
+  return POINT{std::clamp<LONG>(position.x, info.rcWork.left, right),
+               std::clamp<LONG>(position.y, info.rcWork.top, bottom)};
 }
 bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
