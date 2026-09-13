@@ -447,8 +447,12 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return server.mode_view().has_value(); });
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
+    // Clipboard history is an optional convenience, so a monitor that cannot
+    // start leaves it inert rather than taking the IME down with it. Failing
+    // here used to cost the user all text input because a message-only window
+    // or a class registration failed.
     if (!clipboard_monitor.start())
-      throw std::runtime_error("Clipboard monitor unavailable");
+      std::cerr << "Clipboard history unavailable; continuing without it\n";
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (click.action == CandidateAction::Select) {
         if (server.request_selection(click.lease, click.session,
