@@ -2828,6 +2828,12 @@ public final class MSIMEInputService extends InputMethodService {
         Button close = button(header, "返回键盘", this::closeSchemePicker);
         close.setContentDescription("返回键盘");
         schemePanel.addView(header);
+        LinearLayout schemeSurface = new LinearLayout(this);
+        schemeSurface.setOrientation(LinearLayout.VERTICAL);
+        schemeSurface.setPadding(pixels(8), pixels(6), pixels(8), pixels(6));
+        schemeSurface.setContentDescription("输入方案卡片区域");
+        schemePanel.addView(schemeSurface, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         java.util.List<KeyboardScheme> schemes = enabledSchemes;
         for (int start = 0; start < schemes.size(); start += 4) {
             LinearLayout row = new LinearLayout(this);
@@ -2852,10 +2858,10 @@ public final class MSIMEInputService extends InputMethodService {
                 card.setLayoutParams(params);
                 styleButton(card, true);
             }
-            schemePanel.addView(row);
+            schemeSurface.addView(row);
         }
         if (!sharedSchemePreferences) {
-            Button toggleReply = button(schemePanel, thoughtfulReplyEnabled()
+            Button toggleReply = button(schemeSurface, thoughtfulReplyEnabled()
                 ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
             toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -2866,8 +2872,15 @@ public final class MSIMEInputService extends InputMethodService {
         hint.setText(sharedSchemePreferences
             ? "显示的方案由共享设置管理；切换会先完成当前组词并同步当前方案"
             : "切换会先完成当前组词，并迁移到共享输入方案设置");
-        schemePanel.addView(hint);
+        schemeSurface.addView(hint);
         applySkin();
+        // Apple keeps the selectable scheme area on a filled key surface, so a short list does not
+        // leave a bare keyboard backdrop below the cards. Apply this after the recursive skin pass:
+        // the picker itself remains the patterned backdrop while this inner surface follows the
+        // selected skin's key material, including custom Android skins.
+        schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin,
+            Color.parseColor(skin.keyBackground()), false,
+            getResources().getDisplayMetrics().density));
     }
 
     private void selectKeyboardScheme(KeyboardScheme scheme) {
@@ -4481,7 +4494,9 @@ public final class MSIMEInputService extends InputMethodService {
         schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         schemePanel.setContentDescription("输入方案选择器");
         schemeScroll = new ScrollView(this);
-        schemeScroll.addView(schemePanel);
+        schemeScroll.addView(schemePanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        schemeScroll.setFillViewport(true);
         schemeScroll.setVisibility(View.GONE);
         keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
