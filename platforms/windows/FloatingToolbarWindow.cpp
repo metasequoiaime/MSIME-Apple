@@ -8,6 +8,8 @@ namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar";
 constexpr int kWidth = 732;
 constexpr int kHeight = 52;
+constexpr float kLeadingWidth = 28.0f;
+constexpr float kCellWidth = 72.0f;
 int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
@@ -80,7 +82,8 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const int width = dpi_scale(window_, static_cast<int>((16 + 72 * slots(items_).size()) * scale_));
+    const int width = dpi_scale(
+        window_, static_cast<int>((kLeadingWidth + kCellWidth * slots(items_).size() + 8) * scale_));
     const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
     const int margin = dpi_scale(window_, 20);
     if (!SetWindowPos(window_, HWND_TOPMOST, work.right - width - margin,
@@ -144,6 +147,10 @@ void FloatingToolbarWindow::paint() {
       {{inset, inset, size.width - inset, size.height - inset}, palette_.radius * unit,
        palette_.radius * unit},
       brush(palette_.border), palette_.border_width * unit);
+  target->DrawLine({12.0f * unit, 19.0f * unit}, {12.0f * unit, 33.0f * unit},
+                   brush(palette_.accent), 2.0f * unit);
+  target->DrawLine({24.0f * unit, 8.0f * unit}, {24.0f * unit, 44.0f * unit},
+                   brush(palette_.border), unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
     // An unreported mode shows a question mark rather than a guessed state.
@@ -161,8 +168,10 @@ void FloatingToolbarWindow::paint() {
     const auto active = slots(items_);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
-      const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
-                             (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
+      const D2D1_RECT_F cell{
+          (kLeadingWidth + static_cast<float>(i) * kCellWidth) * unit, 8.0f * unit,
+          (kLeadingWidth + (static_cast<float>(i) + 1.0f) * kCellWidth) * unit,
+          44.0f * unit};
       target->DrawText(labels[button], static_cast<UINT32>(wcslen(labels[button])), format,
                        cell, brush(palette_.text));
     }
@@ -188,17 +197,25 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
+    case WM_NCHITTEST: {
+      POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+      ScreenToClient(window, &point);
+      return point.x >= 0 &&
+                     point.x < dpi_scale(window, static_cast<int>(kLeadingWidth * self->scale_))
+                 ? HTCAPTION
+                 : HTCLIENT;
+    }
     case WM_LBUTTONDOWN:
-      ReleaseCapture();
-      SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
       return 0;
     case WM_LBUTTONUP: {
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
-      const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
-      if (value && x >= 8 * unit && x < static_cast<int>((8 + 72 * active.size()) * unit)) {
-        const size_t position = static_cast<size_t>((x - 8 * unit) / (72 * unit));
+      const int leading = dpi_scale(window, static_cast<int>(kLeadingWidth * self->scale_));
+      const int cell = dpi_scale(window, static_cast<int>(kCellWidth * self->scale_));
+      if (value && x >= leading &&
+          x < leading + static_cast<int>(cell * active.size())) {
+        const size_t position = static_cast<size_t>((x - leading) / cell);
         if (position >= active.size()) return 0;
         const int slot = active[position];
         if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
@@ -228,12 +245,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       return 0;
     }
     case WM_NCLBUTTONDOWN:
-      if (w == HTCLIENT || w == HTCAPTION) {
-        ReleaseCapture();
-        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-        return 0;
-      }
-      break;
+      return DefWindowProcW(window, message, w, l);
   }} catch (...) { self->failed_ = true; self->hide(); return 0; }
   return DefWindowProcW(window, message, w, l);
 }
