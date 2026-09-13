@@ -239,6 +239,13 @@ void CandidateWindow::reposition() {
     hide();
     return;
   }
+  // The first show can arrive before TSF has produced a usable text extent.
+  // Do not let card_bounds clamp the sentinel into the monitor work area; a
+  // subsequent MoveCandidateWnd with a real anchor will retry this refresh.
+  if (value->y == invalid_candidate_anchor_y) {
+    hide();
+    return;
+  }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
   if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&

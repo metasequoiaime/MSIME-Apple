@@ -136,6 +136,12 @@ int main() {
       UpdateWindow(window.handle());
       require(IsWindowVisible(window.handle()) && !window.failed());
       require(GetForegroundWindow() == foreground);
+      value->y = invalid_candidate_anchor_y;
+      window.refresh();
+      require(!IsWindowVisible(window.handle()) && !window.failed());
+      value->y = frame.y;
+      window.refresh();
+      require(IsWindowVisible(window.handle()) && !window.failed());
       window.refresh();
       require(!GetUpdateRect(window.handle(), nullptr, FALSE));
       require(AreDpiAwarenessContextsEqual(original_dpi,

@@ -3,6 +3,10 @@
 #include "ReplyComposer.h"
 
 namespace msime::windows {
+// TSF can report the candidate show event before it has a usable text extent.
+// Keep this sentinel aligned with the native Windows host contract.
+inline constexpr int invalid_candidate_anchor_y = -100000;
+
 struct PresentationCandidate {
   uint64_t session;
   uint64_t generation;
