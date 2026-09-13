@@ -1184,6 +1184,26 @@ int main(int argc, char **argv) {
     require(key(','), "Restored Chinese punctuation was not consumed");
     require(seen.committed == committed + "，",
             "Restored punctuation mode did not reach the session");
+    // Numpad arithmetic keys are not the configurable minus/equal paging
+    // bindings. When a candidate is highlighted they must finish that
+    // candidate and append their literal ASCII mark, matching Windows' VK
+    // arithmetic punctuation path (including keypad decimal).
+    for (const auto &[keypad, mark] : std::vector<std::pair<guint, char>>{
+             {IBUS_KP_Decimal, '.'},
+             {IBUS_KP_Subtract, '-'},
+             {IBUS_KP_Add, '+'},
+             {IBUS_KP_Divide, '/'},
+             {IBUS_KP_Multiply, '*'}}) {
+      invoke("Reset");
+      phrase();
+      const auto highlighted = seen.candidates.front();
+      const auto prefix = seen.committed;
+      require(key(keypad), "Keypad punctuation was not consumed");
+      require(seen.committed == prefix + highlighted + mark,
+              "Keypad punctuation did not finish the highlighted candidate literally");
+      require(!seen.preedit_visible && !seen.lookup_visible,
+              "Keypad punctuation left the candidate view visible");
+    }
     committed = seen.committed;
     phrase();
     require(key(IBUS_KP_Page_Down), "Keypad paging not consumed");
