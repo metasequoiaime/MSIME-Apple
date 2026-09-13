@@ -159,6 +159,12 @@ int wmain(int argc, wchar_t **argv) {
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           next.token = input.value("asr_token", std::string{});
+          next.app_key = input.value("asr_app_key", std::string{});
+          next.resource_id = input.value("asr_resource_id", std::string{});
+          next.enable_itn = input.value("doubao_enable_itn", true);
+          next.enable_punc = input.value("doubao_enable_punc", true);
+          next.enable_ddc = input.value("doubao_enable_ddc", false);
+          next.boosting_table_id = input.value("doubao_boosting_table_id", std::string{});
           next.language = input.value("language", std::string{"zh-cn"});
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);

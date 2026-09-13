@@ -3,11 +3,13 @@
 #include "FocusGate.h"
 #include "SessionController.h"
 #include "WaveOverlay.h"
+#include "DoubaoAsrClient.h"
 #include <atomic>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +26,12 @@ struct VoiceInputConfig {
   std::string endpoint;
   std::string model;
   std::string token;
+  std::string app_key;
+  std::string resource_id;
+  bool enable_itn = true;
+  bool enable_punc = true;
+  bool enable_ddc = false;
+  std::string boosting_table_id;
   std::string language = "zh-cn";
 };
 
@@ -51,7 +59,8 @@ private:
   bool start();
   void stop();
   void finish(std::vector<float> samples, FocusLease lease,
-              VoiceInputConfig config, uint64_t session);
+              VoiceInputConfig config, uint64_t session,
+              std::shared_ptr<DoubaoAsrClient> doubao);
   void clear_overlay();
 
   WaveOverlay &overlay_;
@@ -69,6 +78,8 @@ private:
   std::size_t captured_frames_ = 0;
   std::atomic<bool> capture_overflow_{false};
   std::optional<FocusLease> lease_;
+  std::mutex doubao_mutex_;
+  std::shared_ptr<DoubaoAsrClient> doubao_;
   std::mutex tasks_mutex_;
   std::vector<std::future<void>> tasks_;
 };

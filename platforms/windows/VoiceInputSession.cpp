@@ -63,8 +63,9 @@ bool VoiceInputSession::start() {
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
   const VoiceInputConfig config = config_provider_();
+  const bool doubao = config.endpoint.rfind("wss://", 0) == 0;
   if (!config.enabled || config.token.empty() || config.endpoint.empty() ||
-      config.model.empty())
+      (!doubao && config.model.empty()) || (doubao && config.resource_id.empty()))
     return false;
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
@@ -81,6 +82,33 @@ bool VoiceInputSession::start() {
   }
   const uint64_t session = session_.fetch_add(1) + 1;
   lease_ = *lease;
+  const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+  if (doubao) {
+    auto client = std::make_shared<DoubaoAsrClient>(
+        config.endpoint, config.app_key, config.token, config.resource_id,
+        config.enable_itn, config.enable_punc, config.enable_ddc,
+        config.boosting_table_id,
+        [this, lease = *lease, generation, session](const std::string &text) {
+          if (session_.load() != session || cancel_requested_.load())
+            return;
+          const auto converted = wide(text);
+          overlay_.set_transcript(converted);
+          (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
+                        converted, generation);
+        });
+    {
+      std::lock_guard lock(doubao_mutex_);
+      doubao_ = client;
+    }
+    if (!client->Start()) {
+      std::lock_guard lock(doubao_mutex_);
+      if (doubao_ == client)
+        doubao_.reset();
+      lease_.reset();
+      starting_.store(false);
+      return false;
+    }
+  }
   const bool started = capture_->start([this](const float *samples,
                                                std::size_t frames) {
     if (!samples || !recording_.load() && !starting_.load())
@@ -99,13 +127,36 @@ bool VoiceInputSession::start() {
     }
     samples_.insert(samples_.end(), samples, samples + frames);
     captured_frames_ += frames;
+    std::shared_ptr<DoubaoAsrClient> client;
+    {
+      std::lock_guard lock(doubao_mutex_);
+      client = doubao_;
+    }
+    if (client)
+      client->PushFloatSamples(samples, frames);
   });
   if (!started) {
+    std::shared_ptr<DoubaoAsrClient> client;
+    {
+      std::lock_guard lock(doubao_mutex_);
+      client = std::move(doubao_);
+    }
+    if (client)
+      client->Cancel();
+    lease_.reset();
     starting_.store(false);
     return false;
   }
   if (cancel_requested_.load()) {
     capture_->stop();
+    std::shared_ptr<DoubaoAsrClient> client;
+    {
+      std::lock_guard lock(doubao_mutex_);
+      client = std::move(doubao_);
+    }
+    if (client)
+      client->Cancel();
+    lease_.reset();
     starting_.store(false);
     return false;
   }
@@ -132,7 +183,14 @@ void VoiceInputSession::stop() {
   const auto config = config_provider_();
   const auto lease = lease_;
   lease_.reset();
+  std::shared_ptr<DoubaoAsrClient> doubao;
+  {
+    std::lock_guard lock(doubao_mutex_);
+    doubao = doubao_;
+  }
   if (!lease || capture_overflow_.load()) {
+    if (doubao)
+      doubao->Cancel();
     clear_overlay();
     return;
   }
@@ -142,6 +200,8 @@ void VoiceInputSession::stop() {
     samples.swap(samples_);
   }
   if (samples.size() < kSampleRate / 4) {
+    if (doubao)
+      doubao->Cancel();
     clear_overlay();
     return;
   }
@@ -158,30 +218,50 @@ void VoiceInputSession::stop() {
                 tasks_.end());
   tasks_.emplace_back(std::async(
       std::launch::async, [this, samples = std::move(samples), lease = *lease,
-                           config, session]() mutable {
-        finish(std::move(samples), lease, config, session);
+                           config, session, doubao]() mutable {
+        finish(std::move(samples), lease, config, session, std::move(doubao));
       }));
 }
 
 void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
-                               VoiceInputConfig config, uint64_t session) {
+                               VoiceInputConfig config, uint64_t session,
+                               std::shared_ptr<DoubaoAsrClient> doubao) {
   auto cancelled = std::make_shared<std::atomic_bool>(false);
+  const auto release_doubao = [&] {
+    if (!doubao)
+      return;
+    std::lock_guard lock(doubao_mutex_);
+    if (doubao_ == doubao)
+      doubao_.reset();
+  };
   if (session_.load() != session || cancel_requested_.load()) {
     clear_overlay();
+    release_doubao();
     return;
   }
-  metasequoia::voice::CloudSttWorker recognizer(
-      metasequoia::voice::RequestOptions{config.endpoint, config.model,
-                                         config.token, 10000, cancelled});
   std::string text;
   try {
-    text = recognizer.recognize(samples);
+    if (doubao) {
+      text = doubao->Finish();
+      if (text.empty() && !doubao->LastError().empty()) {
+        clear_overlay();
+        release_doubao();
+        return;
+      }
+    } else {
+      metasequoia::voice::CloudSttWorker recognizer(
+          metasequoia::voice::RequestOptions{config.endpoint, config.model,
+                                             config.token, 10000, cancelled});
+      text = recognizer.recognize(samples);
+    }
   } catch (const std::exception &) {
     clear_overlay();
+    release_doubao();
     return;
   }
   if (session_.load() != session || cancel_requested_.load() || text.empty()) {
     clear_overlay();
+    release_doubao();
     return;
   }
   overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
@@ -196,6 +276,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     clear_overlay();
   else
     clear_overlay();
+  release_doubao();
 }
 
 void VoiceInputSession::cancel() {
@@ -204,6 +285,13 @@ void VoiceInputSession::cancel() {
   lease_.reset();
   if (recording_.exchange(false) && capture_)
     capture_->stop();
+  std::shared_ptr<DoubaoAsrClient> doubao;
+  {
+    std::lock_guard lock(doubao_mutex_);
+    doubao = doubao_;
+  }
+  if (doubao)
+    doubao->Cancel();
   clear_overlay();
 }
 
