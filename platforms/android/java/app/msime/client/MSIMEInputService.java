@@ -7,6 +7,8 @@ import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
@@ -27,9 +29,9 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
-import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
@@ -158,6 +160,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private JapaneseFlickPreview japaneseFlickPreview;
     private LinearLayout shortcutBar;
     private HorizontalScrollView shortcutScroll;
     private final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
@@ -3831,11 +3834,17 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void rebuildKeyRows() {
         if (keyRows == null) return;
+        hideJapaneseFlickPreview();
         deactivateHandwriting();
         symbolKeyButtons.clear();
         symbolKeyInputs.clear();
         microsoftFinalKey = null;
         keyRows.removeAllViews();
+        if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+            rebuildJapaneseNineKeyRows();
+            applyKeyboardGeometry();
+            return;
+        }
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
             if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
                 rebuildHandwritingRows();
@@ -3844,11 +3853,6 @@ public final class MSIMEInputService extends InputMethodService {
             }
             if (displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
                 rebuildNineKeyRows();
-                applyKeyboardGeometry();
-                return;
-            }
-            if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
-                rebuildJapaneseNineKeyRows();
                 applyKeyboardGeometry();
                 return;
             }
@@ -3949,58 +3953,37 @@ public final class MSIMEInputService extends InputMethodService {
         else inputJapaneseStroke(stroke);
     }
 
-    private void showJapaneseKeyChoices(Button anchor, JapaneseNineKeyLayout.Key key) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (int index = 0; index < key.kana().size(); index++) {
-            final int direction = index;
-            popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
-                playFeedback(anchor);
-                selectJapaneseKey(key, direction);
-                return true;
-            });
-        }
-        popup.show();
+    private void showJapaneseFlickPreview(Button button, JapaneseNineKeyLayout.Key key, int direction) {
+        if (japaneseFlickPreview != null && keyboardRoot != null)
+            japaneseFlickPreview.show(button, key, direction, keyboardRoot);
+    }
+
+    private void hideJapaneseFlickPreview() {
+        if (japaneseFlickPreview != null) japaneseFlickPreview.hide();
     }
 
     private void bindJapaneseFlick(Button button, JapaneseNineKeyLayout.Key key) {
         final float[] origin = new float[2];
         final int[] direction = new int[1];
-        final boolean[] longPressed = new boolean[1];
-        final String label = japaneseKeyLabel(key);
-        button.setOnLongClickListener(ignored -> {
-            playFeedback(button);
-            showJapaneseKeyChoices(button, key);
-            return true;
-        });
-        Runnable longPress = () -> {
-            if (!button.isAttachedToWindow() || !button.isPressed()) return;
-            longPressed[0] = true;
-            button.setPressed(false);
-            button.performLongClick();
-        };
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     origin[0] = event.getX();
                     origin[1] = event.getY();
                     direction[0] = 0;
-                    longPressed[0] = false;
                     button.setPressed(true);
-                    main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
+                    showJapaneseFlickPreview(button, key, 0);
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     direction[0] = JapaneseNineKeyLayout.direction(
                         event.getX() - origin[0], event.getY() - origin[1], pixels(12));
-                    if (direction[0] != 0) main.removeCallbacks(longPress);
-                    button.setText(key.kana().get(direction[0]));
+                    showJapaneseFlickPreview(button, key, direction[0]);
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    main.removeCallbacks(longPress);
                     button.setPressed(false);
-                    button.setText(label);
-                    if (longPressed[0]) return true;
+                    hideJapaneseFlickPreview();
                     if (direction[0] == 0) button.performClick();
                     else {
                         playFeedback(button);
@@ -4009,9 +3992,8 @@ public final class MSIMEInputService extends InputMethodService {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    main.removeCallbacks(longPress);
                     button.setPressed(false);
-                    button.setText(label);
+                    hideJapaneseFlickPreview();
                     return true;
                 }
                 default -> {
@@ -4025,7 +4007,7 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = keyboardKey(japaneseKeyLabel(key), String.join("、", key.kana()),
             () -> selectJapaneseKey(key, 0));
         button.setContentDescription("轻点输入" + key.kana().get(0)
-            + "；左、上、右、下滑动选择其他假名；长按显示全部选项");
+            + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
         return button;
     }
@@ -4046,6 +4028,33 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
+    private void showJapaneseDigitVariants(Button anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (String symbol : new String[] {"（", "）", "「", "」", "『", "』", "【", "】"}) {
+            popup.getMenu().add(symbol).setOnMenuItemClickListener(ignored -> {
+                playFeedback(anchor);
+                commitNineKeyLiteral(symbol);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private Button japaneseDigitVariantsKey() {
+        final Button[] holder = new Button[1];
+        holder[0] = keyboardKey("（）", "括号", () -> showJapaneseDigitVariants(holder[0]));
+        return holder[0];
+    }
+
+    private Button japaneseVariantsKey() {
+        Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
+        variants.setOnClickListener(ignored -> {
+            playFeedback(variants);
+            showJapaneseVariants(variants);
+        });
+        return variants;
+    }
+
     private void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
@@ -4055,7 +4064,8 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        java.util.List<JapaneseNineKeyLayout.Key> keys = JapaneseNineKeyLayout.keys();
+        java.util.List<JapaneseNineKeyLayout.Key> keys = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
         for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
             for (int column = 0; column < 3; column++) {
@@ -4064,23 +4074,99 @@ public final class MSIMEInputService extends InputMethodService {
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
+        LinearLayout finalRow = new LinearLayout(this);
+        addNineKey(finalRow, keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            ? japaneseDigitVariantsKey() : japaneseVariantsKey());
+        addNineKey(finalRow, japaneseKey(keys.get(9)));
+        addNineKey(finalRow, japaneseKey(keys.get(10)));
+        grid.addView(finalRow, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         container.addView(grid, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 3));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
-        addNineKey(actions, japaneseKey(keys.get(9)));
-        Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
-        variants.setOnClickListener(ignored -> {
-            playFeedback(variants);
-            showJapaneseVariants(variants);
-        });
-        addNineKey(actions, variants);
         addNineKey(actions, keyboardKey("⌫", "删除", () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
         }));
+        addNineKey(actions, keyboardKey("空格", "空格", this::space));
+        Button enter = keyboardKey("换行", "换行", this::enter);
+        actions.addView(enter, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+    }
+
+    /** Non-interactive overlay showing the five choices while a Japanese key is being flicked. */
+    private final class JapaneseFlickPreview extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private static final int[] X_OFFSETS = {0, -1, 0, 1, 0};
+        private static final int[] Y_OFFSETS = {0, 0, -1, 0, 1};
+        private String[] labels = new String[5];
+        private int selectedDirection;
+        private float centerX;
+        private float centerY;
+        private float cellWidth;
+        private float cellHeight;
+        private float gap;
+
+        JapaneseFlickPreview(android.content.Context context) {
+            super(context);
+            setVisibility(View.GONE);
+            setClickable(false);
+            setFocusable(false);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
+            labels = key.kana().toArray(String[]::new);
+            selectedDirection = Math.max(0, Math.min(direction, labels.length - 1));
+            int[] rootLocation = new int[2];
+            int[] anchorLocation = new int[2];
+            root.getLocationOnScreen(rootLocation);
+            anchor.getLocationOnScreen(anchorLocation);
+            centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
+            centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
+            float density = getResources().getDisplayMetrics().density;
+            cellWidth = Math.max(anchor.getWidth(), Math.round(40 * density));
+            cellHeight = Math.max(anchor.getHeight(), Math.round(36 * density));
+            gap = Math.round(6 * density);
+            root.bringChildToFront(this);
+            setVisibility(View.VISIBLE);
+            invalidate();
+        }
+
+        void hide() { setVisibility(View.GONE); }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 22,
+                getResources().getDisplayMetrics());
+            float radius = 8 * getResources().getDisplayMetrics().density;
+            paint.setTextSize(textSize);
+            paint.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            Paint.FontMetrics metrics = paint.getFontMetrics();
+            float stepX = cellWidth + gap;
+            float stepY = cellHeight + gap;
+            for (int index = 0; index < labels.length; index++) {
+                String label = labels[index];
+                if (label == null || label.isEmpty()) continue;
+                boolean selected = index == selectedDirection;
+                float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
+                float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
+                paint.setColor(Color.parseColor(selected ? skin.accent() : skin.keyBackground()));
+                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight,
+                    radius, radius, paint);
+                paint.setColor(Color.parseColor(
+                    selected ? skin.actionForeground() : skin.keyForeground()));
+                float baseline = y + (cellHeight - metrics.bottom - metrics.top) / 2
+                    - metrics.top;
+                float textWidth = paint.measureText(label);
+                canvas.drawText(label, x + (cellWidth - textWidth) / 2, baseline, paint);
+            }
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent event) { return false; }
     }
 
     private void commitNineKeyLiteral(String text) {
@@ -4163,6 +4249,9 @@ public final class MSIMEInputService extends InputMethodService {
         keyboard.setOrientation(LinearLayout.VERTICAL);
         WindowLayout.fitSystemBars(keyboard);
         keyboardRoot.addView(keyboard, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        japaneseFlickPreview = new JapaneseFlickPreview(this);
+        keyboardRoot.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         status = new TextView(this);
         keyboard.addView(status);

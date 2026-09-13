@@ -32,9 +32,10 @@ public final class JapaneseNineKeyLayout {
         key("な", "に", "ぬ", "ね", "の", "na", "ni", "nu", "ne", "no"),
         key("は", "ひ", "ふ", "へ", "ほ", "ha", "hi", "fu", "he", "ho"),
         key("ま", "み", "む", "め", "も", "ma", "mi", "mu", "me", "mo"),
-        key("や", "（", "ゆ", "）", "よ", "ya", "", "yu", "", "yo"),
+        key("や", "「", "ゆ", "」", "よ", "ya", "", "yu", "", "yo"),
         key("ら", "り", "る", "れ", "ろ", "ra", "ri", "ru", "re", "ro"),
-        key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "", ""));
+        key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "-", ""),
+        key("、", "。", "？", "！", "…", "", "", "", "", ""));
 
     private static final List<VariantGroup> VARIANTS = List.of(
         group("小假名", List.of("ぁ", "ぃ", "ぅ", "ぇ", "ぉ", "ゃ", "ゅ", "ょ", "っ", "ゎ"),
@@ -45,6 +46,19 @@ public final class JapaneseNineKeyLayout {
                 "da", "di", "du", "de", "do", "ba", "bi", "bu", "be", "bo", "vu")),
         group("半浊音", List.of("ぱ", "ぴ", "ぷ", "ぺ", "ぽ"),
             List.of("pa", "pi", "pu", "pe", "po")));
+
+    private static final List<Key> DIGIT_KEYS = List.of(
+        key("1", "☆", "♪", "→", "", "", "", "", "", ""),
+        key("2", "¥", "$", "€", "", "", "", "", "", ""),
+        key("3", "%", "°", "#", "", "", "", "", "", ""),
+        key("4", "○", "*", "・", "", "", "", "", "", ""),
+        key("5", "+", "-", "=", "", "", "", "", "", ""),
+        key("6", "<", "^", ">", "", "", "", "", "", ""),
+        key("7", "「", "」", "：", "", "", "", "", "", ""),
+        key("8", "〒", "※", "♂", "", "", "", "", "", ""),
+        key("9", "（", "）", "／", "", "", "", "", "", ""),
+        key("0", "〜", "…", "ー", "", "", "", "", "", ""),
+        key("、", "。", "？", "！", "…", "", "", "", "", ""));
 
     private JapaneseNineKeyLayout() {}
 
@@ -60,6 +74,7 @@ public final class JapaneseNineKeyLayout {
     }
 
     public static List<Key> keys() { return KEYS; }
+    public static List<Key> digitKeys() { return DIGIT_KEYS; }
     public static List<VariantGroup> variants() { return VARIANTS; }
 
     /** Center, left, up, right and down use the same direction indices as the Apple host. */
