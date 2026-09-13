@@ -18,6 +18,8 @@ struct PreviewConfig {
   bool floating_toolbar_enabled = true;
   double floating_toolbar_scale = 1.0;
   int floating_toolbar_font_size = 24;
+  std::optional<int> floating_toolbar_x;
+  std::optional<int> floating_toolbar_y;
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   // Optional appearance. Without it the presenters keep their built-in theme.
   std::filesystem::path skin_directory;
@@ -50,6 +52,8 @@ struct PreviewConfig {
                          (value.contains("floating_toolbar_enabled") ? 1u : 0u) +
                          (value.contains("floating_toolbar_scale") ? 1u : 0u) +
                          (value.contains("floating_toolbar_font_size") ? 1u : 0u) +
+                         (value.contains("floating_toolbar_x") ? 1u : 0u) +
+                         (value.contains("floating_toolbar_y") ? 1u : 0u) +
                          (value.contains("floating_toolbar_items") ? 1u : 0u) +
                          (value.contains("appearance") ? 1u : 0u)) ||
         !value.at("format_version").is_number_integer() ||
@@ -256,6 +260,14 @@ struct PreviewConfig {
       result.floating_toolbar_font_size = value.at("floating_toolbar_font_size").get<int>();
       if (result.floating_toolbar_font_size < 16 || result.floating_toolbar_font_size > 28)
         throw std::invalid_argument("Invalid floating toolbar font size");
+    }
+    for (const auto *key : {"floating_toolbar_x", "floating_toolbar_y"}) {
+      if (!value.contains(key)) continue;
+      const int coordinate = value.at(key).get<int>();
+      if (coordinate < -32768 || coordinate > 32767)
+        throw std::invalid_argument("Invalid floating toolbar position");
+      if (key[19] == 'x') result.floating_toolbar_x = coordinate;
+      else result.floating_toolbar_y = coordinate;
     }
     if (value.contains("floating_toolbar_items")) {
       const auto &items = value.at("floating_toolbar_items");
