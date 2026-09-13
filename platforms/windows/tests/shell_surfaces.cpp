@@ -72,6 +72,21 @@ int main() {
     for (const auto &entry : about_block)
       require(entry.rfind(L"MSIME_CLIENT_PANEL=", 0) != 0);
 
+    const ShellLaunchContext context{L"C:\\Users\\ime\\state",
+                                    L"C:\\Users\\ime\\state\\runtime-options.json"};
+    const std::wstring stale_paths =
+        std::wstring(L"MSIME_CLIENT_STATE_DIR=C:\\stale") + L'\0' +
+        L"MSIME_CLIENT_HOST_OPTIONS=C:\\stale\\runtime-options.json" + L'\0' +
+        L"PATH=C:\\Windows" + L'\0';
+    const auto configured_entries = entries(
+        shell_environment_block(stale_paths.c_str(), *settings, &context));
+    require(contains(configured_entries, L"MSIME_CLIENT_STATE_DIR=C:\\Users\\ime\\state"));
+    require(contains(configured_entries,
+                     L"MSIME_CLIENT_HOST_OPTIONS=C:\\Users\\ime\\state\\runtime-options.json"));
+    require(!contains(configured_entries, L"MSIME_CLIENT_STATE_DIR=C:\\stale"));
+    require(!contains(configured_entries,
+                      L"MSIME_CLIENT_HOST_OPTIONS=C:\\stale\\runtime-options.json"));
+
     // Nothing but a short lowercase identifier may reach the child.
     for (const char *invalid : {"emoji panel", "Emoji", "emoji=1", "../etc"}) {
       bool rejected = false;

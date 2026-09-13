@@ -8,4 +8,7 @@ namespace msime::windows {
 // could not be started; it does not wait for the surface to appear.
 bool launch_shell_surface(const std::filesystem::path &executable,
                           const ShellSurfaceRequest &request);
+bool launch_shell_surface(const std::filesystem::path &executable,
+                          const ShellSurfaceRequest &request,
+                          const ShellLaunchContext &context);
 } // namespace msime::windows

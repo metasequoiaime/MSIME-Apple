@@ -18,6 +18,13 @@ struct ShellSurfaceRequest {
   // MSIME_CLIENT_SETTINGS_PAGE value. Empty keeps the settings default section.
   std::string page;
 };
+// Paths are supplied by the Server that owns the prepared host document. The
+// settings shell must use the same store; its default Tauri app-data directory
+// is unrelated to the input method state directory.
+struct ShellLaunchContext {
+  std::filesystem::path state_root;
+  std::filesystem::path host_options;
+};
 // The floating toolbar belongs to this process, so it is the one row the shell
 // never hears about.
 inline std::optional<ShellSurfaceRequest>
@@ -73,9 +80,12 @@ shell_executable(const std::filesystem::path &directory,
 // so a value this process was started with cannot outvote the clicked row.
 // The result is the double-NUL terminated block CreateProcessW expects.
 inline std::wstring shell_environment_block(const wchar_t *existing,
-                                            const ShellSurfaceRequest &request) {
+                                            const ShellSurfaceRequest &request,
+                                            const ShellLaunchContext *context) {
   static constexpr std::wstring_view panel_name = L"MSIME_CLIENT_PANEL=";
   static constexpr std::wstring_view page_name = L"MSIME_CLIENT_SETTINGS_PAGE=";
+  static constexpr std::wstring_view state_name = L"MSIME_CLIENT_STATE_DIR=";
+  static constexpr std::wstring_view options_name = L"MSIME_CLIENT_HOST_OPTIONS=";
   auto owned = [](std::wstring_view entry) {
     auto starts_with = [entry](std::wstring_view name) {
       if (entry.size() < name.size())
@@ -85,7 +95,8 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
           return false;
       return true;
     };
-    return starts_with(panel_name) || starts_with(page_name);
+    return starts_with(panel_name) || starts_with(page_name) ||
+           starts_with(state_name) || starts_with(options_name);
   };
   std::wstring block;
   for (const wchar_t *entry = existing; entry && *entry;) {
@@ -114,7 +125,21 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
   };
   append(panel_name, request.panel);
   append(page_name, request.page);
+  if (context) {
+    if (!context->state_root.is_absolute() || !context->host_options.is_absolute())
+      throw std::invalid_argument("Invalid shell launch context");
+    block.append(state_name);
+    block.append(context->state_root.wstring());
+    block.push_back(L'\0');
+    block.append(options_name);
+    block.append(context->host_options.wstring());
+    block.push_back(L'\0');
+  }
   block.push_back(L'\0');
   return block;
+}
+inline std::wstring shell_environment_block(const wchar_t *existing,
+                                            const ShellSurfaceRequest &request) {
+  return shell_environment_block(existing, request, nullptr);
 }
 } // namespace msime::windows

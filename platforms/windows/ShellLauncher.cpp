@@ -3,15 +3,22 @@
 #include <windows.h>
 
 namespace msime::windows {
-bool launch_shell_surface(const std::filesystem::path &executable,
-                          const ShellSurfaceRequest &request) {
+namespace {
+bool launch_shell_surface_impl(const std::filesystem::path &executable,
+                               const ShellSurfaceRequest &request,
+                               const ShellLaunchContext *context) {
   if (executable.empty() || !executable.is_absolute())
     return false;
   std::unique_ptr<wchar_t, decltype(&FreeEnvironmentStringsW)> inherited(
       GetEnvironmentStringsW(), FreeEnvironmentStringsW);
   if (!inherited)
     return false;
-  auto environment = shell_environment_block(inherited.get(), request);
+  std::wstring environment;
+  try {
+    environment = shell_environment_block(inherited.get(), request, context);
+  } catch (const std::invalid_argument &) {
+    return false;
+  }
   // CreateProcessW may write to the command line buffer, so it owns a copy.
   std::wstring command_line = L"\"" + executable.wstring() + L"\"";
   STARTUPINFOW startup{};
@@ -29,5 +36,17 @@ bool launch_shell_surface(const std::filesystem::path &executable,
   CloseHandle(process.hThread);
   CloseHandle(process.hProcess);
   return true;
+}
+} // namespace
+
+bool launch_shell_surface(const std::filesystem::path &executable,
+                          const ShellSurfaceRequest &request) {
+  return launch_shell_surface_impl(executable, request, nullptr);
+}
+
+bool launch_shell_surface(const std::filesystem::path &executable,
+                          const ShellSurfaceRequest &request,
+                          const ShellLaunchContext &context) {
+  return launch_shell_surface_impl(executable, request, &context);
 }
 } // namespace msime::windows

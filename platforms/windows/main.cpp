@@ -404,28 +404,33 @@ int wmain(int argc, wchar_t **argv) {
     // than accepting a click that does nothing.
     const auto shell = shell_executable(executable_directory(),
                                         configured_shell_command());
+    const ShellLaunchContext shell_context{
+        config.state_root, config.state_root / L"runtime-options.json"};
+    const auto launch_shell = [&](const ShellSurfaceRequest &request) {
+      return shell && launch_shell_surface(*shell, request, shell_context);
+    };
     toolbar.set_settings_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      if (request) (void)launch_shell(*request);
     });
     toolbar.set_emoji_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      if (request) (void)launch_shell(*request);
     });
     toolbar.set_handwriting_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenHandwritingPanel);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      if (request) (void)launch_shell(*request);
     });
     toolbar.set_keyboard_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      if (request) (void)launch_shell(*request);
     });
     toolbar.set_voice_action([&] {
       (void)voice->toggle();
     });
     toolbar.set_about_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      if (request) (void)launch_shell(*request);
     });
     toolbar.set_hide_action([&] {
       toolbar_visible = false;
@@ -451,7 +456,7 @@ int wmain(int argc, wchar_t **argv) {
           const auto request = shell_surface_request(command);
           // Report only what was observed: a row that could not start the
           // shell stays unhandled, so the menu does not close on a promise.
-          return shell && request && launch_shell_surface(*shell, *request);
+          return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
     tray.set_palette(palette);
