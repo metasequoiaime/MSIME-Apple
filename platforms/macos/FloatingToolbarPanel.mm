@@ -6,7 +6,7 @@
 
 namespace
 {
-constexpr CGFloat kToolbarWidth = 322.0;
+constexpr CGFloat kToolbarWidth = 422.0;
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
@@ -162,7 +162,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
     NSButton *_emojiButton;
+    NSButton *_handwritingButton;
     NSButton *_keyboardButton;
+    NSButton *_voiceButton;
     NSButton *_settingsButton;
     NSStackView *_actions;
     NSLayoutConstraint *_leadingInset;
@@ -230,17 +232,26 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _emojiButton.image = [NSImage imageWithSystemSymbolName:@"face.smiling" accessibilityDescription:@"表情"];
     _emojiButton.accessibilityLabel = @"打开水杉表情面板";
     _emojiButton.toolTip = _emojiButton.accessibilityLabel;
+    _handwritingButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarHandwriting", self, @selector(openHandwriting:));
+    _handwritingButton.image = [NSImage imageWithSystemSymbolName:@"hand.draw" accessibilityDescription:@"手写"];
+    _handwritingButton.accessibilityLabel = @"打开水杉手写识别板";
+    _handwritingButton.toolTip = _handwritingButton.accessibilityLabel;
     _keyboardButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarScreenKeyboard", self, @selector(openScreenKeyboard:));
     _keyboardButton.image = [NSImage imageWithSystemSymbolName:@"keyboard" accessibilityDescription:@"屏幕键盘"];
     _keyboardButton.accessibilityLabel = @"打开水杉屏幕键盘";
     _keyboardButton.toolTip = _keyboardButton.accessibilityLabel;
+    _voiceButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarVoice", self, @selector(toggleVoice:));
+    _voiceButton.image = [NSImage imageWithSystemSymbolName:@"mic.fill" accessibilityDescription:@"语音输入"];
+    _voiceButton.accessibilityLabel = @"开始或结束语音输入";
+    _voiceButton.toolTip = _voiceButton.accessibilityLabel;
     _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
     _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
 
     NSStackView *actions = [NSStackView stackViewWithViews:@[
-        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton
+        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton,
+        _handwritingButton, _keyboardButton, _voiceButton, _settingsButton
     ]];
     actions.translatesAutoresizingMaskIntoConstraints = NO;
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -285,7 +296,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
     NSArray<NSButton *> *optionalButtons = @[_punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
     NSUInteger mask = 0;
-    NSUInteger count = 1; // Language switching is always present.
+    NSUInteger count = 3; // Language switching, handwriting and voice are always present.
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
         const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
@@ -298,7 +309,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _appliedComponentMask = mask;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
-    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton]) {
+    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
         for (NSLayoutConstraint *constraint in button.constraints) {
             if (constraint.firstItem != button || constraint.secondItem != nil) continue;
             if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"]) constraint.constant = (fontSize + 18.0) * scale;
@@ -308,7 +319,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     }
     _settingsButton.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale weight:NSFontWeightRegular];
     _emojiButton.symbolConfiguration = _settingsButton.symbolConfiguration;
+    _handwritingButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _keyboardButton.symbolConfiguration = _settingsButton.symbolConfiguration;
+    _voiceButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _actions.spacing = 8.0 * scale;
     _leadingInset.constant = 10.0 * scale;
     _trailingInset.constant = -10.0 * scale;
@@ -359,7 +372,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);
     for (NSButton *button in
-         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton ])
+         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {
         button.contentTintColor = text;
         if (button.title.length > 0)
@@ -489,10 +502,22 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [self.toolbarDelegate floatingToolbarDidRequestOpenEmoji:self];
 }
 
+- (void)openHandwriting:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestOpenHandwriting:self];
+}
+
 - (void)openScreenKeyboard:(id)sender
 {
     (void)sender;
     [self.toolbarDelegate floatingToolbarDidRequestOpenScreenKeyboard:self];
+}
+
+- (void)toggleVoice:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestToggleVoice:self];
 }
 
 - (void)openCharacterPalette:(id)sender
