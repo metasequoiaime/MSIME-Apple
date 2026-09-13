@@ -17,6 +17,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
   var title: String {
     switch self {
     case .everyAPI: "EveryAPI"
+    case .doubao: "豆包 · WebSocket"
     case .openAI: "OpenAI"
     case .anthropic: "Anthropic · Claude"
     case .gemini: "Google · Gemini"
@@ -63,6 +64,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     let address: String
     switch self {
     case .everyAPI: address = "https://everyapi.ai/models"
+    case .doubao: return nil
     case .openAI: address = "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
     case .anthropic: address = "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"
     case .gemini: address = "https://ai.google.dev/gemini-api/docs/openai"
@@ -81,7 +83,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
 // File transcription presets use Engine's multipart file/model codec.
 // Official provider documentation checked 2026-09-07.
 enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
-  case everyAPI, openAI, siliconFlow, groq, mistral, custom
+  case everyAPI, doubao, openAI, siliconFlow, groq, mistral, custom
 
   var title: String {
     switch self {
@@ -96,6 +98,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   var endpoint: String {
     switch self {
     case .everyAPI: "https://api.everyapi.ai/v1/audio/transcriptions"
+    case .doubao: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
     case .openAI: "https://api.openai.com/v1/audio/transcriptions"
     case .siliconFlow: "https://api.siliconflow.cn/v1/audio/transcriptions"
     case .groq: "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -106,6 +109,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   var models: [String] {
     switch self {
     case .everyAPI: ["openai/whisper-large-v3-turbo", "volc.seedasr.sauc.duration"]
+    case .doubao: ["volc.seedasr.sauc.duration"]
     case .openAI: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"]
     case .siliconFlow: ["FunAudioLLM/SenseVoiceSmall"]
     case .groq: ["whisper-large-v3-turbo", "whisper-large-v3"]
@@ -193,9 +197,9 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
     defaults.set(prompt, forKey: prefix + ".prompt")
   }
 
-  func validatedURL(requiresModel: Bool = true) throws -> URL {
+  func validatedURL(requiresModel: Bool = true, allowWebSocket: Bool = false) throws -> URL {
     guard let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
-      url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
+      (url.scheme?.lowercased() == "https" || (allowWebSocket && url.scheme?.lowercased() == "wss")), let host = url.host, !host.isEmpty,
       url.user == nil, url.password == nil, url.fragment == nil,
       (!requiresModel || !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     else { throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。") }
@@ -203,7 +207,7 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   }
 
   func save(_ kind: CustomServiceKind, token: String, defaults: UserDefaults = .standard) throws {
-    let url = try validatedURL()
+    let url = try validatedURL(allowWebSocket: kind == .voice && voiceProvider == .doubao)
     if !token.isEmpty { try ServiceTokenStore.write(token, kind: kind, url: url) }
     if kind == .ai {
       // Retain a previously saved custom endpoint when a user chooses their first preset.
