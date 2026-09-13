@@ -93,7 +93,8 @@ HANDLE find_running_server(const std::wstring &expected_path) {
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE)
     return nullptr;
-  PROCESSENTRY32W entry{sizeof(entry)};
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
   HANDLE found = nullptr;
   if (Process32FirstW(snapshot, &entry)) {
     do {
@@ -123,7 +124,8 @@ HANDLE start_server(const std::wstring &server_path,
                     const std::wstring &working_directory) {
   // The Server runs with uiAccess, which CreateProcess refuses; the shell verb
   // is the same path an Explorer launch takes.
-  SHELLEXECUTEINFOW execute{sizeof(execute)};
+  SHELLEXECUTEINFOW execute{};
+  execute.cbSize = sizeof(execute);
   execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
   execute.lpVerb = L"open";
   execute.lpFile = server_path.c_str();

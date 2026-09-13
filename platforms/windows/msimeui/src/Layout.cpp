@@ -279,7 +279,9 @@ bool DrawGaussianMistShadow(ID2D1RenderTarget *target, const RectF &bounds, floa
         blur->SetInput(0, bitmap.Get());
         blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, stdDeviation);
         blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_SOFT);
-        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, D2D1_GAUSSIANBLUR_OPTIMIZATION_QUALITY);
+        // MinGW's Direct2D headers omit the named quality enumerator even
+        // though the Windows ABI value is stable and accepted by the effect.
+        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, static_cast<UINT32>(2));
         dc->DrawImage(blur.Get(), D2D1::Point2F(bounds.x - pad, bounds.y - pad + offsetY));
         blur->SetInput(0, nullptr);
         return true;
