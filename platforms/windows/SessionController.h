@@ -5,10 +5,12 @@
 #include "RegistrationInbox.h"
 #include "SessionWorkers.h"
 #include <atomic>
+#include <string_view>
 
 namespace msime::windows {
 enum class ModeRequestResult { Rejected, Sent, WriteFailed };
 enum class SelectionRequestResult { Rejected, Busy, Sent, Failed };
+enum class VoiceCompositionResult { Rejected, Busy, Sent, Failed };
 enum class ControllerFailure {
   None,
   Service,
@@ -50,6 +52,12 @@ public:
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
   SelectionRequestResult request_selection(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index);
+  // Send a bounded voice snapshot through the authenticated worker endpoint.
+  // The caller owns recording/ASR; this method only validates the focus lease
+  // and performs the ordered frame delivery.
+  VoiceCompositionResult send_voice_composition(
+      const FocusLease &lease, uint32_t message, std::wstring_view text,
+      wchar_t generation);
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())

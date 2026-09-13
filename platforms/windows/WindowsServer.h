@@ -39,6 +39,11 @@ public:
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }
+  VoiceCompositionResult send_voice_composition(
+      const FocusLease &lease, uint32_t message, std::wstring_view text,
+      wchar_t generation) {
+    return controller_->send_voice_composition(lease, message, text, generation);
+  }
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return controller_->preferences_status();
   }

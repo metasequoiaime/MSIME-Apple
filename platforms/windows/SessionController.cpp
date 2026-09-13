@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "ReplyCodec.h"
 #include "UiSelectionDelivery.h"
 
 namespace msime::windows {
@@ -123,6 +124,47 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
   } catch (...) {
     return fail();
   }
+}
+VoiceCompositionResult SessionController::send_voice_composition(
+    const FocusLease &lease, uint32_t message, std::wstring_view text,
+    wchar_t generation) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Voice composition cannot reenter controller callbacks");
+  const auto frames = voice_composition_bytes(message, text, generation);
+  if (!frames)
+    return VoiceCompositionResult::Rejected;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return VoiceCompositionResult::Busy;
+  bool attempted = false;
+  bool sent = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (!transport_.current(lease.transport) || stopping_)
+        return;
+      attempted = true;
+      sent = true;
+      for (const auto &frame : *frames) {
+        if (transport_.send(lease.transport,
+                            FanyImePipeRole::ToTsfWorkerThread, frame) !=
+            KeyEventSendResult::Sent) {
+          sent = false;
+          break;
+        }
+      }
+    });
+  } catch (...) {
+    attempted = true;
+  }
+  if (sent)
+    return VoiceCompositionResult::Sent;
+  if (!attempted)
+    return VoiceCompositionResult::Rejected;
+  focus_.invalidate(lease.transport);
+  transport_.close(lease.transport);
+  failure_ = ControllerFailure::Control;
+  request_stop();
+  return VoiceCompositionResult::Failed;
 }
 std::optional<CandidatePresentation> SessionController::candidate_view() {
   if (input_.on_worker_thread() || active_controller == this)
