@@ -859,3 +859,9 @@ Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win
 共享 Emoji、颜文字和符号面板在 Windows 现在读取已验证资源目录中的 `others.db`。此前 Tauri 只在 Unix 启用 Engine 目录 API，Windows 虽有资源路径却始终显示空目录；本切片将只读分页和符号分组接口开放到 Windows，保留 Engine 的分类、父级与顺序，目录不可用时仍返回明确的单类降级状态。
 
 本地验证：Windows x86_64 GNU 桌面检查已编译通过更新后的 Tauri/Host API 接口，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生 `others.db` 加载、面板交互、TSF、安装或系统验收，不能据此声称 Windows Emoji 功能完整接入，CI 保持禁用。
+
+### Windows Tauri 系统字体目录
+
+候选字体设置在 Windows 现在通过 host-api 的 GDI `EnumFontFamiliesExW` 枚举已安装字体族，仅向 Tauri/UI 返回去重、排序后的族名称，不暴露字体文件路径。枚举使用默认字符集覆盖系统字体，名称和总量均有界；Win32 句柄在所有路径释放，回调异常、无效 UTF-16、获取 DC 失败或枚举失败都返回安全的字体目录错误。`supports_font_catalog` 与 `host_capabilities` 因此在 Windows 与 macOS/Linux 一样报告可用，保留手动输入和失败重试降级。
+
+本地验证：Windows x86_64 GNU 的隔离 `windows-sys` 字体模块检查通过；宿主 crate 交叉检查随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题。Linux host-api 检查同样受缺失 Engine 子模块阻塞；未执行 Windows 原生字体枚举、Tauri 设置、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
