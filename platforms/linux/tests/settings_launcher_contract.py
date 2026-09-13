@@ -11,4 +11,10 @@ assert 'MSIME_CLIENT_PANEL:-}" = "dictionary"' in launcher
 assert "Desktop Action Dictionary" in desktop
 assert "--panel dictionary" in desktop
 assert '"MSIME_CLIENT_ROUTE"' in engine
+# A settings section must travel as "settings:<category>". The bare section name
+# is not a route head, so the shared parser would reject it and the desktop shell
+# would fall back to its default page.
+assert 'MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE' in launcher
+assert '"settings:about"' in engine
+assert 'MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}' not in launcher
 print("settings launcher contract: ok")

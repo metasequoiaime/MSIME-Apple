@@ -30,10 +30,16 @@ if [ "${MSIME_CLIENT_PANEL:-}" = "dictionary" ]; then
   export MSIME_CLIENT_PANEL MSIME_CLIENT_SETTINGS_PAGE
 fi
 
-# Share the cross-platform surface route with hosts that understand the
-# newer route contract while retaining MSIME_CLIENT_PANEL compatibility.
+# Share the cross-platform surface route with hosts that understand the newer
+# route contract while retaining MSIME_CLIENT_PANEL compatibility. A settings
+# section is a "settings:<category>" route; emitting the bare section name would
+# not parse, because only a surface may head a route.
 if [ -n "${MSIME_CLIENT_PANEL:-}" ]; then
-  MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}
+  if [ -n "${MSIME_CLIENT_SETTINGS_PAGE:-}" ]; then
+    MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE
+  else
+    MSIME_CLIENT_ROUTE=$MSIME_CLIENT_PANEL
+  fi
   export MSIME_CLIENT_ROUTE
 fi
 

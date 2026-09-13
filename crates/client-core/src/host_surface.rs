@@ -284,6 +284,15 @@ impl SurfaceRoute {
         }
     }
 
+    /// The settings section this route names, if it names one. Hosts use it to
+    /// open the settings window directly on the section a menu entry asked for.
+    pub fn settings_category(self) -> Option<SettingsCategory> {
+        match self {
+            SurfaceRoute::Settings(category) => category,
+            _ => None,
+        }
+    }
+
     /// The panel window this route opens, or `None` when the route targets the
     /// main settings window.
     pub fn panel(self) -> Option<PanelSurface> {
@@ -415,6 +424,36 @@ mod tests {
         );
         assert_eq!(SurfaceRoute::parse("emoji:input"), Err(RouteError::Unknown));
         assert_eq!(SurfaceRoute::parse("account"), Err(RouteError::Unknown));
+    }
+
+    #[test]
+    fn settings_routes_name_the_section_to_open() {
+        assert_eq!(
+            SurfaceRoute::parse("settings:about")
+                .unwrap()
+                .settings_category(),
+            Some(SettingsCategory::About)
+        );
+        assert_eq!(
+            SurfaceRoute::parse("settings:dictionary")
+                .unwrap()
+                .settings_category(),
+            Some(SettingsCategory::Dictionary)
+        );
+        // A bare settings route keeps whichever page the shared UI defaults to.
+        assert_eq!(SurfaceRoute::Settings(None).settings_category(), None);
+        // A panel route never selects a settings section.
+        assert_eq!(SurfaceRoute::Emoji.settings_category(), None);
+        assert_eq!(SurfaceRoute::Clipboard.settings_category(), None);
+
+        // Every category round-trips through the route a launcher would emit.
+        for category in SettingsCategory::ALL {
+            let argument = SurfaceRoute::Settings(Some(category)).as_arg();
+            assert_eq!(
+                SurfaceRoute::parse(&argument).unwrap().settings_category(),
+                Some(category)
+            );
+        }
     }
 
     #[test]

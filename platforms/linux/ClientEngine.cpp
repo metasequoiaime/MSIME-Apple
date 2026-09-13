@@ -777,7 +777,10 @@ bool launch_desktop_panel(const char *panel) {
   gchar **environment = g_get_environ();
   const bool about = std::string(panel) == "about";
   environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", about ? "settings" : panel, TRUE);
-  environment = g_environ_setenv(environment, "MSIME_CLIENT_ROUTE", about ? "settings" : panel, TRUE);
+  // A settings section travels as "settings:<category>"; the bare section name
+  // is not a route head and would be rejected by the shared parser.
+  environment = g_environ_setenv(
+      environment, "MSIME_CLIENT_ROUTE", about ? "settings:about" : panel, TRUE);
   if (about)
     environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", "about", TRUE);
   GError *error = nullptr;
