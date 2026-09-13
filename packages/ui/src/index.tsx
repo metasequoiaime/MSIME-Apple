@@ -1,3 +1,4 @@
+import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice-device-picker";
 import { useEffect, useRef, useState } from "react";
 import { HostActionButton } from "./HostActionButton";
 import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, readDictionaryFile } from "./dictionary-file";
@@ -10,10 +11,20 @@ import { CandidateFontControls } from "./candidate-font-controls";
 import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
-import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
+import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
+import { TouchKeyboardSkinEditor } from "./touch-keyboard-skin-editor";
+import { defaultTouchKeyboardSkinDesign, type AiSkinClient, type CustomSkinLibraryClient, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+export type { AiSkinClient, AiSkinProposal, AiSkinProgress, CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboardSkin, TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
+import { AccountPage, type AccountClient } from "./account-page";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
+export { AccountPage, type AccountChallenge, type AccountClient, type AccountProfile, type AccountProviders, type AccountUser } from "./account-page";
+export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
+export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
@@ -100,6 +111,8 @@ function selectTouchKeyboardScheme(preferences: Preferences, selected: TouchKeyb
 }
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
+  { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
+  { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "typing-statistics", title: "打字统计", icon: new URL("./assets/statistics.svg", import.meta.url).href },
@@ -180,9 +193,9 @@ export type Preferences = {
   clipboard_history?: boolean;
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
+  candidate_english_gloss?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
-  character_width?: "halfwidth" | "fullwidth";
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
@@ -191,9 +204,12 @@ export type Preferences = {
   keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
+  touch_keyboard_skin?: TouchKeyboardSkin;
+  custom_touch_keyboard_skin?: TouchKeyboardSkinDesign;
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
+  touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
@@ -203,6 +219,12 @@ export type Preferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
+  candidate_number_color?: string | null;
+  candidate_accent_color?: string | null;
+  candidate_selected_color?: string | null;
+  candidate_hover_color?: string | null;
+  candidate_surface_color?: string | null;
+  candidate_border_color?: string | null;
   candidate_font_family?: string;
   candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
@@ -241,6 +263,8 @@ export type AiAssistantPreferences = {
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
+  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa";
+  capture_device?: string;
   asr_provider?: string;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
@@ -364,6 +388,13 @@ const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16,
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
+  /** Android account commands expose user/profile DTOs but never session tokens. */
+  account?: AccountClient;
+  /** Android community commands expose bounded public skin metadata and designs. */
+  communitySkins?: CommunitySkinClient;
+  /** Android community commands expose dictionaries and reply templates. */
+  communityResources?: CommunityResourceClient;
+  listVoiceCaptureDevices?: VoiceDeviceReader;
   listFontFamilies?: FontCatalogReader;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
   readSkinImage?: SkinImageReader;
@@ -397,6 +428,14 @@ export interface SettingsClient {
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
   touchKeyboardSchemes?: boolean;
+  /** Android exposes Apple's current custom touch-keyboard design editor and renderer. */
+  customTouchKeyboardSkins?: boolean;
+  /** Named custom designs use a separate bounded file, outside hot-path preferences. */
+  customSkinLibrary?: CustomSkinLibraryClient;
+  /** Android account-backed AI skin draw and artwork jobs. */
+  aiSkins?: AiSkinClient;
+  /** Android can show packaged offline English glosses without changing candidate identity. */
+  candidateEnglishGloss?: boolean;
 }
 
 function message(error: unknown): string {
@@ -414,7 +453,14 @@ function message(error: unknown): string {
   return "无法访问设置，请重试。原有设置不会被自动重置。";
 }
 
-export function SettingsPage({ client }: { client: SettingsClient }) {
+type SettingsPageId = (typeof pages)[number]["id"];
+// A host can ask for the section its menu entry names. An unknown id keeps the
+// default page rather than opening an empty one.
+function requestedPage(value: string | undefined): SettingsPageId {
+  return pages.some(page => page.id === value) ? (value as SettingsPageId) : "appearance";
+}
+
+export function SettingsPage({ client, initialPage }: { client: SettingsClient; initialPage?: string }) {
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
@@ -426,7 +472,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage));
+  const [communityMine, setCommunityMine] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
@@ -441,6 +488,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
+  const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -696,6 +744,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
+  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
@@ -712,15 +761,21 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
+  const touchKeyboardSkin = draft?.touch_keyboard_skin ?? "forest";
+  const customTouchKeyboardSkin = draft?.custom_touch_keyboard_skin ?? defaultTouchKeyboardSkinDesign;
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
+  const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
-  const availablePages = client.typingStatistics ? pages : pages.filter(item => item.id !== "typing-statistics");
+  const availablePages = pages.filter(item =>
+    (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
+    && (item.id !== "account" || Boolean(client.account))
+    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)));
   useEffect(() => {
-    if (page === "typing-statistics" && !client.typingStatistics) setPage("appearance");
-  }, [client.typingStatistics, page]);
+    if (!availablePages.some(item => item.id === page)) setPage("appearance");
+  }, [availablePages, page]);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const apply = () => {
@@ -739,9 +794,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     return () => media.removeListener(listener);
   }, [settingsTheme, themeMode]);
   useEffect(() => {
+    let active = true;
+    if (!snapshot?.preferences.clipboard_history) { setClipboardEntries([]); return; }
     if (!client.clipboard?.list) return;
-    void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
-  }, [client, page]);
+    void client.clipboard.list().then(entries => { if (active) setClipboardEntries(entries); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [client, page, snapshot?.revision]);
   return <div className="settings-shell" onPointerDownCapture={event => {
     pendingTitlebarDrag.current = null;
     if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -802,7 +860,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
-        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => setPage(item.id)}>
+        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityMine(false); }}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>
@@ -812,8 +870,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
+    {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
+    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityMine ? "mine" : "all"} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityMine} localDictionary={client.dictionary} />}
+    {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
+    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind="dictionary" />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
-    {draft && page !== "typing-statistics" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
+    {draft && page !== "typing-statistics" && page !== "account" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -836,6 +898,24 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
+          <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
+          <input aria-label="候选选中色" type="color" value={candidateTextColor(draft.candidate_selected_color) ?? (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")} onChange={event => setDraft({ ...draft, candidate_selected_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选悬停色</span><div className="candidate-color-control">
+          <input aria-label="候选悬停色" type="color" value={candidateTextColor(draft.candidate_hover_color) ?? (candidatePreviewTheme === "light" ? "#ececec" : "#414141")} onChange={event => setDraft({ ...draft, candidate_hover_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_hover_color)} onClick={() => { if (candidateTextColor(draft.candidate_hover_color)) setDraft({ ...draft, candidate_hover_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选表面色</span><div className="candidate-color-control"><input aria-label="候选表面色" type="color" value={candidateTextColor(draft.candidate_surface_color) ?? (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")} onChange={event => setDraft({ ...draft, candidate_surface_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_surface_color: null })}>跟随主题</button></div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
+          <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
         </div></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
@@ -1015,6 +1095,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">成对标点<small>自动补全成对引号和括号</small></span><input className="toggle" type="checkbox" checked={pairedPunctuation} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">标点锁定</span><select aria-label="标点锁定" value={punctuationLock} onChange={event => setDraft({ ...draft, punctuation_lock: event.target.value as Preferences["punctuation_lock"] })}><option value="follow">跟随输入模式</option><option value="chinese">固定中文标点</option><option value="english">固定英文标点</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
+        {client.candidateEnglishGloss && <div className="section"><label className="section-header"><span className="section-title">显示英文释义<small>在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。</small></span><input aria-label="显示英文释义" className="toggle" type="checkbox" checked={candidateEnglishGloss} onChange={event => setDraft({ ...draft, candidate_english_gloss: event.target.checked })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>通过已配置的 Linux provider socket 请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
@@ -1129,9 +1210,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>
-          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}
-          {client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label>
+          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
+          {clipboardHistory && client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
           {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}
           {client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}
         </div>
@@ -1166,8 +1247,31 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
         <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；桌面屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        <div className="section" role="group" aria-labelledby="touch-keyboard-spacing-title">
-          <div className="section-title" id="touch-keyboard-spacing-title">触屏键盘间距<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+        <div className="section touch-keyboard-skin-section" role="group" aria-labelledby="touch-keyboard-skin-title">
+          <div className="section-title" id="touch-keyboard-skin-title">键盘皮肤<small>与 Apple 内置皮肤一致；独立于桌面候选窗皮肤</small></div>
+          <div className="touch-keyboard-skin-grid">
+            {touchKeyboardSkinOptions.map(option => <article className={`touch-keyboard-skin-card${touchKeyboardSkin === option.id ? " selected" : ""}`} key={option.id}>
+              <button type="button" role="switch" aria-label={`屏幕键盘皮肤 ${option.title}`} aria-checked={touchKeyboardSkin === option.id} onClick={() => setDraft({ ...draft, touch_keyboard_skin: option.id })}>
+                <ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={option.id} compact />
+                <span className="touch-keyboard-skin-copy"><strong>{option.title}</strong><small>{option.description}</small></span>
+                <span className="touch-keyboard-skin-check" aria-hidden="true">{touchKeyboardSkin === option.id ? "✓" : ""}</span>
+              </button>
+            </article>)}
+            {client.customTouchKeyboardSkins && <article className={`touch-keyboard-skin-card${touchKeyboardSkin === "custom" ? " selected" : ""}`}>
+              <button type="button" role="switch" aria-label="屏幕键盘皮肤 我的皮肤" aria-checked={touchKeyboardSkin === "custom"} onClick={() => setDraft({ ...draft, touch_keyboard_skin: "custom" })}>
+                <ScreenKeyboardPreview theme={keyboardPreviewTheme} skin="custom" customDesign={customTouchKeyboardSkin} compact />
+                <span className="touch-keyboard-skin-copy"><strong>我的皮肤</strong><small>自由配色 · 自定义键帽</small></span>
+                <span className="touch-keyboard-skin-check" aria-hidden="true">{touchKeyboardSkin === "custom" ? "✓" : ""}</span>
+              </button>
+            </article>}
+          </div>
+          {client.customTouchKeyboardSkins && <button type="button" className="secondary touch-skin-editor-open" aria-expanded={showTouchSkinEditor} onClick={() => setShowTouchSkinEditor(value => !value)}>{showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}</button>}
+        </div>
+        {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} library={client.customSkinLibrary} aiSkins={client.aiSkins} communitySkins={client.communitySkins} onChange={design => setDraft(current => current ? { ...current, custom_touch_keyboard_skin: design } : current)} onUse={() => setDraft(current => current ? { ...current, touch_keyboard_skin: "custom" } : current)} onClose={() => setShowTouchSkinEditor(false)} /></div>}
+        <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
+          <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+          <label className="section-header"><span className="section-title">键盘高度 <small>{touchKeyboardHeightAdjustment > 0 ? "+" : ""}{touchKeyboardHeightAdjustment} dp</small></span><input aria-label="键盘高度" type="range" min="-12" max="48" step="1" value={touchKeyboardHeightAdjustment} onChange={event => setDraft({ ...draft, touch_keyboard_height_adjustment: Number(event.target.value) })} /></label>
+          <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">行间距 <small>{(touchRowSpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="行间距" type="range" min="40" max="100" step="1" value={touchRowSpacingTenths} onChange={event => setDraft({ ...draft, touch_row_spacing_tenths: Number(event.target.value) })} /></label>
@@ -1176,7 +1280,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
-          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} /></div>
+          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} /></div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
@@ -1188,12 +1292,17 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
         <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>录音和识别由已配置的 Linux provider 服务完成</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div><p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p></div>
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ asr_provider: event.target.value })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ asr_provider: event.target.value, ...(linuxPlatform ? { asr_model: "", asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>
+        {linuxPlatform && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
+          <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option></select></label>
+          {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
+          <label className="section-header"><span className="section-title">麦克风设备<small>填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。</small></span><input aria-label="麦克风设备" maxLength={128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
+        </div>}
         <div className="section"><div className="section-title">Linux provider 行为<small>这些选项会随请求传给用户管理的语音服务，不包含凭据</small></div>
           {([[
             "sound_enabled", "语音提示音", true,
@@ -1211,9 +1320,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>}
         <div className="section"><div className="section-title">文本润色 provider<small>识别结果可交给用户管理的服务润色</small></div>
           <label className="section-header"><span className="section-title">启用润色</span><input aria-label="启用文本润色" className="toggle" type="checkbox" checked={voiceInput.polish_text === true || voiceInput.polish_enabled === true} onChange={event => updateVoice({ polish_text: event.target.checked, polish_enabled: event.target.checked })} /></label>
-          <label className="section-header"><span className="section-title">服务提供商</span><select aria-label="文本润色服务提供商" value={voiceInput.polish_provider ?? "siliconflow"} onChange={event => updateVoice({ polish_provider: event.target.value })}><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option></select></label>
+          <label className="section-header"><span className="section-title">服务提供商</span><select aria-label="文本润色服务提供商" value={voiceInput.polish_provider ?? "siliconflow"} onChange={event => updateVoice({ polish_provider: event.target.value, ...(linuxPlatform ? { polish_model: "" } : {}) })}><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option></select></label>
           <label className="section-header"><span className="section-title">模型</span><input aria-label="文本润色模型" value={voiceInput.polish_model ?? ""} onChange={event => updateVoice({ polish_model: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={voiceInput.polish_prompt_id ?? "cleanup"} onChange={event => updateVoice({ polish_prompt_id: event.target.value })}><option value="cleanup">清理口语</option><option value="faithful">忠实原文</option><option value="zh2en">中译英</option><option value="casual">自然口语</option><option value="custom">自定义提示词</option></select></label>
+          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={voiceInput.polish_prompt_id === "custom" ? "custom_1" : voiceInput.polish_prompt_id ?? "cleanup"} onChange={event => updateVoice({ polish_prompt_id: event.target.value })}><option value="cleanup">清理口语</option><option value="faithful">忠实原文</option><option value="zh2en">中译英</option><option value="casual">自然口语</option><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
           <label className="section-header"><span className="section-title">润色提示词</span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value })} /></label>
           <label className="section-header"><span className="section-title">自定义提示词一</span><textarea aria-label="自定义提示词一" value={voiceInput.polish_prompt_custom_1 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_1: event.target.value })} /></label>
           <label className="section-header"><span className="section-title">自定义提示词二</span><textarea aria-label="自定义提示词二" value={voiceInput.polish_prompt_custom_2 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_2: event.target.value })} /></label>
@@ -1240,7 +1349,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Math.max(1, Math.min(10, Number(event.target.value) || 3)) })} /></label></div>
-        <div className="section"><label className="section-title">AI 润色提示词<small>Android 只发送选中文字，并要求服务仅返回修改结果</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
+        {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>}
+        <div className="section"><label className="section-title">{linuxPlatform ? "兼容提示词" : "AI 润色提示词"}<small>{linuxPlatform ? "旧版提示词，所选自定义槽位留空时使用" : "Android 只发送选中文字，并要求服务仅返回修改结果"}</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={ai.prompt_custom_1} onChange={event => updateAi({ prompt_custom_1: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={ai.prompt_custom_2} onChange={event => updateAi({ prompt_custom_2: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={ai.prompt_custom_3} onChange={event => updateAi({ prompt_custom_3: event.target.value })} /></div>
@@ -1257,7 +1367,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
-    {page !== "typing-statistics" && <button className="secondary" disabled={busy} onClick={() => {
+    {page !== "typing-statistics" && page !== "account" && page !== "community" && <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();
     }}>重新读取</button>}
   </div></main></div></div>;

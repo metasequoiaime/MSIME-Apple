@@ -1,5 +1,19 @@
+#[cfg(target_os = "linux")]
+mod linux_process;
+#[cfg(target_os = "linux")]
+mod linux_audio_devices;
+#[cfg(target_os = "linux")]
+mod linux_clipboard;
+#[cfg(target_os = "android")]
+mod android_account;
+
 use msime_client_core::clipboard::ClipboardHistoryStore;
+use msime_client_core::custom_skin_library::{
+    CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore,
+    SavedTouchKeyboardSkin,
+};
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
+use msime_client_core::keyboard_skin_trial::KeyboardSkinTrialStore;
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
 };
@@ -17,6 +31,8 @@ use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
@@ -57,14 +73,14 @@ fn host_platform() -> HostPlatform {
 /// The surface a native host asked this shell to present, from `--route=<route>`,
 /// `MSIME_CLIENT_ROUTE`, or the superseded `MSIME_CLIENT_PANEL`. An unparseable
 /// route opens the ordinary settings window rather than failing startup.
-#[cfg(not(mobile))]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn requested_surface_route() -> Option<SurfaceRoute> {
     let argument = std::env::args()
         .skip(1)
         .find_map(|argument| argument.strip_prefix("--route=").map(str::to_string));
     let requested = argument
         .or_else(|| std::env::var("MSIME_CLIENT_ROUTE").ok())
-        // Superseded by --route=; kept so existing IBus launchers keep working.
+        // Superseded by --route=; kept so existing menu launchers keep working.
         .or_else(|| std::env::var("MSIME_CLIENT_PANEL").ok())?;
     SurfaceRoute::parse(requested.trim()).ok()
 }
@@ -77,6 +93,29 @@ fn host_capabilities() -> HostCapabilities {
     capabilities
 }
 
+/// The settings section a host menu asked for, if any. The launcher passes it
+/// in the environment, like the panel routes; the settings page falls back to
+/// its own default when this is absent or unusable.
+#[tauri::command]
+fn initial_settings_page() -> Option<String> {
+    requested_settings_page(std::env::var("MSIME_CLIENT_SETTINGS_PAGE").ok().as_deref())
+}
+
+fn requested_settings_page(value: Option<&str>) -> Option<String> {
+    // Only a short identifier is accepted here; the page list itself lives in
+    // the shared settings UI, which refuses ids it does not have.
+    value
+        .map(str::trim)
+        .filter(|page| {
+            !page.is_empty()
+                && page.len() <= 32
+                && page
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        })
+        .map(str::to_owned)
+}
+
 #[tauri::command]
 async fn list_font_families() -> Result<Vec<String>, CommandError> {
     tauri::async_runtime::spawn_blocking(system_fonts::list)
@@ -87,8 +126,43 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
         .map_err(|code| CommandError { code })
 }
 
+#[tauri::command]
+async fn list_voice_capture_devices() -> Result<Value, CommandError> {
+    #[cfg(target_os = "linux")]
+    {
+        let devices = tauri::async_runtime::spawn_blocking(linux_audio_devices::list)
+            .await.map_err(|_| CommandError { code: "audio_devices" })?;
+        serde_json::to_value(devices).map_err(|_| CommandError { code: "audio_devices" })
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err(CommandError { code: "unavailable" })
+}
+
+#[derive(Clone)]
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
-struct DictionaryHostOptions(Arc<String>);
+#[derive(Clone)]
+struct DictionaryHostOptions {
+    #[cfg(target_os = "linux")]
+    path: PathBuf,
+    #[cfg(not(target_os = "linux"))]
+    document: Arc<Value>,
+}
+
+impl DictionaryHostOptions {
+    fn snapshot(&self) -> Result<Value, CommandError> {
+        #[cfg(target_os = "linux")]
+        {
+            // Keep the installer-selected path separate from the IBus runtime
+            // path; deployments can supply different files for these roles.
+            read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok((*self.document).clone())
+        }
+    }
+}
+
 struct SkinDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 
@@ -302,6 +376,36 @@ struct RuntimeOptionsState {
     document: Arc<Mutex<Value>>,
 }
 
+#[cfg(unix)]
+impl RuntimeOptionsState {
+    fn snapshot(&self) -> Result<Value, std::io::Error> {
+        let document = self
+            .document
+            .lock()
+            .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
+        #[cfg(target_os = "linux")]
+        let mut document = document;
+        #[cfg(target_os = "linux")]
+        if let Some(path) = self.path.as_ref() {
+            *document = read_runtime_options(path)?;
+        }
+        Ok(document.clone())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
+    let document: Value = serde_json::from_slice(&fs::read(path)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    if !document.is_object() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "runtime options must be an object",
+        ));
+    }
+    Ok(document)
+}
+
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 
@@ -346,6 +450,21 @@ impl From<PreferencesError> for CommandError {
     }
 }
 
+fn custom_skin_library_error(value: CustomSkinLibraryError) -> CommandError {
+    CommandError {
+        code: match value {
+            CustomSkinLibraryError::Full => "custom_skin_full",
+            CustomSkinLibraryError::InvalidName => "custom_skin_invalid_name",
+            CustomSkinLibraryError::DuplicateName => "custom_skin_duplicate_name",
+            CustomSkinLibraryError::NotFound => "custom_skin_not_found",
+            CustomSkinLibraryError::Json(_) | CustomSkinLibraryError::Invalid => {
+                "custom_skin_format"
+            }
+            CustomSkinLibraryError::Io(_) => "storage",
+        },
+    }
+}
+
 #[tauri::command]
 async fn load_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -369,9 +488,37 @@ async fn save_preferences(
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
+        if !snapshot.preferences.clipboard_history {
+            store.clear_disabled_clipboard_history().map_err(CommandError::from)?;
+        }
         sync_linux_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
         Ok(snapshot)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn load_custom_skin_library(
+    store: tauri::State<'_, CustomSkinLibraryStore>,
+) -> Result<Vec<SavedTouchKeyboardSkin>, CommandError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.load().map_err(custom_skin_library_error)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn mutate_custom_skin_library(
+    store: tauri::State<'_, CustomSkinLibraryStore>,
+    action: CustomSkinLibraryAction,
+) -> Result<Vec<SavedTouchKeyboardSkin>, CommandError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.mutate(action).map_err(custom_skin_library_error)
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -390,11 +537,15 @@ fn sync_linux_runtime_options(
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        document["preferences"] = serde_json::to_value(preferences)
+        // Another settings process or the host may have updated endpoints and
+        // resource paths since this panel started. Preserve that document.
+        let mut current = read_runtime_options(path)?;
+        current["preferences"] = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        let bytes = serde_json::to_vec_pretty(&*document)
+        let bytes = serde_json::to_vec_pretty(&current)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         atomic_write(path, &bytes)?;
+        *document = current;
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -407,22 +558,37 @@ fn sync_linux_runtime_options(
 fn start_linux_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
+    history: Arc<Mutex<ClipboardHistoryStore>>,
 ) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
             let mut revision = store.load().ok().map(|snapshot| snapshot.revision);
+            let mut last_history: Option<Vec<String>> = None;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 let Ok(snapshot) = store.load() else {
                     continue;
                 };
-                if revision == Some(snapshot.revision) {
-                    continue;
+                let entries = if snapshot.preferences.clipboard_history {
+                    history.lock().ok().and_then(|mut history| {
+                        history.load().ok().map(|_| history.entries().to_vec())
+                    })
+                } else {
+                    Some(Vec::new())
+                };
+                if let Some(entries) = entries {
+                    if last_history.as_ref() != Some(&entries) {
+                        last_history = Some(entries);
+                        // Only invalidate the view; clipboard text stays out of events.
+                        let _ = app.emit("clipboard-history-changed", ());
+                    }
                 }
-                revision = Some(snapshot.revision);
-                let _ = app.emit("preferences-changed", snapshot);
+                if revision != Some(snapshot.revision) {
+                    revision = Some(snapshot.revision);
+                    let _ = app.emit("preferences-changed", snapshot);
+                }
             }
         });
 }
@@ -445,10 +611,9 @@ async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
     action: serde_json::Value,
 ) -> Result<serde_json::Value, CommandError> {
-    let options = state.0.clone();
+    let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let options: serde_json::Value =
-            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         msime_host_api::dictionary_request_json(&bytes)
@@ -465,24 +630,22 @@ async fn cloud_clipboard_request(
 ) -> Result<Value, CommandError> {
     msime_host_api::cloud_clipboard::validate_request(&action)
         .map_err(|_| CommandError { code: "invalid" })?;
-    let options = options.0.clone();
+    let options = options.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(unix)]
         {
-            let configured = serde_json::from_str::<Value>(&options)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("cloud_clipboard_provider_socket")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
+            let document = options.snapshot()?;
+            let configured = document
+                .get("cloud_clipboard_provider_socket")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let path = configured
                 .or_else(|| {
                     std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
                         .and_then(|value| value.into_string().ok())
                 })
                 .map(PathBuf::from)
+                .or_else(|| discover_session_provider("cloud-clipboard.sock"))
                 .filter(|path| path.is_absolute())
                 .ok_or(CommandError {
                     code: "unavailable",
@@ -519,24 +682,22 @@ async fn cloud_dictionary_request(
         .map_err(|_| CommandError { code: "invalid" })?;
     msime_host_api::cloud_dictionary::validate_cloud_request(&request)
         .map_err(|_| CommandError { code: "invalid" })?;
-    let options = options.0.clone();
+    let options = options.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(unix)]
         {
-            let configured = serde_json::from_str::<Value>(&options)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("cloud_dictionary_provider_socket")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
+            let document = options.snapshot()?;
+            let configured = document
+                .get("cloud_dictionary_provider_socket")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let path = configured
                 .or_else(|| {
                     std::env::var_os("MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET")
                         .and_then(|value| value.into_string().ok())
                 })
                 .map(PathBuf::from)
+                .or_else(|| discover_session_provider("cloud-dictionary.sock"))
                 .filter(|path| path.is_absolute())
                 .ok_or(CommandError {
                     code: "unavailable",
@@ -570,6 +731,8 @@ struct EmojiCatalogItem {
 #[derive(serde::Serialize)]
 struct EmojiCatalogGroup {
     title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
     icon: String,
     items: Vec<EmojiCatalogItem>,
 }
@@ -579,6 +742,25 @@ struct EmojiCatalogResponse {
     emoji: Vec<EmojiCatalogGroup>,
     kaomoji: Vec<EmojiCatalogGroup>,
     symbols: Vec<EmojiCatalogGroup>,
+    unavailable: Vec<&'static str>,
+}
+
+#[cfg(unix)]
+fn emoji_category_icon(title: &str) -> &'static str {
+    [
+        ("Smileys", "😀"),
+        ("People", "🧑"),
+        ("Animals", "🐾"),
+        ("Food", "🍕"),
+        ("Travel", "🚗"),
+        ("Activities", "🎉"),
+        ("Objects", "💡"),
+        ("Symbols", "❤"),
+        ("Flags", "🏳"),
+    ]
+    .into_iter()
+    .find_map(|(name, icon)| title.contains(name).then_some(icon))
+    .unwrap_or("☺")
 }
 
 #[cfg(unix)]
@@ -586,17 +768,44 @@ fn read_local_emoji_groups(
     resources: &str,
     category: &str,
 ) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
+    if category == "symbols" {
+        return msime_host_api::local_symbol_catalog(resources).map(|groups| {
+            groups
+                .into_iter()
+                .map(|group| EmojiCatalogGroup {
+                    title: group.title,
+                    parent: Some(group.parent),
+                    icon: group
+                        .items
+                        .first()
+                        .map(|item| item.text.clone())
+                        .unwrap_or_default(),
+                    items: group
+                        .items
+                        .into_iter()
+                        .map(|item| EmojiCatalogItem {
+                            keywords: if item.annotation.is_empty() {
+                                item.group
+                            } else {
+                                item.annotation
+                            },
+                            text: item.text,
+                        })
+                        .collect(),
+                })
+                .filter(|group| !group.items.is_empty())
+                .collect()
+        });
+    }
     const PAGE_SIZE: u16 = 512;
     let mut groups = Vec::new();
     let mut positions = HashMap::new();
     let mut offset = 0usize;
+    let mut complete = false;
     for _ in 0..256 {
         let page =
-            msime_host_api::local_emoji_catalog_page(resources, "", category, offset, PAGE_SIZE)?;
-        if page.is_empty() {
-            break;
-        }
-        for item in page {
+            msime_host_api::local_emoji_catalog_slice(resources, category, offset, PAGE_SIZE)?;
+        for item in page.items {
             if item.text.is_empty() {
                 continue;
             }
@@ -611,16 +820,18 @@ fn read_local_emoji_groups(
                 let index = groups.len();
                 positions.insert(title.clone(), index);
                 groups.push(EmojiCatalogGroup {
+                    icon: if category == "kaomoji" {
+                        ";-)".to_owned()
+                    } else {
+                        emoji_category_icon(&title).to_owned()
+                    },
                     title,
-                    icon: String::new(),
+                    parent: None,
                     items: Vec::new(),
                 });
                 index
             };
             let group = &mut groups[index];
-            if group.icon.is_empty() {
-                group.icon = item.text.chars().next().unwrap_or('•').to_string();
-            }
             group.items.push(EmojiCatalogItem {
                 keywords: if item.annotation.is_empty() {
                     item.text.clone()
@@ -630,7 +841,17 @@ fn read_local_emoji_groups(
                 text: item.text,
             });
         }
-        offset = offset.saturating_add(PAGE_SIZE as usize);
+        if page.complete {
+            complete = true;
+            break;
+        }
+        if page.next_offset <= offset {
+            return Err("local emoji catalog cursor did not advance");
+        }
+        offset = page.next_offset;
+    }
+    if !complete {
+        return Err("local emoji catalog exceeds limit");
     }
     Ok(groups
         .into_iter()
@@ -650,25 +871,37 @@ fn read_local_emoji_groups(
 async fn load_emoji_catalog(
     state: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<EmojiCatalogResponse, CommandError> {
-    let options = state.0.clone();
+    let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let document: Value =
-            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let document = options.snapshot()?;
+        #[cfg(target_os = "linux")]
+        let resource_directory = packaged_emoji_resources(&document)
+            .ok_or(CommandError { code: "unavailable" })?;
+        #[cfg(target_os = "linux")]
+        let resources = resource_directory
+            .to_str()
+            .ok_or(CommandError { code: "storage" })?;
+        #[cfg(not(target_os = "linux"))]
         let resources = document
             .get("resources")
             .and_then(Value::as_str)
             .filter(|value| std::path::Path::new(value).is_absolute())
             .ok_or(CommandError { code: "storage" })?;
+        let mut unavailable = Vec::new();
+        let mut read = |category, name| {
+            read_local_emoji_groups(resources, category).unwrap_or_else(|_| {
+                unavailable.push(name);
+                Vec::new()
+            })
+        };
+        let emoji = read("", "emoji");
+        let kaomoji = read("kaomoji", "kaomoji");
+        let symbols = read("symbols", "symbols");
         Ok(EmojiCatalogResponse {
-            emoji: read_local_emoji_groups(resources, "").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
-            kaomoji: read_local_emoji_groups(resources, "kaomoji").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
-            symbols: read_local_emoji_groups(resources, "symbols").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
+            emoji,
+            kaomoji,
+            symbols,
+            unavailable,
         })
     })
     .await
@@ -747,6 +980,35 @@ fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f
 }
 
 #[cfg(target_os = "linux")]
+fn sway_workspace_for_container(
+    value: &serde_json::Value,
+    id: u64,
+    workspace: Option<(f64, f64, f64, f64)>,
+) -> Option<(f64, f64, f64, f64)> {
+    let workspace = if value.get("type").and_then(serde_json::Value::as_str) == Some("workspace") {
+        value.get("rect").and_then(|rect| Some((
+            rect.get("x")?.as_f64()?, rect.get("y")?.as_f64()?,
+            rect.get("width")?.as_f64()?, rect.get("height")?.as_f64()?,
+        )))
+    } else {
+        workspace
+    };
+    if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+        return workspace;
+    }
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(serde_json::Value::as_array) {
+            for node in nodes {
+                if let Some(rect) = sway_workspace_for_container(node, id, workspace) {
+                    return Some(rect);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
 fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
     let mut fields = std::collections::HashMap::new();
     for line in value.lines() {
@@ -762,95 +1024,89 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f64, f64)> {
+fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<tauri::Position> {
     let target = state.0.lock().ok()?.clone()?;
+    let physical = matches!(&target, PanelInputTarget::X11(_));
+    let read = |program: &str, arguments: &[&str], limit: usize| {
+        linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
+    };
+    let mut logical_workspace = None;
     let rect = match target {
-        PanelInputTarget::X11(window) => std::process::Command::new("xdotool")
-            .args(["getwindowgeometry", "--shell", window.as_str()])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| parse_xdotool_geometry(&String::from_utf8_lossy(&output.stdout))),
-        PanelInputTarget::Sway(id) => std::process::Command::new("swaymsg")
-            .args(["-t", "get_tree", "-r"])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
-            .and_then(|tree| sway_rect_for_container(&tree, id)),
-        PanelInputTarget::Wayland => None,
+        PanelInputTarget::X11(window) => read(
+            "xdotool", &["getwindowgeometry", "--shell", window.as_str()], 4096,
+        )
+            .and_then(|output| parse_xdotool_geometry(&output)),
+        PanelInputTarget::Sway(id) => read("swaymsg", &["-t", "get_tree", "-r"], 1024 * 1024)
+            .and_then(|output| serde_json::from_str::<serde_json::Value>(&output).ok())
+            .and_then(|tree| {
+                logical_workspace = sway_workspace_for_container(&tree, id, None);
+                sway_rect_for_container(&tree, id)
+            }),
+        PanelInputTarget::Wayland | PanelInputTarget::Ydotool => None,
     }?;
-    let x = (rect.0 + (rect.2 - width) / 2.0).max(0.0);
-    let y = (rect.1 + rect.3 + 16.0).max(0.0);
-    Some((x, y))
+    if ![rect.0, rect.1, rect.2, rect.3].iter().all(|value| value.is_finite())
+        || rect.2 <= 0.0 || rect.3 <= 0.0
+    {
+        return None;
+    }
+    let mut x = rect.0 + (rect.2 - width) / 2.0;
+    let mut y = rect.1 + rect.3 + 16.0;
+    if let Some((left, top, workspace_width, workspace_height)) = logical_workspace {
+        if [left, top, workspace_width, workspace_height].iter().all(|value| value.is_finite())
+            && workspace_width > 0.0 && workspace_height > 0.0
+        {
+            x = x.clamp(left, left + (workspace_width - width).max(0.0));
+            y = y.clamp(top, top + (workspace_height - height).max(0.0));
+        }
+    }
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(if physical {
+        tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    } else {
+        tauri::Position::Logical(tauri::LogicalPosition::new(x, y))
+    })
 }
 
 #[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
+    let read = |program: &str, arguments: &[&str], limit: usize| {
+        linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
+    };
+    let sway_target = || {
+        let output = read("swaymsg", &["-t", "get_tree", "-r"], 1024 * 1024)?;
+        let tree: serde_json::Value = serde_json::from_str(&output).ok()?;
+        focused_sway_container(&tree).map(PanelInputTarget::Sway)
+    };
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
         || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
     if wayland_session {
-        if let Ok(output) = std::process::Command::new("swaymsg")
-            .args(["-t", "get_tree", "-r"])
-            .output()
-        {
-            if output.status.success() {
-                if let Ok(tree) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(target) = focused_sway_container(&tree).map(PanelInputTarget::Sway)
-                    {
-                        return Ok(target);
-                    }
-                }
-            }
+        if let Some(target) = sway_target() {
+            return Ok(target);
         }
-        let ydotool_ready = std::process::Command::new("ydotool")
-            .args(["type", "--key-delay", "0", ""])
-            .output()
-            .ok()
-            .is_some_and(|output| output.status.success());
-        if ydotool_ready {
+        if read("ydotool", &["type", "--key-delay", "0", ""], 4096).is_some() {
             return Ok(PanelInputTarget::Ydotool);
         }
-        if std::process::Command::new("wtype")
-            .arg("--version")
-            .output()
-            .ok()
-            .is_some_and(|output| output.status.success())
-        {
+        // wtype has no --version option. Empty stdin checks the compositor's
+        // virtual-keyboard support without emitting any text or key events.
+        if read("wtype", &["-"], 4096).is_some() {
             return Ok(PanelInputTarget::Wayland);
         }
     }
-    if let Ok(output) = std::process::Command::new("xdotool")
-        .arg("getactivewindow")
-        .output()
-    {
-        if output.status.success() {
-            let id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Ok(PanelInputTarget::X11(id));
-            }
+    if let Some(output) = read("xdotool", &["getactivewindow"], 64) {
+        let id = output.trim();
+        if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Ok(PanelInputTarget::X11(id.to_owned()));
         }
     }
-    let output = std::process::Command::new("swaymsg")
-        .args(["-t", "get_tree", "-r"])
-        .output()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-    if !output.status.success() {
-        return Err(HostActionError {
-            code: "unavailable",
-        });
+    // Do not repeat a failed Sway query in the same Wayland probe sequence.
+    if !wayland_session {
+        if let Some(target) = sway_target() {
+            return Ok(target);
+        }
     }
-    let tree: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-    focused_sway_container(&tree)
-        .map(PanelInputTarget::Sway)
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })
+    Err(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
@@ -875,7 +1131,40 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0x0d => 28,
         0x20 => 57,
         0x2e => 111,
+        0x13 => 119,
+        0x10 => 42,
+        0x11 => 29,
+        0x12 => 56,
+        0xa1 => 54,
+        0xa3 => 97,
+        0xa5 => 100,
         0x14 => 58,
+        0x1b => 1,
+        0x21 => 104,
+        0x22 => 109,
+        0x23 => 107,
+        0x24 => 102,
+        0x25 => 105,
+        0x26 => 103,
+        0x27 => 106,
+        0x28 => 108,
+        0x2c => 99,
+        0x2d => 110,
+        0x5b => 125,
+        0x5c => 126,
+        0x5d => 127,
+        0x70..=0x79 => virtual_key - 0x70 + 59,
+        0x7a => 87,
+        0x7b => 88,
+        0x60..=0x69 => [82, 79, 80, 81, 75, 76, 77, 71, 72, 73][(virtual_key - 0x60) as usize],
+        0x6a => 55,
+        0x6b => 78,
+        0x6c => 121,
+        0x6d => 74,
+        0x6e => 83,
+        0x6f => 98,
+        0x90 => 69,
+        0x91 => 70,
         0xc0 => 41,
         0xbd => 12,
         0xbb => 13,
@@ -887,6 +1176,7 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0xbc => 51,
         0xbe => 52,
         0xbf => 53,
+        0xe2 => 86,
         0x30 => 11,
         0x31 => 2,
         0x32 => 3,
@@ -951,7 +1241,38 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0x0d => "Return",
         0x20 => "space",
         0x2e => "Delete",
+        0x13 => "Pause",
+        0x10 => "Shift_L",
+        0x11 => "Control_L",
+        0x12 => "Alt_L",
+        0xa1 => "Shift_R",
+        0xa3 => "Control_R",
+        0xa5 => "Alt_R",
         0x14 => "Caps_Lock",
+        0x1b => "Escape",
+        0x21 => "Prior",
+        0x22 => "Next",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x2c => "Print",
+        0x2d => "Insert",
+        0x5b => "Super_L",
+        0x5c => "Super_R",
+        0x5d => "Menu",
+        0x60..=0x69 => return Some(format!("KP_{}", virtual_key - 0x60)),
+        0x6a => "KP_Multiply",
+        0x6b => "KP_Add",
+        0x6c => "KP_Separator",
+        0x6d => "KP_Subtract",
+        0x6e => "KP_Decimal",
+        0x6f => "KP_Divide",
+        0x90 => "Num_Lock",
+        0x91 => "Scroll_Lock",
+        0x70..=0x7b => return Some(format!("F{}", virtual_key - 0x70 + 1)),
         0xc0 => "grave",
         0xbd => "minus",
         0xbb => "equal",
@@ -963,6 +1284,7 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0xbc => "comma",
         0xbe => "period",
         0xbf => "slash",
+        0xe2 => "less",
         0x30..=0x39 => return char::from_u32(virtual_key as u32).map(|value| value.to_string()),
         0x41..=0x5a => {
             return char::from_u32(virtual_key as u32)
@@ -996,85 +1318,125 @@ fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
+fn focus_wtype_target(target: &PanelInputTarget) -> Result<(), HostActionError> {
+    if let PanelInputTarget::Sway(id) = target {
+        let command = format!("[con_id={id}] focus");
+        let reply = linux_process::read_text(
+            "swaymsg",
+            &["-r", &command],
+            4096,
+            std::time::Duration::from_secs(2),
+        )
+        .ok_or(HostActionError { code: "unavailable" })?;
+        let results: Vec<serde_json::Value> = serde_json::from_str(&reply)
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        if results.is_empty() || results.iter().any(|result| {
+            result.get("success").and_then(serde_json::Value::as_bool) != Some(true)
+        }) {
+            return Err(HostActionError { code: "unavailable" });
+        }
+        // A successful command is insufficient when the window disappeared or
+        // focus changed. Confirm the actual destination before virtual input.
+        let tree = linux_process::read_text(
+            "swaymsg",
+            &["-t", "get_tree", "-r"],
+            1024 * 1024,
+            std::time::Duration::from_secs(1),
+        )
+        .ok_or(HostActionError { code: "unavailable" })?;
+        let tree: serde_json::Value = serde_json::from_str(&tree)
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        if focused_sway_container(&tree) != Some(*id) {
+            return Err(HostActionError { code: "unavailable" });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
     if matches!(target, PanelInputTarget::Ydotool) {
         return run_ydotool(args);
     }
-    if let PanelInputTarget::Sway(id) = target {
-        let id = id.to_string();
-        let status = std::process::Command::new("swaymsg")
-            .arg(format!("[con_id={id}] focus"))
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        if !status.success() {
-            return Err(HostActionError {
-                code: "unavailable",
-            });
-        }
-    }
-    std::process::Command::new("wtype")
-        .args(args)
-        .status()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .success()
-        .then_some(())
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })
+    focus_wtype_target(target)?;
+    let arguments: Vec<&str> = args.iter().map(String::as_str).collect();
+    linux_process::read_text(
+        "wtype",
+        &arguments,
+        64,
+        std::time::Duration::from_secs(3),
+    )
+    .map(|_| ())
+    .ok_or(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
-fn hide_linux_panels(app: &tauri::AppHandle) {
-    for label in [
-        "keyboard-panel",
+fn release_panel_focus(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+) -> Result<(), HostActionError> {
+    if !matches!(target, PanelInputTarget::Wayland | PanelInputTarget::Ydotool) {
+        return Ok(());
+    }
+    let windows: Vec<_> = [
         "handwriting-panel",
         "emoji-panel",
+        "clipboard-panel",
         "voice-panel",
         "cloud-clipboard-panel",
         "cloud-dictionary-panel",
-    ] {
-        if let Some(window) = app.get_webview_window(label) {
-            let _ = window.hide();
-        }
+    ]
+    .into_iter()
+    .filter_map(|label| app.get_webview_window(label))
+    .collect();
+    let mut focused = false;
+    for window in &windows {
+        focused |= window.is_focused().map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
     }
+    if focused {
+        // Hide every editable panel so the compositor cannot focus another one.
+        // The screen keyboard never accepts focus and stays available for typing.
+        for window in windows {
+            window.hide().map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn send_x11_panel_key(window: &str, key: &str) -> Result<(), HostActionError> {
+    // Explicit --window key delivery uses XSendEvent, which many applications
+    // reject. Activate first, then use XTEST through the empty window stack.
+    // Bound activation as a window manager may decline to focus the target.
+    linux_process::read_text(
+        "xdotool",
+        &["windowactivate", "--sync", window, "key", key],
+        64,
+        std::time::Duration::from_secs(3),
+    )
+    .map(|_| ())
+    .ok_or(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
 fn send_panel_key(
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, PanelInputState>,
+    target: PanelInputTarget,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
     if let PanelInputTarget::X11(window) = &target {
         let key = xdotool_key_args(&request).ok_or(HostActionError {
             code: "invalid_key",
         })?;
-        let status = std::process::Command::new("xdotool")
-            .args(["key", "--window", window.as_str(), key.as_str()])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        return send_x11_panel_key(window, &key);
     }
     if let PanelInputTarget::Ydotool = target {
         let code = ydotool_key_code(request.virtual_key).ok_or(HostActionError {
@@ -1110,14 +1472,13 @@ fn send_panel_key(
         let mut command_args = Vec::with_capacity(args.len() + 1);
         command_args.push("key".to_owned());
         command_args.extend(args);
+        release_panel_focus(app, &target)?;
         return run_ydotool(&command_args);
     }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
-    }
+    release_panel_focus(app, &target)?;
     let mut args = Vec::new();
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
@@ -1143,40 +1504,66 @@ fn send_panel_text_to_target(
     target: &PanelInputTarget,
     text: &str,
 ) -> Result<(), HostActionError> {
+    // ydotool types an ASCII key map, while newlines and tabs must remain
+    // literal text rather than becoming application shortcuts on any backend.
+    let literal_transfer = text.chars().any(|character| matches!(character, '\n' | '\r' | '\t'))
+        || (matches!(target, PanelInputTarget::Ydotool) && !text.is_ascii());
+    if literal_transfer {
+        if !write_linux_clipboard(text) {
+            return Err(HostActionError { code: "unavailable" });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        return send_panel_ctrl_v(app, target);
+    }
+    release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
-        let status = std::process::Command::new("xdotool")
-            .args(["type", "--window", window.as_str(), "--delay", "0", text])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        // Use focused XTEST input for applications that reject XSendEvent.
+        // --file - reads stdin, keeping the text out of process arguments.
+        return linux_process::write_input(
+            "xdotool",
+            &["windowactivate", "--sync", window.as_str(), "type", "--delay", "0", "--file", "-"],
+            text.as_bytes(),
+            std::time::Duration::from_secs(3),
+        )
+        .then_some(())
+        .ok_or(HostActionError { code: "unavailable" });
     }
-    if let PanelInputTarget::Ydotool = target {
-        return run_ydotool(&[
-            "type".to_owned(),
-            "--key-delay".to_owned(),
-            "0".to_owned(),
-            text.to_owned(),
-        ]);
-    }
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
-    }
-    run_wtype(target, &["--".to_owned(), text.to_owned()])
+    let sent = if matches!(target, PanelInputTarget::Ydotool) {
+        // ydotool may hold each ASCII key for 20ms even with key-delay=0.
+        // Allow that per-character work while keeping stalls bounded.
+        let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
+        linux_process::write_input(
+            "ydotool",
+            &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
+            text.as_bytes(),
+            timeout,
+        )
+    } else {
+        focus_wtype_target(target)?;
+        linux_process::write_input(
+            "wtype",
+            &["-"],
+            text.as_bytes(),
+            std::time::Duration::from_secs(3),
+        )
+    };
+    sent.then_some(()).ok_or(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_text(
-    app: &tauri::AppHandle,
+async fn send_panel_text(
+    app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
-    text: &str,
+    text: String,
 ) -> Result<(), HostActionError> {
-    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
-        code: "invalid_text",
-    })?;
+    if text.is_empty()
+        || text.len() > 4096
+        || text.chars().any(|character| {
+            character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+        })
+    {
+        return Err(HostActionError { code: "invalid_text" });
+    }
     let target = state
         .0
         .lock()
@@ -1187,7 +1574,11 @@ fn send_panel_text(
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
-    send_panel_text_to_target(app, &target, text)
+    tauri::async_runtime::spawn_blocking(move || {
+        send_panel_text_to_target(&app, &target, &text)
+    })
+    .await
+    .map_err(|_| HostActionError { code: "unavailable" })?
 }
 
 #[cfg(target_os = "linux")]
@@ -1195,16 +1586,9 @@ fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
+    release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
-        let status = std::process::Command::new("xdotool")
-            .args(["key", "--window", window.as_str(), "ctrl+v"])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        return send_x11_panel_key(window, "ctrl+v");
     }
     if let PanelInputTarget::Ydotool = target {
         return run_ydotool(&[
@@ -1214,9 +1598,6 @@ fn send_panel_ctrl_v(
             "47:0".to_owned(),
             "29:0".to_owned(),
         ]);
-    }
-    if matches!(target, PanelInputTarget::Wayland) {
-        hide_linux_panels(app);
     }
     run_wtype(
         target,
@@ -1232,30 +1613,33 @@ fn send_panel_ctrl_v(
 #[cfg(target_os = "linux")]
 fn send_panel_voice_text(
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, PanelInputState>,
+    target: &PanelInputTarget,
     text: &str,
     commit_mode: &str,
 ) -> Result<(), HostActionError> {
-    if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control) {
+    if text.is_empty()
+        || text.len() > 4096
+        || text.chars().any(|character| {
+            character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+        })
+    {
         return Err(HostActionError {
             code: "invalid_text",
         });
     }
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-    if commit_mode == "ctrl_v" && write_linux_clipboard(text) {
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        return send_panel_ctrl_v(app, &target);
+    let multiline = text.chars().any(|character| matches!(character, '\n' | '\r' | '\t'));
+    if commit_mode == "ctrl_v" || multiline {
+        if write_linux_clipboard(text) {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            return send_panel_ctrl_v(app, target);
+        }
+        // Do not turn literal newlines/tabs into Return/Tab key actions when
+        // clipboard transfer fails; leave the transcript available to retry.
+        if multiline {
+            return Err(HostActionError { code: "unavailable" });
+        }
     }
-    send_panel_text_to_target(app, &target, text)
+    send_panel_text_to_target(app, target, text)
 }
 
 // Windows panels are ordinary Tauri windows that never activate, so the host
@@ -1332,8 +1716,11 @@ fn send_panel_text_windows(
 
 // Panels sit bottom-centered on the work area, where the native ones did.
 #[cfg(target_os = "windows")]
-fn windows_panel_position(width: f64, height: f64) -> Option<(f64, f64)> {
-    msime_host_windows::work_area().map(|area| area.bottom_center(width, height))
+fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
+    msime_host_windows::work_area().map(|area| {
+        let (x, y) = area.bottom_center(width, height);
+        tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    })
 }
 
 #[tauri::command]
@@ -1350,16 +1737,41 @@ fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(),
 }
 
 #[tauri::command]
-fn send_key(
+async fn send_key(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
     // Linux routes through the display server, Windows injects directly, so the
     // app handle belongs to only one of them.
-    let _ = &app;
+    let _ = (&app, &window);
     #[cfg(target_os = "linux")]
-    return send_panel_key(&app, &state, request);
+    {
+        request.validate().map_err(|_| HostActionError { code: "invalid_key" })?;
+        // The non-focusable keyboard follows the editor the user is typing
+        // into now, like Windows RememberInputTargetWindow on each key press.
+        // Other panels retain their original destination while being edited.
+        let target = if window.label() == "keyboard-panel" {
+            None
+        } else {
+            Some(state
+                .0
+                .lock()
+                .map_err(|_| HostActionError { code: "unavailable" })?
+                .clone()
+                .ok_or(HostActionError { code: "unavailable" })?)
+        };
+        return tauri::async_runtime::spawn_blocking(move || {
+            let target = match target {
+                Some(target) => target,
+                None => capture_panel_input_target()?,
+            };
+            send_panel_key(&app, target, request)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?;
+    }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -1396,14 +1808,36 @@ async fn recognize_handwriting(
             })
             .collect(),
     };
-    let model = packaged_handwriting_model(&options.0);
+    let options = options.inner().clone();
+    let model = tauri::async_runtime::spawn_blocking(move || {
+        let document = options.snapshot().map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+        let document = serde_json::to_string(&document).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+        Ok::<_, HostActionError>(packaged_handwriting_model(&document))
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })??;
     // A user-managed socket owns recognizer and model policy where one is
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
     #[cfg(unix)]
-    let socket = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_absolute());
+    let socket = match std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET") {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if !path.is_absolute() {
+                return Err(HostActionError {
+                    code: "unavailable",
+                });
+            }
+            Some(path)
+        }
+        None => discover_session_provider("handwriting.sock"),
+    };
     #[cfg(unix)]
     if let Some(path) = socket {
         let candidates = tauri::async_runtime::spawn_blocking(move || {
@@ -1455,25 +1889,87 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
             value
                 .get("handwriting_model")
                 .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
                 .map(str::to_owned)
         })
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
+        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from))
         .or_else(|| {
-            let exe = std::env::current_exe().ok()?;
-            let directory = exe.parent()?;
-            // Beside the executable, as the Windows package stages it, and one
-            // prefix up, as the unix install lays it out.
-            [
-                directory.join("handwriting/handwriting-zh_CN.model"),
-                directory
-                    .parent()?
-                    .join("share/msime-client/handwriting/handwriting-zh_CN.model"),
-            ]
-            .into_iter()
-            .find(|path| path.is_file())
+            discover_packaged_file(
+                "msime-client/handwriting/handwriting-zh_CN.model",
+                "handwriting/handwriting-zh_CN.model",
+            )
         })
         .filter(|path| path.is_absolute() && path.is_file())
+}
+
+#[cfg(target_os = "linux")]
+fn packaged_emoji_resources(document: &Value) -> Option<PathBuf> {
+    // Explicit configuration owns catalog selection: invalid paths must not
+    // silently switch to a different installed catalog.
+    let configured = document
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("MSIME_EMOJI_RESOURCES")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        });
+    if let Some(directory) = configured {
+        return (directory.is_absolute() && directory.join("others.db").is_file())
+            .then_some(directory);
+    }
+    discover_packaged_file("msime-client/emoji/others.db", "emoji/others.db")
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+}
+
+fn discover_packaged_file(relative: &str, beside_executable: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    #[cfg(target_os = "linux")]
+    {
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_absolute())
+                    .map(|path| path.join(".local/share"))
+            });
+        if let Some(root) = data_home {
+            candidates.push(root.join(relative));
+        }
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            // Preserve the Windows bundle and relocatable Unix prefix layouts.
+            candidates.push(directory.join(beside_executable));
+            if let Some(prefix) = directory.parent() {
+                candidates.push(prefix.join("share").join(relative));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let directories = std::env::var_os("XDG_DATA_DIRS")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+        candidates.extend(
+            std::env::split_paths(&directories)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(relative)),
+        );
+    }
+
+    candidates
+        .into_iter()
+        .find(|path| path.is_absolute() && path.is_file())
 }
 
 #[derive(serde::Deserialize)]
@@ -1494,16 +1990,20 @@ struct VoiceRecognitionUpdate {
     request_id: String,
     #[serde(rename = "final")]
     final_result: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<f32>,
 }
 
 #[cfg(unix)]
-fn voice_provider_options(document: &Value) -> Value {
+fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
         .and_then(|value| value.get("voice_input"))
         .and_then(Value::as_object)
     else {
-        return Value::Object(Default::default());
+        return Ok(Value::Object(Default::default()));
     };
     let mut options = serde_json::Map::new();
     for key in [
@@ -1523,6 +2023,8 @@ fn voice_provider_options(document: &Value) -> Value {
         }
     }
     for key in [
+        "capture_backend",
+        "capture_device",
         "commit_mode",
         "asr_provider",
         "asr_model",
@@ -1530,10 +2032,6 @@ fn voice_provider_options(document: &Value) -> Value {
         "polish_provider",
         "polish_model",
         "polish_prompt_id",
-        "polish_prompt",
-        "polish_prompt_custom_1",
-        "polish_prompt_custom_2",
-        "polish_prompt_custom_3",
         "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
@@ -1541,7 +2039,55 @@ fn voice_provider_options(document: &Value) -> Value {
             options.insert(key.to_owned(), Value::String(bounded));
         }
     }
-    Value::Object(options)
+    let preset = voice.get("polish_prompt_id").and_then(Value::as_str).unwrap_or("cleanup");
+    let prompt_key = match preset {
+        "custom" | "custom_1" => Some("polish_prompt_custom_1"),
+        "custom_2" => Some("polish_prompt_custom_2"),
+        "custom_3" => Some("polish_prompt_custom_3"),
+        _ => None,
+    };
+    if let Some(key) = prompt_key {
+        let mut prompt = voice.get(key).and_then(Value::as_str).unwrap_or("");
+        if prompt.is_empty() && key == "polish_prompt_custom_1" {
+            prompt = voice.get("polish_prompt").and_then(Value::as_str).unwrap_or("");
+        }
+        if prompt.len() > 8192 {
+            return Err(HostActionError { code: "invalid_voice" });
+        }
+        if !prompt.is_empty() {
+            options.insert(key.to_owned(), Value::String(prompt.to_owned()));
+        }
+    }
+    Ok(Value::Object(options))
+}
+
+// Resolve on each request so services started after the panel remain discoverable.
+#[cfg(unix)]
+fn discover_session_provider(filename: &str) -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join("msime-client").join(filename))
+        .filter(|path| {
+            path.metadata()
+                .map(|metadata| metadata.file_type().is_socket())
+                .unwrap_or(false)
+        })
+}
+
+#[cfg(unix)]
+fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
+    document
+        .get("voice_provider_socket")
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+        })
+        .or_else(|| discover_session_provider("voice.sock"))
 }
 
 #[tauri::command]
@@ -1549,10 +2095,11 @@ async fn recognize_voice(
     app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
     runtime: tauri::State<'_, RuntimeOptionsState>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     // Streaming updates are emitted by the unix provider path only.
     #[cfg(not(unix))]
-    let _ = &app;
+    let _ = (&app, &runtime, &store);
     if request.request_id.is_empty()
         || request.request_id.len() > 64
         || !request
@@ -1569,26 +2116,38 @@ async fn recognize_voice(
     }
     #[cfg(unix)]
     {
-        let document = runtime
-            .document
-            .lock()
-            .map(|document| document.clone())
-            .unwrap_or(Value::Null);
-        let provider_options = voice_provider_options(&document);
-        let configured = document
-            .get("voice_provider_socket")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let path = configured
-            .or_else(|| {
-                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
+        let runtime = runtime.inner().clone();
+        let store = store.inner().clone();
+        let document = tauri::async_runtime::spawn_blocking(move || {
+            let document = runtime.snapshot().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+            // The shared preference store is also written by IBus and other
+            // settings windows; new recordings must use those saved settings.
+            #[cfg(target_os = "linux")]
+            let document = {
+                let mut document = document;
+                let preferences = store.load().map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+                document["preferences"] = serde_json::to_value(preferences.preferences)
+                    .map_err(|_| HostActionError {
+                        code: "unavailable",
+                    })?;
+                document
+            };
+            #[cfg(not(target_os = "linux"))]
+            let _ = store;
+            Ok::<_, HostActionError>(document)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })??;
+        let provider_options = voice_provider_options(&document)?;
+        let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
+            code: "unavailable",
+        })?;
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let session = sessions
             .begin(request.request_id, path)
@@ -1607,15 +2166,41 @@ async fn recognize_voice(
                         text: text.to_owned(),
                         request_id: session.request_id.clone(),
                         final_result,
+                        phase: None,
+                        level: None,
                     },
                 );
             };
-            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_cancelled(
+            let mut status = |phase: &str| {
+                if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                let _ = worker_app.emit("voice-update", VoiceRecognitionUpdate {
+                    text: String::new(),
+                    request_id: session.request_id.clone(),
+                    final_result: false,
+                    phase: Some(phase.to_owned()),
+                    level: None,
+                });
+            };
+            let mut level = |level: f32| {
+                if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) { return; }
+                let _ = worker_app.emit("voice-update", VoiceRecognitionUpdate {
+                    text: String::new(),
+                    request_id: session.request_id.clone(),
+                    final_result: false,
+                    phase: None,
+                    level: Some(level),
+                });
+            };
+            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_feedback(
                 &language,
                 generation,
                 &provider_options,
                 Some(&session.cancelled),
                 &mut update,
+                Some(&mut status),
+                Some(&mut level),
             )
         })
         .await;
@@ -1687,13 +2272,17 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
 }
 
 #[tauri::command]
-fn submit_handwriting_candidate(
+async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return send_panel_text(&app, &state, &candidate);
+    {
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text(app, &state, candidate).await;
+    }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (app, state, candidate);
@@ -1704,14 +2293,14 @@ fn submit_handwriting_candidate(
 }
 
 #[tauri::command]
-fn send_text(
+async fn send_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     text: String,
 ) -> Result<(), HostActionError> {
     let _ = &app;
     #[cfg(target_os = "linux")]
-    return send_panel_text(&app, &state, &text);
+    return send_panel_text(app, &state, text).await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -1724,7 +2313,45 @@ fn send_text(
 }
 
 #[tauri::command]
-fn send_voice_text(
+fn supports_clipboard_paste() -> bool {
+    cfg!(target_os = "linux")
+}
+
+#[tauri::command]
+async fn paste_clipboard_text(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+    text: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    {
+        if text.is_empty() || text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES || text.contains('\0') {
+            return Err(HostActionError { code: "invalid_text" });
+        }
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError { code: "unavailable" })?
+            .clone()
+            .ok_or(HostActionError { code: "unavailable" })?;
+        tauri::async_runtime::spawn_blocking(move || {
+            if !write_linux_clipboard(&text) {
+                return Err(HostActionError { code: "unavailable" });
+            }
+            send_panel_ctrl_v(&app, &target)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, state, text);
+        Err(HostActionError { code: "unavailable" })
+    }
+}
+
+#[tauri::command]
+async fn send_voice_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -1732,16 +2359,24 @@ fn send_voice_text(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     {
-        let commit_mode = store
-            .inner()
-            .load()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .preferences
-            .voice_input
-            .commit_mode;
-        return send_panel_voice_text(&app, &state, &text, &commit_mode);
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError { code: "unavailable" })?
+            .clone()
+            .ok_or(HostActionError { code: "unavailable" })?;
+        let store = store.inner().clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let commit_mode = store
+                .load()
+                .map_err(|_| HostActionError { code: "unavailable" })?
+                .preferences
+                .voice_input
+                .commit_mode;
+            send_panel_voice_text(&app, &target, &text, &commit_mode)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1814,6 +2449,48 @@ fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }
 
+#[cfg(target_os = "linux")]
+fn visible_panel_position(
+    window: &tauri::WebviewWindow,
+    position: tauri::Position,
+    width: f64,
+    height: f64,
+) -> tauri::Position {
+    // X11 geometry is physical. Do not reinterpret Sway's logical coordinates
+    // using a monitor scale factor from a different coordinate space.
+    let tauri::Position::Physical(point) = position else { return position; };
+    let Ok(monitors) = window.available_monitors() else { return position; };
+    let x = f64::from(point.x);
+    let y = f64::from(point.y);
+    // panel_position used the logical requested width. Recover the editor's
+    // physical center before choosing a monitor and applying its scale.
+    let center_x = x + width / 2.0;
+    let distance = |monitor: &tauri::Monitor| {
+        let area = monitor.work_area();
+        let left = f64::from(area.position.x);
+        let top = f64::from(area.position.y);
+        let dx = center_x - center_x.clamp(left, left + f64::from(area.size.width));
+        let dy = y - y.clamp(top, top + f64::from(area.size.height));
+        dx * dx + dy * dy
+    };
+    let Some(monitor) = monitors.iter()
+        .filter(|monitor| monitor.work_area().size.width > 0 && monitor.work_area().size.height > 0)
+        .min_by(|left, right| distance(left).total_cmp(&distance(right)))
+    else { return position; };
+    let scale = monitor.scale_factor();
+    if !scale.is_finite() || scale <= 0.0 { return position; }
+    let x = center_x - width * scale / 2.0;
+    let area = monitor.work_area();
+    let left = f64::from(area.position.x);
+    let top = f64::from(area.position.y);
+    let right = left + (f64::from(area.size.width) - width * scale).max(0.0);
+    let bottom = top + (f64::from(area.size.height) - height * scale).max(0.0);
+    tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x.clamp(left, right).round() as i32,
+        y.clamp(top, bottom).round() as i32,
+    ))
+}
+
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -1821,7 +2498,7 @@ fn open_panel_window(
     title: &'static str,
     width: f64,
     height: f64,
-    position: Option<(f64, f64)>,
+    position: Option<tauri::Position>,
 ) -> Result<(), HostActionError> {
     #[cfg(mobile)]
     {
@@ -1835,10 +2512,10 @@ fn open_panel_window(
         let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            if let Some((x, y)) = position {
-                let _ = window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32),
-                ));
+            if let Some(position) = position {
+                #[cfg(target_os = "linux")]
+                let position = visible_panel_position(&window, position, width, height);
+                let _ = window.set_position(position);
             }
             window
                 .show()
@@ -1854,18 +2531,16 @@ fn open_panel_window(
                 })?;
             return Ok(());
         }
-        let mut builder = WebviewWindowBuilder::new(
+        let builder = WebviewWindowBuilder::new(
             app,
             label,
             WebviewUrl::App(format!("index.html?panel={route}").into()),
         )
         .title(title);
-        if let Some((x, y)) = position {
-            builder = builder.position(x, y);
-        }
-        builder
+        let window = builder
             .inner_size(width, height)
-            .focused(accepts_focus)
+            .visible(false)
+            .focused(false)
             .focusable(accepts_focus)
             .min_inner_size(width, height)
             .resizable(false)
@@ -1873,7 +2548,17 @@ fn open_panel_window(
             .always_on_top(true)
             .skip_taskbar(true)
             .build()
-            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        if let Some(position) = position {
+            #[cfg(target_os = "linux")]
+            let position = visible_panel_position(&window, position, width, height);
+            let _ = window.set_position(position);
+        }
+        window
+            .show()
+            .and_then(|_| if accepts_focus { window.set_focus() } else { Ok(()) })
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })
@@ -2147,57 +2832,35 @@ fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, H
 
 #[cfg(target_os = "linux")]
 fn linux_clipboard_text() -> Result<String, HostActionError> {
-    let output = std::process::Command::new("wl-paste")
-        .arg("--no-newline")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .or_else(|| {
-            std::process::Command::new("xclip")
-                .args(["-selection", "clipboard", "-o"])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-        })
+    let mut commands: Vec<(&str, &[&str])> = Vec::new();
+    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()) {
+        commands.push(("wl-paste", &["--no-newline", "--type", "text"]));
+    }
+    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
+        commands.push(("xclip", &["-selection", "clipboard", "-o"]));
+        commands.push(("xsel", &["--clipboard", "--output"]));
+    }
+    // Preserve source line endings; wl-paste suppresses its own separator.
+    commands
+        .into_iter()
+        .find_map(|(program, arguments)| linux_clipboard::read_text(program, arguments))
         .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-    String::from_utf8(output.stdout)
-        .map(|text| text.trim_end_matches(['\r', '\n']).to_owned())
-        .map_err(|_| HostActionError {
             code: "unavailable",
         })
 }
 
 #[cfg(target_os = "linux")]
 fn write_linux_clipboard(text: &str) -> bool {
-    fn write_with(mut child: std::process::Child, text: &str) -> bool {
-        let Some(mut input) = child.stdin.take() else {
-            return false;
-        };
-        if std::io::Write::write_all(&mut input, text.as_bytes()).is_err() {
-            return false;
-        }
-        drop(input);
-        child.wait().map(|status| status.success()).unwrap_or(false)
-    }
-
-    if let Ok(child) = std::process::Command::new("wl-copy")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
+    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
+        && linux_clipboard::write_text("wl-copy", &["--type", "text/plain;charset=utf-8"], text)
     {
-        if write_with(child, text) {
-            return true;
-        }
+        return true;
     }
-    let Ok(child) = std::process::Command::new("xclip")
-        .args(["-selection", "clipboard"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-    else {
-        return false;
-    };
-    write_with(child, text)
+    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
+        return linux_clipboard::write_text("xclip", &["-selection", "clipboard"], text)
+            || linux_clipboard::write_text("xsel", &["--clipboard", "--input"], text);
+    }
+    false
 }
 
 #[cfg(target_os = "linux")]
@@ -2218,10 +2881,16 @@ fn start_linux_clipboard_monitor(
                     last_text = None;
                 } else if let Ok(text) = linux_clipboard_text() {
                     if last_text.as_deref() != Some(text.as_str()) {
-                        if let Ok(mut store) = history.lock() {
-                            let _ = store.push(text.clone());
+                        match preferences.capture_clipboard_text(text.clone()) {
+                            Ok(true) => {
+                                if let Ok(mut store) = history.lock() {
+                                    let _ = store.load();
+                                }
+                                last_text = Some(text);
+                            }
+                            Ok(false) => last_text = None,
+                            Err(_) => {}
                         }
-                        last_text = Some(text);
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(750));
@@ -2230,25 +2899,77 @@ fn start_linux_clipboard_monitor(
 }
 
 #[tauri::command]
-fn list_clipboard_history(
+async fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Vec<String>, HostActionError> {
-    if !clipboard_enabled(store.inner())? {
-        return Ok(Vec::new());
-    }
-    state
-        .0
-        .lock()
-        .map(|history| history.entries().to_vec())
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || list_clipboard_history_blocking(&state, &store))
+        .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })
+        })?
+}
+
+fn list_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<Vec<String>, HostActionError> {
+    if !clipboard_enabled(store)? {
+        return Ok(Vec::new());
+    }
+    let mut history = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    history.load().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    Ok(history.entries().to_vec())
 }
 
 #[tauri::command]
-fn clear_clipboard_history(
+async fn remove_clipboard_history(
+    text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .remove(&text)
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[tauri::command]
+async fn clear_clipboard_history(
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || clear_clipboard_history_blocking(&state))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn clear_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
 ) -> Result<(), HostActionError> {
     state
         .0
@@ -2263,11 +2984,24 @@ fn clear_clipboard_history(
 }
 
 #[tauri::command]
-fn sync_clipboard_history(
+async fn sync_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Vec<String>, HostActionError> {
-    if !clipboard_enabled(store.inner())? {
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || sync_clipboard_history_blocking(&state, &store))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn sync_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<Vec<String>, HostActionError> {
+    if !clipboard_enabled(store)? {
         return Err(HostActionError { code: "disabled" });
     }
     #[cfg(target_os = "macos")]
@@ -2300,22 +3034,39 @@ fn sync_clipboard_history(
             .trim_end_matches(['\r', '\n'])
             .to_owned()
     };
+    store.capture_clipboard_text(text).map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
-    history.push(text).map_err(|_| HostActionError {
+    history.load().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
     Ok(history.entries().to_vec())
 }
 
 #[tauri::command]
-fn copy_text(
+async fn copy_text(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<(), HostActionError> {
-    let enabled = clipboard_enabled(store.inner())?;
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn copy_text_blocking(
+    text: String,
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<(), HostActionError> {
+    let enabled = clipboard_enabled(store)?;
     #[cfg(target_os = "macos")]
     let result = {
         use std::io::Write;
@@ -2379,14 +3130,16 @@ fn copy_text(
         });
     }
     if enabled {
+        store.capture_clipboard_text(text).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
         state
             .0
             .lock()
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?
-            .push(text)
-            .map(|_| ())
+            .load()
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
@@ -2394,9 +3147,37 @@ fn copy_text(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
+    let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+        .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"))
+    else {
+        return Ok(None);
+    };
+    let options_path = PathBuf::from(options_path);
+    if !options_path.is_absolute() {
+        return Err("Runtime options path must be absolute".into());
+    }
+    let options = fs::read_to_string(options_path)
+        .map_err(|_| "Cannot read runtime options for shared state".to_owned())?;
+    let options: Value = serde_json::from_str(&options)
+        .map_err(|_| "Cannot parse runtime options for shared state".to_owned())?;
+    match options.get("preferences_directory") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if value.is_empty() => Ok(None),
+        Some(Value::String(value)) if PathBuf::from(value).is_absolute() => {
+            Ok(Some(PathBuf::from(value)))
+        }
+        _ => Err("Runtime preferences directory must be absolute".into()),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android_account::init());
+    builder
         .setup(|app| {
             #[cfg(target_os = "android")]
             let directory = app.path().app_data_dir()?.join("files/bootstrap/state");
@@ -2409,19 +3190,42 @@ pub fn run() {
                     }
                     path
                 }
-                None => app.path().app_data_dir()?,
+                None => {
+                    #[cfg(target_os = "linux")]
+                    let runtime_directory = linux_runtime_state_directory()?;
+                    #[cfg(not(target_os = "linux"))]
+                    let runtime_directory: Option<PathBuf> = None;
+                    match runtime_directory {
+                        Some(path) => path,
+                        None => app.path().app_data_dir()?,
+                    }
+                }
             };
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            let keyboard_skin_trials =
+                KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
+            #[cfg(target_os = "android")]
+            let _ = keyboard_skin_trials.restore_pending();
+            app.manage(CustomSkinLibraryStore::new(&directory));
+            #[cfg(target_os = "android")]
+            app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
+                app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
+            ));
+            app.manage(keyboard_skin_trials);
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
-            #[cfg(target_os = "linux")]
-            start_linux_preferences_monitor(app.handle(), preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
+            #[cfg(target_os = "linux")]
+            start_linux_preferences_monitor(
+                app.handle(),
+                preferences.clone(),
+                Arc::clone(&clipboard_state.0),
+            );
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());
@@ -2455,37 +3259,51 @@ pub fn run() {
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
-            app.manage(DictionaryHostOptions(Arc::new(host_options)));
+            app.manage(DictionaryHostOptions {
+                #[cfg(target_os = "linux")]
+                path: host_options_path,
+                #[cfg(not(target_os = "linux"))]
+                document: Arc::new(host_document.clone()),
+            });
             app.manage(RuntimeOptionsState {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
             });
-            #[cfg(not(mobile))]
+            // Both desktop hosts launch this shell with the panel their menu
+            // named; the IBus property menu and the Windows tray menu are the
+            // same contract, so the routes stay in one place.
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some(route) = requested_surface_route() {
                 // A settings route targets the main window, which is already
                 // showing; only panel surfaces need a window opened here.
-                if let Some(panel) = route.panel() {
-                    // The launching host is the property menu or a native shell,
-                    // so capture the foreground editor before the new window can
+                if let Some(surface) = route.panel() {
+                    let (label, route, title, width, height) = (
+                        surface.label,
+                        surface.query,
+                        surface.title,
+                        f64::from(surface.width),
+                        f64::from(surface.height),
+                    );
+                    // The menu process is the panel launcher in this path, so
+                    // capture the foreground editor before the new window can
                     // take focus. This is the same handoff used by the
-                    // settings-page panel commands. The other hosts gain their
-                    // own capture when their launchers land.
+                    // settings-page panel commands.
+                    let panel_input = app.state::<PanelInputState>();
                     #[cfg(target_os = "linux")]
-                    {
-                        let panel_input = app.state::<PanelInputState>();
-                        let _ = remember_panel_input_target(panel_input.inner(), true);
-                    }
+                    let position = {
+                        let _ = remember_panel_input_target(&panel_input, true);
+                        panel_position(&panel_input, width, height)
+                    };
+                    #[cfg(target_os = "windows")]
+                    let position = {
+                        let _ = remember_panel_input_target(&panel_input);
+                        windows_panel_position(width, height)
+                    };
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
                     open_panel_window(
-                        app.handle(),
-                        panel.label,
-                        panel.query,
-                        panel.title,
-                        f64::from(panel.width),
-                        f64::from(panel.height),
-                        None,
+                        app.handle(), label, route, title, width, height, position,
                     )
                     .map_err(|_| "Cannot open requested panel".to_string())?;
                 }
@@ -2494,9 +3312,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             host_capabilities,
+            list_voice_capture_devices,
             supports_font_catalog,
+            initial_settings_page,
             list_font_families,
             load_preferences,
+            load_custom_skin_library,
+            mutate_custom_skin_library,
             load_typing_statistics,
             set_typing_statistics_enabled,
             reset_typing_statistics,
@@ -2508,12 +3330,15 @@ pub fn run() {
             save_preferences,
             list_clipboard_history,
             clear_clipboard_history,
+            remove_clipboard_history,
             sync_clipboard_history,
             copy_text,
             remember_input_target,
             send_key,
             send_text,
             send_voice_text,
+            paste_clipboard_text,
+            supports_clipboard_paste,
             voice_input_language,
             recognize_handwriting,
             recognize_voice,
@@ -2532,7 +3357,61 @@ pub fn run() {
             cloud_clipboard_request,
             cloud_dictionary_request,
             load_emoji_catalog,
-            restart_input_method
+            restart_input_method,
+            #[cfg(target_os = "android")]
+            android_account::account_status,
+            #[cfg(target_os = "android")]
+            android_account::account_providers,
+            #[cfg(target_os = "android")]
+            android_account::account_request_code,
+            #[cfg(target_os = "android")]
+            android_account::account_login,
+            #[cfg(target_os = "android")]
+            android_account::account_profile,
+            #[cfg(target_os = "android")]
+            android_account::account_rename,
+            #[cfg(target_os = "android")]
+            android_account::account_logout,
+            #[cfg(target_os = "android")]
+            android_account::account_delete,
+            #[cfg(target_os = "android")]
+            android_account::account_forget,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_list,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_detail,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_download,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_rate,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_publish,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_unpublish,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_finish_trial,
+            #[cfg(target_os = "android")]
+            android_account::ai_skin_generate,
+            #[cfg(target_os = "android")]
+            android_account::ai_skin_cancel,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_list,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_detail,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_publish,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_apply,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_save,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_rate,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_unpublish,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_store_reply,
+            #[cfg(target_os = "android")]
+            android_account::community_resource_remove_reply,
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
@@ -2540,6 +3419,26 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn requested_settings_page_only_accepts_a_plain_section_identifier() {
+        assert_eq!(
+            super::requested_settings_page(Some(" about ")),
+            Some("about".into())
+        );
+        assert_eq!(
+            super::requested_settings_page(Some("screen-keyboard")),
+            Some("screen-keyboard".into())
+        );
+        assert_eq!(super::requested_settings_page(None), None);
+        assert_eq!(super::requested_settings_page(Some("   ")), None);
+        // Anything that could carry a path, a query or a script stays out of
+        // the window the launcher is about to open.
+        assert_eq!(super::requested_settings_page(Some("../etc")), None);
+        assert_eq!(super::requested_settings_page(Some("About")), None);
+        assert_eq!(super::requested_settings_page(Some("a?b=c")), None);
+        assert_eq!(super::requested_settings_page(Some(&"a".repeat(33))), None);
+    }
+
     #[test]
     fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
         let directory = tempfile::tempdir().unwrap();
@@ -2569,11 +3468,6 @@ mod tests {
             )),
             None
         );
-
-        // Options that never mention a model fall through to discovery, which
-        // finds nothing next to a test binary.
-        assert_eq!(super::packaged_handwriting_model("{}"), None);
-        assert_eq!(super::packaged_handwriting_model("not json"), None);
     }
 
     #[test]
