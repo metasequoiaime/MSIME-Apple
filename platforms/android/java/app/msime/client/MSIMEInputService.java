@@ -69,6 +69,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
     private static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
     private static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
+    private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
@@ -283,6 +284,8 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable backspaceRepeatTask;
     private Button backspaceRepeatButton;
     private boolean backspaceRepeated;
+    private long personalDictionarySyncGeneration;
+    private Runnable personalDictionarySyncTask;
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
@@ -436,6 +439,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        cancelPersonalDictionarySynchronization();
         if (!restarting || currentDocumentIdentifier == 0) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
         }
@@ -533,6 +537,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelBackspaceRepeat();
         resetSpaceCursor();
         stop(true);
+        schedulePersonalDictionarySynchronization(false);
         scheduleDictionarySnapshotProcessing();
         connection = null;
         currentDocumentIdentifier = 0;
@@ -550,7 +555,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
     @Override public void onDestroy() {
         cancelBackspaceRepeat();
+        cancelPersonalDictionarySynchronization();
         stop(false);
+        schedulePersonalDictionarySynchronization(true);
         preferencesWorker.shutdown();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
@@ -596,6 +603,47 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
+    }
+
+    /**
+     * Apply queued personal-dictionary edits only after the Engine session is gone.
+     * Android has no keyboard-extension full-access callback, so the service lifecycle
+     * is the safe maintenance boundary; the next input start retries before creating
+     * another session.
+     */
+    private void cancelPersonalDictionarySynchronization() {
+        personalDictionarySyncGeneration++;
+        if (personalDictionarySyncTask != null) {
+            main.removeCallbacks(personalDictionarySyncTask);
+            personalDictionarySyncTask = null;
+        }
+    }
+
+    private void schedulePersonalDictionarySynchronization(boolean immediate) {
+        if (runtimeOptionsForSnapshot.isEmpty()) return;
+        String options = runtimeOptionsForSnapshot;
+        long generation = ++personalDictionarySyncGeneration;
+        Runnable task = () -> {
+            if (generation != personalDictionarySyncGeneration || session != 0) return;
+            personalDictionarySyncTask = null;
+            try {
+                preferencesWorker.execute(() -> {
+                    try {
+                        NativeClient.personalDictionarySync(options);
+                    } catch (Exception | LinkageError ignored) {
+                        // The next idle boundary retries a busy or unavailable journal.
+                    }
+                });
+            } catch (RuntimeException ignored) {
+                // Service shutdown owns the final worker state.
+            }
+        };
+        personalDictionarySyncTask = task;
+        if (immediate) {
+            task.run();
+        } else {
+            main.postDelayed(task, PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS);
+        }
     }
 
     /** The session has been destroyed, so native maintenance may take the exclusive lock. */
