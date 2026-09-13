@@ -47,6 +47,19 @@ shell_surface_request(TrayMenuCommand command) {
   }
   return std::nullopt;
 }
+// The cross-platform surface route the shell parses (client-core
+// host_surface::SurfaceRoute). A settings section travels as
+// "settings:<category>"; the bare section name is not a route head and would be
+// rejected. MSIME_CLIENT_PANEL and MSIME_CLIENT_SETTINGS_PAGE stay beside it as
+// the compatibility pair, matching what the IBus launcher emits.
+inline std::string shell_surface_route(const ShellSurfaceRequest &request) {
+  if (!request.page.empty())
+    return "settings:" + request.page;
+  if (request.panel.empty())
+    return "settings";
+  return request.panel;
+}
+
 // File names the package stages beside the Server. The installer name comes
 // first so a packaged shell wins over a developer build left in the same
 // directory.
@@ -76,8 +89,9 @@ shell_executable(const std::filesystem::path &directory,
   return std::nullopt;
 }
 // Compose the child environment from this process's block plus the request.
-// Existing MSIME_CLIENT_PANEL/MSIME_CLIENT_SETTINGS_PAGE entries are dropped,
-// so a value this process was started with cannot outvote the clicked row.
+// Existing MSIME_CLIENT_PANEL/MSIME_CLIENT_SETTINGS_PAGE/MSIME_CLIENT_ROUTE and
+// the two context entries are dropped, so a value this process was started with
+// cannot outvote the clicked row.
 // The result is the double-NUL terminated block CreateProcessW expects.
 inline std::wstring shell_environment_block(const wchar_t *existing,
                                             const ShellSurfaceRequest &request,
@@ -86,6 +100,7 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
   static constexpr std::wstring_view page_name = L"MSIME_CLIENT_SETTINGS_PAGE=";
   static constexpr std::wstring_view state_name = L"MSIME_CLIENT_STATE_DIR=";
   static constexpr std::wstring_view options_name = L"MSIME_CLIENT_HOST_OPTIONS=";
+  static constexpr std::wstring_view route_name = L"MSIME_CLIENT_ROUTE=";
   auto owned = [](std::wstring_view entry) {
     auto starts_with = [entry](std::wstring_view name) {
       if (entry.size() < name.size())
@@ -96,7 +111,8 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
       return true;
     };
     return starts_with(panel_name) || starts_with(page_name) ||
-           starts_with(state_name) || starts_with(options_name);
+           starts_with(state_name) || starts_with(options_name) ||
+           starts_with(route_name);
   };
   std::wstring block;
   for (const wchar_t *entry = existing; entry && *entry;) {
@@ -108,23 +124,31 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
     }
     entry += value.size() + 1;
   }
-  auto append = [&block](std::wstring_view name, const std::string &value) {
+  auto append = [&block](std::wstring_view name, const std::string &value,
+                         bool allow_separator) {
     if (value.empty())
       return;
     block.append(name);
     // The contract only carries short lowercase ASCII identifiers; nothing a
-    // caller could turn into another variable or a command line.
-    if (value.size() > 32)
+    // caller could turn into another variable or a command line. A route may
+    // additionally carry one ':' separating the surface from its section.
+    if (value.size() > 64)
       throw std::invalid_argument("Invalid shell surface request");
+    size_t separators = 0;
     for (unsigned char c : value) {
-      if (!((c >= 'a' && c <= 'z') || c == '-'))
+      if (c == ':' && allow_separator) {
+        if (++separators > 1)
+          throw std::invalid_argument("Invalid shell surface request");
+      } else if (!((c >= 'a' && c <= 'z') || c == '-')) {
         throw std::invalid_argument("Invalid shell surface request");
+      }
       block.push_back(static_cast<wchar_t>(c));
     }
     block.push_back(L'\0');
   };
-  append(panel_name, request.panel);
-  append(page_name, request.page);
+  append(panel_name, request.panel, false);
+  append(page_name, request.page, false);
+  append(route_name, shell_surface_route(request), true);
   if (context) {
     if (!context->state_root.is_absolute() || !context->host_options.is_absolute())
       throw std::invalid_argument("Invalid shell launch context");

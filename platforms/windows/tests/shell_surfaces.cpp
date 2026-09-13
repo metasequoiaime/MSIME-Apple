@@ -70,7 +70,8 @@ int main() {
     // The settings row asks for no panel at all, so the shell opens its own
     // window; the about row names a section instead.
     const auto plain = entries(shell_environment_block(existing.c_str(), *settings));
-    require(plain.size() == 2 && contains(plain, L"PATH=C:\\Windows"));
+    require(plain.size() == 3 && contains(plain, L"PATH=C:\\Windows"));
+    require(contains(plain, L"MSIME_CLIENT_ROUTE=settings"));
     const auto about_block = entries(shell_environment_block(existing.c_str(), *about));
     require(contains(about_block, L"MSIME_CLIENT_SETTINGS_PAGE=about"));
     for (const auto &entry : about_block)
@@ -120,6 +121,49 @@ int main() {
     std::ofstream(configured) << "fixture";
     require(shell_executable(root, configured.wstring()) == configured);
     require(!shell_executable(root, L"msime-client-settings.exe"));
+
+    // Every surface also travels as the cross-platform route the shell parses.
+    // A settings section becomes "settings:<category>": the bare section name is
+    // not a route head, so emitting it would be rejected and silently fall back
+    // to the default page.
+    require(shell_surface_route(*shell_surface_request(
+                TrayMenuCommand::OpenEmojiPanel)) == "emoji");
+    require(shell_surface_route(*shell_surface_request(
+                TrayMenuCommand::OpenKeyboardPanel)) == "keyboard");
+    require(shell_surface_route(*settings) == "settings");
+    require(shell_surface_route(*about) == "settings:about");
+    require(contains(panel, L"MSIME_CLIENT_ROUTE=emoji"));
+    require(contains(about_block, L"MSIME_CLIENT_ROUTE=settings:about"));
+
+    // A stale route inherited from this process must not reach the shell.
+    const std::wstring stale_route =
+        std::wstring(L"PATH=C:\\Windows") + L'\0' + L"msime_client_route=stale" +
+        L'\0';
+    const auto replaced = entries(shell_environment_block(
+        stale_route.c_str(), *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)));
+    for (const auto &entry : replaced)
+      require(entry != L"msime_client_route=stale");
+    require(contains(replaced, L"MSIME_CLIENT_ROUTE=emoji"));
+
+    // The value filter still refuses anything outside the contract, and allows
+    // at most the single separator a route needs.
+    bool rejected = false;
+    try {
+      (void)shell_environment_block(stale_route.c_str(),
+                                    ShellSurfaceRequest{"emoji&calc", {}});
+    } catch (const std::invalid_argument &) {
+      rejected = true;
+    }
+    require(rejected);
+    rejected = false;
+    try {
+      (void)shell_environment_block(stale_route.c_str(),
+                                    ShellSurfaceRequest{{}, "a:b"});
+    } catch (const std::invalid_argument &) {
+      rejected = true;
+    }
+    require(rejected);
+
     std::error_code error;
     std::filesystem::remove_all(root, error);
   } catch (const std::exception &error) {
@@ -127,5 +171,6 @@ int main() {
     std::fputs("\n", stderr);
     return 1;
   }
+
   return 0;
 }
