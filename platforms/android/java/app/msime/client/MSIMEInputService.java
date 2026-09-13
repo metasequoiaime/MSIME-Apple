@@ -3588,7 +3588,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button makeCandidateButton(int slot) {
-        Button button = new Button(this);
+        // Apple uses the same press-feedback button for candidate chips as for keys. Android's
+        // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
+        // feedback without changing the existing scroll-versus-select boundary.
+        Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
         button.setOnClickListener(ignored -> selectVisibleCandidate(button, slot));
         button.setOnLongClickListener(ignored -> {
@@ -3641,7 +3644,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
-        Button button = new Button(this);
+        Button button = new KeyboardPressButton(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = candidatePanelSnapshot == null ? ""
