@@ -3660,6 +3660,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::android_prepare_bootstrap,
             #[cfg(target_os = "android")]
+            android_account::ai_models,
+            #[cfg(target_os = "android")]
+            android_account::ai_test,
+            #[cfg(target_os = "android")]
             android_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,

@@ -61,6 +61,21 @@ struct FeedbackSettings {
     haptic_strength: String,
 }
 
+#[derive(Serialize)]
+struct AiModelsRequest<'a> {
+    endpoint: &'a str,
+    token: &'a str,
+}
+
+#[derive(Serialize)]
+struct AiTestRequest<'a> {
+    endpoint: &'a str,
+    model: &'a str,
+    prompt: &'a str,
+    token: &'a str,
+    text: &'a str,
+}
+
 #[derive(Clone)]
 struct AndroidAccountStorage<R: Runtime>(PluginHandle<R>);
 
@@ -1629,6 +1644,78 @@ pub async fn android_prepare_bootstrap(
     })
     .await
     .map_err(|_| super::CommandError { code: "bootstrap" })?
+}
+
+#[tauri::command]
+pub async fn ai_models(
+    state: State<'_, AccountState>,
+    endpoint: String,
+    token: String,
+) -> Result<Vec<String>, super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let response = plugin
+            .run_mobile_plugin::<Value>(
+                "aiModels",
+                AiModelsRequest {
+                    endpoint: &endpoint,
+                    token: &token,
+                },
+            )
+            .map_err(|_| super::CommandError {
+                code: "ai_models_unavailable",
+            })?;
+        response
+            .get("models")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .ok_or(super::CommandError {
+                code: "ai_models_invalid",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_models_unavailable",
+    })?
+}
+
+#[tauri::command]
+pub async fn ai_test(
+    state: State<'_, AccountState>,
+    endpoint: String,
+    model: String,
+    prompt: String,
+    token: String,
+    text: String,
+) -> Result<String, super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let response = plugin
+            .run_mobile_plugin::<Value>(
+                "aiTest",
+                AiTestRequest {
+                    endpoint: &endpoint,
+                    model: &model,
+                    prompt: &prompt,
+                    token: &token,
+                    text: &text,
+                },
+            )
+            .map_err(|_| super::CommandError {
+                code: "ai_test_unavailable",
+            })?;
+        response
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or(super::CommandError {
+                code: "ai_test_invalid",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_test_unavailable",
+    })?
 }
 
 #[tauri::command]

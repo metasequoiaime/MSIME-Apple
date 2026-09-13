@@ -401,6 +401,22 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   });
 });
 
+test("Android AI settings fetch models and run a native-hosted polish test", async () => {
+  const fetchModels = vi.fn().mockResolvedValue(["fixture-model", "fixture-fast"]);
+  const testAi = vi.fn().mockResolvedValue("fixture-polished");
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), aiAssistant: { fetchModels, test: testAi } }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
+  fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+  await screen.findByText("已获取 2 个可用模型。");
+  fireEvent.change(screen.getByRole("combobox", { name: "已获取的 AI 模型" }), { target: { value: "fixture-fast" } });
+  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
+  await screen.findByText("fixture-polished");
+  expect(fetchModels).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", token: "fixture-token" });
+  expect(testAi).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", model: "fixture-fast", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", token: "fixture-token", text: "fixture input" });
+});
+
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

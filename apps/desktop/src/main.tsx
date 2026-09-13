@@ -93,6 +93,9 @@ const client: SettingsClient = {
   }, chat: {
     models: () => invoke("account_chat_models"),
     complete: (messages, model) => invoke<{ content: string }>("account_chat", { messages, model }).then(response => response.content),
+  }, aiAssistant: {
+    fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
+    test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
   }, home: {
     openKeyboard: () => invoke("open_keyboard_panel"),
     openSystemKeyboardSettings: () => invoke("android_open_input_method_settings"),

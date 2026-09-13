@@ -57,6 +57,21 @@ class CancelSnapshotArgs {
     lateinit var accountId: String
 }
 
+@InvokeArg
+class AiModelsArgs {
+    lateinit var endpoint: String
+    lateinit var token: String
+}
+
+@InvokeArg
+class AiTestArgs {
+    lateinit var endpoint: String
+    lateinit var model: String
+    lateinit var prompt: String
+    lateinit var token: String
+    lateinit var text: String
+}
+
 @TauriPlugin
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
@@ -311,6 +326,58 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             }
         } catch (_: Exception) {
             invoke.reject("bootstrap", "bootstrap")
+        }
+    }
+
+    @Command
+    fun aiModels(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AiModelsArgs::class.java)
+            bootstrapWorker.execute {
+                try {
+                    val models = AiPolishModelCatalog.fetch(args.endpoint, args.token)
+                    val response = JSObject()
+                    val values = org.json.JSONArray()
+                    models.forEach { values.put(it) }
+                    response.put("models", values)
+                    invoke.resolve(response)
+                } catch (error: AiPolishClient.Failure) {
+                    invoke.reject("ai_models_${error.reason().name.lowercase()}", "ai_models_failed")
+                } catch (_: Exception) {
+                    invoke.reject("ai_models_unavailable", "ai_models_failed")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("ai_models_invalid", "ai_models_failed")
+        }
+    }
+
+    @Command
+    fun aiTest(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AiTestArgs::class.java)
+            bootstrapWorker.execute {
+                try {
+                    val configuration = AiPolishConfiguration(args.endpoint, args.model, args.prompt, args.token)
+                    if (!AiPolishConfiguration.acceptableText(args.text)) {
+                        throw AiPolishClient.Failure(AiPolishClient.Reason.INVALID)
+                    }
+                    val result = AiPolishHttpTransport().send(
+                        configuration, args.text, AiPolishClient.Cancellation())
+                    if (!AiPolishConfiguration.acceptableText(result)) {
+                        throw AiPolishClient.Failure(AiPolishClient.Reason.INVALID)
+                    }
+                    invoke.resolve(JSObject().put("text", result))
+                } catch (error: AiPolishClient.Failure) {
+                    invoke.reject("ai_test_${error.reason().name.lowercase()}", "ai_test_failed")
+                } catch (_: IllegalArgumentException) {
+                    invoke.reject("ai_test_invalid", "ai_test_failed")
+                } catch (_: Exception) {
+                    invoke.reject("ai_test_unavailable", "ai_test_failed")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("ai_test_invalid", "ai_test_failed")
         }
     }
 

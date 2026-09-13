@@ -286,6 +286,10 @@ export type AiAssistantPreferences = {
   prompt_custom_2: string;
   prompt_custom_3: string;
 };
+export type AiAssistantClient = {
+  fetchModels(configuration: { endpoint: string; token: string }): Promise<string[]>;
+  test(configuration: { endpoint: string; model: string; prompt: string; token: string; text: string }): Promise<string>;
+};
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
@@ -549,6 +553,8 @@ export interface SettingsClient {
   account?: AccountClient;
   /** Android account commands expose the authenticated EveryAPI chat surface. */
   chat?: ChatClient;
+  /** Android performs user-configured AI service requests in its native host. */
+  aiAssistant?: AiAssistantClient;
   /** Android community commands expose bounded public skin metadata and designs. */
   communitySkins?: CommunitySkinClient;
   /** Android community commands expose dictionaries and reply templates. */
@@ -778,6 +784,14 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
+  const [aiModels, setAiModels] = useState<string[] | null>(null);
+  const [aiModelsStatus, setAiModelsStatus] = useState("");
+  const [aiModelsBusy, setAiModelsBusy] = useState(false);
+  const [aiTestInput, setAiTestInput] = useState("");
+  const [aiTestOutput, setAiTestOutput] = useState("");
+  const [aiTestStatus, setAiTestStatus] = useState("");
+  const [aiTestBusy, setAiTestBusy] = useState(false);
+  const aiRequestGeneration = useRef(0);
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -1062,10 +1076,56 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const aiOrigin = aiCredentialOrigin(ai.endpoint);
   const aiToken = aiOrigin ? ai.tokens?.[aiOrigin] ?? "" : "";
   const updateAi = (patch: Partial<AiAssistantPreferences>) => {
+    aiRequestGeneration.current += 1;
+    setAiModelsBusy(false);
+    setAiTestBusy(false);
+    setAiTestOutput("");
+    setAiTestStatus("");
+    if (patch.provider !== undefined || patch.endpoint !== undefined) { setAiModels(null); setAiModelsStatus(""); }
     if (draft) setDraft({ ...draft, ai_assistant: { ...ai, ...patch } });
   };
   const updateAiToken = (value: string) => {
+    aiRequestGeneration.current += 1;
+    setAiModelsBusy(false);
+    setAiTestBusy(false);
+    setAiTestOutput("");
+    setAiTestStatus("");
     if (aiOrigin) updateAi({ token: "", tokens: { ...(ai.tokens ?? {}), [aiOrigin]: value } });
+  };
+  const fetchAiModels = async () => {
+    if (!client.aiAssistant) return;
+    if (!aiOrigin) { setAiModelsStatus("请先填写完整的 HTTPS 接口地址。"); return; }
+    if (!aiToken.trim()) { setAiModelsStatus("请先填写 API Token，或使用已保存的密钥。"); return; }
+    const generation = aiRequestGeneration.current;
+    setAiModelsBusy(true);
+    setAiModelsStatus("");
+    try {
+      const models = await client.aiAssistant.fetchModels({ endpoint: ai.endpoint, token: aiToken });
+      if (generation !== aiRequestGeneration.current) return;
+      setAiModels(models);
+      setAiModelsStatus(`已获取 ${models.length} 个可用模型。`);
+      if (models.length && !models.includes(ai.model)) updateAi({ model: models[0] });
+    } catch (cause) {
+      setAiModelsStatus(cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。");
+    } finally { if (generation === aiRequestGeneration.current) setAiModelsBusy(false); }
+  };
+  const testAi = async () => {
+    if (!client.aiAssistant) return;
+    const text = aiTestInput;
+    if (!text.trim()) { setAiTestStatus("请先输入待润色文字。"); return; }
+    if (!aiOrigin || !aiToken.trim()) { setAiTestStatus("请先填写有效的 HTTPS 接口地址和 API Token。"); return; }
+    const generation = ++aiRequestGeneration.current;
+    setAiTestBusy(true);
+    setAiTestStatus("");
+    setAiTestOutput("");
+    try {
+      const result = await client.aiAssistant.test({ endpoint: ai.endpoint, model: ai.model, prompt: ai.prompt ?? defaultAiAssistant.prompt ?? "请润色以下文字，保持原意，只返回修改后的文字。", token: aiToken, text });
+      if (generation !== aiRequestGeneration.current) return;
+      setAiTestOutput(result);
+      setAiTestStatus("已完成");
+    } catch (cause) {
+      setAiTestStatus(cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。");
+    } finally { if (generation === aiRequestGeneration.current) setAiTestBusy(false); }
   };
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const keybindings = draft?.keybindings ?? defaultKeybindings;
@@ -1777,12 +1837,24 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>
+        {client.aiAssistant && <div className="section ai-service-tools">
+          <div className="section-header"><span className="section-title">服务模型<small>从当前服务的模型目录读取；服务不支持时可继续手动填写模型。</small></span><button type="button" className="secondary" disabled={aiModelsBusy || !aiOrigin} onClick={() => void fetchAiModels()}>{aiModelsBusy ? "获取中…" : "获取模型列表"}</button></div>
+          {aiModels && aiModels.length > 0 && <label className="section-header"><span className="section-title">已获取模型</span><select aria-label="已获取的 AI 模型" value={aiModels.includes(ai.model) ? ai.model : ""} onChange={event => { if (event.target.value) updateAi({ model: event.target.value }); }}><option value="">选择模型…</option>{aiModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>}
+          {aiModelsStatus && <p role="status">{aiModelsStatus}</p>}
+        </div>}
         <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Math.max(1, Math.min(10, Number(event.target.value) || 3)) })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>
         <div className="section"><label className="section-title">兼容提示词<small>旧版提示词，所选自定义槽位留空时使用</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={ai.prompt_custom_1} onChange={event => updateAi({ prompt_custom_1: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={ai.prompt_custom_2} onChange={event => updateAi({ prompt_custom_2: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={ai.prompt_custom_3} onChange={event => updateAi({ prompt_custom_3: event.target.value })} /></div>
+        {client.aiAssistant && <div className="section ai-test-tools">
+          <div className="section-title">AI 润色测试<small>仅在点击发送时请求当前配置；测试文字不会写入日志。</small></div>
+          <textarea aria-label="AI 测试输入" placeholder="输入一段待润色文字" value={aiTestInput} onChange={event => setAiTestInput(event.target.value)} />
+          <button type="button" className="secondary" disabled={aiTestBusy || !aiTestInput.trim()} onClick={() => void testAi()}>{aiTestBusy ? "发送中…" : "发送并润色"}</button>
+          {aiTestStatus && <p role="status">{aiTestStatus}</p>}
+          {aiTestOutput && <div className="ai-test-result"><div>{aiTestOutput}</div>{client.copyText && <button type="button" className="secondary" onClick={() => void client.copyText!(aiTestOutput)}>复制结果</button>}</div>}
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
         <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
