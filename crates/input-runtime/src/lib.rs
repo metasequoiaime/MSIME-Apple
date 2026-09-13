@@ -2423,6 +2423,19 @@ mod tests {
     }
 
     #[test]
+    fn ascii_punctuation_finishes_highlighted_candidate_for_keypad_marks() {
+        for mark in [b'.', b'-', b'+', b'/', b'*'] {
+            let mut runtime = runtime();
+            runtime.focus(true).unwrap();
+            type_key(&mut runtime);
+            let result = runtime.dispatch(Action::PunctuationAscii(mark)).unwrap();
+            let expected = format!("candidate-0-remaining-segments{}", mark as char);
+            assert_eq!(result.commit.as_deref(), Some(expected.as_str()));
+            assert!(result.handled && result.view.editing_text.is_empty());
+        }
+    }
+
+    #[test]
     fn unsupported_punctuation_is_appended_only_after_a_composition() {
         let mut runtime = runtime();
         runtime.focus(true).unwrap();
