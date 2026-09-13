@@ -866,7 +866,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
         if (socket.length) {
-            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults; NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @YES, @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"doubao_enable_itn": @([defaults objectForKey:@"MSIMEClientVoiceDoubaoITN"] == nil || [defaults boolForKey:@"MSIMEClientVoiceDoubaoITN"]), @"doubao_enable_punc": @([defaults objectForKey:@"MSIMEClientVoiceDoubaoPunc"] == nil || [defaults boolForKey:@"MSIMEClientVoiceDoubaoPunc"]), @"doubao_enable_ddc": @([defaults boolForKey:@"MSIMEClientVoiceDoubaoDDC"]) };
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults; NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @YES, @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"" };
             uint64_t generation = controller->_voiceGeneration;
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
                 NSError *providerError = nil;
