@@ -352,10 +352,16 @@ export interface DictionaryImportResult {
 export function describeImportResult(kind: string, result: DictionaryImportResult): string {
   const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
   if (result.failed) {
-    const lines = (result.first_failures ?? []).map(failure => failure.line).join("、");
+    const failures = result.first_failures ?? [];
+    const lines = failures.map(failure => failure.line).join("、");
     parts.push(lines
       ? `跳过 ${result.failed} 行，首先出现在第 ${lines} 行。`
       : `跳过 ${result.failed} 行。`);
+    // "rejected" means the row parsed but the engine refused it, which is a
+    // different thing for the user to fix than a malformed line.
+    if (failures.some(failure => failure.issue === "rejected")) {
+      parts.push("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。");
+    }
   }
   if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
   return parts.join("");

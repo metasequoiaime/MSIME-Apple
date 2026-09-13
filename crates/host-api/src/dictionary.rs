@@ -241,24 +241,44 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
             let mut applied = 0usize;
+            // Rows the Engine refuses are counted and named, not fatal. The
+            // shared parser only checks the key alphabet and length, while the
+            // Engine additionally demands complete pinyin syllables and one
+            // syllable per Han character - so ordinary real files (jianpin
+            // rows, a two-syllable code on a three-character word) contain
+            // some. Aborting discarded the rows already committed and told the
+            // user nothing but "check the format", leaving the dictionary
+            // half-written with no way to know how far it got.
+            let mut rejected_lines: Vec<usize> = Vec::new();
             for (index, entry) in entries.iter().enumerate() {
                 let receipt = format!("{request_id}-{index}");
                 // The batch already owns the maintenance lock; use the Engine bridge directly.
                 let result =
                     msime_engine_bridge::dictionary_edit(&options, None, Some(entry), &receipt);
                 if result.is_err() {
-                    return Err("dictionary import rejected".into());
+                    rejected_lines.push(entry.line);
+                    continue;
                 }
                 applied += 1;
             }
+            // Nothing landed and the Engine refused everything: that is a
+            // failed import, not a partial one, and the caller should say so.
+            if applied == 0 && !rejected_lines.is_empty() {
+                return Err("dictionary import rejected".into());
+            }
+            let mut report = report.unwrap_or(msime_client_core::dictionary_import::ImportReport {
+                entries: Vec::new(),
+                failed: 0,
+                first_failures: Vec::new(),
+                truncated: false,
+            });
+            report.record_rejected(&rejected_lines);
             let mut result = json!({ "applied": applied });
             // Tell the caller what was skipped instead of reporting a clean import.
-            if let Some(report) = report {
-                result["failed"] = json!(report.failed);
-                result["truncated"] = json!(report.truncated);
-                result["first_failures"] = serde_json::to_value(&report.first_failures)
-                    .map_err(|error| error.to_string())?;
-            }
+            result["failed"] = json!(report.failed);
+            result["truncated"] = json!(report.truncated);
+            result["first_failures"] = serde_json::to_value(&report.first_failures)
+                .map_err(|error| error.to_string())?;
             Ok(result)
         }
         Operation::ImportPersonal { .. } => {

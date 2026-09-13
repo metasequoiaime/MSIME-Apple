@@ -79,6 +79,10 @@ pub struct ImportEntry {
     pub key: String,
     pub value: String,
     pub weight: i64,
+    /// 1-based line in the submitted text. Carried so a row the Engine refuses
+    /// later can be reported by line, exactly as a parse failure is.
+    #[serde(default)]
+    pub line: usize,
 }
 
 /// Why one row was skipped. Deliberately describes the shape of the problem and
@@ -94,6 +98,9 @@ pub enum ImportIssue {
     ValueTooLong,
     QuickPhraseTooLong,
     Weight,
+    /// Parsed cleanly, but the Engine refused it - typically a jianpin code, or
+    /// a syllable count that does not match the number of Han characters.
+    Rejected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -129,7 +136,32 @@ pub struct ImportReport {
     pub truncated: bool,
 }
 
-const REPORTED_FAILURES: usize = 5;
+pub const REPORTED_FAILURES: usize = 5;
+
+impl ImportReport {
+    /// Fold rows the Engine refused into this report.
+    ///
+    /// The parser only checks the key alphabet and length; the Engine also
+    /// demands complete pinyin syllables and one syllable per Han character,
+    /// so ordinary real files contain rows that parse but are then refused.
+    /// Those belong in the same counters the user already sees, named by line,
+    /// rather than aborting an import that has already written part of itself.
+    pub fn record_rejected(&mut self, lines: &[usize]) {
+        self.failed += lines.len();
+        for line in lines {
+            if self.first_failures.len() >= REPORTED_FAILURES {
+                break;
+            }
+            self.first_failures.push(ImportFailure {
+                line: *line,
+                issue: ImportIssue::Rejected,
+            });
+        }
+        // Parse failures are reported in line order; keep the combined list in
+        // line order too, so "first appeared at line N" stays true.
+        self.first_failures.sort_by_key(|failure| failure.line);
+    }
+}
 
 /// Parse a user-supplied dictionary file.
 ///
@@ -189,7 +221,10 @@ pub fn parse(
             }
         }
         match parse_row(kind, format, line) {
-            Ok(entry) => report.entries.push(entry),
+            Ok(mut entry) => {
+                entry.line = index + 1;
+                report.entries.push(entry);
+            }
             Err(issue) => {
                 report.failed += 1;
                 if report.first_failures.len() < REPORTED_FAILURES {
@@ -255,6 +290,7 @@ fn parse_row(
         key,
         value: word.to_owned(),
         weight,
+        line: 0, // Filled in by the caller, which knows the line number.
     })
 }
 
@@ -425,6 +461,51 @@ mod tests {
         assert_eq!(report.entries.len(), MAX_ENTRIES);
         assert!(report.truncated);
         assert_eq!(report.failed, 0);
+    }
+
+    #[test]
+    fn engine_rejections_join_the_same_report() {
+        let mut report = parse_ok(
+            ImportKind::Pinyin,
+            "standard",
+            "你好	ni'hao
+坏行没有制表符
+世界	shi'jie
+",
+        );
+        assert_eq!(report.entries.len(), 2);
+        assert_eq!(report.failed, 1);
+        // Every accepted row knows which line it came from, so a row the Engine
+        // refuses later can be named the same way a parse failure is.
+        assert_eq!(report.entries[0].line, 1);
+        assert_eq!(report.entries[1].line, 3);
+
+        report.record_rejected(&[3]);
+        assert_eq!(report.failed, 2);
+        // Both kinds of failure sit in one list, in line order.
+        assert_eq!(
+            report.first_failures,
+            vec![
+                ImportFailure { line: 2, issue: ImportIssue::ColumnCount },
+                ImportFailure { line: 3, issue: ImportIssue::Rejected },
+            ]
+        );
+    }
+
+    #[test]
+    fn rejections_respect_the_reporting_cap() {
+        let mut report = parse_ok(ImportKind::Pinyin, "standard", "你好	ni'hao
+");
+        let lines: Vec<usize> = (1..=REPORTED_FAILURES + 4).collect();
+        report.record_rejected(&lines);
+        // Every rejection is counted...
+        assert_eq!(report.failed, REPORTED_FAILURES + 4);
+        // ...but only the first few are named, as with parse failures.
+        assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
+        assert!(report
+            .first_failures
+            .iter()
+            .all(|failure| failure.issue == ImportIssue::Rejected));
     }
 
     #[test]
