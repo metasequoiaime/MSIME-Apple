@@ -30,9 +30,10 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   if (items[3]) result.push_back(4); // emoji
   if (items[4]) result.push_back(5); // screen keyboard
   if (items[5]) result.push_back(6); // settings
-  result.push_back(7); // voice
-  result.push_back(8); // about
-  result.push_back(9); // hide
+  result.push_back(7); // handwriting
+  result.push_back(8); // voice
+  result.push_back(9); // about
+  result.push_back(10); // hide
   return result;
 }
 } // namespace
@@ -164,7 +165,7 @@ void FloatingToolbarWindow::paint() {
         label(value->chinese_punctuation, L"\u3002", L"."),
         !shown_character_set_ ? L"?" : (*shown_character_set_ ? L"\u7e41" : L"\u7b80"),
         items_[3] ? L"😀" : L"", items_[4] ? L"⌨" : L"",
-        items_[5] ? L"\u8bbe" : L"", L"🎙", L"?", L"×"};
+        items_[5] ? L"\u8bbe" : L"", L"✍", L"🎙", L"?", L"×"};
     const auto active = slots(items_);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
@@ -235,11 +236,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           self->keyboard_action_();
         else if (slot == 6 && self->settings_action_)
           self->settings_action_();
-        else if (slot == 7 && self->voice_action_)
+        else if (slot == 7 && self->handwriting_action_)
+          self->handwriting_action_();
+        else if (slot == 8 && self->voice_action_)
           self->voice_action_();
-        else if (slot == 8 && self->about_action_)
+        else if (slot == 9 && self->about_action_)
           self->about_action_();
-        else if (slot == 9 && self->hide_action_)
+        else if (slot == 10 && self->hide_action_)
           self->hide_action_();
       }
       return 0;
