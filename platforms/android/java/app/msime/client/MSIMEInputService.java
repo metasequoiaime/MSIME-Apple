@@ -162,6 +162,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private HorizontalScrollView keyboardControls;
     private JapaneseFlickPreview japaneseFlickPreview;
     private LinearLayout shortcutBar;
     private HorizontalScrollView shortcutScroll;
@@ -247,7 +248,6 @@ public final class MSIMEInputService extends InputMethodService {
     private Button replyPolishModeButton;
     private Button replySourceButton;
     private Button replyTemplateButton;
-    private Button replySkinButton;
     private CommunityReplyLibrary communityReplyLibrary;
     private final ReplyKeyboardModel replyModel = new ReplyKeyboardModel();
     private AiPolishClient.Operation replyOperation;
@@ -1914,7 +1914,17 @@ public final class MSIMEInputService extends InputMethodService {
     private void closeReplyKeyboard() {
         replyModel.resetResults();
         clearReplyRequestReferences();
-        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
+        setReplyKeyboardVisible(false);
+    }
+
+    /** Keep the shared candidate/shortcut bar visible while the reply surface owns the key area. */
+    private void setReplyKeyboardVisible(boolean visible) {
+        if (replyKeyboard != null)
+            replyKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (keyRows != null)
+            keyRows.setVisibility(visible ? View.GONE : View.VISIBLE);
+        if (keyboardControls != null)
+            keyboardControls.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
     private void invalidateReplyContext(String message) {
@@ -1941,11 +1951,11 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         if (replySuppressed) {
-            replyKeyboard.setVisibility(View.GONE);
+            setReplyKeyboardVisible(false);
             return;
         }
         renderReplyKeyboard();
-        replyKeyboard.setVisibility(View.VISIBLE);
+        setReplyKeyboardVisible(true);
     }
 
     private void showReplyKeyboard() {
@@ -2053,7 +2063,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         clearReplyRequestReferences();
         renderReplyKeyboard();
-        if (inserted) replyKeyboard.setVisibility(View.GONE);
+        if (inserted) setReplyKeyboardVisible(false);
     }
 
     private void showReplyTemplates() {
@@ -2276,14 +2286,11 @@ public final class MSIMEInputService extends InputMethodService {
             renderReplyKeyboard();
         });
         replyPolishModeButton.setContentDescription("帮润色模式");
-        Button schemes = button(header, "⌨", this::showSchemePicker);
-        schemes.setContentDescription("选择输入方案");
         replyTemplateButton = button(header, "模板", this::showReplyTemplates);
         replyTemplateButton.setContentDescription("回复模板");
-        replySkinButton = button(header, "皮肤", () -> showSkinMenu(replySkinButton));
-        replySkinButton.setContentDescription("切换皮肤");
-        Button dismiss = button(header, "⌄", () -> requestHideSelf(0));
-        dismiss.setContentDescription("收起键盘");
+        View spacer = new View(this);
+        header.addView(spacer, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
         root.addView(header, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(42)));
 
@@ -2341,9 +2348,6 @@ public final class MSIMEInputService extends InputMethodService {
         styleButton(replyReplyModeButton, true);
         styleButton(replyPolishModeButton, true);
         replyTemplateButton.setEnabled(!replyModel.busy());
-        replySkinButton.setEnabled(canSaveKeyboardSkin());
-        replySkinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
-        if (Build.VERSION.SDK_INT >= 30) replySkinButton.setStateDescription(skin.title());
         replySourceButton.setText(replyModel.source().isEmpty()
             ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
         if (replyModel.replies().isEmpty()) {
@@ -2910,7 +2914,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeVoiceResult();
         closeAiPolish();
-        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
+        closeReplyKeyboard();
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -4530,16 +4534,22 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
         candidateRegion.addView(candidatePaging);
         keyboard.addView(candidateRegion);
+        // Like Apple, keep the shared candidate/shortcut strip above the reply surface. The
+        // ordinary key rows and controls are hidden while this weighted child is visible.
+        replyKeyboard = createReplyKeyboard();
+        replyKeyboard.setVisibility(View.GONE);
+        keyboard.addView(replyKeyboard, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         keyRows = new LinearLayout(this);
         keyRows.setOrientation(LinearLayout.VERTICAL);
         keyboard.addView(keyRows);
         rebuildKeyRows();
         LinearLayout controls = new LinearLayout(this);
-        HorizontalScrollView controlScroll = new HorizontalScrollView(this);
-        controlScroll.setHorizontalScrollBarEnabled(false);
-        controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
+        keyboardControls = new HorizontalScrollView(this);
+        keyboardControls.setHorizontalScrollBarEnabled(false);
+        keyboardControls.addView(controls, new HorizontalScrollView.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        keyboard.addView(controlScroll);
+        keyboard.addView(keyboardControls);
         shiftButton = button(controls, "⇧", () -> {
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()) {
                 toggleInputLanguage();
@@ -4734,10 +4744,6 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         aiPolishContainer.setVisibility(View.GONE);
         keyboardRoot.addView(aiPolishContainer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        replyKeyboard = createReplyKeyboard();
-        replyKeyboard.setVisibility(View.GONE);
-        keyboardRoot.addView(replyKeyboard, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         moreToolsPanel = new LinearLayout(this);
         moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
