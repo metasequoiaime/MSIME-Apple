@@ -23,6 +23,19 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     XCTAssertNoThrow(try config.validatedURL(allowWebSocket: true))
   }
 
+  func testDoubaoOptionsRoundTripThroughCodable() throws {
+    var config = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    config.voiceAppKey = "fixture-app"
+    config.voiceResourceID = "fixture-resource"
+    config.doubaoEnableITN = false
+    config.doubaoEnablePunctuation = false
+    config.doubaoEnableDDC = true
+    config.doubaoBoostingTableID = "fixture-table"
+    let data = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(CustomServiceConfiguration.self, from: data)
+    XCTAssertEqual(decoded, config)
+  }
+
 }
 
 final class CustomServiceTests: XCTestCase {
