@@ -100,6 +100,23 @@ void TrayMenuWindow::hide() {
   if (window_)
     ShowWindow(window_, SW_HIDE);
 }
+bool TrayMenuWindow::open(int icon_center_x, int icon_top) noexcept {
+  try {
+    show(icon_center_x, icon_top);
+    return visible();
+  } catch (...) {
+    // Appearance must not be fatal: leave failed_ alone and report no menu.
+    hide();
+    return false;
+  }
+}
+bool TrayMenuWindow::pointer_inside() const noexcept {
+  POINT cursor{};
+  RECT bounds{};
+  if (!window_ || !GetCursorPos(&cursor) || !GetWindowRect(window_, &bounds))
+    return false;
+  return PtInRect(&bounds, cursor) != FALSE;
+}
 void TrayMenuWindow::show(int icon_center_x, int icon_top) {
   DpiScope dpi_scope;
   if (failed_) {

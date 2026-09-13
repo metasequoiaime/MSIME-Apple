@@ -26,7 +26,7 @@ struct Event {
   }
 };
 IoResult transfer(HANDLE pipe, std::vector<uint8_t> &buffer, bool writing,
-                  DWORD timeout, HANDLE cancel) {
+                  DWORD timeout, HANDLE cancel, bool exact = true) {
   if (!pipe || pipe == INVALID_HANDLE_VALUE || buffer.empty() ||
       buffer.size() > MaxFrameBytes || !timeout ||
       (timeout == INFINITE && (writing || !cancel)))
@@ -83,7 +83,12 @@ IoResult transfer(HANDLE pipe, std::vector<uint8_t> &buffer, bool writing,
   }
   if (!completed)
     return {error_status(error), error, transferred, writing, {}};
-  if (transferred != size)
+  // A variable-length read is complete at whatever the one message carried;
+  // an exact-size caller still requires the whole frame.
+  if (exact && transferred != size)
+    return {
+        IoStatus::MalformedFrame, ERROR_BAD_LENGTH, transferred, writing, {}};
+  if (!exact && transferred == 0)
     return {
         IoStatus::MalformedFrame, ERROR_BAD_LENGTH, transferred, writing, {}};
   // Complete means only that this I/O completed, not that the peer applied a
@@ -91,6 +96,18 @@ IoResult transfer(HANDLE pipe, std::vector<uint8_t> &buffer, bool writing,
   return {IoStatus::Complete, ERROR_SUCCESS, transferred, false, {}};
 }
 } // namespace
+IoResult read_message(HANDLE pipe, DWORD max_bytes, DWORD timeout,
+                      HANDLE cancel) {
+  if (!max_bytes || max_bytes > MaxFrameBytes || !timeout || timeout == INFINITE)
+    return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};
+  std::vector<uint8_t> buffer(max_bytes);
+  auto result = transfer(pipe, buffer, false, timeout, cancel, false);
+  if (result.complete()) {
+    buffer.resize(result.transferred);
+    result.frame = std::move(buffer);
+  }
+  return result;
+}
 IoResult read_frame(HANDLE pipe, DWORD expected, DWORD timeout, HANDLE cancel) {
   if (!expected || expected > MaxFrameBytes || !timeout || timeout == INFINITE)
     return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};

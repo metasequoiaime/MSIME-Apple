@@ -35,6 +35,13 @@ struct IoResult {
 // The finite timeout starts cancellation; completion must be drained before
 // releasing OVERLAPPED/buffers, so it is not a hard wall-clock return
 // guarantee.
+// Variable-length message read for the session-less Aux endpoint, which carries
+// no length prefix. A short read is a complete message; a message larger than
+// max_bytes is MalformedFrame (ERROR_MORE_DATA) rather than a truncated prefix,
+// and a zero-length message is rejected. Close the connection after any
+// non-complete result: an oversized read leaves a suffix in the pipe.
+IoResult read_message(HANDLE pipe, DWORD max_bytes, DWORD timeout_ms,
+                      HANDLE cancel_event = nullptr);
 IoResult read_frame(HANDLE pipe, DWORD expected_bytes, DWORD timeout_ms,
                     HANDLE cancel_event = nullptr);
 // Established input stream only: no idle deadline, but cancellation is

@@ -211,6 +211,12 @@ struct PreviewConfig {
     }
     return result;
   }
+  // The session-less language-bar endpoint. Preview builds keep it inside the
+  // same namespace so two Servers on one machine never collide.
+  std::wstring aux_pipe_name() const {
+    const std::wstring token(pipe_namespace.begin(), pipe_namespace.end());
+    return L"\\\\.\\pipe\\msime-client-preview-" + token + L"-aux";
+  }
   std::array<std::wstring, 3> pipe_names() const {
     std::array<std::wstring, 3> names;
     const std::wstring token(pipe_namespace.begin(), pipe_namespace.end());

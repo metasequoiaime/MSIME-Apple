@@ -13,7 +13,9 @@
 #include "VoiceHotkey.h"
 #include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
+#include "AuxListener.h"
 #include "ServerLaunch.h"
+#include "TrayMenuDispatch.h"
 #include "ipc_negotiation.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
@@ -479,13 +481,30 @@ int wmain(int argc, wchar_t **argv) {
           return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
-    tray.set_palette(palette);
+    tray.set_palette(resolved_palette);
+    // The language bar sends a right click over the Aux pipe; without a
+    // listener the tray menu - and with it every shared-shell entry - is
+    // unreachable. A failure here costs the menu, never the IME.
+    TrayMenuMailbox tray_mailbox;
+    DWORD aux_error = ERROR_SUCCESS;
+    const std::wstring aux_name =
+        production ? FANY_IME_AUX_NAMED_PIPE : config.aux_pipe_name();
+    auto aux = AuxListener::create(
+        aux_name,
+        [&tray_mailbox](const TrayMenuAnchor &anchor) {
+          tray_mailbox.publish(anchor);
+        },
+        aux_error);
+    if (!aux)
+      std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
+    uint64_t tray_shown_at = 0;
+    uint64_t pointer_left_at = 0;
+    HWND tray_foreground = nullptr;
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
-           !modes.failed() && !mode_clicks.failed() && !toolbar.failed() &&
-           !tray.failed()) {
+           !modes.failed() && !mode_clicks.failed() && !toolbar.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -502,6 +521,37 @@ int wmain(int argc, wchar_t **argv) {
       candidates.refresh();
       modes.refresh();
       toolbar.refresh(toolbar_visible);
+      // The listener thread owns no window; the anchor is applied here, on the
+      // thread that created the tray card.
+      const uint64_t now = GetTickCount64();
+      if (const auto anchor = tray_mailbox.take()) {
+        switch (tray_menu_request_action(tray.visible(), now, tray_shown_at)) {
+        case TrayMenuRequestAction::Show:
+          if (tray.open(anchor->center_x, anchor->top)) {
+            tray_shown_at = now;
+            pointer_left_at = now;
+            tray_foreground = GetForegroundWindow();
+          }
+          break;
+        case TrayMenuRequestAction::Hide:
+          tray.hide();
+          break;
+        case TrayMenuRequestAction::None:
+          break;
+        }
+      }
+      if (tray.visible()) {
+        const bool inside = tray.pointer_inside();
+        if (inside)
+          pointer_left_at = now;
+        const bool button_down =
+            (GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON)) &
+            0x8000;
+        if (tray_menu_dismissal(true, now, tray_shown_at, pointer_left_at,
+                                inside, button_down != 0,
+                                GetForegroundWindow() != tray_foreground))
+          tray.hide();
+      }
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
@@ -509,6 +559,11 @@ int wmain(int argc, wchar_t **argv) {
     candidates.hide();
     modes.hide();
     toolbar.hide();
+    // Stop the listener and close the mailbox before the window goes away, so a
+    // late anchor cannot reach a card that is being destroyed.
+    if (aux)
+      aux->stop();
+    tray_mailbox.stop();
     tray.hide();
     clicks.request_stop();
     mode_clicks.request_stop();

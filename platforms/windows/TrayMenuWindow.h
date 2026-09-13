@@ -30,6 +30,12 @@ public:
   TrayMenuWindow &operator=(const TrayMenuWindow &) = delete;
   // Open under the tray icon, in work area pixels.
   void show(int icon_center_x, int icon_top);
+  // show() throws on Direct2D failure. Opening the menu must never take the
+  // Server down, so callers use this and treat false as "no menu this time".
+  bool open(int icon_center_x, int icon_top) noexcept;
+  // The card is WS_EX_NOACTIVATE and never receives WM_KILLFOCUS, so the UI
+  // pump polls the pointer to decide when to dismiss it.
+  bool pointer_inside() const noexcept;
   void hide();
   void set_palette(CandidatePalette palette);
   bool visible() const;
