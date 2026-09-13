@@ -6,6 +6,13 @@
 
 namespace msime::windows {
 
+#ifdef _WIN32
+// LCMapStringEx takes a locale *name*, and Windows ships no LOCALE_NAME_ macro
+// for Simplified Chinese - only the LOCALE_NAME_MAX_LENGTH bound and the three
+// LOCALE_NAME_{INVARIANT,SYSTEM_DEFAULT,USER_DEFAULT} names. Spell it out.
+constexpr const wchar_t *kSimplifiedChinese = L"zh-CN";
+#endif
+
 std::string simplified_to_traditional(std::string_view text,
                                       bool traditional_output) {
   if (!traditional_output || text.empty())
@@ -24,14 +31,14 @@ std::string simplified_to_traditional(std::string_view text,
                           wide_length) != wide_length)
     return std::string(text);
   const int mapped_length = LCMapStringEx(
-      LOCALE_NAME_CHINESE_SIMPLIFIED, LCMAP_TRADITIONAL_CHINESE, wide.data(),
-      wide_length, nullptr, 0, nullptr, nullptr, nullptr);
+      kSimplifiedChinese, LCMAP_TRADITIONAL_CHINESE, wide.data(),
+      wide_length, nullptr, 0, nullptr, nullptr, 0);
   if (mapped_length <= 0)
     return std::string(text);
   std::wstring mapped(static_cast<size_t>(mapped_length), L'\0');
-  if (LCMapStringEx(LOCALE_NAME_CHINESE_SIMPLIFIED,
+  if (LCMapStringEx(kSimplifiedChinese,
                     LCMAP_TRADITIONAL_CHINESE, wide.data(), wide_length,
-                    mapped.data(), mapped_length, nullptr, nullptr, nullptr) <=
+                    mapped.data(), mapped_length, nullptr, nullptr, 0) <=
       0)
     return std::string(text);
   const int utf8_length = WideCharToMultiByte(
