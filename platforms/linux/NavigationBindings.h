@@ -49,6 +49,11 @@ struct NavigationBindings {
   }
 
   std::optional<uint32_t> command(guint key, bool shift) const {
+    // Windows touch keyboards emit private-use page commands. Handle these
+    // before configurable bindings so the compatibility events are not
+    // swallowed when ordinary page shortcuts are disabled.
+    if (const auto touch = touch_keyboard_command(key))
+      return touch;
     if (tab &&
         (key == IBUS_Tab || key == IBUS_KP_Tab || key == IBUS_ISO_Left_Tab))
       return shift || key == IBUS_ISO_Left_Tab ? MSIME_PREVIOUS_PAGE
