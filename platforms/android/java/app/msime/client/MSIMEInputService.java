@@ -90,6 +90,7 @@ public final class MSIMEInputService extends InputMethodService {
     private ScrollView expandedCandidateScroll;
     private TextView preedit;
     private TextView candidatePage;
+    private Button exitLocalModeButton;
     private LinearLayout nineKeySpellings;
     private HorizontalScrollView nineKeySpellingScroll;
     private final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
@@ -4505,6 +4506,19 @@ public final class MSIMEInputService extends InputMethodService {
         });
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        exitLocalModeButton = new KeyboardBorderlessButton(this);
+        exitLocalModeButton.setAllCaps(false);
+        exitLocalModeButton.setText("×");
+        exitLocalModeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        exitLocalModeButton.setContentDescription("退出本地模式");
+        exitLocalModeButton.setPadding(0, 0, 0, 0);
+        styleButton(exitLocalModeButton, true);
+        exitLocalModeButton.setOnClickListener(ignored -> {
+            playFeedback(exitLocalModeButton);
+            command(3);
+        });
+        candidateHeader.addView(exitLocalModeButton, new LinearLayout.LayoutParams(
+            pixels(40), LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
@@ -4868,6 +4882,14 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.setContentDescription(offersLocalModes ? "本地输入模式" : displayText);
             preedit.setClickable(offersLocalModes);
             preedit.setFocusable(offersLocalModes);
+        }
+        if (exitLocalModeButton != null) {
+            boolean localModeActive = view != null
+                && !"none".equals(view.optString("local_mode", "none"));
+            exitLocalModeButton.setVisibility(localModeActive ? View.VISIBLE : View.GONE);
+            exitLocalModeButton.setEnabled(localModeActive && session != 0);
+            exitLocalModeButton.setContentDescription("退出本地模式");
+            styleButton(exitLocalModeButton, true);
         }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
