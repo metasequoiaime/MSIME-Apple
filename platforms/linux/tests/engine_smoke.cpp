@@ -37,6 +37,7 @@ struct Observation {
   bool mode_registered = false;
   bool input_enabled = false;
   bool english_mode = false;
+  bool traditional_output = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool punctuation_enabled = false;
@@ -81,6 +82,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
     if (std::string(ibus_property_get_key(property)) == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (std::string(ibus_property_get_key(property)) == "TraditionalOutput")
+      seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -1266,6 +1269,22 @@ int main(int argc, char **argv) {
         g_usleep(1000);
       }
     };
+    require(!seen.traditional_output, "Traditional output did not start disabled");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F was not consumed");
+    settle();
+    std::ifstream saved_preferences(root / "preferences.json");
+    nlohmann::json saved_snapshot;
+    saved_preferences >> saved_snapshot;
+    require(saved_snapshot.at("preferences").at("traditional_chinese_output").get<bool>(),
+            "Ctrl+Shift+F did not persist traditional output");
+    require(seen.traditional_output,
+            "Persisted traditional output was not applied to the active session");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "TraditionalOutput", PROP_STATE_UNCHECKED));
+    settle();
+    require(!seen.traditional_output,
+            "Traditional output preference did not restore after the shortcut test");
     auto save = [&](uint64_t revision, size_t page_size) {
       auto preferences = options.at("preferences");
       preferences["candidate_page_size"] = page_size;

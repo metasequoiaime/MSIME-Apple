@@ -4714,11 +4714,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const auto active_scheme = s.scheme_override.value_or(configured_scheme);
     if (active_scheme == "japanese")
       return FALSE;
+    if (menu_save_pending)
+      return FALSE;
+    const bool next = !s.traditional_output;
+    const auto directory = configured.value("preferences_directory", std::string{});
+    if (!directory.empty() && directory.front() == '/') {
+      save_menu_preference(engine, MenuPreference::TraditionalOutput, next);
+      return TRUE;
+    }
     guarded(engine, "toggle_character_set", [&] {
       s.open();
       if (!s.session)
         return;
-      s.traditional_output = !s.traditional_output;
+      s.traditional_output = next;
       s.traditional_output_override = s.traditional_output;
       render(engine, s.view);
       publish_mode(engine);

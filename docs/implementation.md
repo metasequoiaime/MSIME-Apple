@@ -751,3 +751,7 @@ Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据�
 Linux Tauri 设置外壳复用 Windows 的单实例与短暂驻留语义，并按 Linux 特性使用 session D-Bus 和 IBus/X11/Sway 的输入目标捕获。`msime-client-settings --panel …` 将受限 surface route 同时放入环境和 argv；已有外壳收到二次启动后在主线程切换设置页或重新打开辅助面板。主设置窗口关闭时隐藏并保留十分钟，之后才真正退出，避免 IBus 菜单每次操作都创建新进程。
 
 本地验证通过启动器静态契约、shell 语法检查、Cargo metadata、client-core 测试和 clippy。桌面 crate 的完整编译仍受当前 macOS 工作区缺少固定 Engine 子模块及 Linux 交叉编译器影响，Linux session D-Bus 与实际桌面窗口需在 Linux 主机验证。
+
+### Linux 简繁快捷键持久化
+
+Linux IBus 的 `Ctrl+Shift+F` 简繁切换现在与属性菜单共用 revision 化偏好保存路径；有共享偏好目录时会更新 `traditional_chinese_output` 并热更新当前会话，没有该目录时仍只改变当前会话。写入进行中快捷键透传，避免覆盖并发偏好。
