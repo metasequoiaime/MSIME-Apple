@@ -338,6 +338,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
+    wave_overlay = {};
     voice_consumed_keys.clear();
     voice_hold_key = 0;
     voice_space_consumed = false;
@@ -2886,7 +2887,7 @@ void voice_start_impl(IBusEngine *engine) {
               if (result->inline_preedit) {
                 s.voice_preedit = std::move(text);
                 s.voice_transcript.clear();
-  s.wave_overlay.transcript.clear();
+                s.wave_overlay.transcript.clear();
               } else {
                 s.voice_transcript = std::move(text);
                 s.wave_overlay.set_transcript(s.voice_transcript);
@@ -2919,7 +2920,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
                   s.voice_transcript.clear();
-  s.wave_overlay.transcript.clear();
+                  s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
@@ -2937,7 +2938,7 @@ void voice_start_impl(IBusEngine *engine) {
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
                 s.voice_transcript.clear();
-  s.wave_overlay.transcript.clear();
+                s.wave_overlay.transcript.clear();
                 s.voice_space_locked = false;
                 if (applied.is_string()) {
                   auto text = traditional_display(
@@ -2955,7 +2956,7 @@ void voice_start_impl(IBusEngine *engine) {
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
                 s.voice_transcript.clear();
-  s.wave_overlay.transcript.clear();
+                s.wave_overlay.transcript.clear();
                 s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 render(result->engine, s.view);
