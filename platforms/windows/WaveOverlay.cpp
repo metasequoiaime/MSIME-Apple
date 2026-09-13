@@ -1,4 +1,5 @@
 #include "WaveOverlay.h"
+#include "CursorResource.h"
 #include "WaveOverlayUtils.h"
 
 #include <d2d1.h>
@@ -292,7 +293,7 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
         Action action{};
         if (hit_test_action(static_cast<float>(point.x) / scale_x_, static_cast<float>(point.y) / scale_y_, action))
         {
-            SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(IDC_HAND)));
+            SetCursor(LoadCursorW(nullptr, msime::windows::wide_cursor(IDC_HAND)));
             return TRUE;
         }
         break;

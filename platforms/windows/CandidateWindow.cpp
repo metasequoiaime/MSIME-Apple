@@ -1,4 +1,5 @@
 #include "CandidateWindow.h"
+#include "CursorResource.h"
 #include <algorithm>
 
 namespace msime::windows {
@@ -545,8 +546,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         TrackMouseEvent(&track);
         const auto click = self->hit(static_cast<short>(LOWORD(lparam)),
                                      static_cast<short>(HIWORD(lparam)));
-        SetCursor(LoadCursorW(nullptr, click ? MAKEINTRESOURCEW(IDC_HAND)
-                                             : MAKEINTRESOURCEW(IDC_ARROW)));
+        SetCursor(LoadCursorW(nullptr, click ? wide_cursor(IDC_HAND)
+                                             : wide_cursor(IDC_ARROW)));
         std::optional<size_t> hovered;
         if (click && self->painted_) {
           for (size_t i = 0; i < self->painted_->candidates.size(); ++i)
@@ -585,7 +586,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         if (GetCapture() == window) ReleaseCapture();
         self->pressed_.reset();
         self->hovered_.reset();
-        SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(IDC_ARROW)));
+        SetCursor(LoadCursorW(nullptr, wide_cursor(IDC_ARROW)));
         return 0;
       case WM_ERASEBKGND:
         return 1;
