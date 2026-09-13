@@ -430,6 +430,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->pressed_ = self->hit(static_cast<short>(LOWORD(lparam)),
                                    static_cast<short>(HIWORD(lparam)));
         if (self->pressed_) {
+          SetCapture(window);
           TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
           if (!TrackMouseEvent(&track))
             self->pressed_.reset();
@@ -450,6 +451,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       }
       case WM_LBUTTONUP: {
+        if (GetCapture() == window) ReleaseCapture();
         const auto pressed = self->pressed_;
         self->pressed_.reset();
         const auto hit = self->hit(static_cast<short>(LOWORD(lparam)),
@@ -466,6 +468,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_CANCELMODE:
       case WM_CAPTURECHANGED:
       case WM_MOUSELEAVE:
+        if (GetCapture() == window) ReleaseCapture();
         self->pressed_.reset();
         self->hovered_.reset();
         SetCursor(LoadCursorW(nullptr, IDC_ARROW));
