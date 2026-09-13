@@ -20,7 +20,12 @@ bool launch_shell_surface_impl(const std::filesystem::path &executable,
     return false;
   }
   // CreateProcessW may write to the command line buffer, so it owns a copy.
-  std::wstring command_line = L"\"" + executable.wstring() + L"\"";
+  std::wstring command_line = L"\"" + executable.wstring() + L"\" --route=";
+  try {
+    command_line += shell_route_argument(request);
+  } catch (const std::invalid_argument &) {
+    return false;
+  }
   STARTUPINFOW startup{};
   startup.cb = sizeof(startup);
   startup.dwFlags = STARTF_USESHOWWINDOW;

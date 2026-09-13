@@ -225,6 +225,15 @@ function DesktopSettings() {
   const [initialPage, setInitialPage] = useState<string | undefined>();
   useEffect(() => {
     let active = true;
+    let unsubscribe: (() => void) | undefined;
+    if (isTauri()) {
+      void listen<string>("settings-route", event => {
+        if (active) setInitialPage(event.payload || undefined);
+      }).then(stop => {
+        if (active) unsubscribe = stop;
+        else stop();
+      }).catch(() => {});
+    }
     const requested = isTauri()
       ? invoke<string | null>("initial_settings_page").catch(() => null)
       : Promise.resolve(null);
@@ -245,7 +254,7 @@ function DesktopSettings() {
         : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
     });
-    return () => { active = false; };
+    return () => { active = false; unsubscribe?.(); };
   }, []);
   // Mount once after discovery: replacing the client later would reload draft preferences.
   if (!settingsClient) return <p role="status">正在连接设置…</p>;
@@ -257,7 +266,7 @@ function DesktopSettings() {
       close: async () => setMobilePanel(null),
     }} />;
   }
-  return <SettingsPage client={settingsClient} initialPage={initialPage} />
+  return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} />
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);

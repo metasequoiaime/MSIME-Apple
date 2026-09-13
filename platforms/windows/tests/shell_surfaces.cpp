@@ -47,6 +47,10 @@ int main() {
     const auto about = shell_surface_request(TrayMenuCommand::OpenAbout);
     require(about && about->panel.empty() && about->page == "about");
     require(!shell_surface_request(TrayMenuCommand::ToggleFloatingToolbar));
+    require(shell_route_argument(*settings) == L"settings");
+    require(shell_route_argument(*about) == L"settings:about");
+    require(shell_route_argument(*shell_surface_request(
+                TrayMenuCommand::OpenEmojiPanel)) == L"emoji");
 
     // A panel request replaces whatever this process inherited and leaves the
     // rest of the environment, including drive current directories, alone.

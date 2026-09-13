@@ -142,4 +142,22 @@ inline std::wstring shell_environment_block(const wchar_t *existing,
                                             const ShellSurfaceRequest &request) {
   return shell_environment_block(existing, request, nullptr);
 }
+
+// The Tauri shell uses the command-line route when a second launch is handed
+// to the already-running instance. Keep the route in the same short ASCII
+// vocabulary as the environment contract.
+inline std::wstring shell_route_argument(const ShellSurfaceRequest &request) {
+  std::string route;
+  if (!request.panel.empty())
+    route = request.panel;
+  else if (!request.page.empty())
+    route = "settings:" + request.page;
+  else
+    route = "settings";
+  if (route.size() > 64 || route.find_first_not_of(
+                              "abcdefghijklmnopqrstuvwxyz0123456789-:") !=
+          std::string::npos)
+    throw std::invalid_argument("Invalid shell surface route");
+  return std::wstring(route.begin(), route.end());
+}
 } // namespace msime::windows

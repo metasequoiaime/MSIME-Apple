@@ -37,6 +37,8 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
 use tauri::Emitter;
 use tauri::Manager;
@@ -418,6 +420,13 @@ fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
 
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Default)]
+struct WindowsSettingsLinger {
+    generation: Arc<AtomicU64>,
+    quitting: Arc<AtomicBool>,
+}
 
 #[cfg(target_os = "linux")]
 #[derive(Clone, Debug)]
@@ -1774,6 +1783,55 @@ fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
         let (x, y) = area.bottom_center(width, height);
         tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
     })
+}
+
+#[cfg(target_os = "windows")]
+fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
+    args.iter().find_map(|argument| {
+        argument
+            .strip_prefix("--route=")
+            .and_then(|route| SurfaceRoute::parse(route).ok())
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn cancel_settings_linger(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<WindowsSettingsLinger>() {
+        state.generation.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn activate_windows_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
+    cancel_settings_linger(app);
+    if let Some(surface) = route.panel() {
+        let state = app.state::<PanelInputState>();
+        let _ = remember_panel_input_target(&state);
+        let position = windows_panel_position(
+            f64::from(surface.width),
+            f64::from(surface.height),
+        );
+        let _ = open_panel_window(
+            app,
+            surface.label,
+            surface.query,
+            surface.title,
+            f64::from(surface.width),
+            f64::from(surface.height),
+            position,
+        );
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    let page = route
+        .settings_category()
+        .map(|category| category.as_str())
+        .unwrap_or_default();
+    let _ = app.emit("settings-route", page);
 }
 
 #[tauri::command]
@@ -3271,6 +3329,17 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, args, _cwd| {
+            if let Some(route) = launch_route_from_args(&args) {
+                let callback_app = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    activate_windows_surface(&callback_app, route)
+                });
+            }
+        },
+    ));
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_account::init());
     builder
@@ -3325,6 +3394,48 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());
+            #[cfg(target_os = "windows")]
+            {
+                let linger = WindowsSettingsLinger::default();
+                app.manage(linger.clone());
+                app.on_window_event(move |window, event| {
+                    if window.label() != "main" {
+                        return;
+                    }
+                    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                        return;
+                    };
+                    if linger.quitting.load(Ordering::Acquire) {
+                        return;
+                    }
+                    api.prevent_close();
+                    let generation = linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                    let _ = window.hide();
+                    let app = window.app_handle().clone();
+                    let linger = linger.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(10 * 60));
+                        let timer_app = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            if linger
+                                .generation
+                                .compare_exchange(
+                                    generation,
+                                    generation + 1,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                )
+                                .is_ok()
+                            {
+                                linger.quitting.store(true, Ordering::Release);
+                                if let Some(window) = timer_app.get_webview_window("main") {
+                                    let _ = window.close();
+                                }
+                            }
+                        });
+                    });
+                });
+            }
             #[cfg(unix)]
             app.manage(voice_sessions::VoiceSessions::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
