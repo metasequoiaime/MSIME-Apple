@@ -18,6 +18,7 @@
 #include "AuxListener.h"
 #include "ServerLaunch.h"
 #include "TrayMenuDispatch.h"
+#include "MaintenanceHotkey.h"
 #include "ipc_negotiation.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
@@ -710,6 +711,43 @@ int wmain(int argc, wchar_t **argv) {
         });
     if (!aux)
       std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
+    // The four shortcuts the shared settings page documents. They must work
+    // while another application has focus, so they sit on a low-level keyboard
+    // hook rather than the TSF key sink.
+    MaintenanceHotkeyController maintenance([&](MaintenanceHotkey hotkey) {
+      switch (hotkey.action) {
+      case MaintenanceAction::Restart:
+        restart_requested.store(true);
+        stopping.store(true);
+        return true;
+      case MaintenanceAction::Stop:
+        stopping.store(true);
+        return true;
+      case MaintenanceAction::ClearCache: {
+        const auto view = server.candidate_view();
+        if (!view)
+          return false;
+        std::unique_ptr<char, decltype(&msime_client_string_free)> reply(
+            msime_client_reset_cache(view->session), msime_client_string_free);
+        return static_cast<bool>(reply);
+      }
+      case MaintenanceAction::DeleteCandidate: {
+        // Only meaningful while a candidate list is on screen; otherwise the
+        // stroke belongs to the focused application and must not be eaten.
+        const auto view = server.candidate_view();
+        if (!view || !view->visible || hotkey.slot >= view->candidates.size())
+          return false;
+        const auto &candidate = view->candidates[hotkey.slot];
+        return server.request_candidate_action(
+                   view->lease, candidate.session, candidate.generation,
+                   candidate.index, CandidateAction::Remove) ==
+               CandidateActionRequestResult::Sent;
+      }
+      }
+      return false;
+    });
+    if (!maintenance.installed())
+      std::cerr << "Maintenance shortcuts unavailable; continuing without them\n";
     uint64_t tray_shown_at = 0;
     uint64_t pointer_left_at = 0;
     HWND tray_foreground = nullptr;

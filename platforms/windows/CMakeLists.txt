@@ -128,6 +128,15 @@ else()
   target_compile_options(windows-aux-message PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-aux-message COMMAND windows-aux-message)
+add_executable(windows-maintenance-hotkeys tests/maintenance_hotkeys.cpp)
+target_include_directories(windows-maintenance-hotkeys PRIVATE .)
+if(MSVC)
+  target_compile_options(windows-maintenance-hotkeys PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-maintenance-hotkeys PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-maintenance-hotkeys COMMAND windows-maintenance-hotkeys)
+set_tests_properties(windows-maintenance-hotkeys PROPERTIES TIMEOUT 10)
 add_executable(windows-server-launch tests/server_launch.cpp)
 target_include_directories(windows-server-launch PRIVATE .)
 if(MSVC)
@@ -264,7 +273,7 @@ if(WIN32)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
                  DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp
-                 VoiceHotkey.cpp VoiceProviders.cpp)
+                 VoiceHotkey.cpp VoiceProviders.cpp MaintenanceHotkey.cpp)
   target_include_directories(msime-windows-server PRIVATE
                              ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
