@@ -2463,8 +2463,9 @@ void render(IBusEngine *engine, const Json &view) {
       feedback = "录音已锁定 · 可松开快捷键 · 再按快捷键或点击语音菜单结束 · Esc 取消";
     if (!state(engine).voice_stopping && state(engine).voice_level) {
       feedback += "  麦克风 [";
+      const auto &bars = state(engine).wave_overlay.levels;
       for (unsigned index = 0; index < 10; ++index)
-        feedback += index < *state(engine).voice_level ? "▰" : "▱";
+        feedback += (index < bars.size() && bars[index] >= 0.08f) ? "▰" : "▱";
       feedback += "]";
     }
     if (!state(engine).voice_transcript.empty()) {
