@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 
 namespace msime::linux_host {
 
@@ -13,6 +14,7 @@ struct WaveOverlayModel {
   bool listening = false;
   bool show_transcript = true;
   bool actions_visible = false;
+  std::string transcript;
   Action pressed_action = Action::Confirm;
   CompactStatus compact_status = CompactStatus::None;
 
