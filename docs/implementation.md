@@ -835,3 +835,9 @@ Windows Server 现在从 PipeRegistry 快照所有已完成 Main/ToTsf/Worker �
 Windows Server 的 `ClipboardMonitor` 在 `WM_CLIPBOARDUPDATE` 成功写入有界共享历史文件后，发出 session-local 命名事件 `Local\MSIME.Client.ClipboardHistoryChanged`。Tauri 桌面壳通过 `host-windows` 打开该事件并等待变更，再在自己的锁内重新读取历史文件；事件只表示存储已变化，不携带剪贴板文本。事件不存在、无法打开或等待超时时，原有 750ms 文件轮询仍作为兜底，因此其他工具写入和旧 Server 也能被发现。
 
 本地验证：x86_64/i686 MinGW 对 `ClipboardMonitor.cpp`、`ClipboardHistory.cpp` 的严格编译，以及 `msime-host-windows` 两架构 `cargo check` 通过。桌面 Windows GNU 检查在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题；未执行 Windows 原生命名事件、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri 原生剪贴板读写
+
+Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win32 `OpenClipboard`、`CF_UNICODETEXT`、`GlobalLock` 与 `SetClipboardData` 包装，不再为普通剪贴板操作启动 PowerShell。读取严格要求有界、NUL 终止且合法的 UTF-16；写入在清空系统剪贴板前先完成内存分配和内容复制，拒绝内部 NUL 与超大 payload，失败路径释放句柄和内存。剪贴板历史仍由共享 `PreferencesStore`/`ClipboardHistoryStore` 负责归一化、加锁和持久化，文本不进入日志或跨进程事件。
+
+本地验证：`msime-host-windows` 的 x86_64/i686 Windows GNU `cargo check` 通过，桌面 Windows GNU 检查已编译通过新的 host crate 与 Tauri Rust 依赖，随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 处停止。未执行 Windows 原生剪贴板实机、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
