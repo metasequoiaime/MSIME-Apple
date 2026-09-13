@@ -6,6 +6,7 @@ final class VoiceRecorder: ObservableObject {
   @Published private(set) var isRecording = false
   @Published private(set) var isPreparing = false
   @Published private(set) var audio: Data?
+  var pcmAudio: Data? { audio.flatMap { WAVPCMExtractor.extract(from: $0) } }
   private var recorder: AVAudioRecorder?
   private var file: URL?
   private var limit: Task<Void, Never>?

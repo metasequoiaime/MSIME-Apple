@@ -50,6 +50,7 @@ targets:
     sources:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift
+      - path: App/Services/WAVPCMExtractor.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport
