@@ -3,6 +3,7 @@ on:
   schedule:
     # Daily at 00:00 Asia/Tokyo (UTC+09:00).
     - cron: '0 15 * * *'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -37,6 +38,9 @@ jobs:
     name: CodeQL / Swift
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      # The same Xcode the simulator CI and the release build use: the keyboard calls iOS 26 API, which the runner's default Xcode 16.4 (iOS 18.5 SDK) cannot compile.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     permissions:
       contents: read
       security-events: write
