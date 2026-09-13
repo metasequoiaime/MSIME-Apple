@@ -166,6 +166,7 @@ public final class MSIMEInputService extends InputMethodService {
     private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
     private final SpaceCursorMovement cursorMovement = new SpaceCursorMovement();
     private Button layerButton;
+    private Button quickPunctuationButton;
     private Button shiftButton;
     private Button languageButton;
     private Button enterButton;
@@ -909,6 +910,50 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean sendsChinesePunctuation() {
         return view != null && ChineseSymbolFaces.shouldUseChineseFaces(dedicatedEnglish,
             view.optInt("scheme", -1), view.optString("local_mode", "none"));
+    }
+
+    private java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
+        return QuickPunctuationPolicy.entries(dedicatedEnglish,
+            view == null ? -1 : view.optInt("scheme", -1),
+            view == null ? "none" : view.optString("local_mode", "none"));
+    }
+
+    private boolean quickPunctuationVisible() {
+        int layout = displayedTouchLayout(view);
+        return keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
+            && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
+            && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY;
+    }
+
+    private void insertQuickPunctuation() {
+        java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
+        if (!entries.isEmpty()) type(entries.get(0).input());
+    }
+
+    private void showQuickPunctuationMenu() {
+        if (quickPunctuationButton == null || !quickPunctuationVisible()) return;
+        PopupMenu popup = new PopupMenu(this, quickPunctuationButton);
+        for (QuickPunctuationPolicy.Entry entry : quickPunctuationEntries()) {
+            popup.getMenu().add(entry.face()).setOnMenuItemClickListener(ignored -> {
+                playFeedback(quickPunctuationButton);
+                type(entry.input());
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private void updateQuickPunctuation() {
+        if (quickPunctuationButton == null) return;
+        java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
+        boolean visible = quickPunctuationVisible() && !entries.isEmpty();
+        quickPunctuationButton.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (!visible) return;
+        String face = entries.get(0).face();
+        quickPunctuationButton.setText(face);
+        quickPunctuationButton.setContentDescription("常用标点：" + face
+            + "；长按选择常用标点");
     }
 
     private void updateSymbolKeyFaces() {
@@ -4053,6 +4098,11 @@ public final class MSIMEInputService extends InputMethodService {
             render();
         });
         layerButton.setContentDescription("切换符号键盘");
+        quickPunctuationButton = button(controls, ",", this::insertQuickPunctuation);
+        quickPunctuationButton.setOnLongClickListener(ignored -> {
+            showQuickPunctuationMenu();
+            return true;
+        });
         button(controls, "首", () -> command(6));
         button(controls, "←", () -> command(4));
         button(controls, "→", () -> command(5));
@@ -4294,6 +4344,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void render() {
         updateSymbolKeyFaces();
+        updateQuickPunctuation();
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
