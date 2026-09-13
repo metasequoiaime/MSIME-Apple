@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <poll.h>
 #include <unistd.h>
 
 namespace msime::linux_host {
@@ -29,6 +30,9 @@ constexpr int kWidth = 420;
 constexpr int kHeight = 132;
 constexpr int kStride = kWidth * 4;
 constexpr std::size_t kBufferBytes = static_cast<std::size_t>(kStride) * kHeight;
+constexpr int kActionCenterInset = 24;
+constexpr int kActionCenterY = 56;
+constexpr int kActionRadius = 14;
 
 int create_shm_file() {
 #ifdef SYS_memfd_create
@@ -57,6 +61,11 @@ void WaveOverlayWaylandSurface::registry_global(
   } else if (std::strcmp(interface, "wl_shm") == 0 && !self->shm_) {
     self->shm_ = static_cast<wl_shm *>(wl_registry_bind(
         registry, name, &wl_shm_interface, 1));
+  } else if (std::strcmp(interface, "wl_seat") == 0 && !self->seat_) {
+    self->seat_ = static_cast<wl_seat *>(wl_registry_bind(
+        registry, name, &wl_seat_interface, std::min(version, 5u)));
+    static const wl_seat_listener seat_listener = {seat_capabilities, seat_name};
+    wl_seat_add_listener(self->seat_, &seat_listener, self);
   } else if (std::strcmp(interface, "zwlr_layer_shell_v1") == 0 && !self->layer_shell_) {
     self->layer_shell_ = static_cast<zwlr_layer_shell_v1 *>(wl_registry_bind(
         registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4u)));
@@ -64,6 +73,89 @@ void WaveOverlayWaylandSurface::registry_global(
 }
 
 void WaveOverlayWaylandSurface::registry_remove(void *, wl_registry *, uint32_t) {}
+
+void WaveOverlayWaylandSurface::seat_capabilities(void *data, wl_seat *seat,
+                                                   uint32_t capabilities) {
+  auto *self = static_cast<WaveOverlayWaylandSurface *>(data);
+  const bool pointer_available = (capabilities & WL_SEAT_CAPABILITY_POINTER) != 0;
+  if (pointer_available && !self->pointer_) {
+    self->pointer_ = wl_seat_get_pointer(seat);
+    static const wl_pointer_listener pointer_listener = {
+        pointer_enter, pointer_leave, pointer_motion, pointer_button,
+        pointer_axis, pointer_frame, pointer_axis_source, pointer_axis_stop,
+        pointer_axis_discrete, pointer_axis_value120};
+    wl_pointer_add_listener(self->pointer_, &pointer_listener, self);
+  } else if (!pointer_available && self->pointer_) {
+    wl_pointer_destroy(self->pointer_);
+    self->pointer_ = nullptr;
+    self->pointer_inside_ = false;
+    self->action_pressed_ = false;
+  }
+}
+
+void WaveOverlayWaylandSurface::seat_name(void *, wl_seat *, const char *) {}
+
+void WaveOverlayWaylandSurface::pointer_enter(void *data, wl_pointer *,
+                                               uint32_t, wl_surface *surface,
+                                               wl_fixed_t x, wl_fixed_t y) {
+  auto *self = static_cast<WaveOverlayWaylandSurface *>(data);
+  if (surface != self->surface_)
+    return;
+  self->pointer_inside_ = true;
+  self->pointer_x_ = wl_fixed_to_int(x);
+  self->pointer_y_ = wl_fixed_to_int(y);
+}
+
+void WaveOverlayWaylandSurface::pointer_leave(void *data, wl_pointer *,
+                                               uint32_t, wl_surface *surface) {
+  auto *self = static_cast<WaveOverlayWaylandSurface *>(data);
+  if (surface == self->surface_)
+    self->pointer_inside_ = false;
+  self->action_pressed_ = false;
+}
+
+void WaveOverlayWaylandSurface::pointer_motion(void *data, wl_pointer *,
+                                                uint32_t, wl_fixed_t x,
+                                                wl_fixed_t y) {
+  auto *self = static_cast<WaveOverlayWaylandSurface *>(data);
+  self->pointer_x_ = wl_fixed_to_int(x);
+  self->pointer_y_ = wl_fixed_to_int(y);
+}
+
+void WaveOverlayWaylandSurface::pointer_button(void *data, wl_pointer *,
+                                                uint32_t, uint32_t,
+                                                uint32_t button, uint32_t state) {
+  auto *self = static_cast<WaveOverlayWaylandSurface *>(data);
+  constexpr uint32_t kLeftButton = 0x110;
+  if (button != kLeftButton || !self->pointer_inside_)
+    return;
+  WaveOverlayModel::Action action;
+  if (state == WL_POINTER_BUTTON_STATE_PRESSED &&
+      self->hit_test_action(self->pointer_x_, self->pointer_y_, action)) {
+    self->pressed_action_ = action;
+    self->action_pressed_ = true;
+  } else if (state == WL_POINTER_BUTTON_STATE_RELEASED &&
+             self->action_pressed_) {
+    const bool activated = self->hit_test_action(
+                               self->pointer_x_, self->pointer_y_, action) &&
+                           action == self->pressed_action_;
+    self->action_pressed_ = false;
+    if (activated && self->action_handler_)
+      self->action_handler_(action);
+  }
+}
+
+void WaveOverlayWaylandSurface::pointer_axis(void *, wl_pointer *, uint32_t,
+                                              uint32_t, wl_fixed_t) {}
+void WaveOverlayWaylandSurface::pointer_frame(void *, wl_pointer *) {}
+void WaveOverlayWaylandSurface::pointer_axis_source(void *, wl_pointer *,
+                                                    uint32_t) {}
+void WaveOverlayWaylandSurface::pointer_axis_stop(void *, wl_pointer *,
+                                                  uint32_t, uint32_t) {}
+void WaveOverlayWaylandSurface::pointer_axis_discrete(void *, wl_pointer *,
+                                                      uint32_t, int32_t) {}
+void WaveOverlayWaylandSurface::pointer_axis_value120(void *, wl_pointer *,
+                                                      uint32_t, int32_t) {}
 
 void WaveOverlayWaylandSurface::layer_configure(
     void *data, zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t width,
@@ -133,6 +225,71 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
   return ensure_buffers();
 }
 
+void WaveOverlayWaylandSurface::set_input_region(bool actions_visible) {
+  if (!surface_ || !compositor_)
+    return;
+  auto *region = wl_compositor_create_region(compositor_);
+  if (!region)
+    return;
+  if (actions_visible) {
+    wl_region_add(region, kActionCenterInset - kActionRadius,
+                  kActionCenterY - kActionRadius, 2 * kActionRadius,
+                  2 * kActionRadius);
+    wl_region_add(region, kWidth - kActionCenterInset - kActionRadius,
+                  kActionCenterY - kActionRadius, 2 * kActionRadius,
+                  2 * kActionRadius);
+  }
+  wl_surface_set_input_region(surface_, region);
+  wl_region_destroy(region);
+}
+
+bool WaveOverlayWaylandSurface::hit_test_action(
+    int x, int y, WaveOverlayModel::Action &action) const {
+  if (!actions_visible_)
+    return false;
+  const auto inside = [y](int center_x, int point_x) {
+    const int dx = point_x - center_x;
+    const int dy = y - kActionCenterY;
+    return dx * dx + dy * dy <= kActionRadius * kActionRadius;
+  };
+  if (inside(kActionCenterInset, x)) {
+    action = WaveOverlayModel::Action::Cancel;
+    return true;
+  }
+  if (inside(kWidth - kActionCenterInset, x)) {
+    action = WaveOverlayModel::Action::Confirm;
+    return true;
+  }
+  return false;
+}
+
+void WaveOverlayWaylandSurface::pump_events() {
+  if (!display_)
+    return;
+  if (wl_display_dispatch_pending(display_) < 0) {
+    closed_ = true;
+    return;
+  }
+  if (wl_display_prepare_read(display_) != 0)
+    return;
+  const auto flush_result = wl_display_flush(display_);
+  if (flush_result < 0 && errno != EAGAIN) {
+    wl_display_cancel_read(display_);
+    closed_ = true;
+    return;
+  }
+  pollfd descriptor{wl_display_get_fd(display_), POLLIN, 0};
+  const int ready = poll(&descriptor, 1, 0);
+  if (ready > 0 && (descriptor.revents & POLLIN)) {
+    if (wl_display_read_events(display_) < 0)
+      closed_ = true;
+  } else {
+    wl_display_cancel_read(display_);
+  }
+  if (!closed_ && wl_display_dispatch_pending(display_) < 0)
+    closed_ = true;
+}
+
 bool WaveOverlayWaylandSurface::ensure_buffers() {
   if (buffers_[0] && buffers_[1])
     return true;
@@ -197,6 +354,10 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
       return;
   }
   auto *pixels = static_cast<uint32_t *>(pixels_[index]);
+  actions_visible_ = model.actions_visible;
+  set_input_region(model.actions_visible);
+  if (!model.actions_visible)
+    action_pressed_ = false;
   std::fill(pixels, pixels + kWidth * kHeight, 0xE6202124u);
   const auto status_color = model.locked ? 0xFFFFC857u
                            : model.compact_status == WaveOverlayModel::CompactStatus::Processing
@@ -246,7 +407,7 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
     status = "正在录音…";
   pango_layout_set_text(layout, status.c_str(), -1);
   cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
-  cairo_move_to(cairo, 24, 70);
+  cairo_move_to(cairo, model.actions_visible ? 52 : 24, 70);
   pango_cairo_show_layout(cairo, layout);
   if (model.show_transcript && !model.transcript.empty()) {
     auto transcript = model.transcript;
@@ -260,6 +421,28 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   cairo_destroy(cairo);
   cairo_surface_destroy(image);
 #endif
+  if (model.actions_visible) {
+    const auto fill_circle = [pixels](int center_x, uint32_t value) {
+      for (int y = -kActionRadius; y <= kActionRadius; ++y)
+        for (int x = -kActionRadius; x <= kActionRadius; ++x)
+          if (x * x + y * y <= kActionRadius * kActionRadius)
+            pixels[(kActionCenterY + y) * kWidth + center_x + x] = value;
+    };
+    fill_circle(kActionCenterInset, 0xFF73A7FFu);
+    fill_circle(kWidth - kActionCenterInset, 0xFF73A7FFu);
+    for (int offset = -5; offset <= 5; ++offset) {
+      pixels[(kActionCenterY + offset) * kWidth + kActionCenterInset + offset] =
+          0xFF202124u;
+      pixels[(kActionCenterY + offset) * kWidth + kActionCenterInset - offset] =
+          0xFF202124u;
+    }
+    for (int offset = -4; offset <= 4; ++offset) {
+      pixels[(kActionCenterY + offset) * kWidth + kWidth - kActionCenterInset + offset / 2] =
+          0xFF202124u;
+      pixels[(kActionCenterY + offset) * kWidth + kWidth - kActionCenterInset + 5 - offset / 2] =
+          0xFF202124u;
+    }
+  }
   wl_surface_attach(surface_, buffers_[index], 0, 0);
   wl_surface_damage(surface_, 0, 0, kWidth, kHeight);
   wl_surface_commit(surface_);
@@ -271,14 +454,17 @@ bool WaveOverlayWaylandSurface::show(const WaveOverlayModel &model) {
   if (!ensure_surface())
     return false;
   visible_ = true;
+  actions_visible_ = model.actions_visible;
   draw(model);
+  pump_events();
   return true;
 }
 
 void WaveOverlayWaylandSurface::update(const WaveOverlayModel &model) {
   if (!display_ || closed_)
     return;
-  wl_display_dispatch_pending(display_);
+  actions_visible_ = model.actions_visible;
+  pump_events();
   draw(model);
 }
 
@@ -290,6 +476,8 @@ void WaveOverlayWaylandSurface::hide() {
     wl_display_flush(display_);
   }
   visible_ = false;
+  action_pressed_ = false;
+  pointer_inside_ = false;
 }
 
 void WaveOverlayWaylandSurface::destroy_surface() {

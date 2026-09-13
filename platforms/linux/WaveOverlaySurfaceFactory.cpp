@@ -69,7 +69,7 @@ std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(
   if (!force_ibus &&
       (wayland_requested || (!x11_requested && g_getenv("WAYLAND_DISPLAY")))) {
     return std::make_unique<FallbackSurface>(
-        std::make_unique<WaveOverlayWaylandSurface>(),
+        std::make_unique<WaveOverlayWaylandSurface>(std::move(action_handler)),
         std::make_unique<WaveOverlayIbusSurface>(engine));
   }
 #else
