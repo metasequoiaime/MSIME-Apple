@@ -160,14 +160,15 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
                                  std::optional<bool> dark_theme,
-                                 bool horizontal, bool show_preedit, Page page)
+                                 bool horizontal, bool show_preedit,
+                                 Page page, bool mouse_wheel)
     : reader_(std::move(reader)), click_(std::move(click)), page_(std::move(page)),
       font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
       palette_(dark_theme.value_or(false) ? CandidatePalette{}
                                           : candidate_light_palette()),
       font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal),
-      show_preedit_(show_preedit) {
+      show_preedit_(show_preedit), mouse_wheel_(mouse_wheel) {
   if (font_family_.empty() || font_family_.size() > 128)
     throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
@@ -798,6 +799,14 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
       case WM_MOUSEWHEEL: {
+        if (!self->mouse_wheel_) {
+          // Keep the opt-in contract shared with the Server. Returning the
+          // message to the default procedure preserves the pre-feature
+          // behavior when wheel paging is disabled instead of swallowing a
+          // wheel event over this NOACTIVATE window.
+          self->wheel_accumulator_ = 0;
+          return DefWindowProcW(window, message, wparam, lparam);
+        }
         if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {
           self->wheel_accumulator_ = 0;
           return 0;
