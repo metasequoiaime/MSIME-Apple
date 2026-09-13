@@ -20,7 +20,9 @@ use msime_client_core::panels::{
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
-use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+use msime_client_core::typing_statistics::{
+    TypingSource, TypingStatistics, TypingStatisticsStore,
+};
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -1654,10 +1656,30 @@ fn send_panel_text_to_target(
 }
 
 #[cfg(target_os = "linux")]
+fn record_panel_typing_statistics(
+    store: &TypingStatisticsStore,
+    text: &str,
+    source: TypingSource,
+) {
+    let day = time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+        .date();
+    let day = format!(
+        "{:04}-{:02}-{:02}",
+        day.year(),
+        u8::from(day.month()),
+        day.day()
+    );
+    let _ = store.record(text, source, &day);
+}
+
+#[cfg(target_os = "linux")]
 async fn send_panel_text(
     app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
+    typing_statistics: &tauri::State<'_, TypingStatisticsState>,
     text: String,
+    source: TypingSource,
 ) -> Result<(), HostActionError> {
     if text.is_empty()
         || text.len() > 4096
@@ -1677,8 +1699,13 @@ async fn send_panel_text(
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
+    let typing_statistics = typing_statistics.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        send_panel_text_to_target(&app, &target, &text)
+        let result = send_panel_text_to_target(&app, &target, &text);
+        if result.is_ok() {
+            record_panel_typing_statistics(&typing_statistics, &text, source);
+        }
+        result
     })
     .await
     .map_err(|_| HostActionError { code: "unavailable" })?
@@ -2447,13 +2474,21 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
 async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     {
         msime_client_core::panels::validate_candidate(&candidate)
             .map_err(|_| HostActionError { code: "invalid_text" })?;
-        return send_panel_text(app, &state, candidate).await;
+        return send_panel_text(
+            app,
+            &state,
+            &typing_statistics,
+            candidate,
+            TypingSource::Handwriting,
+        )
+        .await;
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -2468,11 +2503,20 @@ async fn submit_handwriting_candidate(
 async fn send_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     text: String,
 ) -> Result<(), HostActionError> {
     let _ = &app;
+    let _ = &typing_statistics;
     #[cfg(target_os = "linux")]
-    return send_panel_text(app, &state, text).await;
+    return send_panel_text(
+        app,
+        &state,
+        &typing_statistics,
+        text,
+        TypingSource::Unknown,
+    )
+    .await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -2526,6 +2570,7 @@ async fn paste_clipboard_text(
 async fn send_voice_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
@@ -2538,6 +2583,7 @@ async fn send_voice_text(
             .clone()
             .ok_or(HostActionError { code: "unavailable" })?;
         let store = store.inner().clone();
+        let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             let commit_mode = store
                 .load()
@@ -2545,14 +2591,18 @@ async fn send_voice_text(
                 .preferences
                 .voice_input
                 .commit_mode;
-            send_panel_voice_text(&app, &target, &text, &commit_mode)
+            let result = send_panel_voice_text(&app, &target, &text, &commit_mode);
+            if result.is_ok() {
+                record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
+            }
+            result
         })
         .await
         .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (app, state, store, text);
+        let _ = (app, state, typing_statistics, store, text);
         Err(HostActionError {
             code: "unavailable",
         })
