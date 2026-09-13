@@ -5,6 +5,7 @@
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
+#include "ProductionDispatcher.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
@@ -283,7 +284,8 @@ int wmain(int argc, wchar_t **argv) {
           *voice_config = std::move(next);
         };
     WindowsServer server(
-        options, prepared.at("value").dump(), preview_key_handler(config),
+        options, prepared.at("value").dump(),
+        production ? production_key_handler() : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
     VoiceInputSession *voice_session = nullptr;
