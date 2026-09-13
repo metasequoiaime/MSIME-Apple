@@ -241,12 +241,15 @@ int main() {
 
         NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(panel);
         [menu update];
-        assert(menu.numberOfItems == 7);
+        assert(menu.numberOfItems == 10);
         assert([menu itemAtIndex:0].action == @selector(openCharacterPalette:) &&
                [menu itemAtIndex:1].action == @selector(openSettings:) &&
                [menu itemAtIndex:2].action == @selector(checkForUpdates:) &&
                [menu itemAtIndex:4].action == @selector(openWebsite:) &&
-               [menu itemAtIndex:6].action == @selector(dismissFloatingToolbar:));
+               [menu itemAtIndex:5].action == @selector(openHelp:) &&
+               [menu itemAtIndex:6].action == @selector(openAbout:) &&
+               [menu itemAtIndex:7].action == @selector(openFeedback:) &&
+               [menu itemAtIndex:9].action == @selector(dismissFloatingToolbar:));
         for (NSMenuItem *item in menu.itemArray) {
             if (!item.isSeparatorItem) assert(item.enabled && item.target == panel);
         }

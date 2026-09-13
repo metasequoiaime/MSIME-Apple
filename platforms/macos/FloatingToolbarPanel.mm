@@ -1,5 +1,6 @@
 #import "FloatingToolbarPanel.h"
 #import "CandidateSkinAppearance.h"
+#import "SupportWindowController.h"
 
 #include <algorithm>
 #include <cmath>
@@ -110,6 +111,16 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     website.target = target;
     website.enabled = YES;
     [menu addItem:website];
+    for (NSMenuItem *item in @[
+             [[NSMenuItem alloc] initWithTitle:@"使用帮助…" action:@selector(openHelp:) keyEquivalent:@""],
+             [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(openAbout:) keyEquivalent:@""],
+             [[NSMenuItem alloc] initWithTitle:@"问题反馈…" action:@selector(openFeedback:) keyEquivalent:@""],
+         ])
+    {
+        item.target = target;
+        item.enabled = YES;
+        [menu addItem:item];
+    }
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏悬浮状态栏"
                                                   action:@selector(dismissFloatingToolbar:)
@@ -536,6 +547,24 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
     (void)sender;
     [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self];
+}
+
+- (void)openHelp:(id)sender
+{
+    (void)sender;
+    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp];
+}
+
+- (void)openAbout:(id)sender
+{
+    (void)sender;
+    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout];
+}
+
+- (void)openFeedback:(id)sender
+{
+    (void)sender;
+    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback];
 }
 
 - (void)dismissFloatingToolbar:(id)sender

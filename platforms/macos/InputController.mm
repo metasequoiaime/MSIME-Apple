@@ -12,6 +12,7 @@
 #import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
+#import "SupportWindowController.h"
 #import "BackendAccountEntry.h"
 #import "BackendSelectionObservation.h"
 #include "ToolTextReturn.h"
@@ -733,6 +734,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"官方网站" action:@selector(openWebsite:) keyEquivalent:@""];
     website.target = self;
     [menu addItem:website];
+    NSMenuItem *help = [[NSMenuItem alloc] initWithTitle:@"使用帮助…" action:@selector(showHelp:) keyEquivalent:@""];
+    help.target = self;
+    [menu addItem:help];
+    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(showAbout:) keyEquivalent:@""];
+    about.target = self;
+    [menu addItem:about];
+    NSMenuItem *feedback = [[NSMenuItem alloc] initWithTitle:@"问题反馈…" action:@selector(showFeedback:) keyEquivalent:@""];
+    feedback.target = self;
+    [menu addItem:feedback];
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(toggleVoiceInput:) keyEquivalent:@""];
     voice.target = self;
     [menu addItem:voice];
@@ -906,6 +916,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     start();
 }
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
+- (void)showHelp:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp]; }
+- (void)showAbout:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout]; }
+- (void)showFeedback:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback]; }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
