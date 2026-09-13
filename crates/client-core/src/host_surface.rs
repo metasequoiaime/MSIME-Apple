@@ -89,12 +89,16 @@ pub struct HostCapabilities {
     /// The shared UI draws its own titlebar and resize handles.
     pub window_chrome: bool,
     /// The host presents a floating toolbar in some form. On Linux that is the
-    /// IBus property menu rather than a drawn window, so only the enable switch
-    /// is meaningful there.
+    /// IBus property menu rather than a drawn window, so the enable switch and
+    /// component visibility are the meaningful controls there.
     pub floating_toolbar: bool,
-    /// The toolbar surface honours scale, icon size and per-component
-    /// visibility. An IBus property menu cannot express any of them.
+    /// The toolbar surface honours scale and icon size. An IBus property menu
+    /// cannot express either value.
     pub floating_toolbar_appearance: bool,
+    /// The host can independently show or hide toolbar components. Linux
+    /// expresses this through the IBus property menu even though it cannot
+    /// draw the Windows/macOS floating window.
+    pub floating_toolbar_components: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -138,12 +142,15 @@ impl HostCapabilities {
             window_chrome: platform.is_desktop(),
             floating_toolbar: platform.is_desktop(),
             // macOS FloatingToolbarPanel.mm and the Windows FloatingToolbarWindow
-            // both read scale_percent and font_size; the Linux host reads only
-            // floating_toolbar.enabled.
+            // both read scale_percent and font_size; the Linux host has no
+            // equivalent surface for those two values.
             floating_toolbar_appearance: matches!(
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos
             ),
+            // Linux maps the component switches to IBus menu entries; the
+            // native-window hosts apply them to their own toolbar buttons.
+            floating_toolbar_components: platform.is_desktop(),
             // Only the IBus host consumes the shared keybindings and forwards
             // panel shortcuts so far; a host flips these once it does.
             mode_switch_shortcuts: platform == HostPlatform::Linux,
@@ -529,10 +536,11 @@ mod tests {
         assert!(linux.ime_mode_scope);
         assert!(linux.panel_windows);
         assert!(linux.mode_switch_shortcuts);
-        // Linux stands the toolbar up as an IBus property menu: the switch works,
-        // but scale, icon size and component visibility have no surface to apply to.
+        // Linux stands the toolbar up as an IBus property menu: the switch and
+        // component visibility work, but scale and icon size have no surface.
         assert!(linux.floating_toolbar);
         assert!(!linux.floating_toolbar_appearance);
+        assert!(linux.floating_toolbar_components);
         assert!(linux.panel_shortcuts);
         assert!(linux.voice_capture_devices);
         assert!(!linux.candidate_font_controls);
@@ -546,19 +554,31 @@ mod tests {
         // These stay false until the Windows host actually consumes them;
         // showing the controls earlier would offer settings that do nothing.
         assert!(!windows.mode_switch_shortcuts);
-        assert!(windows.floating_toolbar && windows.floating_toolbar_appearance);
+        assert!(
+            windows.floating_toolbar
+                && windows.floating_toolbar_appearance
+                && windows.floating_toolbar_components
+        );
         assert!(windows.candidate_font_controls);
         assert!(windows.candidate_row_colors);
         assert!(windows.candidate_selection_appearance);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
-        assert!(macos.floating_toolbar && macos.floating_toolbar_appearance);
+        assert!(
+            macos.floating_toolbar
+                && macos.floating_toolbar_appearance
+                && macos.floating_toolbar_components
+        );
         assert!(macos.fuzzy_pinyin);
         assert!(macos.candidate_font_controls);
         assert!(macos.candidate_row_colors);
         assert!(macos.candidate_selection_appearance);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
-        assert!(!android.floating_toolbar && !android.floating_toolbar_appearance);
+        assert!(
+            !android.floating_toolbar
+                && !android.floating_toolbar_appearance
+                && !android.floating_toolbar_components
+        );
         assert!(!android.candidate_font_controls);
         assert!(!android.candidate_row_colors);
         assert!(!android.candidate_selection_appearance);
