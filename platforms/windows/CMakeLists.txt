@@ -271,6 +271,11 @@ if(WIN32)
                          msimeui user32 gdi32 d2d1 dwrite dwmapi shell32
                          MetasequoiaIme::VoiceCapture MetasequoiaIme::Voice
                          CURL::libcurl winhttp ole32 uuid ZLIB::ZLIB)
+  add_executable(windows-voice-providers tests/voice_providers.cpp)
+  target_include_directories(windows-voice-providers PRIVATE .)
+  target_link_libraries(windows-voice-providers PRIVATE msime-windows-server)
+  add_test(NAME windows-voice-providers COMMAND windows-voice-providers)
+  set_tests_properties(windows-voice-providers PROPERTIES TIMEOUT 10)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-watchdog WIN32 Watchdog.cpp)
   target_include_directories(msime-client-watchdog PRIVATE .)

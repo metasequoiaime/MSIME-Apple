@@ -178,8 +178,17 @@ bool VoiceInputSession::start() {
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
   const VoiceInputConfig config = config_provider_();
-  const bool doubao = is_doubao_asr_provider(config.asr_provider, config.endpoint);
-  const auto endpoint = config.endpoint.empty()
+  const bool doubao = is_doubao_asr_provider(config.asr_provider);
+  // An endpoint whose transport disagrees with the provider is configuration
+  // left behind by an earlier choice, so fall back to this provider's own
+  // default rather than posting its token to the previous provider's host.
+  // Doubao speaks websocket and the others speak HTTPS, so the scheme is a
+  // sufficient test, and existing installs with a stale endpoint are repaired
+  // here rather than only for users who re-pick the provider in settings.
+  const bool mismatched =
+      !config.endpoint.empty() &&
+      voice_endpoint_is_websocket(config.endpoint) != doubao;
+  const auto endpoint = (config.endpoint.empty() || mismatched)
                             ? default_asr_endpoint(config.asr_provider)
                             : config.endpoint;
   const auto model = config.model.empty()

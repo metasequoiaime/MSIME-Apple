@@ -75,10 +75,19 @@ std::string default_polish_model(std::string_view provider) {
   return "Qwen/Qwen3-8B";
 }
 
-bool is_doubao_asr_provider(std::string_view provider,
-                            std::string_view endpoint) {
-  return normalize_voice_provider(provider) == "doubao" ||
-         endpoint.rfind("wss://", 0) == 0;
+bool voice_endpoint_is_websocket(std::string_view endpoint) {
+  return endpoint.rfind("wss://", 0) == 0 || endpoint.rfind("ws://", 0) == 0;
+}
+bool is_doubao_asr_provider(std::string_view provider) {
+  // The provider id decides, and only the provider id. This used to also treat
+  // any wss:// endpoint as Doubao, which inverted the relationship: the shipped
+  // default endpoint is the Doubao websocket URL, so a user who chose OpenAI
+  // but whose stored endpoint had never been rewritten was routed to
+  // DoubaoAsrClient - sending their OpenAI token to ByteDance. An endpoint that
+  // disagrees with the provider is stale configuration, not a provider choice.
+  // normalize_voice_provider already maps an unset provider to doubao, so
+  // nothing is lost by ignoring the endpoint here.
+  return normalize_voice_provider(provider) == "doubao";
 }
 
 namespace {
