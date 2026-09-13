@@ -876,6 +876,30 @@ pub async fn cloud_dictionary_request(
             })
             .await
         }
+        CloudDictionaryRequest::Catalog {
+            kind,
+            code,
+            offset,
+            scheme,
+            profile,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .dictionary_catalog(kind, &code, offset, &scheme, &profile)
+                    .and_then(|page| {
+                        serde_json::to_value(serde_json::json!({
+                            "catalog_entries": page.entries,
+                            "has_more": page.has_more,
+                            "offset": page.offset,
+                            "revision": page.revision,
+                            "normalized": page.normalized,
+                        }))
+                        .map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
         CloudDictionaryRequest::Add {
             kind,
             code,
@@ -904,6 +928,27 @@ pub async fn cloud_dictionary_request(
             call(state, move |session| {
                 session
                     .update_dictionary(kind, &id, &code, &word, weight, revision)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::EditCatalog {
+            kind,
+            code,
+            word,
+            revision,
+            replacement,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            let replacement = replacement.map(|value| (value.code, value.word, value.weight));
+            call(state, move |session| {
+                let replacement = replacement
+                    .as_ref()
+                    .map(|(code, word, weight)| (code.as_str(), word.as_str(), *weight));
+                session
+                    .edit_dictionary_catalog(kind, &code, &word, revision, replacement)
                     .and_then(|change| {
                         serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
                     })

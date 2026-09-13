@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -1425,6 +1425,29 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
+});
+
+test("cloud dictionary catalog panel queries and edits complete directory entries", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const back = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "catalog") {
+      return { catalog_entries: [{ kind: "pinyin", code: "ni", word: "你", weight: 100, }], has_more: false, offset: 0, revision: 42, normalized: "ni" };
+    }
+    return { revision: 43, previous: null, replacement: null };
+  });
+  render(<CloudDictionaryCatalogPanel client={{ close, back, request }} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "完整目录编码" }), { target: { value: "ni" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
+  expect(await screen.findByText("你")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "词条" }), { target: { value: "你们" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "edit_catalog", kind: "pinyin", code: "ni", word: "你", revision: 42, replacement: { code: "ni", word: "你们", weight: 100 } }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {

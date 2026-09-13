@@ -83,6 +83,23 @@ pub struct AccountDictionaryPage {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryCatalogEntry {
+    pub kind: DictionaryKind,
+    pub code: String,
+    pub word: String,
+    pub weight: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryCatalogPage {
+    pub entries: Vec<AccountDictionaryCatalogEntry>,
+    pub has_more: bool,
+    pub offset: usize,
+    pub revision: i64,
+    pub normalized: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountDictionaryChange {
     pub revision: i64,
     pub previous: Option<AccountDictionaryEntry>,
@@ -272,6 +289,31 @@ pub trait AccountApi: Send + Sync + 'static {
         _offset: usize,
         _access_token: &str,
     ) -> Result<AccountDictionaryPage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn dictionary_catalog(
+        &self,
+        _kind: DictionaryKind,
+        _code: &str,
+        _offset: usize,
+        _scheme: &str,
+        _profile: &str,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryCatalogPage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn edit_dictionary_catalog(
+        &self,
+        _kind: DictionaryKind,
+        _code: &str,
+        _word: &str,
+        _revision: i64,
+        _replacement: Option<(&str, &str, i64)>,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
         Err(AccountError::Unavailable)
     }
 
@@ -625,6 +667,90 @@ impl BackendAccountClient {
         Ok(page)
     }
 
+    pub fn dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        offset: usize,
+        scheme: &str,
+        profile: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryCatalogPage, AccountError> {
+        validate_dictionary_catalog_query(code, offset, scheme, profile)?;
+        let path = dictionary_catalog_path(kind, code, offset, scheme, profile)?;
+        let page = self.json::<AccountDictionaryCatalogPage, ()>(
+            Method::GET,
+            &path,
+            Some(access_token),
+            None,
+        )?;
+        validate_dictionary_catalog_page(&page, kind)?;
+        Ok(page)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit_dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        revision: i64,
+        replacement: Option<(&str, &str, i64)>,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        validate_dictionary_catalog_identity(kind, code, word)?;
+        if revision < 0 {
+            return Err(AccountError::Invalid);
+        }
+        if let Some((replacement_code, replacement_word, replacement_weight)) = replacement {
+            validate_dictionary_value(
+                kind,
+                replacement_code,
+                replacement_word,
+                replacement_weight,
+            )?;
+        }
+        #[derive(Serialize)]
+        struct Identity<'a> {
+            code: &'a str,
+            word: &'a str,
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            revision: i64,
+            previous: Identity<'a>,
+            replacement: Option<Replacement<'a>>,
+        }
+        #[derive(Serialize)]
+        struct Replacement<'a> {
+            code: &'a str,
+            word: &'a str,
+            weight: i64,
+        }
+        let replacement_body = replacement.map(|(replacement_code, replacement_word, weight)| {
+            Replacement {
+                code: replacement_code,
+                word: replacement_word,
+                weight,
+            }
+        });
+        let change = self.json(
+            Method::POST,
+            &format!(
+                "/v1/users/me/dictionaries/{}/edit",
+                dictionary_kind_path(kind)
+            ),
+            Some(access_token),
+            Some(&Body {
+                revision,
+                previous: Identity { code, word },
+                replacement: replacement_body,
+            }),
+        )?;
+        validate_dictionary_change(&change, kind)?;
+        Ok(change)
+    }
+
     pub fn add_dictionary(
         &self,
         kind: DictionaryKind,
@@ -873,6 +999,103 @@ fn dictionary_path(
         dictionary_kind_path(kind),
         percent_encode_query(search)
     ))
+}
+
+fn validate_dictionary_catalog_query(
+    code: &str,
+    offset: usize,
+    scheme: &str,
+    profile: &str,
+) -> Result<(), AccountError> {
+    if offset > 1_000_000
+        || code.len() > 256
+        || code.contains('\0')
+        || scheme.is_empty()
+        || scheme.len() > 64
+        || profile.is_empty()
+        || profile.len() > 64
+        || scheme.chars().any(char::is_control)
+        || profile.chars().any(char::is_control)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn dictionary_catalog_path(
+    kind: DictionaryKind,
+    code: &str,
+    offset: usize,
+    scheme: &str,
+    profile: &str,
+) -> Result<String, AccountError> {
+    validate_dictionary_catalog_query(code, offset, scheme, profile)?;
+    Ok(format!(
+        "/v1/users/me/dictionaries/{}/catalog?q={}&offset={offset}&limit=100&scheme={}&profile={}",
+        dictionary_kind_path(kind),
+        percent_encode_query(code),
+        percent_encode_query(scheme),
+        percent_encode_query(profile)
+    ))
+}
+
+fn validate_dictionary_catalog_identity(
+    kind: DictionaryKind,
+    code: &str,
+    word: &str,
+) -> Result<(), AccountError> {
+    let code_ok = match kind {
+        DictionaryKind::Pinyin => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
+        DictionaryKind::Quick => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        DictionaryKind::English => code.bytes().all(|byte| byte.is_ascii_alphabetic()),
+    };
+    if !code_ok
+        || code.is_empty()
+        || code.len() > 256
+        || word.is_empty()
+        || word.len() > 1024
+        || code.chars().any(char::is_control)
+        || word.chars().any(char::is_control)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_dictionary_catalog_entry(
+    entry: &AccountDictionaryCatalogEntry,
+    expected_kind: DictionaryKind,
+) -> Result<(), AccountError> {
+    if entry.kind != expected_kind {
+        return Err(AccountError::Unavailable);
+    }
+    validate_dictionary_value(expected_kind, &entry.code, &entry.word, entry.weight)
+        .map_err(|_| AccountError::Unavailable)
+}
+
+fn validate_dictionary_catalog_page(
+    page: &AccountDictionaryCatalogPage,
+    expected_kind: DictionaryKind,
+) -> Result<(), AccountError> {
+    if page.entries.len() > MAX_DICTIONARY_PAGE_ENTRIES
+        || page.offset > 1_000_000
+        || page.revision < 0
+        || page.normalized.len() > 256
+        || page.normalized.chars().any(char::is_control)
+    {
+        return Err(AccountError::Unavailable);
+    }
+    for entry in &page.entries {
+        validate_dictionary_catalog_entry(entry, expected_kind)?;
+    }
+    Ok(())
 }
 
 fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
@@ -1223,6 +1446,31 @@ impl AccountApi for BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionaryPage, AccountError> {
         self.dictionary(kind, search, offset, access_token)
+    }
+
+    fn dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        offset: usize,
+        scheme: &str,
+        profile: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryCatalogPage, AccountError> {
+        self.dictionary_catalog(kind, code, offset, scheme, profile, access_token)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn edit_dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        revision: i64,
+        replacement: Option<(&str, &str, i64)>,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.edit_dictionary_catalog(kind, code, word, revision, replacement, access_token)
     }
 
     fn add_dictionary(
@@ -1809,6 +2057,33 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated(|api, token| api.dictionary(kind, search, offset, token))
     }
 
+    pub fn dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        offset: usize,
+        scheme: &str,
+        profile: &str,
+    ) -> Result<AccountDictionaryCatalogPage, AccountError> {
+        self.authenticated(|api, token| {
+            api.dictionary_catalog(kind, code, offset, scheme, profile, token)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit_dictionary_catalog(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        revision: i64,
+        replacement: Option<(&str, &str, i64)>,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.authenticated(|api, token| {
+            api.edit_dictionary_catalog(kind, code, word, revision, replacement, token)
+        })
+    }
+
     pub fn add_dictionary(
         &self,
         kind: DictionaryKind,
@@ -2005,7 +2280,14 @@ mod tests {
             dictionary_path(DictionaryKind::Pinyin, 2, "ni hao").unwrap(),
             "/v1/users/me/dictionaries/pinyin?q=ni%20hao&offset=2&limit=100"
         );
+        assert_eq!(
+            dictionary_catalog_path(DictionaryKind::Pinyin, "nihc", 0, "shuangpin", "xiaohe")
+                .unwrap(),
+            "/v1/users/me/dictionaries/pinyin/catalog?q=nihc&offset=0&limit=100&scheme=shuangpin&profile=xiaohe"
+        );
         assert!(dictionary_path(DictionaryKind::Wubi, 1_000_001, "").is_err());
+        assert!(dictionary_catalog_path(DictionaryKind::Pinyin, "", 1_000_001, "pinyin", "x").is_err());
+        assert!(validate_dictionary_catalog_query("", 0, "", "x").is_err());
         assert!(validate_dictionary_id(&valid_id).is_ok());
         assert!(validate_dictionary_id(&valid_id.to_uppercase()).is_err());
 
@@ -2049,6 +2331,22 @@ mod tests {
             DictionaryKind::Pinyin
         )
         .is_err());
+        assert!(validate_dictionary_catalog_page(
+            &AccountDictionaryCatalogPage {
+                entries: vec![AccountDictionaryCatalogEntry {
+                    kind: DictionaryKind::Pinyin,
+                    code: "ni".into(),
+                    word: "你".into(),
+                    weight: 1,
+                }],
+                has_more: false,
+                offset: 0,
+                revision: 2,
+                normalized: "ni".into(),
+            },
+            DictionaryKind::Pinyin
+        )
+        .is_ok());
     }
 
     #[derive(Clone, Default)]
@@ -2516,5 +2814,61 @@ mod tests {
             .unwrap();
         assert_eq!(exported.text, "ni\tfixture\t1\n");
         assert_eq!(exported.filename, "dictionary-pinyin.tsv");
+
+        let catalog_body = serde_json::json!({
+            "entries": [{
+                "kind": "pinyin",
+                "code": "ni'hao",
+                "word": "你好",
+                "weight": 100000
+            }],
+            "offset": 0,
+            "has_more": false,
+            "revision": 42,
+            "normalized": "ni'hao"
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            catalog_body.len(),
+            catalog_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let catalog = client
+            .dictionary_catalog(
+                DictionaryKind::Pinyin,
+                "nihc",
+                0,
+                "shuangpin",
+                "xiaohe",
+                &token(b'a'),
+            )
+            .unwrap();
+        assert_eq!(catalog.revision, 42);
+        assert_eq!(catalog.normalized, "ni'hao");
+
+        let change_body = serde_json::json!({
+            "revision": 43,
+            "previous": null,
+            "replacement": null
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            change_body.len(),
+            change_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let change = client
+            .edit_dictionary_catalog(
+                DictionaryKind::Pinyin,
+                "ni",
+                "你",
+                42,
+                None,
+                &token(b'a'),
+            )
+            .unwrap();
+        assert_eq!(change.revision, 43);
     }
 }

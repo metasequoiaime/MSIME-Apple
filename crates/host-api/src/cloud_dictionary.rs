@@ -8,6 +8,13 @@ pub enum CloudDictionaryRequest {
         offset: usize,
         search: String,
     },
+    Catalog {
+        kind: String,
+        code: String,
+        offset: usize,
+        scheme: String,
+        profile: String,
+    },
     Changes {
         after: i64,
         limit: usize,
@@ -26,6 +33,13 @@ pub enum CloudDictionaryRequest {
         weight: i64,
         revision: i64,
     },
+    EditCatalog {
+        kind: String,
+        code: String,
+        word: String,
+        revision: i64,
+        replacement: Option<CloudDictionaryValue>,
+    },
     Delete {
         kind: String,
         id: String,
@@ -40,6 +54,13 @@ pub enum CloudDictionaryRequest {
         kind: String,
         format: String,
     },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloudDictionaryValue {
+    pub code: String,
+    pub word: String,
+    pub weight: i64,
 }
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
@@ -86,6 +107,29 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 Err("invalid cloud dictionary request")
             }
         }
+        CloudDictionaryRequest::Catalog {
+            kind,
+            code,
+            offset,
+            scheme,
+            profile,
+        } => {
+            if valid_kind(kind)
+                && *offset <= 1_000_000
+                && code.len() <= 256
+                && !code.contains('\0')
+                && !scheme.is_empty()
+                && scheme.len() <= 64
+                && !profile.is_empty()
+                && profile.len() <= 64
+                && !scheme.chars().any(char::is_control)
+                && !profile.chars().any(char::is_control)
+            {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
         CloudDictionaryRequest::Changes { after, limit } => {
             if *after >= 0 && (1..=100).contains(limit) {
                 Ok(())
@@ -122,6 +166,30 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         }
         CloudDictionaryRequest::Delete { kind, id, revision } => {
             if valid_kind(kind) && valid_id(id) && *revision > 0 {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::EditCatalog {
+            kind,
+            code,
+            word,
+            revision,
+            replacement,
+        } => {
+            let identity_ok = valid_kind(kind)
+                && !code.is_empty()
+                && code.len() <= 256
+                && !code.chars().any(char::is_control)
+                && !word.is_empty()
+                && word.len() <= 1024
+                && !word.chars().any(char::is_control)
+                && *revision >= 0;
+            let replacement_ok = replacement.as_ref().is_none_or(|value| {
+                valid_value(kind, &value.code, &value.word, value.weight)
+            });
+            if identity_ok && replacement_ok {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -190,6 +258,34 @@ mod tests {
             revision: 2,
         })
         .is_err());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::Catalog {
+            kind: "pinyin".into(),
+            code: "nihc".into(),
+            offset: 0,
+            scheme: "shuangpin".into(),
+            profile: "xiaohe".into(),
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::EditCatalog {
+            kind: "pinyin".into(),
+            code: "ni".into(),
+            word: "你".into(),
+            revision: 42,
+            replacement: None,
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::EditCatalog {
+            kind: "pinyin".into(),
+            code: "ni".into(),
+            word: "你".into(),
+            revision: 42,
+            replacement: Some(CloudDictionaryValue {
+                code: "ni".into(),
+                word: "你".into(),
+                weight: 1,
+            }),
+        })
+        .is_ok());
     }
 
     #[test]
