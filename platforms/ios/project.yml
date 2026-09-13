@@ -28,6 +28,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
         PRODUCT_NAME: MSIMEClientApp
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lmsime_host_api"
+          - "-lc++"
+          - "-lsqlite3"
+          - "-framework"
+          - Foundation
+          - "-framework"
+          - UIKit
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
     dependencies:
       - target: MSIMEKeyboardExtension
   MSIMEKeyboardExtension:

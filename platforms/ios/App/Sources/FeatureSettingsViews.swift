@@ -168,6 +168,7 @@ struct ServiceSettingsView: View {
   @State private var busy = false
   @State private var operation: Task<Void, Never>?
   @State private var requestID = UUID()
+  @State private var voiceGeneration: UInt64 = 0
   @StateObject private var recorder = VoiceRecorder()
 
   init(kind: CustomServiceKind) {
@@ -550,6 +551,21 @@ struct ServiceSettingsView: View {
     let text = input
     let audio = recorder.audio
     let pcm = recorder.pcmAudio
+    let generation: UInt64
+    let doubaoClient: DoubaoVoiceClient?
+    if config.voiceProvider == .doubao {
+      voiceGeneration &+= 1
+      generation = voiceGeneration
+      let codec = DoubaoHostFrameCodec.make(
+        enableITN: config.doubaoEnableITN,
+        punctuation: config.doubaoEnablePunctuation,
+        DDC: config.doubaoEnableDDC,
+        boostingTable: config.doubaoBoostingTableID)
+      doubaoClient = DoubaoVoiceClient(transport: DoubaoWebSocketTransport(), codec: codec)
+    } else {
+      generation = 0
+      doubaoClient = nil
+    }
     requestID = UUID()
     let id = requestID
     operation = Task {
@@ -558,7 +574,8 @@ struct ServiceSettingsView: View {
           allowWebSocket: kind == .voice && config.voiceProvider == .doubao)
         let savedToken = try ServiceTokenStore.read(kind, url: tokenURL)
         let result = try await CustomServiceClient.request(kind: kind, configuration: config,
-          text: text, wav: audio, pcm: pcm, token: savedToken)
+          text: text, wav: audio, pcm: pcm, token: savedToken,
+          generation: generation, doubaoClient: doubaoClient)
         try Task.checkCancellation()
         guard requestID == id else { return }
         output = result

@@ -47,6 +47,7 @@
 		3F2A8B436443DC6FF6A37439 /* KeyboardSkinCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE253B8C95B9C578CB85E14 /* KeyboardSkinCollection.swift */; };
 		404EB38AC38206704422DBED /* DictionaryLearningPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB1E349697CEDA11FD086F06 /* DictionaryLearningPreference.swift */; };
 		420F4F3B0B5A010BA61ED2C4 /* SkinGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BE2BE59A037096C7B197DF /* SkinGenerationModel.swift */; };
+		43D37CF9FFA6D55ECBDF5A5D /* DoubaoHostFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E87AE64EA616D6D9A72488 /* DoubaoHostFrameCodec.swift */; };
 		4618DD65C7463B71C431F9AE /* WubiMixedPinyinPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88269AAE8A6FF330662D4941 /* WubiMixedPinyinPreference.swift */; };
 		46C0531848FAFC3A00C0AE7B /* CustomSkinEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A38FF01B17D1553BE46FCEE /* CustomSkinEditorView.swift */; };
 		4A3CEAC7A52CC690CAB5EB6B /* CustomKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF34895E0F30366F0D7E916 /* CustomKeyboardSkin.swift */; };
@@ -308,6 +309,7 @@
 		A87D45A5CD6FDF854A984520 /* KeyboardAIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAIService.swift; sourceTree = "<group>"; };
 		AC5641A1B985DE60D823E4FF /* DictionarySnapshotWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotWorker.swift; sourceTree = "<group>"; };
 		B04E4A79002A8A56A936792C /* TypingStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingStatistics.swift; sourceTree = "<group>"; };
+		B0E87AE64EA616D6D9A72488 /* DoubaoHostFrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoHostFrameCodec.swift; sourceTree = "<group>"; };
 		B2AB44E45E5228C8ED86DFEA /* PersonalDictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryView.swift; sourceTree = "<group>"; };
 		B43A3178AA328B8CACE8D5F7 /* KeyboardSkinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinTests.swift; sourceTree = "<group>"; };
 		B7D1B10500D43C11A76C05F6 /* KeyboardSkinTrialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinTrialTests.swift; sourceTree = "<group>"; };
@@ -441,6 +443,7 @@
 				7EC84BA44099A4930E635DE2 /* CloudDictionaryTransfer.swift */,
 				67E825DDDCA53816B69445A7 /* CommunityPreviewFixtures.swift */,
 				6D02CE0D5349C57252D3F4DC /* CustomService.swift */,
+				B0E87AE64EA616D6D9A72488 /* DoubaoHostFrameCodec.swift */,
 				6914C535AEDCBC8ECE6BD8AC /* DoubaoVoiceCoordinator.swift */,
 				D3BFFBE22E609D3DEDB7252A /* DoubaoWebSocketTransport.swift */,
 				A87D45A5CD6FDF854A984520 /* KeyboardAIService.swift */,
@@ -761,6 +764,7 @@
 				46C0531848FAFC3A00C0AE7B /* CustomSkinEditorView.swift in Sources */,
 				404EB38AC38206704422DBED /* DictionaryLearningPreference.swift in Sources */,
 				FC49BFC68FD27616B7AC01F7 /* DictionarySnapshotQueue.swift in Sources */,
+				43D37CF9FFA6D55ECBDF5A5D /* DoubaoHostFrameCodec.swift in Sources */,
 				89F4B615E1BFDA3546F1F719 /* DoubaoVoiceCoordinator.swift in Sources */,
 				D2AC2739AF65D74F617FC811 /* DoubaoWebSocketTransport.swift in Sources */,
 				D866CF3ABA721B72E655871E /* FeatureSettingsViews.swift in Sources */,
@@ -1011,6 +1015,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于语音输入";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lmsime_host_api",
+					"-lc++",
+					"-lsqlite3",
+					"-framework",
+					Foundation,
+					"-framework",
+					UIKit,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
 				PRODUCT_NAME = MSIMEClientApp;
 			};
@@ -1029,6 +1045,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于语音输入";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lmsime_host_api",
+					"-lc++",
+					"-lsqlite3",
+					"-framework",
+					Foundation,
+					"-framework",
+					UIKit,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
 				PRODUCT_NAME = MSIMEClientApp;
 			};
