@@ -3284,7 +3284,9 @@ public final class MSIMEInputService extends InputMethodService {
     private Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
                                  boolean enabled, boolean playBeforeAction, String caption,
                                  Runnable action) {
-        Button card = new Button(this);
+        // Apple renders every tool card with the same press-feedback surface as a key. Keep the
+        // Android card's existing state, accessibility and navigation behavior unchanged.
+        Button card = new KeyboardPressButton(this);
         card.setAllCaps(false);
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
         boolean navigates = section == MoreToolsLayout.Section.TOOLS
