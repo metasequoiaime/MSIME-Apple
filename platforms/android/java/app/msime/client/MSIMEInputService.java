@@ -3083,17 +3083,36 @@ public final class MSIMEInputService extends InputMethodService {
         schemePanel.addView(schemeSurface, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         java.util.List<KeyboardScheme> schemes = enabledSchemes;
-        for (int start = 0; start < schemes.size(); start += 4) {
+        int cardCount = schemes.size() + 1;
+        for (int start = 0; start < cardCount; start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int slot = 0; slot < 4; slot++) {
                 int index = start + slot;
-                if (index >= schemes.size()) {
+                if (index >= cardCount) {
                     View spacer = new View(this);
                     row.addView(spacer, new LinearLayout.LayoutParams(0, pixels(72), 1));
                     continue;
                 }
-                KeyboardScheme scheme = schemes.get(index);
+                if (index == 2) {
+                    Button card = new KeyboardPressButton(this);
+                    card.setAllCaps(false);
+                    card.setText("EN 26\n英文 26 键");
+                    card.setOnClickListener(ignored -> {
+                        playFeedback(card);
+                        selectEnglishScheme();
+                    });
+                    row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
+                    card.setSelected(dedicatedEnglish);
+                    card.setEnabled(!schemeSaving);
+                    card.setContentDescription("输入方案卡片 英文 26 键");
+                    if (Build.VERSION.SDK_INT >= 30)
+                        card.setStateDescription(dedicatedEnglish ? "已选中" : "未选中");
+                    styleButton(card, true);
+                    continue;
+                }
+                int schemeIndex = index > 2 ? index - 1 : index;
+                KeyboardScheme scheme = schemes.get(schemeIndex);
                 // Apple renders scheme cards with the same press-feedback surface as keys. Keep
                 // the Android-specific scheme persistence and selection guards in the callback.
                 Button card = new KeyboardPressButton(this);
@@ -3136,6 +3155,14 @@ public final class MSIMEInputService extends InputMethodService {
         schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin,
             Color.parseColor(skin.keyBackground()), false,
             getResources().getDisplayMetrics().density));
+    }
+
+    private void selectEnglishScheme() {
+        if (schemeSaving || touchGeometrySaving || traditionalOutputSaving || session == 0) return;
+        if (!dedicatedEnglish) toggleInputLanguage();
+        if (session == 0) return;
+        closeSchemePicker();
+        render();
     }
 
     private void selectKeyboardScheme(KeyboardScheme scheme) {
