@@ -354,7 +354,8 @@ def translations(query, server):
         if (not isinstance(app_id, str) or not isinstance(apikey, str) or
             len(app_id) > 4096 or len(apikey) > 4096):
             return []
-        niutrans = {"enabled": True, "app_id": app_id.strip(), "apikey": apikey.strip()}
+        app_id, apikey = app_id.strip(), apikey.strip()
+        niutrans = {"enabled": True, "app_id": app_id, "apikey": apikey}
         provider = ("niutrans", hashlib.sha256((app_id + "\0" + apikey).encode()).digest())
     elif custom:
         endpoint = custom.get("endpoint", "")

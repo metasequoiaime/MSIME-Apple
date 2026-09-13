@@ -4,6 +4,7 @@ set -euo pipefail
 python3 platforms/linux/tests/panel_keymap.py
 python3 platforms/linux/tests/provider_config_discovery.py
 python3 platforms/linux/tests/doubao_auth.py
+python3 platforms/linux/tests/niutrans_credential_normalization.py
 python3 platforms/linux/tests/tencent_credential_normalization.py
 python3 platforms/linux/tests/custom_translation_config.py
 python3 platforms/linux/tests/clipboard_capture_destination.py

@@ -1,7 +1,7 @@
 //! Pure descriptors and response parsing for the host-owned NiuTrans v2 API.
 use msime_client_core::translation;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const URL: &str = "https://api.niutrans.com/v2/text/translate";
 
