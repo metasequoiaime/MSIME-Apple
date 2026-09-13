@@ -2169,6 +2169,12 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    /** Finish the Engine composition before handing the input connection to another IME. */
+    private void switchToNextInputMethodAfterCommit() {
+        if (session != 0) command(9);
+        switchToNextInputMethod(false);
+    }
+
     private boolean canSaveChineseOutput() {
         return !traditionalOutputSaving && !schemeSaving && !touchGeometrySaving && !skinSaving
             && session != 0 && preferencesSnapshot != null && !preferencesDirectory.isEmpty();
@@ -4574,7 +4580,7 @@ public final class MSIMEInputService extends InputMethodService {
         bindSpaceCursor(spaceButton);
         enterButton = button(controls, "换行", this::enter);
         enterButton.setContentDescription("换行");
-        button(controls, "切换", () -> switchToNextInputMethod(false));
+        button(controls, "切换", this::switchToNextInputMethodAfterCommit);
         schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
         skinButton = button(controls, "皮肤", () -> showSkinMenu(skinButton));
