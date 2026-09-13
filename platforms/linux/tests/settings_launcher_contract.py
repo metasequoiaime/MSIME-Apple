@@ -18,4 +18,9 @@ assert 'MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE' in launcher
 assert '"--route=$MSIME_CLIENT_ROUTE"' in launcher
 assert '"settings:about"' in engine
 assert 'MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}' not in launcher
+for property_name in ("Learning", "FrequencyMode", "FrequencyTriggerCount", "FrequencyLinearStep"):
+    assert f'"{property_name}"' in engine
+assert "MenuPreference::Learning" in engine
+assert "MenuPreference::FrequencyTriggerCount" in engine
+assert "MenuPreference::FrequencyLinearStep" in engine
 print("settings launcher contract: ok")

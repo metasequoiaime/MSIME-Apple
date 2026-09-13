@@ -103,7 +103,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -177,6 +177,8 @@ struct State {
   std::optional<std::string> punctuation_lock_override;
   std::optional<uint8_t> candidate_page_size_override;
   std::optional<std::string> frequency_mode_override, helpcode_schema_override;
+  std::optional<uint8_t> frequency_trigger_count_override, frequency_linear_step_override;
+  std::optional<bool> learning_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
   std::optional<std::string> translation_target_language_override;
@@ -186,6 +188,9 @@ struct State {
   bool english_mode = false;
   bool traditional_output = false;
   std::string candidate_preedit_style = "pinyin";
+  bool learning = true;
+  uint8_t frequency_trigger_count = 1;
+  uint8_t frequency_linear_step = 1;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool paired_punctuation = true;
@@ -414,6 +419,11 @@ struct State {
     if (autocorrect_neighbor_override)
       quanpin["autocorrect_neighbor"] = *autocorrect_neighbor_override;
     if (frequency_mode_override) preferences["frequency"]["mode"] = *frequency_mode_override;
+    if (frequency_trigger_count_override)
+      preferences["frequency"]["trigger_count"] = *frequency_trigger_count_override;
+    if (frequency_linear_step_override)
+      preferences["frequency"]["linear_step"] = *frequency_linear_step_override;
+    if (learning_override) preferences["learning"] = *learning_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
@@ -509,6 +519,12 @@ struct State {
         preferences.value("candidate_preedit_style", "pinyin");
     if (candidate_preedit_style != "empty")
       candidate_preedit_style = "pinyin";
+    learning = options.at("preferences").value("learning", true);
+    const auto frequency_preferences = options.at("preferences").value("frequency", Json::object());
+    frequency_trigger_count = static_cast<uint8_t>(std::clamp(
+        frequency_preferences.value("trigger_count", 1), 1, 10));
+    frequency_linear_step = static_cast<uint8_t>(std::clamp(
+        frequency_preferences.value("linear_step", 1), 1, 10));
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -606,6 +622,12 @@ struct State {
           .value("show_in_candidate_window", true);
     else
       show_helpcode_in_candidate_window = true;
+    learning = learning_override.value_or(preferences.value("learning", true));
+    const auto frequency_preferences = preferences.value("frequency", Json::object());
+    frequency_trigger_count = frequency_trigger_count_override.value_or(static_cast<uint8_t>(std::clamp(
+        frequency_preferences.value("trigger_count", 1), 1, 10)));
+    frequency_linear_step = frequency_linear_step_override.value_or(static_cast<uint8_t>(std::clamp(
+        frequency_preferences.value("linear_step", 1), 1, 10)));
     const auto voice = preferences.value("voice_input", Json::object());
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
@@ -686,6 +708,12 @@ struct State {
       quanpin["autocorrect_neighbor"] = *autocorrect_neighbor_override;
     if (frequency_mode_override)
       preferences["frequency"]["mode"] = *frequency_mode_override;
+    if (frequency_trigger_count_override)
+      preferences["frequency"]["trigger_count"] = *frequency_trigger_count_override;
+    if (frequency_linear_step_override)
+      preferences["frequency"]["linear_step"] = *frequency_linear_step_override;
+    if (learning_override)
+      preferences["learning"] = *learning_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override)
@@ -2198,6 +2226,44 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(frequency_menu, item);
   }
   ibus_property_set_sub_props(frequency_property, frequency_menu);
+  auto frequency_trigger_property = ibus_property_new(
+      "FrequencyTriggerCount", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("词频触发次数"), "",
+      ibus_text_new_from_static_string("选择候选学习触发次数"),
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  auto frequency_trigger_menu = ibus_prop_list_new();
+  for (uint8_t value = 1; value <= 10; ++value) {
+    auto item = ibus_property_new(
+        (std::string("FrequencyTriggerCount/") + std::to_string(value)).c_str(),
+        PROP_TYPE_RADIO, ibus_text_new_from_string((std::to_string(value) + " 次").c_str()), "",
+        ibus_text_new_from_static_string("设置候选学习触发次数"), policy_available, TRUE,
+        s.frequency_trigger_count == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(frequency_trigger_menu, item);
+  }
+  ibus_property_set_sub_props(frequency_trigger_property, frequency_trigger_menu);
+  auto frequency_step_property = ibus_property_new(
+      "FrequencyLinearStep", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("线性调整步长"), "",
+      ibus_text_new_from_static_string("选择线性词频调整步长"),
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  auto frequency_step_menu = ibus_prop_list_new();
+  for (uint8_t value = 1; value <= 10; ++value) {
+    auto item = ibus_property_new(
+        (std::string("FrequencyLinearStep/") + std::to_string(value)).c_str(),
+        PROP_TYPE_RADIO, ibus_text_new_from_string((std::to_string(value) + " 次").c_str()), "",
+        ibus_text_new_from_static_string("设置线性词频调整步长"), policy_available, TRUE,
+        s.frequency_linear_step == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(frequency_step_menu, item);
+  }
+  ibus_property_set_sub_props(frequency_step_property, frequency_step_menu);
+  auto learning_property = ibus_property_new(
+      "Learning", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("学习候选词频"), "",
+      ibus_text_new_from_static_string("记录候选选择并调整词频"),
+      policy_available && !s.private_input, TRUE,
+      s.learning ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto number_row_property = ibus_property_new(
       "NumberRowSelection", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("数字选词"), "",
@@ -2410,6 +2476,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, page_size_property);
     ibus_prop_list_append(properties, frequency_property);
+    ibus_prop_list_append(properties, frequency_trigger_property);
+    ibus_prop_list_append(properties, frequency_step_property);
+    ibus_prop_list_append(properties, learning_property);
     ibus_prop_list_append(properties, number_row_property);
     ibus_prop_list_append(properties, nine_key_property);
     ibus_prop_list_append(properties, nine_key_spellings_property);
@@ -2450,6 +2519,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, page_size_property);
     ibus_engine_update_property(engine, frequency_property);
+    ibus_engine_update_property(engine, frequency_trigger_property);
+    ibus_engine_update_property(engine, frequency_step_property);
+    ibus_engine_update_property(engine, learning_property);
     ibus_engine_update_property(engine, number_row_property);
     ibus_engine_update_property(engine, nine_key_property);
     ibus_engine_update_property(engine, nine_key_spellings_property);
@@ -3608,6 +3680,69 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       s.frequency_mode_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    const auto restart_with_frequency_override = [&](std::optional<uint8_t> trigger,
+                                                      std::optional<uint8_t> step) {
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      if (trigger) s.frequency_trigger_count_override = *trigger;
+      if (step) s.frequency_linear_step_override = *step;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+    };
+    if (property_name.rfind("FrequencyTriggerCount/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED || menu_save_pending) return;
+      const auto suffix = property_name.substr(std::string("FrequencyTriggerCount/").size());
+      if (suffix.size() != 1 || suffix.front() < '1' || suffix.front() > '9') {
+        if (suffix != "10") return;
+      }
+      const auto selected = static_cast<uint8_t>(std::stoi(suffix));
+      if (s.frequency_trigger_count == selected) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::FrequencyTriggerCount, selected);
+        return;
+      }
+      restart_with_frequency_override(selected, std::nullopt);
+      return;
+    }
+    if (property_name.rfind("FrequencyLinearStep/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED || menu_save_pending) return;
+      const auto suffix = property_name.substr(std::string("FrequencyLinearStep/").size());
+      if (suffix.size() != 1 || suffix.front() < '1' || suffix.front() > '9') {
+        if (suffix != "10") return;
+      }
+      const auto selected = static_cast<uint8_t>(std::stoi(suffix));
+      if (s.frequency_linear_step == selected) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::FrequencyLinearStep, selected);
+        return;
+      }
+      restart_with_frequency_override(std::nullopt, selected);
+      return;
+    }
+    if (property_name == "Learning") {
+      if (menu_save_pending || s.private_input) return;
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.learning) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::Learning, enabled);
+        return;
+      }
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.learning_override = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
@@ -5218,6 +5353,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->candidate_page_size_override.reset();
           if (request.preference == MenuPreference::FrequencyMode)
             self->state->frequency_mode_override.reset();
+          if (request.preference == MenuPreference::FrequencyTriggerCount)
+            self->state->frequency_trigger_count_override.reset();
+          if (request.preference == MenuPreference::FrequencyLinearStep)
+            self->state->frequency_linear_step_override.reset();
+          if (request.preference == MenuPreference::Learning)
+            self->state->learning_override.reset();
           if (request.preference == MenuPreference::SmartPunctuation)
             self->state->smart_punctuation_override.reset();
           if (request.preference == MenuPreference::SmartPunctuationRepeat)
@@ -5307,6 +5448,15 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::FrequencyMode:
             snapshot["preferences"]["frequency"]["mode"] = request.value;
+            break;
+          case MenuPreference::FrequencyTriggerCount:
+            snapshot["preferences"]["frequency"]["trigger_count"] = request.value;
+            break;
+          case MenuPreference::FrequencyLinearStep:
+            snapshot["preferences"]["frequency"]["linear_step"] = request.value;
+            break;
+          case MenuPreference::Learning:
+            snapshot["preferences"]["learning"] = request.value;
             break;
           case MenuPreference::SmartPunctuation:
             snapshot["preferences"]["smart_punctuation"] = request.value;
