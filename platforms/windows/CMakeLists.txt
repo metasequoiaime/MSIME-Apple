@@ -121,7 +121,10 @@ if(MSIME_WINDOWS_PIPE_ONLY)
   return()
 endif()
 find_package(nlohmann_json 3.11 REQUIRED)
+find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice
+                 ${CMAKE_CURRENT_BINARY_DIR}/msime-engine-voice EXCLUDE_FROM_ALL)
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Built shared host library or Windows DLL import library")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Set MSIME_HOST_LIBRARY to the Cargo-built shared host library for this target")
@@ -182,9 +185,11 @@ if(WIN32)
   endif()
   add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
-                 WaveOverlay.cpp WaveOverlayUtils.cpp)
+                 WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
-                         msimeui user32 gdi32 d2d1 dwrite dwmapi shell32)
+                         msimeui user32 gdi32 d2d1 dwrite dwmapi shell32
+                         MetasequoiaIme::VoiceCapture MetasequoiaIme::Voice
+                         CURL::libcurl)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-watchdog WIN32 Watchdog.cpp)
   target_include_directories(msime-client-watchdog PRIVATE .)

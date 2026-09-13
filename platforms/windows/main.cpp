@@ -8,11 +8,13 @@
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
+#include "VoiceInputSession.h"
 #include "ClipboardHistory.h"
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 
 namespace {
 // The desktop shell is packaged beside this Server; a development build points
@@ -137,20 +139,50 @@ int wmain(int argc, wchar_t **argv) {
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
+    auto voice_config = std::make_shared<VoiceInputConfig>();
+    auto voice_config_mutex = std::make_shared<std::mutex>();
     WindowsServerOptions options;
     options.pipes.names = config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&](const PreferenceSnapshot &snapshot) {
+        [&, voice_config, voice_config_mutex](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          const auto input = preferences.value("voice_input", nlohmann::json::object());
+          VoiceInputConfig next;
+          next.enabled = input.value("enabled", true);
+          next.start_sound = input.value("start_sound", true);
+          next.end_sound = input.value("end_sound", true);
+          next.endpoint = input.value("asr_endpoint", std::string{});
+          next.model = input.value("asr_model", std::string{});
+          next.token = input.value("asr_token", std::string{});
+          next.language = input.value("language", std::string{"zh-cn"});
+          std::lock_guard lock(*voice_config_mutex);
+          *voice_config = std::move(next);
         };
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    WaveOverlay voice_overlay;
+    if (!voice_overlay.init(GetModuleHandleW(nullptr), [](WaveOverlay::Action) {}))
+      throw std::runtime_error("Voice overlay unavailable");
+    auto voice = std::make_unique<VoiceInputSession>(
+        voice_overlay,
+        [&] {
+          const auto view = server.mode_view();
+          return view ? std::optional<FocusLease>(view->lease) : std::nullopt;
+        },
+        [&](const FocusLease &lease, uint32_t message, std::wstring_view text,
+            wchar_t generation) {
+          return server.send_voice_composition(lease, message, text, generation);
+        },
+        [voice_config, voice_config_mutex] {
+          std::lock_guard lock(*voice_config_mutex);
+          return *voice_config;
+        });
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
     if (!clipboard_monitor.start())
@@ -249,8 +281,7 @@ int wmain(int argc, wchar_t **argv) {
       if (shell && request) (void)launch_shell_surface(*shell, *request);
     });
     toolbar.set_voice_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::ToggleVoiceInput);
-      if (shell && request) (void)launch_shell_surface(*shell, *request);
+      (void)voice->toggle();
     });
     toolbar.set_about_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
@@ -264,7 +295,7 @@ int wmain(int argc, wchar_t **argv) {
     menu_capabilities.emoji_panel = shell.has_value();
     menu_capabilities.handwriting_panel = shell.has_value();
     menu_capabilities.keyboard_panel = shell.has_value();
-    menu_capabilities.voice_input = shell.has_value();
+    menu_capabilities.voice_input = true;
     menu_capabilities.settings = shell.has_value();
     TrayMenuWindow tray(
         menu_capabilities,
@@ -275,6 +306,8 @@ int wmain(int argc, wchar_t **argv) {
               toolbar.hide();
             return true;
           }
+          if (command == TrayMenuCommand::ToggleVoiceInput)
+            return voice->toggle();
           const auto request = shell_surface_request(command);
           // Report only what was observed: a row that could not start the
           // shell stays unhandled, so the menu does not close on a promise.
