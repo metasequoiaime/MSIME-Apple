@@ -31,6 +31,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/ChineseHelpcodePolicySmoke.java" \
   "$repo_root/platforms/android/tests/MicrosoftShuangpinKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/ChineseOutputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/FullWidthInputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardGeometrySmoke.java" \
   "$repo_root/platforms/android/tests/VoiceResultStoreSmoke.java" \
@@ -69,6 +70,7 @@ java -cp "$output_dir" EnglishLetterCaseStateSmoke
 java -cp "$output_dir" app.msime.client.test.ChineseHelpcodePolicySmoke
 java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
 java -cp "$output_dir" ChineseOutputPolicySmoke
+java -cp "$output_dir" FullWidthInputPolicySmoke
 java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke

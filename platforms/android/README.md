@@ -16,6 +16,8 @@
 
 顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，并按固定 Apple 来源只在 Android 展示与插入边界使用系统 ICU `Simplified-Traditional` 转换：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。Android `Transliterator` 从 API 29 提供，API 28 保留原文并禁用快捷键，不伪装已转换。
 
+“全角输入”沿用 Apple 键盘扩展的直接输出边界：Android 更多工具页提供持久化开关，宿主明确直写的 ASCII 字符、空格和九键字面在开启后转换为 Unicode 全角；Engine 的中文组合、候选身份、手写结果、日语和本地模式保持原文。专用英文模式虽由 Android Engine 管理组合，但其最终英文 commit 在同一宿主边界转换，保证键盘内英文候选与 Apple 的直接英文输入一致。
+
 回车键按当前 Android `EditorInfo` 显示并执行前往、搜索、发送、下一项、完成或上一项动作；无明确动作、未知动作或编辑器设置 `IME_FLAG_NO_ENTER_ACTION` 时显示“换行”并提交换行符。执行前先通过共享 Engine 完成当前组合；若组合已被处理，回车到此为止，不再误触发编辑器动作或追加换行。日语九键侧栏同步显示“改行/確定”，底部全局回车仍保留 Android 的 `EditorInfo` 标签和 dispatch 适配，条件由同一个纯 Java 契约提供。
 
 工具栏“空格”支持轻点选词或插入空格，也可左右滑动向编辑器发送有界方向键事件以移动光标。滑动开始时先完成 Engine 组合，距离累积器绑定当前 `InputConnection` 身份；输入目标变化、手势取消、非有限坐标或异常跳变都会终止移动，不读取或持久化编辑器文本。

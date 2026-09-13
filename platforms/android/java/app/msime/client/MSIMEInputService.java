@@ -74,6 +74,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
     private static final String EMOJI_RECENTS_KEY = "items";
+    private static final String KEYBOARD_LAYOUT_PREFERENCES = "keyboard-layout";
+    private static final String FULL_WIDTH_INPUT_KEY = "full-width-input";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
     private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
@@ -166,6 +168,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
     private SharedPreferences feedbackPreferences;
+    private SharedPreferences keyboardLayoutPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
     private KeyboardFeedbackPreferences.HapticStrength hapticStrength =
@@ -203,6 +206,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String message = "MSIME Preview";
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
+    private boolean fullWidthInput;
     private boolean traditionalChineseOutput;
     private int editorInputType;
     private long currentDocumentIdentifier;
@@ -441,6 +445,7 @@ public final class MSIMEInputService extends InputMethodService {
         editorContextRevision++;
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
+        loadKeyboardLayoutPreferences();
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         letterCase.reset();
@@ -842,7 +847,13 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject next = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
-        if (commit != null) commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+        if (commit != null) {
+            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // Android's dedicated-English path is Engine-owned, while Apple commits those
+            // letters directly. Apply the keyboard's direct-output width at this boundary only;
+            // Chinese, Japanese, local-mode and handwriting commits stay canonical.
+            if (fullWidthInput && dedicatedEnglish) commit = fullWidthOutput(commit);
+        }
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
@@ -970,7 +981,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
-        if (!character(output)) commitText(String.valueOf(output));
+        if (!character(output)) commitText(fullWidthOutput(String.valueOf(output)));
         if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();
@@ -984,7 +995,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
         if (session != 0) command(2);
-        if (connection != null) commitText(String.valueOf((char) value));
+        if (connection != null) commitText(fullWidthOutput(String.valueOf((char) value)));
     }
 
     private void space() {
@@ -992,9 +1003,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (commitFirstHandwritingCandidate()) return;
         if (dedicatedEnglish) {
             if (session != 0) command(1);
-            if (connection != null) commitText(" ");
+            if (connection != null) commitText(fullWidthOutput(" "));
         } else if (!command(1)) {
-            commitText(" ");
+            commitText(fullWidthOutput(" "));
         }
     }
 
@@ -1640,6 +1651,23 @@ public final class MSIMEInputService extends InputMethodService {
         hapticStrength = KeyboardFeedbackPreferences.strength(feedbackPreferences.getString(
             KeyboardFeedbackPreferences.STRENGTH_KEY, "medium"));
         vibrator = getSystemService(Vibrator.class);
+    }
+
+    private void loadKeyboardLayoutPreferences() {
+        keyboardLayoutPreferences = getSharedPreferences(KEYBOARD_LAYOUT_PREFERENCES, MODE_PRIVATE);
+        fullWidthInput = keyboardLayoutPreferences.getBoolean(FULL_WIDTH_INPUT_KEY, false);
+    }
+
+    private String fullWidthOutput(String text) {
+        return FullWidthInputPolicy.output(text, fullWidthInput);
+    }
+
+    private void toggleFullWidthInput() {
+        fullWidthInput = !fullWidthInput;
+        if (keyboardLayoutPreferences != null) {
+            keyboardLayoutPreferences.edit().putBoolean(FULL_WIDTH_INPUT_KEY, fullWidthInput).apply();
+        }
+        renderMoreTools();
     }
 
     private void saveFeedbackPreferences() {
@@ -3602,6 +3630,8 @@ public final class MSIMEInputService extends InputMethodService {
         appendMoreToolsSection(MoreToolsLayout.Section.SETTINGS,
             moreToolsCard("繁体输出", MoreToolsLayout.Section.SETTINGS, traditionalChineseOutput,
                 traditionalOutputToolAvailable(), true, null, this::toggleChineseOutput),
+            moreToolsCard("全角输入", MoreToolsLayout.Section.SETTINGS, fullWidthInput,
+                true, false, this::toggleFullWidthInput),
             moreToolsCard("按键音", MoreToolsLayout.Section.SETTINGS, soundEnabled,
                 true, false, this::toggleSoundFromMoreTools),
             moreToolsCard("按键振动", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
@@ -4404,7 +4434,7 @@ public final class MSIMEInputService extends InputMethodService {
         dismissNineKeyHoldOptions();
         if (connection == null) return;
         command(2);
-        commitText(text);
+        commitText(fullWidthOutput(text));
     }
 
     private void dismissNineKeyHoldOptions() {
@@ -4657,7 +4687,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void commitNineKeyLiteral(String text) {
         if (connection == null) return;
         command(2);
-        commitText(text);
+        commitText(fullWidthOutput(text));
     }
 
     private void chooseNineKeySpelling(long generation, int index) {
@@ -4723,6 +4753,7 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
+        loadKeyboardLayoutPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
         voiceResultStore = files == null ? null
