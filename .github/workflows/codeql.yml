@@ -75,5 +75,13 @@ jobs:
         # The analyze step only says that no Swift was extracted; the reason sits in the extractor's diagnostics and the tracer log, which the failed-run SARIF does not expose.
         if: ${{ failure() }}
         run: |
-          find "$RUNNER_TEMP/codeql_databases" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
-          tail -n 100 "$RUNNER_TEMP/codeql_databases/log/build-tracer.log" 2>/dev/null || true
+          db="$RUNNER_TEMP/codeql_databases"
+          echo '== extractor diagnostics =='
+          find "$db" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
+          echo '== extractor logs =='
+          find "$db/swift/log" -type f | head -20
+          find "$db/swift/log" -type f -name '*.log' -exec tail -n 40 {} + | head -200
+          echo '== tracer: how the extractor was launched and how it ended =='
+          grep -n -iE 'extractor|swift-frontend|exit|signal|crash|dyld' "$db/log/build-tracer.log" | grep -v 'Candidate to intercept' | head -120
+          echo '== trap dir =='
+          find "$db/swift/trap" -type f | head -5
