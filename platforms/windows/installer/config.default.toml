@@ -61,6 +61,15 @@ secret_id = "<YOUR_TENCENT_SECRET_ID>"
 secret_key = "<YOUR_TENCENT_SECRET_KEY>"
 region = "ap-guangzhou"
 
+#
+# 小牛翻译（NiuTrans）候选词翻译（启用后优先于腾讯云和自定义服务）
+#
+[niutrans]
+enabled = false
+# 请自行填写小牛翻译 App ID 和 API Key，不要把真实凭据写进仓库。
+app_id = "<YOUR_NIUTRANS_APP_ID>"
+apikey = "<YOUR_NIUTRANS_APIKEY>"
+
 [frequency_adjustment]
 # disabled / pin / halve / linear / promote
 mode = "promote"

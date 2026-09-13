@@ -374,6 +374,16 @@ pub struct TranslationProviderConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct NiuTransProviderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub app_id: String,
+    #[serde(default)]
+    pub apikey: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TranslationQuery {
     pub generation: u64,
     #[serde(default = "default_translation_target_language")]
@@ -381,6 +391,8 @@ pub struct TranslationQuery {
     pub candidates: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_translation: Option<TranslationProviderConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub niutrans: Option<NiuTransProviderConfig>,
 }
 
 fn default_translation_target_language() -> String {

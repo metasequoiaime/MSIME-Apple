@@ -225,6 +225,43 @@ void append_tencent_group(const nlohmann::json &config,
   }
 }
 
+std::string millisecond_timestamp() {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+}
+
+void append_niutrans_item(const nlohmann::json &config,
+                          const nlohmann::json &item, std::string &translations,
+                          const std::function<bool()> &cancelled) {
+  if (cancelled())
+    return;
+  const auto timestamp = millisecond_timestamp();
+  const auto request = nlohmann::json{
+      {"config", config},
+      {"text", item.at("key")},
+      {"source_language", item.at("source_language")},
+      {"target_language", item.at("target_language")},
+      {"timestamp", timestamp}};
+  const auto bytes = request.dump();
+  auto descriptor = host_value(msime_client_niutrans_translation_http_request(
+      reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
+  if (!descriptor || descriptor->is_null() || cancelled())
+    return;
+  auto body = https_request(*descriptor, cancelled);
+  if (!body || cancelled())
+    return;
+  auto parsed = host_value(msime_client_parse_niutrans_translation_response(
+      reinterpret_cast<const uint8_t *>(body->data()), body->size()));
+  if (!parsed || !parsed->is_string() || parsed->get<std::string>().empty())
+    return;
+  try {
+    auto output = nlohmann::json::parse(translations);
+    output.push_back({{"text", item.at("text")}, {"translation", *parsed}});
+    translations = output.dump();
+  } catch (...) {
+  }
+}
+
 } // namespace
 
 TranslationWorker::TranslationWorker(Completed completed)
@@ -296,8 +333,15 @@ std::optional<TranslationWorker::Result> TranslationWorker::translate(
     if (!plan || !plan->is_array() || plan->empty() || cancelled())
       return std::nullopt;
     auto translations = nlohmann::json::array().dump();
+    const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
     const auto custom = query.value("custom_translation", nlohmann::json(nullptr));
-    if (custom.is_object() && custom.value("enabled", false)) {
+    if (niutrans.is_object() && niutrans.value("enabled", false)) {
+      for (const auto &item : *plan) {
+        if (cancelled())
+          return std::nullopt;
+        append_niutrans_item(niutrans, item, translations, cancelled);
+      }
+    } else if (custom.is_object() && custom.value("enabled", false)) {
       for (const auto &item : *plan) {
         if (cancelled())
           return std::nullopt;

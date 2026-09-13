@@ -1,6 +1,7 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
 
 use hmac::{Hmac, Mac};
+use md5::Md5;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
@@ -208,6 +209,31 @@ pub fn should_persist_translation(key: &str, gloss: &str) -> bool {
 }
 
 pub fn usable_tencent_secret(value: &str) -> bool {
+    let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
+    !trimmed.is_empty()
+        && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
+        && !trimmed.starts_with("FAKESECRET_")
+}
+
+/// NiuTrans v2 authStr is the lower-case MD5 of the lexicographically sorted
+/// request parameters plus the API key. The provider signs raw UTF-8 values;
+/// URL encoding is only applied to the eventual form body by the host.
+pub fn niutrans_auth_string(
+    app_id: &str,
+    apikey: &str,
+    from: &str,
+    to: &str,
+    timestamp: &str,
+    source_text: &str,
+) -> String {
+    let canonical = format!(
+        "apikey={apikey}&appId={app_id}&from={from}&srcText={source_text}&timestamp={timestamp}&to={to}"
+    );
+    let digest = Md5::digest(canonical.as_bytes());
+    format!("{digest:x}")
+}
+
+pub fn usable_niutrans_credential(value: &str) -> bool {
     let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
     !trimmed.is_empty()
         && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
@@ -611,6 +637,18 @@ mod tests {
             Some("hello world".into())
         );
         assert_eq!(format_translation_gloss("\u{0000}"), None);
+    }
+
+    #[test]
+    fn niutrans_auth_string_is_sorted_md5_and_credentials_filter_placeholders() {
+        assert_eq!(
+            niutrans_auth_string("app-id", "api-key", "en", "zh", "1704067200000", "hello"),
+            "6da3515e010ef871b66e4e31ff5ba580"
+        );
+        assert!(usable_niutrans_credential("real-value"));
+        assert!(!usable_niutrans_credential("<YOUR_NIUTRANS_APP_ID>"));
+        assert!(!usable_niutrans_credential("FAKESECRET_test"));
+        assert!(!usable_niutrans_credential(" \n\t"));
     }
 
     #[test]

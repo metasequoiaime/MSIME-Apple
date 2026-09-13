@@ -200,6 +200,7 @@ export type Preferences = {
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
+  niutrans?: { enabled: boolean; app_id: string; apikey: string };
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
@@ -328,9 +329,29 @@ export function aiCredentialOrigin(endpoint: string): string | null {
     return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
   } catch { return null; }
 }
+
+/** Mirrors `usable_tencent_secret` in client-core: a placeholder is not a key. */
+export function tencentSecretConfigured(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("<") && trimmed.endsWith(">")) return false;
+  return !trimmed.startsWith("FAKESECRET_");
+}
+
+/** Mirrors the SecretId/Region rules in `Preferences::validate`. */
+export function tencentCredentialIssue(secretId: string, secretKey: string, region: string): string {
+  if (secretId.length > 4096 || secretKey.length > 4096) return "凭据过长。";
+  if (secretId && !/^[A-Za-z0-9_-]+$/.test(secretId)) return "SecretId 只能包含字母、数字、下划线和连字符。";
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(secretKey)) return "SecretKey 不能包含控制字符。";
+  if (region.length > 64) return "地域过长。";
+  if (region && !/^[A-Za-z0-9-]+$/.test(region)) return "地域只能包含字母、数字和连字符。";
+  return "";
+}
+
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
-// Matches TencentTmtPreferences::default() in client-core.
-const defaultTencentTmt = { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" };
+const defaultTencentTranslation = { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" };
+const defaultNiuTrans = { enabled: false, app_id: "", apikey: "" };
 export type ExternalSkinCatalog = { scanned: boolean; directory?: string; revision?: number; packages: Array<{ id: string; title: string; description?: string; valid?: boolean }> ; issues?: string[] };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences; candidate_skin_catalog?: ExternalSkinCatalog };
 export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
@@ -1006,7 +1027,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     if (draft) setDraft({ ...draft, voice_input: { ...voiceInput, ...patch } });
   };
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
-  const tencentTmt = draft?.tencent_tmt ?? defaultTencentTmt;
+  const tencentTranslation = draft?.tencent_tmt ?? defaultTencentTranslation;
+  const niutrans = draft?.niutrans ?? defaultNiuTrans;
+  const translationProvider = niutrans.enabled ? "niutrans" : customTranslation.enabled ? "custom" : tencentTranslation.enabled ? "tencent" : "none";
+  const setTranslationProvider = (provider: "none" | "custom" | "tencent" | "niutrans") => {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      custom_translation: { ...customTranslation, enabled: provider === "custom" },
+      tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
+      niutrans: { ...niutrans, enabled: provider === "niutrans" },
+    });
+  };
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
@@ -1369,16 +1401,28 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
+        <div className="section" role="group" aria-label="候选翻译服务">
+          <label className="section-header"><span className="section-title">翻译服务</span><select aria-label="候选翻译服务" disabled={!candidateTranslations} value={translationProvider} onChange={event => setTranslationProvider(event.target.value as "none" | "custom" | "tencent" | "niutrans")}>
+            <option value="none">关闭</option><option value="tencent">腾讯云机器翻译</option><option value="niutrans">小牛翻译（NiuTrans）</option><option value="custom">自定义 DeepLX 兼容服务</option>
+          </select></label>
+        </div>
+        <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
+          <label className="section-header"><span className="section-title">小牛翻译（NiuTrans）<small>使用 App ID 和 API Key 为候选词提供逐条翻译</small></span><input aria-label="小牛翻译（NiuTrans）" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={niutrans.enabled} onChange={event => setTranslationProvider(event.target.checked ? "niutrans" : "none")} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">App ID</span><input aria-label="NiuTrans App ID" value={niutrans.app_id} disabled={!candidateTranslations || !niutrans.enabled} onChange={event => setDraft({ ...draft, niutrans: { ...niutrans, app_id: event.target.value } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">API Key</span><SecretInput label="NiuTrans API Key" value={niutrans.apikey} disabled={!candidateTranslations || !niutrans.enabled} onChange={value => setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })} /></label>
+        </div>
         <div className="section" role="group" aria-label="在线翻译服务">
-          <label className="section-header"><span className="section-title">在线翻译服务<small>候选翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据</small></span><input aria-label="腾讯云机器翻译" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={tencentTmt.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTmt, enabled: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">腾讯云机器翻译<small>使用 SecretId、SecretKey 和地域配置候选翻译</small></span><input aria-label="腾讯云机器翻译" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={tencentTranslation.enabled} onChange={event => setTranslationProvider(event.target.checked ? "tencent" : "none")} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">SecretId</span><input aria-label="腾讯云 SecretId" type="text" autoComplete="off" spellCheck={false} value={tencentTmt.secret_id} disabled={!candidateTranslations || !tencentTmt.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTmt, secret_id: event.target.value } })} placeholder="AKIDxxxxxxxxxxxxxxxx" /></label>
+          <label className="section-header"><span className="section-title">SecretId</span><input aria-label="腾讯云 SecretId" value={tencentTranslation.secret_id} disabled={!candidateTranslations || !tencentTranslation.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTranslation, secret_id: event.target.value } })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">SecretKey</span><SecretInput label="腾讯云 SecretKey" value={tencentTmt.secret_key} disabled={!candidateTranslations || !tencentTmt.enabled} onChange={value => setDraft({ ...draft, tencent_tmt: { ...tencentTmt, secret_key: value } })} /></label>
+          <label className="section-header"><span className="section-title">SecretKey</span><SecretInput label="腾讯云 SecretKey" value={tencentTranslation.secret_key} disabled={!candidateTranslations || !tencentTranslation.enabled} onChange={value => setDraft({ ...draft, tencent_tmt: { ...tencentTranslation, secret_key: value } })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">地域</span><input aria-label="腾讯云地域" type="text" autoComplete="off" spellCheck={false} value={tencentTmt.region} disabled={!candidateTranslations || !tencentTmt.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTmt, region: event.target.value } })} placeholder="ap-guangzhou" /></label>
-          {candidateTranslations && tencentTmt.enabled && tencentCredentialIssue(tencentTmt.secret_id, tencentTmt.secret_key, tencentTmt.region) && <p className="settings-warning" role="status">{tencentCredentialIssue(tencentTmt.secret_id, tencentTmt.secret_key, tencentTmt.region)}</p>}
-          {candidateTranslations && tencentTmt.enabled && !tencentCredentialIssue(tencentTmt.secret_id, tencentTmt.secret_key, tencentTmt.region) && !(tencentSecretConfigured(tencentTmt.secret_id) && tencentSecretConfigured(tencentTmt.secret_key)) && !customTranslation.enabled && <p className="settings-warning" role="status">未填写腾讯云凭据，候选翻译不会有任何结果。请填入 SecretId 与 SecretKey，或改用下面的自定义翻译服务。</p>}
+          <label className="section-header"><span className="section-title">地域</span><input aria-label="腾讯云地域" type="text" autoComplete="off" spellCheck={false} placeholder="ap-guangzhou" value={tencentTranslation.region} disabled={!candidateTranslations || !tencentTranslation.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTranslation, region: event.target.value } })} /></label>
+          {candidateTranslations && tencentTranslation.enabled && tencentCredentialIssue(tencentTranslation.secret_id, tencentTranslation.secret_key, tencentTranslation.region) && <p className="settings-warning" role="status">{tencentCredentialIssue(tencentTranslation.secret_id, tencentTranslation.secret_key, tencentTranslation.region)}</p>}
+          {candidateTranslations && tencentTranslation.enabled && !tencentCredentialIssue(tencentTranslation.secret_id, tencentTranslation.secret_key, tencentTranslation.region) && !(tencentSecretConfigured(tencentTranslation.secret_id) && tencentSecretConfigured(tencentTranslation.secret_key)) && !customTranslation.enabled && <p className="settings-warning" role="status">未填写腾讯云凭据，候选翻译不会有任何结果。请填入 SecretId 与 SecretKey，或改用下面的自定义翻译服务。</p>}
         </div>
         <div className="section" role="group" aria-label="自定义翻译服务">
           <label className="section-header"><span className="section-title">自定义翻译服务<small>改用自建的兼容 DeepLX 的 HTTPS 服务；关闭后候选翻译使用上面选择的在线服务</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label>

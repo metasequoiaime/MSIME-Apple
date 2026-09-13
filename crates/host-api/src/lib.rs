@@ -37,6 +37,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
 mod learned_translation;
+mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
     dictionary_request_json, msime_client_dictionary, msime_client_personal_dictionary_sync,
@@ -1313,6 +1314,23 @@ pub unsafe extern "C" fn msime_client_tencent_translation_http_request(
     })
 }
 
+/// Build a NiuTrans v2 form descriptor. No network or credential persistence.
+/// # Safety
+/// `request` must reference `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_niutrans_translation_http_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid NiuTrans request buffer".into());
+        }
+        niutrans_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(String::from)
+    })
+}
+
 /// Parse a bounded response preserving batch positions (unusable slots are null).
 /// # Safety
 /// `body` must reference `length` readable bytes for this call.
@@ -1331,6 +1349,23 @@ pub unsafe extern "C" fn msime_client_parse_tencent_translation_response(
             expected,
         )
         .unwrap_or(Value::Null))
+    })
+}
+
+/// Parse one bounded NiuTrans response into a formatted gloss, or null.
+/// # Safety
+/// `body` must reference `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_parse_niutrans_translation_response(
+    body: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if body.is_null() || length > 1048576 {
+            return Err("invalid NiuTrans response buffer".into());
+        }
+        Ok(niutrans_translation::parse(unsafe { std::slice::from_raw_parts(body, length) })
+            .unwrap_or(Value::Null))
     })
 }
 
@@ -1975,6 +2010,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let tencent = &preferences.tencent_tmt;
             // Selecting custom translation must never silently fall back to TMT.
             let tencent_tmt = (!custom_translation.enabled
+                && !preferences.niutrans.enabled
                 && tencent.enabled
                 && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
                 && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key))
@@ -1982,6 +2018,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             .transpose()
             .map_err(|_| "invalid Tencent translation configuration")?;
             let custom_translation = (custom_translation.enabled
+                && !preferences.niutrans.enabled
                 && !custom_translation.endpoint.is_empty())
             .then(|| {
                 json!({
@@ -1990,6 +2027,16 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     "api_key": &custom_translation.api_key,
                 })
             });
+            let niutrans = (preferences.niutrans.enabled
+                && msime_client_core::translation::usable_niutrans_credential(
+                    &preferences.niutrans.app_id,
+                )
+                && msime_client_core::translation::usable_niutrans_credential(
+                    &preferences.niutrans.apikey,
+                ))
+            .then(|| serde_json::to_value(&preferences.niutrans))
+            .transpose()
+            .map_err(|_| "invalid NiuTrans translation configuration")?;
             Ok(json!({
                 "generation": view.generation,
                 "target_language": serde_json::to_value(preferences.translation_target_language)
@@ -1997,6 +2044,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "candidates": candidates,
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
+                "niutrans": niutrans,
             }))
         })
     })

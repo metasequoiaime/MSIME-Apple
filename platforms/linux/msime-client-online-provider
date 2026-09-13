@@ -281,6 +281,32 @@ def custom_translation(config, text, source, target, timeout):
     return None
 
 
+def niutrans_translation(config, text, source, target, timeout):
+    app_id = config.get("app_id", "")
+    apikey = config.get("apikey", "")
+    if (not isinstance(app_id, str) or not isinstance(apikey, str) or
+        not app_id.strip() or not apikey.strip() or
+        len(app_id) > 4096 or len(apikey) > 4096 or
+        any(ord(c) < 33 or ord(c) > 126 for c in app_id.strip()) or
+        any(ord(c) < 33 or ord(c) > 126 for c in apikey.strip()) or
+        app_id.lstrip().startswith(("<", "FAKESECRET_")) or
+        apikey.lstrip().startswith(("<", "FAKESECRET_"))):
+        return None
+    app_id, apikey = app_id.strip(), apikey.strip()
+    timestamp = str(int(time.time() * 1000))
+    raw = ("apikey=" + apikey + "&appId=" + app_id + "&from=" + source +
+           "&srcText=" + text + "&timestamp=" + timestamp + "&to=" + target)
+    auth = hashlib.md5(raw.encode("utf-8")).hexdigest()
+    body = urllib.parse.urlencode({"from": source, "to": target, "appId": app_id,
+                                   "timestamp": timestamp, "srcText": text,
+                                   "authStr": auth}).encode("utf-8")
+    result = fetch("https://api.niutrans.com/v2/text/translate", timeout,
+                   body, extra_headers={"Content-Type": "application/x-www-form-urlencoded; charset=utf-8"})
+    if not isinstance(result, dict) or "errorCode" in result or "errorMsg" in result:
+        return None
+    return translation_gloss(result.get("tgtText"))
+
+
 def tencent_translation(config, texts, source, target, timeout):
     payload = json.dumps({"Source": source, "Target": target, "ProjectId": 0,
                           "SourceTextList": texts}, ensure_ascii=False, separators=(",", ":")).encode()
@@ -318,9 +344,19 @@ def translations(query, server):
         any(not isinstance(text, str) or len(text.encode()) > 4096 for text in texts) or
         target not in ("en", "fr", "ja", "es", "ru", "de", "ko")):
         return []
+    niutrans = query.get("niutrans")
+    niutrans = niutrans if isinstance(niutrans, dict) and niutrans.get("enabled") else None
     custom = query.get("custom_translation")
     custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
-    if custom:
+    if niutrans:
+        app_id = niutrans.get("app_id", "")
+        apikey = niutrans.get("apikey", "")
+        if (not isinstance(app_id, str) or not isinstance(apikey, str) or
+            len(app_id) > 4096 or len(apikey) > 4096):
+            return []
+        niutrans = {"enabled": True, "app_id": app_id.strip(), "apikey": apikey.strip()}
+        provider = ("niutrans", hashlib.sha256((app_id + "\0" + apikey).encode()).digest())
+    elif custom:
         endpoint = custom.get("endpoint", "")
         if not isinstance(endpoint, str) or len(endpoint) > 2048:
             return []
@@ -362,7 +398,13 @@ def translations(query, server):
         else:
             groups.setdefault(direction, []).append(text)
     for (source, destination), pending in groups.items():
-        if custom:
+        if niutrans:
+            values = []
+            for text in pending:
+                remaining = min(2.5, deadline - time.monotonic())
+                values.append(safely(niutrans_translation, niutrans, text, source, destination, remaining)
+                              if remaining > 0 else None)
+        elif custom:
             values = []
             for text in pending:
                 remaining = min(2.5, deadline - time.monotonic())
