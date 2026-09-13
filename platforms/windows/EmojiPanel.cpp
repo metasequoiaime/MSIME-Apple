@@ -1,16 +1,22 @@
 #define NOMINMAX
 #include <Windows.h>
 #include "CandidatePalette.h"
+#include "ClipboardHistory.h"
 #include <msimeui/DeviceResources.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
 #include <algorithm>
 #include <cwctype>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -29,6 +35,8 @@ constexpr int kGroupTitleHeight = 34;
 constexpr int kGridLeft = 18;
 constexpr int kGridRight = 18;
 constexpr int kGap = 6;
+constexpr int kClipboardRowHeight = 62;
+constexpr int kClipboardRowGap = 6;
 
 enum class Page : size_t { Home, Emoji, Sticker, Gif, Kaomoji, Symbols, Clipboard };
 
@@ -56,6 +64,34 @@ std::wstring utf8_to_wide(const unsigned char *value) {
   if (length <= 1) return {};
   std::wstring result(static_cast<size_t>(length - 1), L'\0');
   MultiByteToWideChar(CP_UTF8, 0, text, -1, result.data(), length);
+  return result;
+}
+
+std::wstring utf8_to_wide(std::string_view value) {
+  if (value.empty()) return {};
+  const int length = MultiByteToWideChar(
+      CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+      nullptr, 0);
+  if (length <= 0) return {};
+  std::wstring result(static_cast<size_t>(length), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                          static_cast<int>(value.size()), result.data(), length) !=
+      length)
+    return {};
+  return result;
+}
+
+std::string wide_to_utf8(std::wstring_view value) {
+  if (value.empty()) return {};
+  const int length = WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+      nullptr, 0, nullptr, nullptr);
+  if (length <= 0) return {};
+  std::string result(static_cast<size_t>(length), '\0');
+  if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                          static_cast<int>(value.size()), result.data(), length,
+                          nullptr, nullptr) != length)
+    return {};
   return result;
 }
 
@@ -94,6 +130,43 @@ bool copy_to_clipboard(HWND owner, const std::wstring &text) {
   return true;
 }
 
+std::filesystem::path state_directory(int argc, wchar_t **argv) {
+  for (int index = 1; index + 1 < argc; ++index) {
+    if (std::wstring(argv[index]) == L"--state-root") {
+      const std::filesystem::path value(argv[++index]);
+      return value.is_absolute() ? value : std::filesystem::path{};
+    }
+  }
+  wchar_t buffer[32768]{};
+  DWORD length = GetEnvironmentVariableW(
+      L"MSIME_CLIENT_STATE_DIR", buffer, static_cast<DWORD>(std::size(buffer)));
+  if (length > 0 && length < std::size(buffer)) {
+    const std::filesystem::path value(buffer);
+    return value.is_absolute() ? value : std::filesystem::path{};
+  }
+
+  PWSTR app_data = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
+                                      &app_data))) {
+    const auto directory = std::filesystem::path(app_data) / L"MSIME-Client";
+    CoTaskMemFree(app_data);
+    try {
+      std::ifstream input(directory / L"runtime-options.json",
+                          std::ios::binary);
+      if (input) {
+        const auto document = nlohmann::json::parse(input);
+        const auto configured = std::filesystem::u8path(
+            document.value("preferences_directory", std::string{}));
+        if (configured.is_absolute()) return configured;
+      }
+    } catch (...) {
+    }
+    return directory;
+  }
+  if (app_data) CoTaskMemFree(app_data);
+  return {};
+}
+
 class Panel {
  public:
   HWND hwnd = nullptr;
@@ -120,6 +193,14 @@ class Panel {
   std::vector<Group> kaomoji;
   std::vector<Group> symbols;
   std::vector<Item> recent;
+  std::vector<Item> clipboard;
+  std::unique_ptr<msime::windows::ClipboardHistory> clipboard_history;
+  std::filesystem::path state_root;
+  bool clipboard_enabled = false;
+  bool clipboard_clear_hovered = false;
+  bool clipboard_clear_pressed = false;
+  size_t clipboard_delete_hovered = kInvalid;
+  size_t clipboard_delete_pressed = kInvalid;
 
   ~Panel() {
     if (search_brush) DeleteObject(search_brush);
@@ -156,6 +237,51 @@ class Panel {
     load_symbols(db);
     sqlite3_close(db);
     if (!emoji.empty() || !kaomoji.empty() || !symbols.empty()) notice = L"Click an item to copy";
+  }
+
+  void load_clipboard(const std::filesystem::path &directory) {
+    state_root = directory;
+    if (directory.empty()) return;
+    clipboard_history = std::make_unique<msime::windows::ClipboardHistory>(
+        directory / L"clipboard_history.json");
+    refresh_clipboard();
+  }
+
+  void refresh_clipboard() {
+    bool enabled = false;
+    std::vector<Item> items;
+    if (clipboard_history && !state_root.empty()) try {
+      std::ifstream input(state_root / L"preferences.json", std::ios::binary);
+      if (input) {
+        const auto document = nlohmann::json::parse(input);
+        enabled = document.is_object() &&
+                  document.value("preferences", nlohmann::json::object())
+                      .value("clipboard_history", false);
+      }
+    } catch (...) {
+      enabled = false;
+    }
+    if (enabled) {
+      for (const auto &text : clipboard_history->load()) {
+        const auto wide = utf8_to_wide(text);
+        if (!wide.empty()) items.push_back({wide, wide});
+      }
+    }
+    const bool changed = enabled != clipboard_enabled ||
+                         items.size() != clipboard.size() ||
+                         !std::equal(items.begin(), items.end(), clipboard.begin(),
+                                     [](const Item &left, const Item &right) {
+                                       return left.text == right.text;
+                                     });
+    if (!changed) return;
+    clipboard_enabled = enabled;
+    clipboard = std::move(items);
+    clipboard_delete_hovered = clipboard_delete_pressed = kInvalid;
+    hovered_item = pressed_item = kInvalid;
+    if (hwnd) {
+      clamp_scroll();
+      if (page == Page::Clipboard) InvalidateRect(hwnd, nullptr, FALSE);
+    }
   }
 
   void load_emoji(sqlite3 *db) {
@@ -218,6 +344,14 @@ class Panel {
       if (!visible.items.empty()) result.push_back(std::move(visible));
     };
     std::vector<VisibleGroup> result;
+    if (page == Page::Clipboard) {
+      if (!clipboard_enabled) return result;
+      VisibleGroup history{L"Clipboard history", L"", {}};
+      for (const Item &item : clipboard)
+        if (matches(item)) history.items.push_back(&item);
+      if (!history.items.empty()) result.push_back(std::move(history));
+      return result;
+    }
     if (page == Page::Home) {
       if (!recent.empty()) {
         VisibleGroup recent_group{L"Recently used", L"◷", {}};
@@ -237,6 +371,15 @@ class Panel {
   }
 
   int content_height() const {
+    if (page == Page::Clipboard) {
+      const auto groups = visible_groups();
+      return static_cast<int>(groups.empty()
+                                  ? 0
+                                  : groups.front().items.size() *
+                                            (kClipboardRowHeight +
+                                             kClipboardRowGap) +
+                                        12);
+    }
     int height = 0;
     for (const VisibleGroup &group : visible_groups()) {
       height += kGroupTitleHeight + static_cast<int>((group.items.size() + 5) / 6) * kCellHeight + 12;
@@ -257,6 +400,7 @@ class Panel {
     search_text.clear();
     if (search) SetWindowTextW(search, L"");
     notice = L"Click an item to copy";
+    if (next == Page::Clipboard) refresh_clipboard();
     InvalidateRect(hwnd, nullptr, FALSE);
   }
 
@@ -278,8 +422,68 @@ class Panel {
     }
   }
 
+  RECT clipboard_clear_rect() const {
+    RECT bounds{};
+    GetClientRect(hwnd, &bounds);
+    return {bounds.right - 116, kSubTabsTop + 4, bounds.right - 18,
+            kSubTabsTop + 32};
+  }
+
+  void remove_clipboard_item(size_t index) {
+    const auto groups = visible_groups();
+    if (!clipboard_history || groups.empty() ||
+        index >= groups.front().items.size())
+      return;
+    const auto encoded = wide_to_utf8(groups.front().items[index]->text);
+    if (encoded.empty() || !clipboard_history->remove(encoded)) {
+      notice = L"Could not remove clipboard item";
+      return;
+    }
+    refresh_clipboard();
+    notice = L"Clipboard item removed";
+  }
+
+  void clear_clipboard() {
+    if (!clipboard_history || !clipboard_history->clear()) {
+      notice = L"Could not clear clipboard history";
+      return;
+    }
+    refresh_clipboard();
+    notice = L"Clipboard history cleared";
+  }
+
+  size_t hit_clipboard_delete(POINT point) const {
+    if (page != Page::Clipboard || !clipboard_enabled) return kInvalid;
+    const auto groups = visible_groups();
+    if (groups.empty()) return kInvalid;
+    const auto &items = groups.front().items;
+    const int right = GetClientWidth() - kGridRight;
+    int y = kContentTop + 6 - scroll;
+    for (size_t index = 0; index < items.size(); ++index) {
+      const RECT cell{kGridLeft, y, right, y + kClipboardRowHeight};
+      const RECT remove{right - 40, cell.top + 16, right - 10, cell.bottom - 16};
+      if (contains(cell, point) && contains(remove, point)) return index;
+      y += kClipboardRowHeight + kClipboardRowGap;
+    }
+    return kInvalid;
+  }
+
   size_t hit_item(POINT point) const {
     if (point.y < kContentTop) return kInvalid;
+    if (page == Page::Clipboard) {
+      if (!clipboard_enabled) return kInvalid;
+      const auto groups = visible_groups();
+      if (groups.empty()) return kInvalid;
+      const auto &items = groups.front().items;
+      const int right = GetClientWidth() - kGridRight;
+      int y = kContentTop + 6 - scroll;
+      for (size_t index = 0; index < items.size(); ++index) {
+        const RECT cell{kGridLeft, y, right, y + kClipboardRowHeight};
+        if (contains(cell, point)) return index;
+        y += kClipboardRowHeight + kClipboardRowGap;
+      }
+      return kInvalid;
+    }
     int y = kContentTop - scroll;
     size_t index = 0;
     for (const VisibleGroup &group : visible_groups()) {
@@ -431,13 +635,66 @@ class Panel {
             text_brush, leading);
     }
     if (page == Page::Sticker || page == Page::Gif || page == Page::Clipboard) {
-      const wchar_t *message =
-          page == Page::Sticker ? L"Stickers can be connected here"
-          : page == Page::Gif   ? L"GIF sources can be connected here"
-                                : L"Clipboard history is provided by the host";
-      write(message,
-            box(18, kContentTop + 40, bounds.right - 18, kContentTop + 120),
-            muted, centered);
+      if (page == Page::Clipboard) {
+        if (!clipboard_enabled) {
+          write(L"Clipboard history is disabled in Settings",
+                box(18, kContentTop + 40, bounds.right - 18,
+                    kContentTop + 120),
+                muted, centered);
+        } else if (clipboard.empty()) {
+          write(L"No clipboard history",
+                box(18, kContentTop + 40, bounds.right - 18,
+                    kContentTop + 120),
+                muted, centered);
+        } else {
+          const auto clear = box(bounds.right - 116, kSubTabsTop + 4,
+                                 bounds.right - 18, kSubTabsTop + 32);
+          if (clipboard_clear_hovered || clipboard_clear_pressed)
+            target->FillRoundedRectangle(
+                {clear, palette.item_radius, palette.item_radius},
+                clipboard_clear_pressed ? selected : hover);
+          write(L"Clear all", clear, text_brush, centered);
+
+          const auto groups = visible_groups();
+          if (groups.empty()) {
+            write(L"No matching clipboard history",
+                  box(18, kContentTop + 40, bounds.right - 18,
+                      kContentTop + 120),
+                  muted, centered);
+          } else {
+            int y = kContentTop + 6 - scroll;
+            for (size_t index = 0; index < groups.front().items.size(); ++index) {
+              const auto cell = box(kGridLeft, y, bounds.right - kGridRight,
+                                    y + kClipboardRowHeight);
+              const auto item = groups.front().items[index];
+              if (index == hovered_item || index == pressed_item)
+                target->FillRoundedRectangle(
+                    {cell, palette.item_radius, palette.item_radius},
+                    index == pressed_item ? selected : hover);
+              auto text_cell = cell;
+              text_cell.right -= 52.0f;
+              write(item->text, text_cell, text_brush, leading);
+              const auto remove = box(bounds.right - 58, y + 16,
+                                      bounds.right - 28, y + 46);
+              if (index == clipboard_delete_hovered ||
+                  index == clipboard_delete_pressed)
+                target->FillRoundedRectangle(
+                    {remove, palette.item_radius, palette.item_radius},
+                    index == clipboard_delete_pressed ? selected : hover);
+              write(L"×", remove, muted, centered);
+              y += kClipboardRowHeight + kClipboardRowGap;
+            }
+          }
+        }
+      } else {
+        const wchar_t *message = page == Page::Sticker
+                                     ? L"Stickers can be connected here"
+                                     : L"GIF sources can be connected here";
+        write(message,
+              box(18, kContentTop + 40, bounds.right - 18,
+                  kContentTop + 120),
+              muted, centered);
+      }
     } else {
       const auto groups = visible_groups();
       int y = kContentTop - scroll;
@@ -517,6 +774,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       panel->search_font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
       SendMessageW(panel->search, WM_SETFONT, reinterpret_cast<WPARAM>(panel->search_font), TRUE);
       panel->layout();
+      SetTimer(hwnd, 1, 400, nullptr);
       return 0;
     case WM_CTLCOLOREDIT:
       if (reinterpret_cast<HWND>(lparam) == panel->search) {
@@ -533,45 +791,80 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ERASEBKGND: return 1;
     case WM_SIZE: panel->layout(); panel->clamp_scroll(); return 0;
+    case WM_TIMER:
+      if (wparam == 1) panel->refresh_clipboard();
+      return 0;
     case WM_MOUSEWHEEL:
       panel->scroll -= GET_WHEEL_DELTA_WPARAM(wparam) / 4; panel->clamp_scroll(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
     case WM_MOUSEMOVE: {
       POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
       RECT bounds{}; GetClientRect(hwnd, &bounds);
       panel->close_hovered = contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
+      panel->clipboard_clear_hovered = panel->page == Page::Clipboard &&
+                                      panel->clipboard_enabled &&
+                                      !panel->clipboard.empty() &&
+                                      contains(panel->clipboard_clear_rect(), point);
+      panel->clipboard_delete_hovered = panel->hit_clipboard_delete(point);
       panel->back_hovered = panel->page != Page::Home && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
-      panel->hovered_item = panel->close_hovered || panel->back_hovered ? kInvalid : panel->hit_item(point);
+      panel->hovered_item = panel->close_hovered || panel->back_hovered ||
+                                    panel->clipboard_clear_hovered ||
+                                    panel->clipboard_delete_hovered != kInvalid
+                                ? kInvalid
+                                : panel->hit_item(point);
       InvalidateRect(hwnd, nullptr, FALSE); return 0;
     }
     case WM_LBUTTONDOWN: {
       POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
       RECT bounds{}; GetClientRect(hwnd, &bounds);
       panel->close_pressed = contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
+      panel->clipboard_clear_pressed = panel->page == Page::Clipboard &&
+                                      panel->clipboard_enabled &&
+                                      !panel->clipboard.empty() &&
+                                      contains(panel->clipboard_clear_rect(), point);
+      panel->clipboard_delete_pressed = panel->hit_clipboard_delete(point);
       panel->back_pressed = panel->page != Page::Home && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
-      panel->pressed_tab = panel->close_pressed || panel->back_pressed ? kInvalid : panel->hit_tab(point);
+      panel->pressed_tab = panel->close_pressed || panel->back_pressed ||
+                                   panel->clipboard_clear_pressed ||
+                                   panel->clipboard_delete_pressed != kInvalid
+                               ? kInvalid
+                               : panel->hit_tab(point);
       panel->pressed_category = panel->pressed_tab == kInvalid ? panel->hit_category(point) : kInvalid;
-      panel->pressed_item = panel->pressed_tab == kInvalid && panel->pressed_category == kInvalid ? panel->hit_item(point) : kInvalid;
+      panel->pressed_item = panel->pressed_tab == kInvalid && panel->pressed_category == kInvalid &&
+                                    panel->clipboard_delete_pressed == kInvalid
+                                ? panel->hit_item(point)
+                                : kInvalid;
       SetCapture(hwnd); InvalidateRect(hwnd, nullptr, FALSE); return 0;
     }
     case WM_LBUTTONUP: {
       POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
       RECT bounds{}; GetClientRect(hwnd, &bounds);
       const bool close = panel->close_pressed && contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
+      const bool clear_clipboard = panel->clipboard_clear_pressed &&
+                                   contains(panel->clipboard_clear_rect(), point);
+      const size_t delete_clipboard = panel->hit_clipboard_delete(point);
       const bool back = panel->back_pressed && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
       const size_t tab = panel->hit_tab(point);
       const size_t category = panel->hit_category(point);
       const size_t item = panel->hit_item(point);
-      if (panel->pressed_item != kInvalid && panel->pressed_item == item) panel->activate_item(item);
+      if (panel->clipboard_delete_pressed != kInvalid &&
+          panel->clipboard_delete_pressed == delete_clipboard) {
+        panel->remove_clipboard_item(delete_clipboard);
+      } else if (clear_clipboard) {
+        panel->clear_clipboard();
+      } else if (panel->pressed_item != kInvalid && panel->pressed_item == item) panel->activate_item(item);
       else if (panel->pressed_category != kInvalid && panel->pressed_category == category) { panel->category = category; panel->scroll = 0; InvalidateRect(hwnd, nullptr, FALSE); }
       else if (panel->pressed_tab != kInvalid && panel->pressed_tab == tab) panel->enter(static_cast<Page>(tab));
       else if (back) panel->enter(Page::Home);
-      panel->close_pressed = false; panel->back_pressed = false; panel->pressed_item = panel->pressed_tab = panel->pressed_category = kInvalid;
+      panel->close_pressed = false; panel->back_pressed = false;
+      panel->clipboard_clear_pressed = false;
+      panel->clipboard_delete_pressed = kInvalid;
+      panel->pressed_item = panel->pressed_tab = panel->pressed_category = kInvalid;
       if (GetCapture() == hwnd) ReleaseCapture();
       if (close) DestroyWindow(hwnd);
       return 0;
     }
     case WM_PAINT: panel->paint(); return 0;
-    case WM_DESTROY: PostQuitMessage(0); return 0;
+    case WM_DESTROY: KillTimer(hwnd, 1); PostQuitMessage(0); return 0;
     default: break;
   }
   return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -602,6 +895,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_
   wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   Panel state;
   state.load(resource_database(argc, argv));
+  state.load_clipboard(state_directory(argc, argv));
   if (argv) LocalFree(argv);
   HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kClassName, kTitle, WS_POPUP, x, y, width, height, nullptr, nullptr, instance, &state);
   if (!window) { UnregisterClassW(kClassName, instance); CloseHandle(mutex); return 1; }
