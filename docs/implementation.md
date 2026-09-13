@@ -811,3 +811,9 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 将 Windows 开发维护组合按 macOS 输入法生命周期适配到当前 IMK 输入上下文：`Control+Shift+Option+C` 清除当前会话的 Engine 候选缓存，`Control+Shift+Option+R` 启动同一输入法 bundle 的独立重新注册实例并在启动成功后退出当前进程，`Control+Shift+Option+T` 退出当前输入法进程。三项均使用物理 C/R/T 键位，要求精确的 Control、Shift、Option，排除 Command；Caps Lock 不影响识别，重复 keyDown 只消费而不重复执行。候选窗口中的 `1–8` 删除继续使用同一修饰键语义。
 
 共享快捷键页在 macOS 显示 Option 和“当前输入上下文”，不再声称 Windows 风格的全局 hook；重启按钮也明确为重新注册已安装输入源。Tauri 的 macOS 重新注册命令改为按输入法 bundle identifier 启动 `app.msime.client.preview.inputmethod`，不再把设置应用自身误当成输入法 bundle。Engine 缓存清理由既有 Host C ABI 经 Apple Foundation 适配器调用，平台不复制 Engine 状态。
+
+### Windows 全半角模式事件同步
+
+补齐 Windows Main 管道的 `DoubleSingleByteSwitch` 事件路由。会话泵现在像中英文和中英文标点通知一样，在活动焦点 lease 内验证并交给模式邮箱；输入队列只确认 TSF 展示状态，不把全半角误送进 Engine。这样浮动工具栏的全角/半角按钮在 TSF 回报后能更新模式面板，失效连接仍按既有焦点门禁拒绝。
+
+回归覆盖 SessionController 收到全半角通知后继续处理按键，并通过 x64/i686 MinGW 严格编译检查。当前没有 Windows 主机，未执行真实 TSF、工具栏或安装后的系统验收。

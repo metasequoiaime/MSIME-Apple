@@ -283,6 +283,7 @@ void session_worker_tests(const std::string &options) {
     require(!controller.candidate_view());
   }
   for (auto notification : {FanyImePipeEventType::IMESwitch,
+                            FanyImePipeEventType::DoubleSingleByteSwitch,
                             FanyImePipeEventType::StatusSnapshot,
                             FanyImePipeEventType::FocusRestored}) {
     IdleTransport transport;
