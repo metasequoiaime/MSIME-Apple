@@ -177,6 +177,7 @@ void CandidateWindow::hide() {
   shown_.reset();
   painted_.reset();
   pressed_.reset();
+  hovered_.reset();
   ShowWindow(window_, SW_HIDE);
 }
 // Measuring the page reads Engine text, so unusable presentation data reaches
