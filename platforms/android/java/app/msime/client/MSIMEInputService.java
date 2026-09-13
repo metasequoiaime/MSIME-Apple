@@ -286,6 +286,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean backspaceRepeated;
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
+    private long engineStartGeneration;
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
@@ -439,6 +440,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        long startGeneration = ++engineStartGeneration;
         cancelPersonalDictionarySynchronization();
         if (!restarting || currentDocumentIdentifier == 0) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
@@ -493,34 +495,8 @@ public final class MSIMEInputService extends InputMethodService {
                     && preferences.optBoolean("wubi_mixed_pinyin", false);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
-                // Settings edits are queued in the shared PersonalDictionary
-                // journal. There is no live Engine session yet, so this is a
-                // safe idle boundary at which to apply a bounded batch and
-                // refresh the confirmed page.
-                try {
-                    JSONObject sync = value(NativeClient.personalDictionarySync(options.toString()));
-                    if (sync.optString("snapshot_error", "").length() > 0) {
-                        preferencesNotice = " · 个人词库同步稍后重试";
-                    }
-                } catch (JSONException | LinkageError ignored) {
-                    // Personal dictionary maintenance is optional; never make
-                    // a new editor session unavailable because it is busy.
-                }
-                view = value(NativeClient.create(options.toString()));
-                session = view.getLong("session");
-                String resources = options.optString("resources", "");
-                if (new File(resources).isAbsolute()) {
-                    emojiResources = resources;
-                    candidateGlossResources = resources;
-                }
-                apply(NativeClient.focus(session, true));
-                view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
-                message = "MSIME Preview";
-                String directory = options.optString("preferences_directory", "");
-                if (!directory.isEmpty() && new File(directory).isAbsolute()) {
-                    preferencesDirectory = directory;
-                    preferencesReloader.start(directory, this::reloadPreferences);
-                }
+                message = "共享运行时准备中";
+                scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
             } catch (Exception | LinkageError error) {
                 stop(false);
                 message = "共享运行时未就绪：仅直接输入";
@@ -535,6 +511,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         cancelBackspaceRepeat();
+        engineStartGeneration++;
         resetSpaceCursor();
         stop(true);
         schedulePersonalDictionarySynchronization(false);
@@ -555,6 +532,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
     @Override public void onDestroy() {
         cancelBackspaceRepeat();
+        engineStartGeneration++;
         cancelPersonalDictionarySynchronization();
         stop(false);
         schedulePersonalDictionarySynchronization(true);
@@ -616,6 +594,64 @@ public final class MSIMEInputService extends InputMethodService {
         if (personalDictionarySyncTask != null) {
             main.removeCallbacks(personalDictionarySyncTask);
             personalDictionarySyncTask = null;
+        }
+    }
+
+    /**
+     * Dictionary maintenance owns an exclusive lock, while Engine creation owns a
+     * shared session lock. Keep both operations off the input thread and only create
+     * the session after the bounded maintenance transaction has finished.
+     */
+    private void scheduleEngineStartup(String options, long generation) {
+        Runnable complete = () -> {
+            if (generation != engineStartGeneration || connection == null || session != 0) return;
+            startEngineSession(options);
+        };
+        try {
+            preferencesWorker.execute(() -> {
+                String notice = "";
+                try {
+                    JSONObject sync = value(NativeClient.personalDictionarySync(options));
+                    if (sync.optString("snapshot_error", "").length() > 0) {
+                        notice = " · 个人词库同步稍后重试";
+                    }
+                } catch (Exception | LinkageError ignored) {
+                    // Personal dictionary maintenance is optional; session startup continues.
+                }
+                String finalNotice = notice;
+                main.post(() -> {
+                    if (generation != engineStartGeneration || connection == null || session != 0) return;
+                    if (!finalNotice.isEmpty()) preferencesNotice = finalNotice;
+                    complete.run();
+                });
+            });
+        } catch (RuntimeException ignored) {
+            // A worker shutdown must not leave a still-valid editor without its session.
+            main.post(complete);
+        }
+    }
+
+    private void startEngineSession(String optionsText) {
+        try {
+            JSONObject options = new JSONObject(optionsText);
+            view = value(NativeClient.create(optionsText));
+            session = view.getLong("session");
+            String resources = options.optString("resources", "");
+            if (new File(resources).isAbsolute()) {
+                emojiResources = resources;
+                candidateGlossResources = resources;
+            }
+            apply(NativeClient.focus(session, true));
+            view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
+            message = "MSIME Preview";
+            String directory = options.optString("preferences_directory", "");
+            if (!directory.isEmpty() && new File(directory).isAbsolute()) {
+                preferencesDirectory = directory;
+                preferencesReloader.start(directory, this::reloadPreferences);
+            }
+        } catch (Exception | LinkageError error) {
+            stop(false);
+            message = "共享运行时未就绪：仅直接输入";
         }
     }
 
