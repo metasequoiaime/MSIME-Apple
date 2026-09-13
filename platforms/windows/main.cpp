@@ -140,6 +140,18 @@ std::string read_document(const std::filesystem::path &path) {
   document.resize(static_cast<size_t>(input.gcount()));
   return document;
 }
+void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
+  const auto temporary = path.wstring() + L".tmp";
+  {
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) throw std::runtime_error("Configuration temporary file unavailable");
+    output.write(document.data(), static_cast<std::streamsize>(document.size()));
+    output.flush();
+    if (!output) throw std::runtime_error("Configuration write failed");
+  }
+  if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    throw std::runtime_error("Configuration replace failed");
+}
 // The native toolbar's character-set button uses the same revisioned store as
 // the settings shell. Read and write on its single action worker so the UI
 // thread never waits on the preferences lock.
