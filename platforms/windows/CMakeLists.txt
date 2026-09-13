@@ -181,8 +181,10 @@ if(WIN32)
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
   add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
-  target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp)
-  target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe msimeui user32 gdi32)
+  target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
+                 WaveOverlay.cpp WaveOverlayUtils.cpp)
+  target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
+                         msimeui user32 gdi32 d2d1 dwrite dwmapi shell32)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-watchdog WIN32 Watchdog.cpp)
   target_include_directories(msime-client-watchdog PRIVATE .)
