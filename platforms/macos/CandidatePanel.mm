@@ -5,6 +5,8 @@
 
 @interface MetasequoiaCandidateWindow : NSPanel
 @property(nonatomic, weak) id<MetasequoiaCandidatePanelDelegate> candidateDelegate;
+@property(nonatomic) BOOL hasPreviousPage;
+@property(nonatomic) BOOL hasNextPage;
 @end
 @implementation MetasequoiaCandidateWindow
 - (BOOL)canBecomeKeyWindow
@@ -17,8 +19,8 @@
 }
 - (void)scrollWheel:(NSEvent *)event
 {
-    if (event.scrollingDeltaY > 0) [self.candidateDelegate candidatePanelPreviousPage];
-    else if (event.scrollingDeltaY < 0) [self.candidateDelegate candidatePanelNextPage];
+    if (event.scrollingDeltaY > 0 && self.hasPreviousPage) [self.candidateDelegate candidatePanelPreviousPage];
+    else if (event.scrollingDeltaY < 0 && self.hasNextPage) [self.candidateDelegate candidatePanelNextPage];
     else [super scrollWheel:event];
 }
 @end
@@ -251,6 +253,9 @@
 }
 - (void)layoutCandidates
 {
+    MetasequoiaCandidateWindow *window = (MetasequoiaCandidateWindow *)_window;
+    window.hasPreviousPage = _hasPreviousPage;
+    window.hasNextPage = _hasNextPage;
     for (NSView *view in [_chrome.subviews copy])
         [view removeFromSuperview];
     const CGFloat inset = MAX(2.0, _skin.tokens.pad);
