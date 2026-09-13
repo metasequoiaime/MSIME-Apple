@@ -65,6 +65,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final int JAPANESE_NINE_KEY_LAYOUT = 2;
     private static final int HANDWRITING_LAYOUT = 3;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
+    private static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
+    private static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
@@ -264,6 +266,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean emojiLoading;
     private long emojiLoadGeneration;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private Runnable backspaceRepeatTask;
+    private Button backspaceRepeatButton;
+    private boolean backspaceRepeated;
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
@@ -506,6 +511,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        cancelBackspaceRepeat();
         resetSpaceCursor();
         stop(true);
         scheduleDictionarySnapshotProcessing();
@@ -524,6 +530,7 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
     @Override public void onDestroy() {
+        cancelBackspaceRepeat();
         stop(false);
         preferencesWorker.shutdown();
         typingStatisticsWorker.shutdown();
@@ -536,6 +543,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     private void stop(boolean finish) {
+        cancelBackspaceRepeat();
         deactivateHandwriting();
         invalidateCandidateGlosses();
         preferencesReloader.stop();
@@ -1341,6 +1349,62 @@ public final class MSIMEInputService extends InputMethodService {
             action.run();
         });
         return button;
+    }
+
+    /** Matches the Apple delete key: a short tap deletes once, a held press repeats. */
+    private void bindBackspaceRepeat(Button button, Runnable action) {
+        button.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    cancelBackspaceRepeat();
+                    backspaceRepeatButton = button;
+                    backspaceRepeated = false;
+                    button.setPressed(true);
+                    backspaceRepeatTask = new Runnable() {
+                        @Override public void run() {
+                            if (backspaceRepeatButton != button || !button.isPressed()) return;
+                            backspaceRepeated = true;
+                            playFeedback(button);
+                            action.run();
+                            main.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MILLIS);
+                        }
+                    };
+                    main.postDelayed(backspaceRepeatTask, BACKSPACE_REPEAT_DELAY_MILLIS);
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (event.getX() < 0 || event.getY() < 0
+                            || event.getX() >= button.getWidth()
+                            || event.getY() >= button.getHeight()) {
+                        cancelBackspaceRepeat();
+                        button.setPressed(false);
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    boolean active = backspaceRepeatButton == button;
+                    boolean repeated = active && backspaceRepeated;
+                    cancelBackspaceRepeat();
+                    button.setPressed(false);
+                    if (active && !repeated) button.performClick();
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                    cancelBackspaceRepeat();
+                    button.setPressed(false);
+                    return true;
+                }
+                default -> { return true; }
+            }
+        });
+    }
+
+    private void cancelBackspaceRepeat() {
+        if (backspaceRepeatTask != null) main.removeCallbacks(backspaceRepeatTask);
+        backspaceRepeatTask = null;
+        if (backspaceRepeatButton != null) backspaceRepeatButton.setPressed(false);
+        backspaceRepeatButton = null;
+        backspaceRepeated = false;
     }
 
     private int pixels(int value) {
@@ -4049,9 +4113,11 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
-        Button delete = keyboardKey("⌫", "删除", () -> {
+        Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
-        });
+        };
+        Button delete = keyboardKey("⌫", "删除", deleteAction);
+        bindBackspaceRepeat(delete, deleteAction);
         addNineKey(actions, delete);
         addNineKey(actions, keyboardKey("重输", "清空当前拼音重新输入", () -> command(3)));
         addNineKey(actions, keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")));
@@ -4209,9 +4275,12 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
-        addNineKey(actions, keyboardKey("⌫", "删除", () -> {
+        Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
-        }));
+        };
+        Button delete = keyboardKey("⌫", "删除", deleteAction);
+        bindBackspaceRepeat(delete, deleteAction);
+        addNineKey(actions, delete);
         japaneseSpaceKey = keyboardKey("空白", "空白", this::space);
         japaneseSpaceKey.setContentDescription("空白；左右滑动移动光标");
         addNineKey(actions, japaneseSpaceKey);
@@ -4496,7 +4565,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "←", () -> command(4));
         button(controls, "→", () -> command(5));
         button(controls, "尾", () -> command(7));
-        button(controls, "⌫", this::deleteFromHandwriting);
+        Button delete = button(controls, "⌫", this::deleteFromHandwriting);
+        bindBackspaceRepeat(delete, this::deleteFromHandwriting);
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
         spaceButton = button(controls, "空格", this::space);
