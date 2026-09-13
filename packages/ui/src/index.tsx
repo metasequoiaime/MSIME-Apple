@@ -157,6 +157,7 @@ export interface HostCapabilities {
   system_fonts: boolean;
   window_chrome: boolean;
   floating_toolbar: boolean;
+  floating_toolbar_appearance: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   voice_capture_devices: boolean;
@@ -475,6 +476,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
+  // An IBus property menu has no scale, icon size or component list to apply.
+  const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showVoiceCaptureDevices = (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = linuxPlatform ? linuxLicenseUrl : licenseUrl;
@@ -997,18 +1000,19 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             </div>
           </div>
         </div>
-        <div className="section floating-toolbar-appearance">
+        {!showToolbarAppearance && <div className="section"><small>当前宿主以输入法菜单呈现工具栏，缩放、图标尺寸与组件选择不适用；上方开关仍然生效。</small></div>}
+        {showToolbarAppearance && <div className="section floating-toolbar-appearance">
           <label className="section-header"><span className="section-title">工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small></span><select aria-label="工具栏缩放" value={floatingToolbar.scale_percent} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, scale_percent: Number(event.target.value) as FloatingToolbarPreferences["scale_percent"] } })}>{floatingToolbarScales.map(value => <option key={value} value={value}>{value}%</option>)}</select></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">图标尺寸<small>图标基准大小（像素），再乘以上方缩放</small></span><select aria-label="图标尺寸" value={floatingToolbar.font_size} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, font_size: Number(event.target.value) as FloatingToolbarPreferences["font_size"] } })}>{floatingToolbarFontSizes.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
-        </div>
-        <div className="section floating-toolbar-components">
+        </div>}
+        {showToolbarAppearance && <div className="section floating-toolbar-components">
           <div className="section-title">工具栏组件<small>勾选要显示在悬浮工具栏中的功能</small></div>
           <div className="floating-toolbar-component-list">
             <label className="check-option floating-toolbar-required-option"><input type="checkbox" checked disabled /><span>中英文切换</span><span className="floating-toolbar-required-label">始终显示</span></label>
             {floatingToolbarOptions.map(([key, label]) => <div key={key}><div className="input-option-divider" /><label className="check-option"><input type="checkbox" checked={floatingToolbar[key]} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, [key]: event.target.checked } })} /><span>{label}</span></label></div>)}
           </div>
-        </div>
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>

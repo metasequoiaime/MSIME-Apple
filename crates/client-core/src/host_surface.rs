@@ -86,8 +86,13 @@ pub struct HostCapabilities {
     pub system_fonts: bool,
     /// The shared UI draws its own titlebar and resize handles.
     pub window_chrome: bool,
-    /// The host renders a floating toolbar surface.
+    /// The host presents a floating toolbar in some form. On Linux that is the
+    /// IBus property menu rather than a drawn window, so only the enable switch
+    /// is meaningful there.
     pub floating_toolbar: bool,
+    /// The toolbar surface honours scale, icon size and per-component
+    /// visibility. An IBus property menu cannot express any of them.
+    pub floating_toolbar_appearance: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -112,6 +117,13 @@ impl HostCapabilities {
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
             floating_toolbar: platform.is_desktop(),
+            // macOS FloatingToolbarPanel.mm and the Windows FloatingToolbarWindow
+            // both read scale_percent and font_size; the Linux host reads only
+            // floating_toolbar.enabled.
+            floating_toolbar_appearance: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos
+            ),
             // Only the IBus host consumes the shared keybindings and forwards
             // panel shortcuts so far; a host flips these once it does.
             mode_switch_shortcuts: platform == HostPlatform::Linux,
@@ -481,6 +493,10 @@ mod tests {
         assert!(linux.ime_mode_scope);
         assert!(linux.panel_windows);
         assert!(linux.mode_switch_shortcuts);
+        // Linux stands the toolbar up as an IBus property menu: the switch works,
+        // but scale, icon size and component visibility have no surface to apply to.
+        assert!(linux.floating_toolbar);
+        assert!(!linux.floating_toolbar_appearance);
         assert!(linux.panel_shortcuts);
         assert!(linux.voice_capture_devices);
 
@@ -491,6 +507,12 @@ mod tests {
         // These stay false until the Windows host actually consumes them;
         // showing the controls earlier would offer settings that do nothing.
         assert!(!windows.mode_switch_shortcuts);
+        assert!(windows.floating_toolbar && windows.floating_toolbar_appearance);
+        let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(macos.floating_toolbar && macos.floating_toolbar_appearance);
+        // Mobile hosts draw no toolbar at all.
+        let android = HostCapabilities::for_platform(HostPlatform::Android);
+        assert!(!android.floating_toolbar && !android.floating_toolbar_appearance);
         assert!(!windows.panel_shortcuts);
         assert!(windows.system_fonts);
 
