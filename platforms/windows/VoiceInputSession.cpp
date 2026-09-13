@@ -111,6 +111,7 @@ bool VoiceInputSession::start() {
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
   cancel_requested_.store(false);
+  locked_.store(false);
   capture_overflow_.store(false);
   {
     std::lock_guard lock(samples_mutex_);
@@ -148,7 +149,7 @@ bool VoiceInputSession::start() {
   }
   const bool started = capture_->start([this](const float *samples,
                                                std::size_t frames) {
-    if (!samples || !recording_.load() && !starting_.load())
+    if (!samples || (!recording_.load() && !starting_.load()))
       return;
     double sum = 0.0;
     for (std::size_t i = 0; i < frames; ++i)
@@ -216,11 +217,11 @@ bool VoiceInputSession::start() {
 }
 
 void VoiceInputSession::stop() {
-  if (!recording_.load())
+  if (!recording_.exchange(false))
     return;
   if (capture_)
     capture_->stop();
-  recording_.store(false);
+  locked_.store(false);
   overlay_.set_listening(false);
   overlay_.set_input_level(0.0f);
   const auto config = config_provider_();
@@ -345,11 +346,14 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
 }
 
 void VoiceInputSession::cancel() {
+  const bool was_recording = recording_.exchange(false);
   cancel_requested_.store(true);
-  session_.fetch_add(1);
+  const auto session = session_.fetch_add(1) + 1;
+  locked_.store(false);
   const auto config = config_provider_();
+  const auto lease = lease_;
   lease_.reset();
-  if (recording_.exchange(false) && capture_)
+  if ((was_recording || starting_.load()) && capture_)
     capture_->stop();
   std::shared_ptr<DoubaoAsrClient> doubao;
   {
@@ -360,9 +364,22 @@ void VoiceInputSession::cancel() {
     doubao->Cancel();
   if (muted_system_audio_.exchange(false))
     restore_other_system_audio();
-  if (config.sound_enabled && config.end_sound)
+  if (was_recording && config.sound_enabled && config.end_sound)
     cue_player_.play_end();
+  if (was_recording && lease) {
+    const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+    const auto encoded = voice_composition_bytes(
+        FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
+    if (encoded)
+      (void)sender_(*lease, FanyImeWorkerReplyType::CancelVoiceComposition,
+                    L"", generation);
+  }
   clear_overlay();
+}
+
+void VoiceInputSession::lock() {
+  if (recording_.load())
+    locked_.store(true);
 }
 
 void VoiceInputSession::clear_overlay() {

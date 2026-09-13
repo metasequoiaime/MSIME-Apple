@@ -187,7 +187,8 @@ if(WIN32)
   add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
-                 DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp)
+                 DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp
+                 VoiceHotkey.cpp)
   target_include_directories(msime-windows-server PRIVATE
                              ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
