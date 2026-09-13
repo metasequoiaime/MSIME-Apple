@@ -37,6 +37,7 @@ public final class DictionarySnapshotQueue {
         private final String wire;
         Status(String wire) { this.wire = wire; }
         boolean active() { return this == QUEUED || this == PREPARING; }
+        public String wire() { return wire; }
     }
 
     public enum Reason { UNAVAILABLE, BUSY, INVALID, CONFLICT }

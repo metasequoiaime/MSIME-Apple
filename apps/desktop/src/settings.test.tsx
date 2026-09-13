@@ -1434,6 +1434,36 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   panel.unmount();
 });
 
+test("cloud dictionary snapshot requires preview and explicit confirmation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
+    if (action.operation === "snapshot_preview") return {
+      previewToken: "snapshot-token",
+      cloudRevision: 42,
+      sha256: "a".repeat(64),
+      bytes: 2048,
+      records: 12,
+      entries: 4,
+      overlays: 4,
+      positions: 2,
+      selections: 2,
+    };
+    return { request: { id: "request", cloudRevision: 42, fileSha256: "a".repeat(64), status: action.operation === "snapshot_cancel" ? "cancelled" : "queued" } };
+  });
+  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
+  await screen.findByText("暂无词条");
+  fireEvent.click(screen.getByRole("button", { name: "下载并预览" }));
+  expect(await screen.findByText(/云端 revision 42/)).toBeDefined();
+  expect(request).not.toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" });
+  fireEvent.click(screen.getByRole("button", { name: "确认加入本机" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" }));
+  expect(confirm).toHaveBeenCalledWith("确认将此云词典快照加入本机词库？输入法会在下一次空闲边界应用。");
+  fireEvent.click(screen.getByRole("button", { name: "取消待应用" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
+});
+
 test("cloud dictionary catalog panel queries and edits complete directory entries", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const back = vi.fn().mockResolvedValue(undefined);

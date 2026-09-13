@@ -12,6 +12,9 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
+import java.nio.file.LinkOption
+import java.nio.file.Path
 
 @InvokeArg
 class SaveAccountSessionArgs {
@@ -35,11 +38,63 @@ class CopyTextArgs {
     lateinit var text: String
 }
 
+@InvokeArg
+class EnqueueSnapshotArgs {
+    lateinit var source: String
+    lateinit var accountId: String
+    var cloudRevision: Long = -1
+    lateinit var expectedLocalVersion: String
+    lateinit var fileSha256: String
+}
+
+@InvokeArg
+class CancelSnapshotArgs {
+    lateinit var accountId: String
+}
+
 @TauriPlugin
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
     private val feedback = activity.getSharedPreferences("keyboard-feedback", Context.MODE_PRIVATE)
+
+    private fun snapshotQueue(): DictionarySnapshotQueue {
+        val files = hostActivity.filesDir
+            ?: throw IllegalStateException("private files unavailable")
+        return DictionarySnapshotQueue(File(files, "bootstrap/state/dictionary-snapshots").toPath())
+    }
+
+    private fun snapshotQueueRoot(): Path {
+        val files = hostActivity.filesDir
+            ?: throw IllegalStateException("private files unavailable")
+        return File(files, "bootstrap/state/dictionary-snapshots").toPath().toAbsolutePath().normalize()
+    }
+
+    private fun privateSnapshotSource(value: String): Path {
+        val source = Path.of(value).toAbsolutePath().normalize()
+        val root = snapshotQueueRoot()
+        if (!source.startsWith(root) || !java.nio.file.Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
+            throw IllegalArgumentException("invalid snapshot source")
+        }
+        return source
+    }
+
+    private fun snapshotStateResponse(): JSObject {
+        val state = snapshotQueue().read()
+        val response = JSObject()
+        state.localVersion()?.let { response.put("localVersion", it) }
+        val request = state.request()
+        if (request != null) {
+            response.put("request", JSObject()
+                .put("id", request.id().toString())
+                .put("accountId", request.accountId())
+                .put("cloudRevision", request.cloudRevision())
+                .put("expectedLocalVersion", request.expectedLocalVersion())
+                .put("fileSha256", request.fileSha256())
+                .put("status", request.status().wire()))
+        }
+        return response
+    }
 
     private val appIconAliases = linkedMapOf(
         "classic" to null,
@@ -202,5 +257,44 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         } catch (_: Exception) {
             invoke.reject("clipboard", "clipboard")
         }
+    }
+
+    /** Rust-only bridge; WebView code never receives the private source path. */
+    @Command
+    fun enqueueSnapshot(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(EnqueueSnapshotArgs::class.java)
+            snapshotQueue().enqueue(
+                privateSnapshotSource(args.source), args.accountId, args.cloudRevision,
+                args.expectedLocalVersion, args.fileSha256)
+            invoke.resolve(snapshotStateResponse())
+        } catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (error: IllegalArgumentException) {
+            invoke.reject("snapshot_invalid", error.message)
+        } catch (_: Exception) {
+            invoke.reject("snapshot_unavailable", "snapshot_unavailable")
+        }
+    }
+
+    @Command
+    fun snapshotState(invoke: Invoke) {
+        try { invoke.resolve(snapshotStateResponse()) }
+        catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }
+    }
+
+    @Command
+    fun cancelSnapshot(invoke: Invoke) {
+        try {
+            val accountId = invoke.parseArgs(CancelSnapshotArgs::class.java).accountId
+            snapshotQueue().cancel(accountId)
+            invoke.resolve(snapshotStateResponse())
+        } catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (error: IllegalArgumentException) {
+            invoke.reject("snapshot_invalid", error.message)
+        } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }
     }
 }

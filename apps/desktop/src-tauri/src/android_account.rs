@@ -30,8 +30,13 @@ use msime_client_core::preferences::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{Emitter, Manager, Runtime, State, Wry};
 
@@ -102,11 +107,19 @@ type AiSkinService = BackendAiSkinService<BackendAccountClient, AndroidAccountSt
 pub struct AccountState {
     session: Arc<Session>,
     pub(crate) platform: PluginHandle<Wry>,
+    snapshot_directory: PathBuf,
+    snapshot_previews: Arc<Mutex<HashMap<String, PendingSnapshot>>>,
     feedback: PluginHandle<Wry>,
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
     ai_skin_requests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+}
+
+struct PendingSnapshot {
+    account_id: String,
+    path: PathBuf,
+    metadata: SnapshotMetadata,
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -136,6 +149,11 @@ pub fn init() -> TauriPlugin<Wry> {
             app.manage(AccountState {
                 session,
                 platform,
+                snapshot_directory: app
+                    .path()
+                    .app_data_dir()?
+                    .join("files/bootstrap/state/dictionary-snapshots"),
+                snapshot_previews: Arc::new(Mutex::new(HashMap::new())),
                 feedback,
                 community,
                 resources,
@@ -145,6 +163,316 @@ pub fn init() -> TauriPlugin<Wry> {
             Ok(())
         })
         .build()
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotMetadata {
+    cloud_revision: i64,
+    sha256: String,
+    bytes: u64,
+    records: usize,
+    entries: usize,
+    overlays: usize,
+    positions: usize,
+    selections: usize,
+}
+
+fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountError> {
+    const MAX_BYTES: u64 = 512 * 1024 * 1024;
+    let file = File::open(path).map_err(|_| AccountError::Unavailable)?;
+    let mut reader = BufReader::with_capacity(65_536, file);
+    let mut line = Vec::with_capacity(65_536);
+    let mut total_bytes = 0u64;
+    let mut records = 0usize;
+    let mut counts = [0usize; 4];
+    let mut category = 0u8;
+    let mut revision = None;
+    let mut digest = Sha256::new();
+    let mut checksum = None;
+    loop {
+        line.clear();
+        let complete = loop {
+            let chunk = reader
+                .fill_buf()
+                .map_err(|_| AccountError::Unavailable)?;
+            if chunk.is_empty() {
+                break false;
+            }
+            if let Some(index) = chunk.iter().position(|byte| *byte == b'\n') {
+                if line.len() + index + 1 >= 65_536 {
+                    return Err(AccountError::Invalid);
+                }
+                line.extend_from_slice(&chunk[..=index]);
+                reader.consume(index + 1);
+                break true;
+            }
+            if line.len() + chunk.len() >= 65_536 {
+                return Err(AccountError::Invalid);
+            }
+            line.extend_from_slice(chunk);
+            let length = chunk.len();
+            reader.consume(length);
+        };
+        if !complete {
+            if !line.is_empty() {
+                return Err(AccountError::Invalid);
+            }
+            break;
+        }
+        total_bytes = total_bytes
+            .checked_add(line.len() as u64)
+            .ok_or(AccountError::Unavailable)?;
+        if total_bytes > MAX_BYTES {
+            return Err(AccountError::Invalid);
+        }
+        line.pop();
+        if line.ends_with(b"\r") || line.is_empty() {
+            return Err(AccountError::Invalid);
+        }
+        let object = serde_json::from_slice::<Value>(&line).map_err(|_| AccountError::Invalid)?;
+        let map = object.as_object().ok_or(AccountError::Invalid)?;
+        let kind = map
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or(AccountError::Invalid)?;
+        match kind {
+            "header" => {
+                if records != 0 || revision.is_some() || map.len() != 4
+                    || map.get("format").and_then(Value::as_str)
+                        != Some("msime-dictionary-snapshot")
+                    || map.get("version").and_then(Value::as_i64) != Some(1)
+                {
+                    return Err(AccountError::Invalid);
+                }
+                let value = map
+                    .get("revision")
+                    .and_then(Value::as_i64)
+                    .filter(|value| *value >= 0)
+                    .ok_or(AccountError::Invalid)?;
+                revision = Some(value);
+            }
+            "entry" | "overlay" | "position" | "selection" => {
+                if revision.is_none() || checksum.is_some() || map.get("data").and_then(Value::as_object).is_none() {
+                    return Err(AccountError::Invalid);
+                }
+                let next = match kind {
+                    "entry" => 1,
+                    "overlay" => 2,
+                    "position" => 3,
+                    _ => 4,
+                };
+                if next < category {
+                    return Err(AccountError::Invalid);
+                }
+                category = next;
+                counts[(next - 1) as usize] = counts[(next - 1) as usize]
+                    .checked_add(1)
+                    .ok_or(AccountError::Unavailable)?;
+                records = records.checked_add(1).ok_or(AccountError::Unavailable)?;
+                if counts[1..].iter().sum::<usize>() > 500_000 {
+                    return Err(AccountError::Invalid);
+                }
+                digest.update(&line);
+                digest.update([b'\n']);
+            }
+            "footer" => {
+                if revision.is_none() || checksum.is_some() || map.len() != 3 {
+                    return Err(AccountError::Invalid);
+                }
+                let expected_records = map
+                    .get("records")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .ok_or(AccountError::Invalid)?;
+                let expected_sha = map
+                    .get("sha256")
+                    .and_then(Value::as_str)
+                    .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .ok_or(AccountError::Invalid)?;
+                let actual = format!("{:x}", digest.finalize());
+                if expected_records != records || expected_sha != actual {
+                    return Err(AccountError::Invalid);
+                }
+                checksum = Some(expected_sha.to_owned());
+            }
+            _ => return Err(AccountError::Invalid),
+        }
+    }
+    let revision = revision.ok_or(AccountError::Invalid)?;
+    let sha256 = checksum.ok_or(AccountError::Invalid)?;
+    Ok(SnapshotMetadata {
+        cloud_revision: revision,
+        sha256,
+        bytes: total_bytes,
+        records,
+        entries: counts[0],
+        overlays: counts[1],
+        positions: counts[2],
+        selections: counts[3],
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnqueueSnapshotRequest {
+    source: String,
+    account_id: String,
+    cloud_revision: i64,
+    expected_local_version: String,
+    file_sha256: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CancelSnapshotRequest {
+    account_id: String,
+}
+
+fn snapshot_command_error() -> super::CommandError {
+    super::CommandError {
+        code: "snapshot_unavailable",
+    }
+}
+
+fn snapshot_response_without_account(mut value: Value) -> Result<Value, super::CommandError> {
+    let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
+    if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
+        request.remove("accountId");
+    }
+    Ok(value)
+}
+
+async fn dictionary_snapshot_preview(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let directory = state.snapshot_directory.clone();
+    let previews = Arc::clone(&state.snapshot_previews);
+    let token = Uuid::new_v4().to_string();
+    let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&directory).map_err(|_| AccountError::Unavailable)?;
+        if let Ok(files) = fs::read_dir(&directory) {
+            for file in files.flatten() {
+                if file.file_name().to_string_lossy().starts_with("download-") {
+                    let _ = fs::remove_file(file.path());
+                }
+            }
+        }
+        let profile = session.profile()?;
+        let path = directory.join(format!("download-{token}.ndjson"));
+        let result = session.dictionary_snapshot_to_file(&path).and_then(|_| inspect_snapshot(&path));
+        match result {
+            Ok(metadata) => Ok((profile.user.id, path, metadata)),
+            Err(error) => {
+                let _ = fs::remove_file(&path);
+                Err(error)
+            }
+        }
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+    .map_err(|error| super::CommandError { code: error.code() })?;
+    let old = {
+        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+        let old = pending.drain().map(|(_, item)| item.path).collect::<Vec<_>>();
+        pending.insert(token.clone(), PendingSnapshot { account_id, path, metadata: metadata.clone() });
+        old
+    };
+    for path in old { let _ = fs::remove_file(path); }
+    let mut response = serde_json::to_value(metadata).map_err(|_| snapshot_command_error())?;
+    response
+        .as_object_mut()
+        .ok_or_else(snapshot_command_error)?
+        .insert("previewToken".into(), Value::String(token));
+    Ok(response)
+}
+
+async fn dictionary_snapshot_enqueue(
+    state: State<'_, AccountState>,
+    token: String,
+) -> Result<Value, super::CommandError> {
+    let parsed = Uuid::parse_str(&token).map_err(|_| super::CommandError { code: "snapshot_invalid" })?;
+    let pending = {
+        let mut previews = state.snapshot_previews.lock().map_err(|_| snapshot_command_error())?;
+        previews.remove(&parsed.to_string()).ok_or_else(|| super::CommandError { code: "snapshot_invalid" })?
+    };
+    let session = Arc::clone(&state.session);
+    let platform = state.platform.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let path = pending.path.clone();
+        let result = (|| {
+            let profile = session.profile()?;
+            if profile.user.id != pending.account_id {
+                return Err(AccountError::Conflict);
+            }
+            let state = platform
+                .run_mobile_plugin::<Value>("snapshotState", ())
+                .map_err(|_| AccountError::Unavailable)?;
+            let expected = state
+                .get("localVersion")
+                .and_then(Value::as_str)
+                .ok_or(AccountError::Conflict)?
+                .to_owned();
+            let request = EnqueueSnapshotRequest {
+                source: path.to_string_lossy().into_owned(),
+                account_id: pending.account_id,
+                cloud_revision: pending.metadata.cloud_revision,
+                expected_local_version: expected,
+                file_sha256: pending.metadata.sha256.clone(),
+            };
+            platform
+                .run_mobile_plugin::<Value>("enqueueSnapshot", request)
+                .map_err(|_| AccountError::Unavailable)
+        })();
+        let _ = fs::remove_file(path);
+        result
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+    .map_err(|error| super::CommandError { code: error.code() })?;
+    snapshot_response_without_account(result)
+}
+
+async fn dictionary_snapshot_status(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let platform = state.platform.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        platform
+            .run_mobile_plugin::<Value>("snapshotState", ())
+            .map_err(|_| snapshot_command_error())
+    })
+    .await
+    .map_err(|_| snapshot_command_error())??;
+    snapshot_response_without_account(result)
+}
+
+async fn dictionary_snapshot_cancel(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let platform = state.platform.clone();
+    let previews = Arc::clone(&state.snapshot_previews);
+    let account_id = tauri::async_runtime::spawn_blocking(move || {
+        session.profile().map(|profile| profile.user.id)
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+    .map_err(|error| super::CommandError { code: error.code() })?;
+    let old = {
+        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+        pending.drain().map(|(_, item)| item.path).collect::<Vec<_>>()
+    };
+    for path in old { let _ = fs::remove_file(path); }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        platform
+            .run_mobile_plugin::<Value>("cancelSnapshot", CancelSnapshotRequest { account_id })
+            .map_err(|_| snapshot_command_error())
+    })
+    .await
+    .map_err(|_| snapshot_command_error())??;
+    snapshot_response_without_account(result)
 }
 
 #[derive(Serialize)]
@@ -863,6 +1191,12 @@ pub async fn cloud_dictionary_request(
             code: "invalid_cloud_dictionary",
         })?;
     match request {
+        CloudDictionaryRequest::SnapshotPreview => dictionary_snapshot_preview(state).await,
+        CloudDictionaryRequest::SnapshotEnqueue { token } => {
+            dictionary_snapshot_enqueue(state, token).await
+        }
+        CloudDictionaryRequest::SnapshotStatus => dictionary_snapshot_status(state).await,
+        CloudDictionaryRequest::SnapshotCancel => dictionary_snapshot_cancel(state).await,
         CloudDictionaryRequest::List {
             kind,
             offset,

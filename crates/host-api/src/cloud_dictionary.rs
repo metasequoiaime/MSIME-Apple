@@ -3,6 +3,10 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum CloudDictionaryRequest {
+    SnapshotPreview,
+    SnapshotEnqueue { token: String },
+    SnapshotStatus,
+    SnapshotCancel,
     List {
         kind: String,
         offset: usize,
@@ -107,6 +111,12 @@ pub struct CloudDictionaryValue {
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
+    let valid_token = |token: &str| {
+        (1..=96).contains(&token.len())
+            && token.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+            })
+    };
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let code_alphabet_ok = match kind {
             "quick" => code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
@@ -134,6 +144,10 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
     };
     match request {
+        CloudDictionaryRequest::SnapshotPreview | CloudDictionaryRequest::SnapshotStatus | CloudDictionaryRequest::SnapshotCancel => Ok(()),
+        CloudDictionaryRequest::SnapshotEnqueue { token } => {
+            if valid_token(token) { Ok(()) } else { Err("invalid cloud dictionary request") }
+        }
         CloudDictionaryRequest::List {
             kind,
             offset,
@@ -378,6 +392,17 @@ mod tests {
 
     #[test]
     fn validates_dictionary_values_and_entry_identity() {
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotPreview).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotStatus).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotCancel).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotEnqueue {
+            token: "a-token".into(),
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotEnqueue {
+            token: "bad token".into(),
+        })
+        .is_err());
         assert!(validate_cloud_request(&CloudDictionaryRequest::Add {
             kind: "pinyin".into(),
             code: "ni".into(),
