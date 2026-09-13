@@ -144,6 +144,41 @@ int main() {
     require(themed.skin_directory == std::filesystem::u8path(skins) &&
             themed.skin_id == "wechat" && !themed.dark_theme);
     require(themed.horizontal_candidates); // The shipped default is one row.
+    // Supplementary faces and the candidate preedit line are shared settings the
+    // window accepts but that nothing used to fill in, so both were inert here.
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_fallback_fonts",
+                               nlohmann::json::array({"Microsoft YaHei", "Segoe UI Emoji"})}};
+    const auto fonts = PreviewConfig::parse(document.dump());
+    require(fonts.candidate_fallback_fonts.size() == 2 &&
+            fonts.candidate_fallback_fonts[0] == "Microsoft YaHei" &&
+            fonts.candidate_fallback_fonts[1] == "Segoe UI Emoji");
+    require(fonts.candidate_show_preedit); // Showing the reading is the default.
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_fallback_fonts",
+                               nlohmann::json::array({"", "Segoe UI"})}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_fallback_fonts", nlohmann::json::array({1})}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_fallback_fonts", "Segoe UI"}};
+    reject(document);
+
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_style", "empty"}};
+    require(!PreviewConfig::parse(document.dump()).candidate_show_preedit);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_style", "pinyin"}};
+    require(PreviewConfig::parse(document.dump()).candidate_show_preedit);
+    // An unknown value must be refused rather than silently picking a layout.
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_style", "raw"}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_style", 1}};
+    reject(document);
+
     document["appearance"] = {{"skin_directory", skins}, {"layout", "vertical"}};
     require(!PreviewConfig::parse(document.dump()).horizontal_candidates);
     document["appearance"] = {{"skin_directory", skins}, {"layout", "horizontal"}};

@@ -35,6 +35,10 @@ struct PreviewConfig {
   std::string candidate_hover_color;
   std::string candidate_accent_color;
   std::string candidate_font = "Segoe UI";
+  // Supplementary faces tried in order when the main font lacks a glyph.
+  std::vector<std::string> candidate_fallback_fonts;
+  // "pinyin" shows the reading above the list; "empty" hides that line.
+  bool candidate_show_preedit = true;
   std::optional<bool> candidate_selected_bar;
   std::array<bool, 6> floating_toolbar_items{true, true, true, true, false, true};
   static PreviewConfig parse(const std::string &document) {
@@ -77,7 +81,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 15 ||
+      if (!appearance.is_object() || appearance.size() > 17 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -160,6 +164,36 @@ struct PreviewConfig {
             std::any_of(result.candidate_font.begin(), result.candidate_font.end(),
                         [](unsigned char c) { return c < 0x20; }))
           throw std::invalid_argument("Invalid candidate font");
+      }
+      if (appearance.contains("candidate_fallback_fonts")) {
+        const auto &fonts = appearance.at("candidate_fallback_fonts");
+        if (!fonts.is_array() || fonts.size() > 32)
+          throw std::invalid_argument("Invalid candidate fallback fonts");
+        for (const auto &font : fonts) {
+          if (!font.is_string())
+            throw std::invalid_argument("Invalid candidate fallback fonts");
+          auto name = font.get<std::string>();
+          if (name.empty() || name.size() > 128 ||
+              name.find('\0') != std::string::npos ||
+              std::any_of(name.begin(), name.end(),
+                          [](unsigned char c) { return c < 0x20; }))
+            throw std::invalid_argument("Invalid candidate fallback fonts");
+          result.candidate_fallback_fonts.push_back(std::move(name));
+        }
+      }
+      if (appearance.contains("candidate_preedit_style")) {
+        const auto &preedit = appearance.at("candidate_preedit_style");
+        if (!preedit.is_string())
+          throw std::invalid_argument("Invalid candidate preedit style");
+        const auto preedit_style = preedit.get<std::string>();
+        // Only the shared vocabulary is accepted; an unknown value would
+        // otherwise silently pick a presentation the user did not choose.
+        if (preedit_style == "pinyin")
+          result.candidate_show_preedit = true;
+        else if (preedit_style == "empty")
+          result.candidate_show_preedit = false;
+        else
+          throw std::invalid_argument("Invalid candidate preedit style");
       }
       if (appearance.contains("candidate_selected_bar")) {
         if (!appearance.at("candidate_selected_bar").is_boolean())

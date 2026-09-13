@@ -396,8 +396,8 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         static_cast<unsigned>(config.candidate_font_size),
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
-        config.candidate_font, {}, config.dark_theme,
-        config.horizontal_candidates, true,
+        config.candidate_font, config.candidate_fallback_fonts, config.dark_theme,
+        config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); });
     const auto palette = resolve_palette(config);
     auto resolved_palette = palette;
