@@ -19,6 +19,7 @@ msime-host-api = { path = "../../../crates/host-api" }
 msime-input-runtime = { path = "../../../crates/input-runtime" }
 serde_json.workspace = true
 tempfile.workspace = true
+sha2 = "0.10"
 
 [target.'cfg(target_os = "android")'.dependencies]
 uuid = "1"
