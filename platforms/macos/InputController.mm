@@ -852,7 +852,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!controller || !controller->_session) return;
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
-        [controller->_voiceAudioMuter mute:&error];
+        if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         [controller->_voiceCuePlayer playStartCue];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
