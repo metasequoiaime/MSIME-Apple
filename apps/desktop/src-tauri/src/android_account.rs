@@ -343,6 +343,13 @@ fn snapshot_response_without_account(mut value: Value) -> Result<Value, super::C
     Ok(value)
 }
 
+fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
+    let Ok(mut pending) = previews.lock() else { return };
+    for item in pending.drain().map(|(_, item)| item) {
+        let _ = fs::remove_file(item.path);
+    }
+}
+
 async fn dictionary_snapshot_preview(
     state: State<'_, AccountState>,
 ) -> Result<Value, super::CommandError> {
@@ -1079,17 +1086,32 @@ pub async fn account_logout(
     state: State<'_, AccountState>,
     all: bool,
 ) -> Result<(), super::CommandError> {
-    call(state, move |session| session.logout(all)).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, move |session| session.logout(all)).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
-    call(state, |session| session.delete_account()).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, |session| session.delete_account()).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
-    call(state, |session| session.forget()).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, |session| session.forget()).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 pub async fn cloud_clipboard_request(
