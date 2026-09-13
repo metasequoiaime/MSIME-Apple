@@ -1457,6 +1457,35 @@ test("cloud dictionary snapshot requires preview and explicit confirmation", asy
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
 });
 
+test("cloud dictionary snapshot backup and restore stay behind validation and confirmation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
+    if (action.operation === "snapshot_export") return { text: "{\"type\":\"header\"}\n", filename: "snapshot.ndjson" };
+    if (action.operation === "snapshot_restore_preview") return {
+      snapshot: { cloudRevision: 7, sha256: "b".repeat(64), bytes: 20, records: 0, entries: 0, overlays: 0, positions: 0, selections: 0 },
+      expectedRevision: 12,
+    };
+    if (action.operation === "snapshot_restore") return { revision: 13, reset: true };
+    return {};
+  });
+  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
+  await screen.findByText("暂无词条");
+  const file = new File(["snapshot fixture"], "snapshot.ndjson", { type: "application/x-ndjson" });
+  fireEvent.change(screen.getByLabelText("恢复快照"), { target: { files: [file] } });
+  expect(await screen.findByText(/当前云端 revision：12/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({
+    operation: "snapshot_restore", text: "snapshot fixture", expected_sha256: "b".repeat(64), revision: 12,
+  }));
+  expect(confirm).toHaveBeenCalledWith("确认用此快照替换全部云端词库和排序记录？");
+  if (typeof URL.createObjectURL === "function") vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
+  else Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:fixture") });
+  fireEvent.click(screen.getByRole("button", { name: "导出完整快照" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_export" }));
+});
+
 test("cloud dictionary catalog panel queries and edits complete directory entries", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const back = vi.fn().mockResolvedValue(undefined);

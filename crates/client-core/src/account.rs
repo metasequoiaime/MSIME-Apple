@@ -192,6 +192,12 @@ pub struct AccountDictionaryExport {
     pub filename: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionarySnapshotRestore {
+    pub revision: i64,
+    pub reset: bool,
+}
+
 /// The deliberately small value set accepted by the account preferences API.
 /// Credentials, arbitrary JSON objects, and input contents never cross this
 /// boundary; platform hosts map their safe local settings to these scalars.
@@ -519,6 +525,15 @@ pub trait AccountApi: Send + Sync + 'static {
         _destination: &Path,
         _access_token: &str,
     ) -> Result<u64, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn restore_dictionary_snapshot(
+        &self,
+        _snapshot: &[u8],
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         Err(AccountError::Unavailable)
     }
 }
@@ -947,6 +962,45 @@ impl BackendAccountClient {
             .persist(destination)
             .map_err(|_| AccountError::Unavailable)?;
         Ok(bytes)
+    }
+
+    pub fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        if revision < 0
+            || snapshot.is_empty()
+            || snapshot.len() > MAX_DICTIONARY_SNAPSHOT_BYTES
+            || snapshot.contains(&0)
+            || !valid_token(access_token)
+        {
+            return Err(AccountError::Invalid);
+        }
+        let url = self
+            .origin
+            .join(&format!(
+                "/v1/users/me/dictionary/snapshot?revision={revision}"
+            ))
+            .map_err(|_| AccountError::Invalid)?;
+        let response = self
+            .client
+            .put(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
+            .bearer_auth(access_token)
+            .timeout(Duration::from_secs(130))
+            .body(snapshot.to_vec())
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        let bytes = read_bounded_response(response, MAX_JSON_BYTES)?;
+        let result: AccountDictionarySnapshotRestore =
+            serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;
+        if !result.reset || result.revision <= revision {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(result)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2163,6 +2217,15 @@ impl AccountApi for BackendAccountClient {
     ) -> Result<u64, AccountError> {
         self.dictionary_snapshot_to_file(destination, access_token)
     }
+
+    fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        self.restore_dictionary_snapshot(snapshot, revision, access_token)
+    }
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {
@@ -2722,6 +2785,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn dictionary_snapshot_to_file(&self, destination: &Path) -> Result<u64, AccountError> {
         self.authenticated(|api, token| api.dictionary_snapshot_to_file(destination, token))
+    }
+
+    pub fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        self.authenticated(|api, token| api.restore_dictionary_snapshot(snapshot, revision, token))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3465,6 +3536,39 @@ mod tests {
         let origin = serve_once(response);
         let client = BackendAccountClient::loopback(&origin).unwrap();
         assert_eq!(client.providers(), Err(AccountError::Unavailable));
+    }
+
+    #[test]
+    fn restores_dictionary_snapshot_only_after_a_new_cloud_revision() {
+        let body = serde_json::json!({ "revision": 8, "reset": true }).to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let result = client
+            .restore_dictionary_snapshot(b"{\"type\":\"header\"}\n", 7, &token(b'a'))
+            .unwrap();
+        assert_eq!(
+            result,
+            AccountDictionarySnapshotRestore {
+                revision: 8,
+                reset: true
+            }
+        );
+
+        let body = serde_json::json!({ "revision": 8, "reset": false }).to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        assert_eq!(
+            client.restore_dictionary_snapshot(b"snapshot", 7, &token(b'a')),
+            Err(AccountError::Unavailable)
+        );
     }
 
     #[test]
