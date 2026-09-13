@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "PreparePaths.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -52,16 +53,37 @@ bool publish(const std::filesystem::path &state, const std::string &document) {
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "Usage: msime-client-prepare <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-client-prepare --installed <absolute-new-state-directory>\n"
                  "The state directory must not exist; its parent must exist.\n"
+                 "--installed uses the resource bundle installed beside this executable.\n"
                  "Prints the new runtime-options.json path on success.\n";
     return 0;
   }
   if (argc != 3) {
-    std::cerr << "Usage: msime-client-prepare <absolute-resource-directory> <absolute-new-state-directory>\n";
+    std::cerr << "Usage: msime-client-prepare <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-client-prepare --installed <absolute-new-state-directory>\n";
     return 2;
   }
   try {
-    const std::filesystem::path resources(argv[1]), requested_state(argv[2]);
+    const bool installed = std::string(argv[1]) == "--installed";
+    std::filesystem::path resources;
+    const std::filesystem::path requested_state(argv[2]);
+    if (installed) {
+      std::error_code error;
+      const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+      if (error || !executable.is_absolute()) {
+        std::cerr << "Cannot locate the installed executable resource bundle\n";
+        return 1;
+      }
+      const auto discovered = msime_linux::installed_resource_directory(executable);
+      if (discovered.empty()) {
+        std::cerr << "Installed Engine resources were not found; provide a packaged resource bundle\n";
+        return 1;
+      }
+      resources = discovered;
+    } else {
+      resources = argv[1];
+    }
     if (!resources.is_absolute() || !requested_state.is_absolute() ||
         !std::filesystem::is_directory(resources)) {
       std::cerr << "Resource and new state directories must use absolute paths\n";
