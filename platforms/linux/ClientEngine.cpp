@@ -4938,10 +4938,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
 }
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
-  if ((button != 1 && button != 2 && button != 3) || flags || !state(engine).focused ||
+  if ((button < 1 || button > 5) || flags || !state(engine).focused ||
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
+    if (button >= 4) {
+      if (const auto wheel = s.navigation.wheel_command(button))
+        if (s.session)
+          apply(engine, msime_client_command(s.session, *wheel));
+      return;
+    }
     const auto candidates = s.view.value("candidates", Json::array());
     if (!s.session || !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);

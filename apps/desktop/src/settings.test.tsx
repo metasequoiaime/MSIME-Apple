@@ -500,6 +500,20 @@ test("paging defaults match Windows and individual edits persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: true, tab: false, page_up_down: true, arrows: true } });
 });
 
+test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const wheel = await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" }) as HTMLInputElement;
+  expect(wheel.checked).toBe(false);
+  fireEvent.click(wheel);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({
+    navigation: expect.objectContaining({ mouse_wheel: true }),
+  }));
+});
+
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

@@ -12,6 +12,11 @@ int main() {
   bindings.tab = false;
   bindings.page_up_down = false;
   bindings.brackets = false;
+  assert(!bindings.wheel_command(4));
+  bindings.mouse_wheel = true;
+  assert(bindings.wheel_command(4) == MSIME_PREVIOUS_PAGE);
+  assert(bindings.wheel_command(5) == MSIME_NEXT_PAGE);
+  assert(!bindings.wheel_command(1));
   assert(bindings.command(msime::linux_host::kTouchKeyboardNextPage, true) ==
          MSIME_NEXT_PAGE);
   assert(bindings.command(msime::linux_host::kTouchKeyboardPreviousPage, true) ==

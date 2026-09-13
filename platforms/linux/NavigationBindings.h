@@ -30,6 +30,7 @@ struct NavigationBindings {
   bool brackets = false;
   bool tab = true;
   bool page_up_down = true;
+  bool mouse_wheel = false;
   bool arrows = true;
 
   static NavigationBindings read(const nlohmann::json &preferences) {
@@ -45,7 +46,17 @@ struct NavigationBindings {
                             : get("arrows", true);
     return {get("minus_equal", true), get("comma_period", true),
             get("brackets", false), get("tab", true),
-            get("page_up_down", true), arrows};
+            get("page_up_down", true), get("mouse_wheel", false), arrows};
+  }
+
+  std::optional<uint32_t> wheel_command(guint button) const {
+    if (!mouse_wheel)
+      return std::nullopt;
+    if (button == 4)
+      return MSIME_PREVIOUS_PAGE;
+    if (button == 5)
+      return MSIME_NEXT_PAGE;
+    return std::nullopt;
   }
 
   std::optional<uint32_t> command(guint key, bool shift) const {

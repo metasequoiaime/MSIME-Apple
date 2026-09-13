@@ -912,6 +912,8 @@ pub struct NavigationPreferences {
     pub brackets: bool,
     pub tab: bool,
     pub page_up_down: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
 }
@@ -924,6 +926,7 @@ impl Default for NavigationPreferences {
             brackets: false,
             tab: true,
             page_up_down: true,
+            mouse_wheel: false,
             arrows: true,
         }
     }
@@ -2414,9 +2417,10 @@ mod tests {
 
     #[test]
     fn navigation_accepts_windows_candidate_arrow_alias() {
-        let value = serde_json::json!({"minus_equal": true, "comma_period": true, "brackets": false, "tab": true, "page_up_down": true, "candidate_arrow_navigation": false});
+        let value = serde_json::json!({"minus_equal": true, "comma_period": true, "brackets": false, "tab": true, "page_up_down": true, "mouse_wheel": true, "candidate_arrow_navigation": false});
         let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
         assert!(!parsed.arrows);
+        assert!(parsed.mouse_wheel);
     }
 
     #[test]
@@ -2442,6 +2446,7 @@ mod tests {
                 brackets: true,
                 tab: false,
                 page_up_down: false,
+                mouse_wheel: false,
                 arrows: false,
             },
             ..Preferences::default()
