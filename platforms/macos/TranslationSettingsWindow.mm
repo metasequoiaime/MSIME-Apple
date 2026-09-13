@@ -12,9 +12,10 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSGridView *_grid;
     NSTextField *_endpoint, *_plainKey, *_status;
     NSSecureTextField *_key;
-    NSButton *_tencent, *_revealTencent;
+    NSButton *_tencent, *_revealTencent, *_revealNiuTrans;
     NSTextField *_secretId, *_plainTencentKey, *_region;
-    NSSecureTextField *_tencentKey;
+    NSSecureTextField *_tencentKey, *_niuTransKey;
+    NSTextField *_appId, *_plainNiuTransKey;
     BOOL _busy, _saving;
     NSUInteger _epoch;
 }
@@ -23,14 +24,14 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     return self;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 650)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 760)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选翻译设置"; window.delegate = self; self.window = window;
     _enabled = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(updateControls:)];
     _target = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_target addItemsWithTitles:@[@"英语", @"法语", @"日语", @"西班牙语", @"俄语", @"德语", @"韩语"]];
     _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_provider addItemsWithTitles:@[@"腾讯云", @"自定义 DeepLX"]];
+    [_provider addItemsWithTitles:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]];
     _provider.target = self; _provider.action = @selector(providerChanged:);
     _endpoint = [NSTextField textFieldWithString:@""]; _endpoint.placeholderString = @"https://example.com/translate";
     _key = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _key.placeholderString = @"留空表示不鉴权";
@@ -48,6 +49,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _region = [NSTextField textFieldWithString:@""]; _region.placeholderString = @"ap-guangzhou（默认）";
     NSStackView *tencentKeys = [NSStackView stackViewWithViews:@[_tencentKey, _plainTencentKey, _revealTencent]];
     tencentKeys.orientation = NSUserInterfaceLayoutOrientationVertical; tencentKeys.alignment = NSLayoutAttributeLeading;
+    _appId = [NSTextField textFieldWithString:@""]; _appId.placeholderString = @"App ID";
+    _niuTransKey = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _niuTransKey.placeholderString = @"API Key";
+    _plainNiuTransKey = [NSTextField textFieldWithString:@""]; _plainNiuTransKey.hidden = YES;
+    _plainNiuTransKey.allowsEditingTextAttributes = NO;
+    _revealNiuTrans = [NSButton checkboxWithTitle:@"显示 API Key" target:self action:@selector(revealNiuTransKey:)];
+    NSStackView *niuTransKeys = [NSStackView stackViewWithViews:@[_niuTransKey, _plainNiuTransKey, _revealNiuTrans]];
+    niuTransKeys.orientation = NSUserInterfaceLayoutOrientationVertical; niuTransKeys.alignment = NSLayoutAttributeLeading;
     _grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选释义"], _enabled],
         @[[NSTextField labelWithString:@"中文候选目标语言"], _target],
@@ -57,11 +65,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
         @[[NSTextField labelWithString:@"腾讯云服务"], _tencent],
         @[[NSTextField labelWithString:@"SecretId"], _secretId],
         @[[NSTextField labelWithString:@"SecretKey"], tencentKeys],
-        @[[NSTextField labelWithString:@"腾讯云区域"], _region]]];
+        @[[NSTextField labelWithString:@"腾讯云区域"], _region],
+        @[[NSTextField labelWithString:@"小牛翻译 App ID"], _appId],
+        @[[NSTextField labelWithString:@"小牛翻译 API Key"], niuTransKeys]]];
     _grid.rowSpacing = 14;
-    for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region])
+    for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region, _appId, _niuTransKey, _plainNiuTransKey])
         [field.widthAnchor constraintEqualToConstant:310].active = YES;
-    NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；关闭自定义服务后可使用腾讯云。腾讯云须填写 SecretId 和 SecretKey。凭据仅保存在本机配置文件，不参与云端设置同步。关闭两个在线服务仍保留离线释义。"];
+    NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；也可选择腾讯云或小牛翻译。腾讯云须填写 SecretId 和 SecretKey，小牛翻译须填写 App ID 和 API Key。凭据仅保存在本机配置文件，不参与云端设置同步。关闭在线服务仍保留离线释义。"];
     _status = [NSTextField wrappingLabelWithString:@""];
     _save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
     _reload = [NSButton buttonWithTitle:@"重新加载（放弃编辑）" target:self action:@selector(reload:)];
@@ -83,15 +93,20 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     BOOL ready = !_busy && _snapshot != nil;
     _enabled.enabled = ready; _provider.enabled = ready;
     _target.enabled = ready && _enabled.state == NSControlStateValueOn;
-    BOOL selectedCustom = _provider.indexOfSelectedItem == 1;
+    BOOL selectedTencent = _provider.indexOfSelectedItem == 0;
+    BOOL selectedNiuTrans = _provider.indexOfSelectedItem == 1;
+    BOOL selectedCustom = _provider.indexOfSelectedItem == 2;
     for (NSInteger row = 3; row <= 4; ++row) [_grid rowAtIndex:row].hidden = !selectedCustom;
-    for (NSInteger row = 5; row <= 8; ++row) [_grid rowAtIndex:row].hidden = selectedCustom;
+    for (NSInteger row = 5; row <= 8; ++row) [_grid rowAtIndex:row].hidden = selectedCustom || selectedNiuTrans;
+    for (NSInteger row = 9; row <= 10; ++row) [_grid rowAtIndex:row].hidden = !selectedNiuTrans;
     BOOL custom = ready && selectedCustom;
+    BOOL niuTrans = ready && selectedNiuTrans;
     _endpoint.enabled = custom; _key.enabled = custom; _plainKey.enabled = custom; _reveal.enabled = custom;
-    _tencent.enabled = ready && !custom;
-    BOOL tencent = ready && !custom && _tencent.state == NSControlStateValueOn;
+    _tencent.enabled = ready && selectedTencent;
+    BOOL tencent = ready && selectedTencent && _tencent.state == NSControlStateValueOn;
     _secretId.enabled = tencent; _tencentKey.enabled = tencent; _plainTencentKey.enabled = tencent;
     _revealTencent.enabled = tencent; _region.enabled = tencent;
+    _appId.enabled = niuTrans; _niuTransKey.enabled = niuTrans; _plainNiuTransKey.enabled = niuTrans; _revealNiuTrans.enabled = niuTrans;
     _save.enabled = ready; _reload.enabled = !_busy;
 }
 - (void)providerChanged:(id)sender {
@@ -102,6 +117,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     }
     if (_revealTencent.state == NSControlStateValueOn) {
         _revealTencent.state = NSControlStateValueOff; [self revealTencentKey:nil];
+    }
+    if (_revealNiuTrans.state == NSControlStateValueOn) {
+        _revealNiuTrans.state = NSControlStateValueOff; [self revealNiuTransKey:nil];
     }
     [self updateControls:nil];
 }
@@ -119,6 +137,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     if (!_directory.isAbsolutePath) { _status.stringValue = @"请先激活水杉输入法以加载本机配置。"; return; }
     _busy = YES; _snapshot = nil; _key.stringValue = @""; _plainKey.stringValue = @"";
     _secretId.stringValue = @""; _tencentKey.stringValue = @""; _plainTencentKey.stringValue = @"";
+    _appId.stringValue = @""; _niuTransKey.stringValue = @""; _plainNiuTransKey.stringValue = @"";
     _status.stringValue = @"正在加载…"; [self updateControls:nil];
     NSUInteger epoch = ++_epoch;
     NSString *directory = _directory;
@@ -129,12 +148,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
             MSIMETranslationSettingsWindow *current = weakSelf;
             if (!current || current->_epoch != epoch) return;
             current->_busy = NO; current->_snapshot = snapshot;
-            NSDictionary *preferences = snapshot[@"preferences"], *custom = preferences[@"custom_translation"];
+            NSDictionary *preferences = snapshot[@"preferences"], *custom = preferences[@"custom_translation"], *niutrans = preferences[@"niutrans"];
             if (snapshot) {
                 current->_enabled.state = [preferences[@"candidate_translations"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
                 NSUInteger index = [TranslationLanguages() indexOfObject:preferences[@"translation_target_language"] ?: @"en"];
                 [current->_target selectItemAtIndex:index == NSNotFound ? 0 : index];
-                [current->_provider selectItemAtIndex:[custom[@"enabled"] boolValue] ? 1 : 0];
+                NSUInteger provider = [niutrans[@"enabled"] boolValue] ? 1 : ([custom[@"enabled"] boolValue] ? 2 : 0);
+                [current->_provider selectItemAtIndex:provider];
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
                 current->_key.stringValue = custom[@"api_key"] ?: @"";
                 current->_plainKey.hidden = YES; current->_key.hidden = NO; current->_reveal.state = NSControlStateValueOff;
@@ -145,6 +165,10 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
                 current->_region.stringValue = tencent[@"region"] ?: @"ap-guangzhou";
                 current->_plainTencentKey.hidden = YES; current->_tencentKey.hidden = NO;
                 current->_revealTencent.state = NSControlStateValueOff;
+                current->_appId.stringValue = niutrans[@"app_id"] ?: @"";
+                current->_niuTransKey.stringValue = niutrans[@"apikey"] ?: @"";
+                current->_plainNiuTransKey.hidden = YES; current->_niuTransKey.hidden = NO;
+                current->_revealNiuTrans.state = NSControlStateValueOff;
             }
             current->_status.stringValue = snapshot ? @"修改后点击保存。" : @"加载失败；未修改任何设置。";
             [current updateControls:nil];
@@ -156,7 +180,10 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     if (_busy || !_snapshot) return;
     [self.window makeFirstResponder:nil];
     NSString *key = _reveal.state == NSControlStateValueOn ? _plainKey.stringValue : _key.stringValue;
-    NSDictionary *custom = @{@"enabled":@(_provider.indexOfSelectedItem == 1), @"endpoint":_endpoint.stringValue, @"api_key":key};
+    NSUInteger provider = _provider.indexOfSelectedItem;
+    BOOL selectedNiuTrans = provider == 1;
+    BOOL selectedCustom = provider == 2;
+    NSDictionary *custom = @{@"enabled":@(selectedCustom), @"endpoint":_endpoint.stringValue, @"api_key":key};
     // Use the same descriptor validation as runtime even for disabled drafts.
     if ([custom[@"enabled"] boolValue]) {
         NSDictionary *request = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":custom,
@@ -167,11 +194,21 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
             _status.stringValue = @"请输入有效的 HTTP(S) 完整接口地址和不含控制字符的 API Key。"; return;
         }
     }
+    NSString *niuTransKey = _revealNiuTrans.state == NSControlStateValueOn ? _plainNiuTransKey.stringValue : _niuTransKey.stringValue;
+    NSDictionary *niutrans = @{@"enabled":@(selectedNiuTrans), @"app_id":_appId.stringValue, @"apikey":niuTransKey};
+    if (selectedNiuTrans) {
+        NSDictionary *request = [MSIMEClientSession niutransTranslationHTTPRequest:@{@"config":niutrans,
+            @"text":@"validation", @"source_language":@"en", @"target_language":@"zh", @"timestamp":@"1704067200000"} error:nil];
+        if (!request || ![request[@"url"] isKindOfClass:NSString.class]) {
+            _status.stringValue = @"请输入有效的小牛翻译 App ID 和 API Key。"; return;
+        }
+    }
     NSMutableDictionary *preferences = [_snapshot[@"preferences"] mutableCopy];
     preferences[@"custom_translation"] = custom;
     preferences[@"tencent_tmt"] = @{@"enabled":@(_tencent.state == NSControlStateValueOn),
         @"secret_id":_secretId.stringValue, @"secret_key":_revealTencent.state == NSControlStateValueOn ? _plainTencentKey.stringValue : _tencentKey.stringValue,
         @"region":_region.stringValue};
+    preferences[@"niutrans"] = niutrans;
     preferences[@"candidate_translations"] = @(_enabled.state == NSControlStateValueOn);
     preferences[@"translation_target_language"] = TranslationLanguages()[_target.indexOfSelectedItem];
     NSMutableDictionary *snapshot = [_snapshot mutableCopy]; snapshot[@"preferences"] = preferences;
@@ -197,6 +234,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     (void)notification; ++_epoch; _busy = NO; _saving = NO; _snapshot = nil;
     _key.stringValue = @""; _plainKey.stringValue = @""; _endpoint.stringValue = @"";
     _secretId.stringValue = @""; _tencentKey.stringValue = @""; _plainTencentKey.stringValue = @"";
+    _appId.stringValue = @""; _niuTransKey.stringValue = @""; _plainNiuTransKey.stringValue = @"";
 }
 - (void)revealTencentKey:(id)sender {
     (void)sender;
@@ -205,5 +243,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     if (reveal) { _plainTencentKey.stringValue = _tencentKey.stringValue; _tencentKey.stringValue = @""; }
     else { _tencentKey.stringValue = _plainTencentKey.stringValue; _plainTencentKey.stringValue = @""; }
     _plainTencentKey.hidden = !reveal; _tencentKey.hidden = reveal;
+}
+- (void)revealNiuTransKey:(id)sender {
+    (void)sender;
+    [self.window makeFirstResponder:nil];
+    BOOL reveal = _revealNiuTrans.state == NSControlStateValueOn;
+    if (reveal) { _plainNiuTransKey.stringValue = _niuTransKey.stringValue; _niuTransKey.stringValue = @""; }
+    else { _niuTransKey.stringValue = _plainNiuTransKey.stringValue; _plainNiuTransKey.stringValue = @""; }
+    _plainNiuTransKey.hidden = !reveal; _niuTransKey.hidden = reveal;
 }
 @end

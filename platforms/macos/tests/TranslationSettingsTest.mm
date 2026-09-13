@@ -9,6 +9,7 @@
 - (void)revealTencentKey:(id)sender;
 - (void)updateControls:(id)sender;
 - (void)providerChanged:(id)sender;
+- (void)revealNiuTransKey:(id)sender;
 @end
 static void Wait(MSIMETranslationSettingsWindow *window) {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
@@ -41,10 +42,23 @@ int main() {
         assert(tencent.state == NSControlStateValueOn && secretId.enabled && [region.stringValue isEqual:@"ap-guangzhou"]);
         secretId.stringValue = @"AKIDsynthetic"; tencentKey.stringValue = @"synthetic-tencent";
         assert([key isKindOfClass:NSSecureTextField.class] && !key.hidden && plain.hidden);
+        NSTextField *appId = [window valueForKey:@"appId"], *plainNiuTrans = [window valueForKey:@"plainNiuTransKey"];
+        NSSecureTextField *niuTransKey = [window valueForKey:@"niuTransKey"];
+        NSButton *revealNiuTrans = [window valueForKey:@"revealNiuTrans"];
         assert(target.numberOfItems == 7 && provider.indexOfSelectedItem == 0 && !endpoint.enabled);
-        assert(([provider.itemTitles isEqual:@[@"腾讯云", @"自定义 DeepLX"]]));
+        assert(([provider.itemTitles isEqual:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]]));
         assert([grid rowAtIndex:3].hidden && ![grid rowAtIndex:6].hidden);
         [provider selectItemAtIndex:1]; [window providerChanged:nil];
+        assert(![grid rowAtIndex:9].hidden && ![grid rowAtIndex:10].hidden && appId.enabled && niuTransKey.enabled);
+        appId.stringValue = @"synthetic-niutrans-app"; niuTransKey.stringValue = @"synthetic-niutrans-key";
+        appId.stringValue = @""; [window save:nil]; assert(saves == 0 && ![[window valueForKey:@"busy"] boolValue]);
+        appId.stringValue = @"synthetic-niutrans-app";
+        revealNiuTrans.state = NSControlStateValueOn; [window revealNiuTransKey:nil];
+        assert(niuTransKey.hidden && !plainNiuTrans.hidden && !niuTransKey.stringValue.length);
+        plainNiuTrans.stringValue = @"synthetic-niutrans-key-edited";
+        revealNiuTrans.state = NSControlStateValueOff; [window revealNiuTransKey:nil];
+        assert([niuTransKey.stringValue isEqual:@"synthetic-niutrans-key-edited"] && !plainNiuTrans.stringValue.length);
+        [provider selectItemAtIndex:2]; [window providerChanged:nil];
         assert(![grid rowAtIndex:3].hidden && [grid rowAtIndex:6].hidden);
         assert(endpoint.enabled && key.enabled);
         assert(!tencent.enabled && !secretId.enabled && !tencentKey.enabled && !region.enabled);
@@ -65,6 +79,9 @@ int main() {
         assert([stored[@"preferences"][@"translation_target_language"] isEqual:@"fr"]);
         assert([stored[@"preferences"][@"custom_translation"][@"api_key"] isEqual:@"synthetic-edited"]);
         assert([stored[@"preferences"][@"custom_translation"][@"enabled"] isEqual:@YES]);
+        assert([stored[@"preferences"][@"niutrans"][@"enabled"] isEqual:@NO]);
+        assert([stored[@"preferences"][@"niutrans"][@"app_id"] isEqual:@"synthetic-niutrans-app"]);
+        assert([stored[@"preferences"][@"niutrans"][@"apikey"] isEqual:@"synthetic-niutrans-key-edited"]);
         assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent"]);
         assert([stored[@"preferences"][@"cloud_candidates"] isEqual:initial[@"preferences"][@"cloud_candidates"]]);
         // A different writer advances the revision; stale drafts cannot overwrite it.
@@ -76,7 +93,7 @@ int main() {
         assert(saves == 1);
         [window reload:nil]; Wait(window);
         assert([endpoint.stringValue isEqual:@"https://translation.invalid/api"]);
-        assert(provider.indexOfSelectedItem == 1 && ![grid rowAtIndex:3].hidden && [grid rowAtIndex:6].hidden);
+        assert(provider.indexOfSelectedItem == 2 && ![grid rowAtIndex:3].hidden && [grid rowAtIndex:6].hidden);
         enabled.state = NSControlStateValueOff; [provider selectItemAtIndex:0];
         [window providerChanged:nil]; assert(!target.enabled && !endpoint.enabled);
         [window save:nil]; Wait(window); assert(saves == 2);
@@ -89,23 +106,29 @@ int main() {
         revealTencent.state = NSControlStateValueOn; [window revealTencentKey:nil];
         assert(tencentKey.hidden && !plainTencent.hidden && !tencentKey.stringValue.length);
         assert([plainTencent.stringValue isEqual:@"synthetic-tencent"]);
-        [provider selectItemAtIndex:1]; [window providerChanged:nil];
+        [provider selectItemAtIndex:2]; [window providerChanged:nil];
         assert(revealTencent.state == NSControlStateValueOff && !plainTencent.stringValue.length);
         assert([tencentKey.stringValue isEqual:@"synthetic-tencent"] && ![grid rowAtIndex:3].hidden);
         reveal.state = NSControlStateValueOn; [window revealKey:nil];
         [provider selectItemAtIndex:0]; [window providerChanged:nil];
         assert(reveal.state == NSControlStateValueOff && !plain.stringValue.length);
         assert([key.stringValue isEqual:@"synthetic-edited"] && [grid rowAtIndex:3].hidden);
+        [provider selectItemAtIndex:1]; [window providerChanged:nil];
+        assert(appId.enabled && [appId.stringValue isEqual:@"synthetic-niutrans-app"]);
+        [window save:nil]; Wait(window); assert(saves == 3);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert([stored[@"preferences"][@"niutrans"][@"enabled"] isEqual:@YES]);
+        [provider selectItemAtIndex:0]; [window providerChanged:nil];
         revealTencent.state = NSControlStateValueOn; [window revealTencentKey:nil];
         plainTencent.stringValue = @"synthetic-tencent-edited"; region.stringValue = @"ap-shanghai";
-        [window save:nil]; Wait(window); assert(saves == 3);
+        [window save:nil]; Wait(window); assert(saves == 4);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent-edited"]);
         assert([stored[@"preferences"][@"tencent_tmt"][@"region"] isEqual:@"ap-shanghai"]);
         revealTencent.state = NSControlStateValueOff; [window revealTencentKey:nil];
         assert(!plainTencent.stringValue.length && [tencentKey.stringValue isEqual:@"synthetic-tencent-edited"]);
         // Shared validation rejects malformed drafts without changing stored settings.
-        region.stringValue = @"invalid\nregion"; [window save:nil]; Wait(window); assert(saves == 3);
+        region.stringValue = @"invalid\nregion"; [window save:nil]; Wait(window); assert(saves == 4);
         assert([[MSIMEClientSession loadPreferencesInDirectory:root error:&error][@"revision"] isEqual:stored[@"revision"]]);
         [window reload:nil]; Wait(window);
         assert([region.stringValue isEqual:@"ap-shanghai"] && !tencentKey.hidden && plainTencent.hidden);
@@ -114,11 +137,11 @@ int main() {
         other = [stored mutableCopy]; otherPreferences = [stored[@"preferences"] mutableCopy];
         otherPreferences[@"candidate_page_size"] = @8; other[@"preferences"] = otherPreferences;
         assert([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[stored[@"revision"] unsignedLongLongValue] snapshot:other error:&error]);
-        secretId.stringValue = @"AKIDchanged"; [window save:nil]; Wait(window); assert(saves == 3);
+        secretId.stringValue = @"AKIDchanged"; [window save:nil]; Wait(window); assert(saves == 4);
         [window reload:nil]; Wait(window); assert([secretId.stringValue isEqual:@"AKIDsynthetic"]);
         tencent.state = NSControlStateValueOff; [window updateControls:nil];
         assert(!secretId.enabled && !tencentKey.enabled && !region.enabled);
-        [window save:nil]; Wait(window); assert(saves == 4);
+        [window save:nil]; Wait(window); assert(saves == 5);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"tencent_tmt"][@"enabled"] isEqual:@NO]);
         assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent-edited"]);
@@ -127,7 +150,7 @@ int main() {
         NSView *stack = window.window.contentView.subviews.firstObject;
         assert(NSMinY(stack.frame) >= 0 && NSMaxY(stack.frame) <= NSHeight(window.window.contentView.bounds));
         assert(NSMinX(stack.frame) >= 0 && NSMaxX(stack.frame) <= NSWidth(window.window.contentView.bounds));
-        for (NSView *field in @[secretId, tencentKey, region, tencent]) {
+        for (NSView *field in @[secretId, tencentKey, region, tencent, appId, niuTransKey]) {
             NSRect rect = [field convertRect:field.bounds toView:window.window.contentView];
             assert(NSMinX(rect) >= 0 && NSMaxX(rect) <= NSWidth(window.window.contentView.bounds));
             assert(NSMinY(rect) >= 0 && NSMaxY(rect) <= NSHeight(window.window.contentView.bounds));
@@ -135,10 +158,12 @@ int main() {
         [window close];
         assert(!key.stringValue.length && !plain.stringValue.length && ![window valueForKey:@"snapshot"]);
         assert(!secretId.stringValue.length && !tencentKey.stringValue.length && !plainTencent.stringValue.length);
+        assert(!appId.stringValue.length && !niuTransKey.stringValue.length && !plainNiuTrans.stringValue.length);
         [window showWindow:nil]; [window close];
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         assert(!key.stringValue.length && ![window valueForKey:@"snapshot"]);
         assert(!secretId.stringValue.length && !tencentKey.stringValue.length && !plainTencent.stringValue.length);
+        assert(!appId.stringValue.length && !niuTransKey.stringValue.length && !plainNiuTrans.stringValue.length);
         // Real Apple -> C -> Rust disk roundtrip, outside the main input thread.
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
