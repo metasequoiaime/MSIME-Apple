@@ -578,8 +578,12 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, { ...quick, value: "updated" }, expect.stringMatching(/^ui-edit-/)));
+  // Deletion is not undoable, so it asks first.
+  const confirmRemoval = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(await screen.findByRole("button", { name: "删除" }));
   await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)));
+  expect(confirmRemoval).toHaveBeenCalled();
+  confirmRemoval.mockRestore();
 });
 
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {

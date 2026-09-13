@@ -344,6 +344,12 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["english", "英文"],
   ["quick_phrase", "快捷短语"],
 ];
+
+/** The user-facing name of a local dictionary, for messages about it. */
+function dictionaryKindLabel(kind: LocalDictionaryKind): string {
+  return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
+}
+
 export type MixedInputPreferences = { english: boolean; minimum_prefix: number; emoji: boolean; kaomoji: boolean };
 const defaultMixedInput: MixedInputPreferences = { english: true, minimum_prefix: 2, emoji: false, kaomoji: false };
 export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
@@ -692,9 +698,20 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   }
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary) return;
+    // Deletion is not undoable and the row is one click away from 编辑.
+    if (typeof window !== "undefined" && !window.confirm(`删除词条“${entry.value}”（${entry.key}）？此操作无法撤销。`)) return;
     setPhraseBusy(true); setPhraseError("");
-    try { await client.dictionary.edit(entry, null, requestId("ui-remove")); await loadPhrases(); }
-    catch { setPhraseError("快捷短语删除失败，请稍后重试。"); }
+    try {
+      await client.dictionary.edit(entry, null, requestId("ui-remove"));
+      // Stay on the page the user was reading; deleting the last row on a page
+      // would otherwise leave them looking at an empty one.
+      const remaining = phrases.length - 1;
+      const offset = remaining === 0 && phrasePage.offset > 0
+        ? Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE)
+        : phrasePage.offset;
+      await loadPhrases(dictionaryKind, offset);
+    }
+    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`); }
     finally { setPhraseBusy(false); }
   }
   async function savePhrase() {
@@ -702,8 +719,14 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     const replacement: DictionaryEntry = { kind: dictionaryKind, key: phraseForm.key.trim(), value: phraseForm.value, weight: phraseForm.weight };
     if (!replacement.key || !replacement.value) { setPhraseError("编码和短语不能为空。"); return; }
     setPhraseBusy(true); setPhraseError("");
-    try { await client.dictionary.edit(phraseForm.previous, replacement, requestId(phraseForm.previous ? "ui-edit" : "ui-add")); setPhraseForm(null); await loadPhrases(); }
-    catch { setPhraseError("快捷短语保存失败，请稍后重试。"); }
+    try {
+      await client.dictionary.edit(phraseForm.previous, replacement, requestId(phraseForm.previous ? "ui-edit" : "ui-add"));
+      setPhraseForm(null);
+      // An edit keeps the reader where they were; only a new entry returns to
+      // the first page, where the shared runtime lists it.
+      await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
+    }
+    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`); }
     finally { setPhraseBusy(false); }
   }
   async function importPhrases(file: File) {
