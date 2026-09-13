@@ -18,6 +18,16 @@ final class DoubaoVoiceCoordinator {
 
   func run(endpoint: URL, generation: UInt64, audioFrames: [Data]) async throws {
     try await transport.start(endpoint: endpoint)
+    try await receiveAndApply(generation: generation, audioFrames: audioFrames)
+  }
+
+  func run(endpoint: URL, handshake: DoubaoHandshake, generation: UInt64,
+           audioFrames: [Data]) async throws {
+    try await transport.start(endpoint: endpoint, handshake: handshake)
+    try await receiveAndApply(generation: generation, audioFrames: audioFrames)
+  }
+
+  private func receiveAndApply(generation: UInt64, audioFrames: [Data]) async throws {
     defer { transport.finish() }
     for frame in audioFrames { try await transport.send(binary: frame) }
     while true {

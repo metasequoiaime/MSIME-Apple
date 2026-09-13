@@ -246,6 +246,20 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   }
 }
 
+extension CustomServiceConfiguration {
+  /// Build the Doubao WebSocket handshake from persisted voice settings and
+  /// the separately stored access key. Credentials are returned only to the
+  /// caller and are never logged or serialized into diagnostics.
+  func doubaoHandshake(accessKey: String, requestID: String = UUID().uuidString) throws -> DoubaoHandshake {
+    try DoubaoHandshake(
+      appKey: voiceAppKey,
+      accessKey: accessKey,
+      resourceID: voiceResourceID,
+      requestID: requestID
+    )
+  }
+}
+
 enum ServiceTokenStore {
   private static func query(_ kind: CustomServiceKind, _ url: URL) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
