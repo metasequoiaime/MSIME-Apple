@@ -211,7 +211,16 @@ int wmain(int argc, wchar_t **argv) {
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
-    if (!voice_overlay.init(GetModuleHandleW(nullptr), [](WaveOverlay::Action) {}))
+    VoiceInputSession *voice_session = nullptr;
+    if (!voice_overlay.init(
+            GetModuleHandleW(nullptr), [&voice_session](WaveOverlay::Action action) {
+              if (!voice_session)
+                return;
+              if (action == WaveOverlay::Action::Cancel)
+                voice_session->cancel();
+              else if (voice_session->recording())
+                voice_session->stop();
+            }))
       throw std::runtime_error("Voice overlay unavailable");
     auto voice = std::make_unique<VoiceInputSession>(
         voice_overlay,
@@ -227,6 +236,7 @@ int wmain(int argc, wchar_t **argv) {
           std::lock_guard lock(*voice_config_mutex);
           return *voice_config;
         });
+    voice_session = voice.get();
     configure_audio_mute_state_path(
         (config.state_root / "voice_system_audio_mute_state.txt").wstring());
     (void)voice->init_cues(voice_audio_path(config, L"start.mp3"),

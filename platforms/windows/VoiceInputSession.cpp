@@ -342,7 +342,7 @@ void VoiceInputSession::stop() {
   const bool stream_inline = config.stream_inline_preedit && doubao &&
                              config.commit_mode == "tsf";
   overlay_.set_compact_status(WaveOverlay::CompactStatus::Recognizing);
-  overlay_.set_actions_visible(stream_inline);
+  overlay_.set_actions_visible(true);
   overlay_.set_show_transcript(!stream_inline);
   overlay_.show();
   std::lock_guard lock(tasks_mutex_);
@@ -352,17 +352,24 @@ void VoiceInputSession::stop() {
                                        std::future_status::ready;
                               }),
                 tasks_.end());
+  auto cancelled = std::make_shared<std::atomic_bool>(false);
+  {
+    std::lock_guard request_lock(request_mutex_);
+    request_cancellations_.push_back(cancelled);
+  }
   tasks_.emplace_back(std::async(
       std::launch::async, [this, samples = std::move(samples), lease = *lease,
-                           config, session, doubao]() mutable {
-        finish(std::move(samples), lease, config, session, std::move(doubao));
+                           config, session, doubao,
+                           cancelled = std::move(cancelled)]() mutable {
+        finish(std::move(samples), lease, config, session, std::move(doubao),
+               std::move(cancelled));
       }));
 }
 
 void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
                                VoiceInputConfig config, uint64_t session,
-                               std::shared_ptr<DoubaoAsrClient> doubao) {
-  auto cancelled = std::make_shared<std::atomic_bool>(false);
+                               std::shared_ptr<DoubaoAsrClient> doubao,
+                               std::shared_ptr<std::atomic_bool> cancelled) {
   const auto release_doubao = [&] {
     if (!doubao)
       return;
@@ -469,6 +476,11 @@ void VoiceInputSession::cancel() {
   const auto session = session_.fetch_add(1) + 1;
   locked_.store(false);
   const auto config = config_provider_();
+  {
+    std::lock_guard request_lock(request_mutex_);
+    for (const auto &request : request_cancellations_)
+      request->store(true);
+  }
   const auto lease = lease_;
   lease_.reset();
   if ((was_recording || starting_.load()) && capture_)

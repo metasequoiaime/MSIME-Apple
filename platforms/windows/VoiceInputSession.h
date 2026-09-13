@@ -85,7 +85,8 @@ private:
   bool start();
   void finish(std::vector<float> samples, FocusLease lease,
               VoiceInputConfig config, uint64_t session,
-              std::shared_ptr<DoubaoAsrClient> doubao);
+              std::shared_ptr<DoubaoAsrClient> doubao,
+              std::shared_ptr<std::atomic_bool> cancelled);
   void clear_overlay();
 
   WaveOverlay &overlay_;
@@ -108,6 +109,8 @@ private:
   std::mutex doubao_mutex_;
   std::shared_ptr<DoubaoAsrClient> doubao_;
   std::atomic<bool> muted_system_audio_{false};
+  std::mutex request_mutex_;
+  std::vector<std::shared_ptr<std::atomic_bool>> request_cancellations_;
   std::mutex tasks_mutex_;
   std::vector<std::future<void>> tasks_;
 };
