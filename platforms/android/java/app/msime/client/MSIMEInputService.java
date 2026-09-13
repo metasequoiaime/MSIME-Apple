@@ -154,6 +154,9 @@ public final class MSIMEInputService extends InputMethodService {
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
     private Button microsoftFinalKey;
+    private final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
+        new java.util.ArrayList<>();
+    private final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null);
@@ -1060,6 +1063,28 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private void updateShuangpinKeyHints() {
+        int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        String profile = view == null ? "" : view.optString("shuangpin_profile", "");
+        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        boolean chineseMode = !dedicatedEnglish;
+        boolean local = view != null && !"none".equals(localMode);
+        boolean shifted = letterCase.usesUppercase();
+        for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
+            ShuangpinHintButton button = shuangpinKeyButtons.get(index);
+            String input = shuangpinKeyInputs.get(index);
+            String hint = ShuangpinKeyHintPolicy.hint(
+                profile, input, dedicatedEnglish, scheme, localMode);
+            button.setHintText(hint);
+            button.setHintColor(Color.parseColor(skin.accent()));
+            if (";".equals(input)) continue;
+            String description = LetterKeyFacePolicy.accessibilityLabel(
+                input, chineseMode, local, shifted);
+            button.setContentDescription(hint.isEmpty()
+                ? description : description + "；双拼提示 " + hint);
+        }
+    }
+
     private void updateAutomaticCapitalization() {
         if (!dedicatedEnglish) {
             letterCase.reset();
@@ -1355,6 +1380,19 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private ShuangpinHintButton shuangpinKeyboardKey(
+            String label, String description, Runnable action) {
+        ShuangpinHintButton button = new ShuangpinHintButton(this);
+        button.setText(label);
+        button.setContentDescription("按键 " + description);
+        styleButton(button, false);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        return button;
+    }
+
     /** Matches the Apple delete key: a short tap deletes once, a held press repeats. */
     private void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
@@ -1498,6 +1536,8 @@ public final class MSIMEInputService extends InputMethodService {
             button.setBackground(drawable);
         }
         button.setTextColor(Color.parseColor(foreground));
+        if (button instanceof ShuangpinHintButton hintButton)
+            hintButton.setHintColor(Color.parseColor(skin.accent()));
         button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         int shadowAlpha = (int) Math.round(255 * skin.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
@@ -4024,6 +4064,8 @@ public final class MSIMEInputService extends InputMethodService {
         deactivateHandwriting();
         symbolKeyButtons.clear();
         symbolKeyInputs.clear();
+        shuangpinKeyButtons.clear();
+        shuangpinKeyInputs.clear();
         microsoftFinalKey = null;
         japaneseSpaceKey = null;
         japaneseReturnKey = null;
@@ -4067,7 +4109,16 @@ public final class MSIMEInputService extends InputMethodService {
                 String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                     ? ChineseSymbolFaces.face(key, sendsChinesePunctuation())
                     : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
-                Button keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                Button keyButton;
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+                    ShuangpinHintButton hintButton = shuangpinKeyboardKey(
+                        face, face, () -> type(input.charAt(0)));
+                    keyButton = hintButton;
+                    shuangpinKeyButtons.add(hintButton);
+                    shuangpinKeyInputs.add(input);
+                } else {
+                    keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                }
                 if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                     keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
                         input, chineseMode, localMode, shifted));
@@ -4080,7 +4131,9 @@ public final class MSIMEInputService extends InputMethodService {
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
             if (keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1) {
-                microsoftFinalKey = keyboardKey(";", "微软双拼 ing", () -> type(';'));
+                microsoftFinalKey = shuangpinKeyboardKey(";", "微软双拼 ing", () -> type(';'));
+                shuangpinKeyButtons.add((ShuangpinHintButton) microsoftFinalKey);
+                shuangpinKeyInputs.add(";");
                 row.addView(microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
@@ -4910,6 +4963,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void render() {
         updateSymbolKeyFaces();
+        updateShuangpinKeyHints();
         updateQuickPunctuation();
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)

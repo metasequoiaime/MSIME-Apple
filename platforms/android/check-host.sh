@@ -52,6 +52,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/CandidateGlossModelSmoke.java" \
   "$repo_root/platforms/android/tests/WubiCodeHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/ChineseSymbolFacesSmoke.java" \
+  "$repo_root/platforms/android/tests/ShuangpinKeyHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/CandidatePanelSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateManagementSmoke.java" \
   "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java" \
@@ -89,6 +90,7 @@ java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke
 java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke
+java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
 java -cp "$output_dir" CandidatePanelSmoke
 java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
