@@ -13,6 +13,7 @@
 #include "CandidatePalette.h"
 #include "CandidateActionPolicy.h"
 #include "PairedPunctuation.h"
+#include "DiagnosticLog.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -563,6 +564,10 @@ struct State {
       word_character.enabled = *word_character_override;
   }
   void refresh_host_preferences(const Json &preferences) {
+    const auto diagnostic = preferences.value("diagnostic_log", Json::object());
+    msime_linux_diagnostic_configure(
+        configured.value("preferences_directory", std::string{}),
+        diagnostic.is_object() && diagnostic.value("server", false));
     const bool previous_paired_punctuation = paired_punctuation;
     const bool previous_chinese_punctuation = chinese_punctuation;
     const bool previous_fullwidth = fullwidth;
@@ -2923,6 +2928,8 @@ template <class F> void guarded(IBusEngine *engine, const char *operation, F act
   } catch (...) {
     // Never log the raw error or response: either can include input or paths.
     g_warning("MSIME preview host operation failed: %s", operation);
+    msime_linux_diagnostic_write(
+        std::string("operation_failed operation=") + operation);
     state(engine).close();
     clear(engine);
     publish_mode(engine);
@@ -3365,6 +3372,7 @@ void focus_in(IBusEngine *engine) {
     const bool already_focused = s.focused;
     const auto previous_session = s.session;
     s.focused = true;
+    msime_linux_diagnostic_write("focus_in");
     ++s.focus_epoch;
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     // Host shortcuts and presentation also apply before a runtime is needed.
@@ -3392,6 +3400,7 @@ void focus_in(IBusEngine *engine) {
 void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
+    msime_linux_diagnostic_write("focus_out");
     voice_cancel(engine);
     s.key_router.cancel({s.client_token, s.focus_epoch, s.session});
     s.voice_consumed_keys.clear();
@@ -5485,6 +5494,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   }
   s.applied_preferences_snapshot = preferences;
   s.refresh_host_preferences(preferences);
+  msime_linux_diagnostic_write("preferences_applied");
   s.applied_display_generation = configuration_generation;
   // Subsequent mode synchronization or voice cancellation may replace this
   // view. Do not restore the pre-transition snapshot after those actions.
@@ -5529,6 +5539,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             failed_menu_save = FailedMenuSave{request.preference, request.value,
                                              request.directory, request.configuration};
             g_warning("Cannot save MSIME menu preference");
+            msime_linux_diagnostic_write("menu_save_failed");
             publish_mode(IBUS_ENGINE(source));
             return;
           }
@@ -5624,6 +5635,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
+          msime_linux_diagnostic_write("menu_save_succeeded");
           apply_live_preferences(IBUS_ENGINE(source), *snapshot);
           publish_mode(IBUS_ENGINE(source));
         });
