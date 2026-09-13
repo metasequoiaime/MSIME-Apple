@@ -34,6 +34,9 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(enabled.checked).toBe(false);
   expect(rule.disabled).toBe(true);
   fireEvent.click(enabled);
+  expect(rule.checked).toBe(true);
+  fireEvent.click(rule);
+  expect(rule.checked).toBe(false);
   fireEvent.click(rule);
   expect(rule.checked).toBe(true);
   fireEvent.click(enabled);
@@ -44,6 +47,22 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(enabled.checked).toBe(false);
   expect(rule.checked).toBe(false);
   confirm.mockRestore();
+});
+
+test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const enabled = screen.getByRole("checkbox", { name: "启用模糊音" }) as HTMLInputElement;
+  fireEvent.click(enabled);
+  for (const id of ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]) {
+    expect((screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked).toBe(true);
+  }
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    fuzzy_pinyin: { enabled: true, rules: ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"], seeded: true },
+  }));
 });
 
 const touchSchemeLabels = ["全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "高情商回复"];

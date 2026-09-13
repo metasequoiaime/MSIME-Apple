@@ -71,6 +71,7 @@ const fuzzyPinyinGroups: [string, [string, string][]][] = [
   ["前后鼻音", [["an-ang", "an ↔ ang"], ["en-eng", "en ↔ eng"], ["in-ing", "in ↔ ing"]]],
   ["其他韵母", [["ian-iang", "ian ↔ iang"], ["uan-uang", "uan ↔ uang"]]],
 ];
+const fuzzyPinyinRuleIds = fuzzyPinyinGroups.flatMap(([, rules]) => rules.map(([id]) => id));
 export type TouchKeyboardScheme = "quanpin" | "nine_key" | "xiaohe" | "ziranma" | "microsoft" |
   "shoudao" | "wubi" | "japanese_nine_key" | "japanese" | "handwriting" | "thoughtful_reply";
 export type TouchKeyboardSchemePreferences = { enabled: TouchKeyboardScheme[]; selected?: TouchKeyboardScheme };
@@ -1536,9 +1537,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>
         {client.fuzzyPinyin && <div className="section" role="group" aria-label="模糊音">
           <label className="section-header"><span className="section-title">模糊音<small>全拼、九键与双拼均支持；更改会在当前输入结束后生效</small></span>
-            <input aria-label="启用模糊音" className="toggle" type="checkbox" checked={fuzzyPinyin.enabled} onChange={event => setDraft({
-              ...draft, fuzzy_pinyin: { ...fuzzyPinyin, enabled: event.target.checked },
-            })} />
+            <input aria-label="启用模糊音" className="toggle" type="checkbox" checked={fuzzyPinyin.enabled} onChange={event => {
+              const enabled = event.target.checked;
+              const firstEnable = enabled && !fuzzyPinyin.seeded;
+              setDraft({
+                ...draft,
+                fuzzy_pinyin: {
+                  ...fuzzyPinyin,
+                  enabled,
+                  ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
+                },
+              });
+            }} />
           </label>
           <p className="input-setting-description">勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。</p>
           {fuzzyPinyinGroups.map(([title, rules]) => <div key={title} className="fuzzy-pinyin-group">
@@ -1554,7 +1564,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             </div>)}</div>
           </div>)}
           <button type="button" className="secondary fuzzy-pinyin-reset" onClick={() => {
-            if (window.confirm("关闭模糊音并清空所有规则？")) setDraft({ ...draft, fuzzy_pinyin: { enabled: false, rules: [] } });
+            if (window.confirm("关闭模糊音并清空所有规则？")) setDraft({ ...draft, fuzzy_pinyin: { enabled: false, rules: [], seeded: fuzzyPinyin.seeded ?? false } });
           }}>重置模糊音配置</button>
         </div>}
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
