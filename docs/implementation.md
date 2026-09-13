@@ -739,3 +739,9 @@ Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据�
 ### Linux 整句候选学习
 
 同步固定 Engine 的整句 fallback 修复：全拼和双拼的 Google/词库整句候选现在携带完整规范拼音。Linux IBus 通过共享 Engine 完成造词时，选中带规范读音的 `Generated` 或 `Fallback` 整句作为最后一段也能写入用户词库，保留原有候选顺序、代次校验和平台输入边界；候选没有规范读音时仍按 Engine 原有规则只上屏而不落库。
+
+### Linux 桌面设置外壳单实例路由
+
+Linux Tauri 设置外壳复用 Windows 的单实例与短暂驻留语义，并按 Linux 特性使用 session D-Bus 和 IBus/X11/Sway 的输入目标捕获。`msime-client-settings --panel …` 将受限 surface route 同时放入环境和 argv；已有外壳收到二次启动后在主线程切换设置页或重新打开辅助面板。主设置窗口关闭时隐藏并保留十分钟，之后才真正退出，避免 IBus 菜单每次操作都创建新进程。
+
+本地验证通过启动器静态契约、shell 语法检查、Cargo metadata、client-core 测试和 clippy。桌面 crate 的完整编译仍受当前 macOS 工作区缺少固定 Engine 子模块及 Linux 交叉编译器影响，Linux session D-Bus 与实际桌面窗口需在 Linux 主机验证。

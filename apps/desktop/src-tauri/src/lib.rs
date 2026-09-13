@@ -37,7 +37,7 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
 use tauri::Emitter;
@@ -421,9 +421,9 @@ fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Clone, Default)]
-struct WindowsSettingsLinger {
+struct DesktopSettingsLinger {
     generation: Arc<AtomicU64>,
     quitting: Arc<AtomicBool>,
 }
@@ -1807,7 +1807,6 @@ fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
     })
 }
 
-#[cfg(target_os = "windows")]
 fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     args.iter().find_map(|argument| {
         argument
@@ -1816,23 +1815,35 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     })
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn cancel_settings_linger(app: &tauri::AppHandle) {
-    if let Some(state) = app.try_state::<WindowsSettingsLinger>() {
+    if let Some(state) = app.try_state::<DesktopSettingsLinger>() {
         state.generation.fetch_add(1, Ordering::AcqRel);
     }
 }
 
-#[cfg(target_os = "windows")]
-fn activate_windows_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
     cancel_settings_linger(app);
     if let Some(surface) = route.panel() {
         let state = app.state::<PanelInputState>();
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(
-            f64::from(surface.width),
-            f64::from(surface.height),
-        );
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(
+                &state,
+                f64::from(surface.width),
+                f64::from(surface.height),
+            )
+        };
+        #[cfg(target_os = "windows")]
+        let position = {
+            let _ = remember_panel_input_target(&state);
+            windows_panel_position(
+                f64::from(surface.width),
+                f64::from(surface.height),
+            )
+        };
         let _ = open_panel_window(
             app,
             surface.label,
@@ -3351,13 +3362,13 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(
         |app, args, _cwd| {
             if let Some(route) = launch_route_from_args(&args) {
                 let callback_app = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    activate_windows_surface(&callback_app, route)
+                    activate_desktop_surface(&callback_app, route)
                 });
             }
         },
@@ -3416,9 +3427,9 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
-                let linger = WindowsSettingsLinger::default();
+                let linger = DesktopSettingsLinger::default();
                 app.manage(linger.clone());
                 app.on_window_event(move |window, event| {
                     if window.label() != "main" {
@@ -3660,6 +3671,26 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn second_launch_routes_are_taken_from_explicit_arguments() {
+        use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+        assert_eq!(
+            super::launch_route_from_args(&["--route=emoji".into()]),
+            Some(SurfaceRoute::Emoji)
+        );
+        assert_eq!(
+            super::launch_route_from_args(&["--route=settings:about".into()])
+                .and_then(|route| route.settings_category()),
+            Some(SettingsCategory::About)
+        );
+        assert_eq!(
+            super::launch_route_from_args(&["--route=../private".into()]),
+            None
+        );
+        assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
+    }
+
     #[test]
     fn settings_routes_select_a_page_the_shared_ui_accepts() {
         use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};

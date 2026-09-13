@@ -82,4 +82,10 @@ while [ -L "$launcher_path" ]; do
 done
 launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 export MSIME_CLIENT_HOST_OPTIONS=$config
+if [ -n "${MSIME_CLIENT_ROUTE:-}" ]; then
+  # Keep the route in argv as well as the compatibility environment variable.
+  # The single-instance plugin forwards argv from a second launch, while the
+  # environment remains useful to a newly started shell.
+  exec "$launcher_dir/msime-client-desktop" "--route=$MSIME_CLIENT_ROUTE" "$@"
+fi
 exec "$launcher_dir/msime-client-desktop" "$@"
