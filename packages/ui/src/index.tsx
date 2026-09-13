@@ -1603,9 +1603,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
         </div>
         <div className="section" role="group" aria-label="诊断日志">
-          <label className="section-header"><span className="section-title">Server 端日志<small>排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。</small></span><input aria-label="Server 端日志" className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
-          <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">{linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}<small>{linuxPlatform ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。" : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}</small></span><input aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"} className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
+          {!linuxPlatform && <><div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label></>}
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">

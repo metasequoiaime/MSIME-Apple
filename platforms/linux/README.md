@@ -202,6 +202,8 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
 
+Linux 关于页的“IBus 宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 宿主在偏好目录写入仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
+
 ## Windows parity gaps
 
 Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开关首次从关闭切换为开启时，偏好存储会一次性选中 11 条规则；用户之后删减规则、暂时关闭再恢复时保留删减结果，并用内部播种标记避免空规则集被再次填充。规则计算仍由 Engine 完成。

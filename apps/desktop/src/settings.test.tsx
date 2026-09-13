@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -649,6 +649,20 @@ test("diagnostic logging starts off and each host is saved separately", async ()
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, diagnostic_log: { server: true, tsf: false } });
   expect(server.checked).toBe(true);
   expect(tsf.checked).toBe(false);
+});
+
+test("Linux diagnostics expose the IBus host logger without a TSF switch", async () => {
+  const host: HostCapabilities = {
+    platform: "linux", restart_input_method: true, panel_windows: true, ime_mode_scope: true,
+    typing_statistics: false, fuzzy_pinyin: true, system_fonts: true, window_chrome: true,
+    floating_toolbar: true, floating_toolbar_appearance: false, floating_toolbar_components: true,
+    mode_switch_shortcuts: true, panel_shortcuts: true, voice_capture_devices: true,
+    candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false,
+  };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByLabelText("IBus 宿主日志")).toBeDefined();
+  expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
