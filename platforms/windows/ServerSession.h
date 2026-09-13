@@ -65,6 +65,10 @@ public:
                      const std::string &translations);
   nlohmann::json update_preferences(uint64_t epoch,
                                     const std::string &snapshot);
+  bool traditional_output() const {
+    check_thread();
+    return traditional_output_;
+  }
   nlohmann::json page_candidate(uint64_t epoch, uint64_t session,
                                 uint64_t generation, bool previous,
                                 unsigned steps);
@@ -79,5 +83,6 @@ private:
   uint64_t epoch_ = 0;
   bool active_ = false;
   bool input_enabled_ = true;
+  bool traditional_output_ = false;
 };
 } // namespace msime::windows

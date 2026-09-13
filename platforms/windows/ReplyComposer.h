@@ -31,6 +31,7 @@ struct PendingReply {
   std::optional<std::string> online_query = std::nullopt;
   // A copied, bounded candidate-translation query, submitted after delivery.
   std::optional<std::string> translation_query = std::nullopt;
+  bool traditional_output = false;
 };
 // One instance per authenticated client activation, on the Server input queue.
 // prefix is transport presentation state: text already selected by Engine but
@@ -91,5 +92,6 @@ private:
   uint64_t session_ = 0;
   std::string prefix_;
   std::optional<PendingReply> pending_;
+  bool traditional_output_ = false;
 };
 } // namespace msime::windows

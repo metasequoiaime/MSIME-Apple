@@ -53,7 +53,8 @@ private:
       const auto prefix = latest_->preedit.substr(
           0, latest_->preedit.size() - text.size());
       latest_ = candidate_presentation_from_view(lease, view, latest_->x,
-                                                 latest_->y, prefix);
+                                                 latest_->y, prefix,
+                                                 latest_->traditional_output);
     } catch (...) {
       // Provider data is optional; malformed/stale projections are ignored.
     }

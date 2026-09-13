@@ -22,6 +22,9 @@ ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
   if (!client_ || options.size() > 16384 || msime_client_abi_version() != 2)
     throw std::invalid_argument("Invalid Windows session configuration");
+  const auto document = nlohmann::json::parse(options);
+  traditional_output_ = document.value("preferences", nlohmann::json::object())
+                            .value("traditional_chinese_output", false);
   auto created = response(msime_client_create(
       reinterpret_cast<const uint8_t *>(options.data()), options.size()));
   session_ = created.at("session").get<uint64_t>();
@@ -285,9 +288,13 @@ ServerSession::apply_translations(uint64_t epoch, uint64_t generation,
 nlohmann::json ServerSession::update_preferences(uint64_t epoch,
                                                  const std::string &snapshot) {
   check_active(epoch);
-  return response(msime_client_update_preferences(
+  auto result = response(msime_client_update_preferences(
       session_, reinterpret_cast<const uint8_t *>(snapshot.data()),
       snapshot.size()));
+  const auto document = nlohmann::json::parse(snapshot);
+  traditional_output_ = document.at("preferences").value(
+      "traditional_chinese_output", false);
+  return result;
 }
 nlohmann::json ServerSession::page_candidate(uint64_t epoch, uint64_t session,
                                              uint64_t generation, bool previous,

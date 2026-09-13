@@ -1,4 +1,5 @@
 #include "ReplyComposer.h"
+#include "ChineseTextConversion.h"
 #include "PunctuationPolicy.h"
 #include <stdexcept>
 
@@ -43,7 +44,10 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   const auto &commit = result.transition.at("commit");
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
-  PendingReply next{result, std::nullopt, prefix_};
+  const auto output_delta =
+      simplified_to_traditional(delta, traditional_output_);
+  PendingReply next{result, std::nullopt, prefix_, std::nullopt, std::nullopt,
+                    std::nullopt, traditional_output_};
   const auto invalid = [&] {
     next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
   };
@@ -77,7 +81,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     if (delta.empty())
       next.encoded = ignored_reply(result.request_id);
     else {
-      const auto total = prefix_ + delta;
+      const auto total = prefix_ + output_delta;
       if (!raw.empty()) {
         next.encoded =
             partial_selection(result.request_id, raw, total, total + display);
@@ -100,7 +104,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
         invalid();
         break;
       }
-      next.encoded = exact_commit(result.request_id, prefix_ + delta);
+      next.encoded = exact_commit(result.request_id, prefix_ + output_delta);
       next.next_prefix.clear();
     }
     break;
@@ -109,7 +113,8 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       invalid();
       break;
     }
-    next.encoded = candidate_commit(result.request_id, prefix_ + delta);
+    next.encoded = candidate_commit(result.request_id,
+                                    prefix_ + output_delta);
     next.next_prefix.clear();
     break;
   case ReplyPath::IgnoredNavigation:
@@ -161,6 +166,7 @@ const PendingReply &ReplyComposer::dispatch(
     ReplyPath path, bool uiless, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
+  traditional_output_ = session.traditional_output();
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   if (path == ReplyPath::LocalCommit && session.input_enabled()) {
@@ -186,6 +192,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     TsfPreeditStyle style, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
+  traditional_output_ = session.traditional_output();
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -220,6 +227,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
+  traditional_output_ = session.traditional_output();
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -256,6 +264,7 @@ ReplyComposer::navigate(ServerSession &session,
                         const NavigationBindings &bindings) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
+  traditional_output_ = session.traditional_output();
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   auto result = session.navigate(packet, epoch, bindings);
@@ -298,6 +307,7 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
     uint64_t expected_session, uint64_t generation, size_t index) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
+  traditional_output_ = session.traditional_output();
   const auto view = session.view();
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
@@ -316,17 +326,20 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   const auto &commit = transition.at("commit");
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
+  const auto output_delta =
+      simplified_to_traditional(delta, traditional_output_);
   const auto &next_view = transition.at("view");
   const auto raw = next_view.at("editing_text").get<std::string>();
   PendingReply next{
-      {client_, epoch_, 0, true, std::move(transition)}, std::nullopt, prefix_};
+      {client_, epoch_, 0, true, std::move(transition)}, std::nullopt, prefix_,
+      std::nullopt, std::nullopt, std::nullopt, traditional_output_};
   if (delta.empty())
     next.ui_selection = ui_rejected_selection();
   else if (raw.empty()) {
-    next.ui_selection = ui_complete_selection(prefix_ + delta);
+    next.ui_selection = ui_complete_selection(prefix_ + output_delta);
     next.next_prefix.clear();
   } else {
-    next.next_prefix = prefix_ + delta;
+    next.next_prefix = prefix_ + output_delta;
     next.ui_selection = ui_partial_selection(
         raw, next.next_prefix,
         next.next_prefix +
@@ -358,6 +371,7 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     std::optional<std::string> local_text, WordCharacterBinding word_binding) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
+  traditional_output_ = session.traditional_output();
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
