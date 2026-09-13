@@ -2782,7 +2782,8 @@ void voice_start_impl(IBusEngine *engine) {
   const auto language = s.voice_language;
   const bool stream_inline_preedit = msime_voice_stream_inline_enabled(
       provider_options.value("stream_inline_preedit", false),
-      provider_options.value("asr_provider", std::string{"doubao"}));
+      provider_options.value("asr_provider", std::string{"doubao"}),
+      provider_options.value("commit_mode", std::string{"tsf"}));
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   s.voice_worker.run_stream(

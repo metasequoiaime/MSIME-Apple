@@ -4,8 +4,10 @@
 #include <string_view>
 
 inline bool msime_voice_stream_inline_enabled(bool configured,
-                                              std::string_view provider) {
-  return configured && provider == "doubao";
+                                              std::string_view provider,
+                                              std::string_view commit_mode = "tsf") {
+  return configured && provider == "doubao" &&
+         (commit_mode.empty() || commit_mode == "tsf");
 }
 
 inline std::string msime_voice_bound_result(std::string value,

@@ -501,7 +501,7 @@ pub struct VoiceInputPreferences {
     pub capture_backend: String,
     #[serde(default)]
     pub capture_device: String,
-    #[serde(default)]
+    #[serde(default = "default_commit_mode")]
     pub commit_mode: String,
     #[serde(default)]
     pub asr_provider: String,
@@ -969,6 +969,10 @@ fn default_candidate_skin() -> String {
 }
 fn default_candidate_font_family() -> String {
     "Segoe UI".to_owned()
+}
+
+fn default_commit_mode() -> String {
+    "tsf".to_owned()
 }
 
 impl Default for Preferences {
@@ -1584,6 +1588,17 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn voice_commit_mode_defaults_for_legacy_documents() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["voice_input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("commit_mode");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.commit_mode, "tsf");
+    }
 
     #[test]
     fn candidate_english_gloss_is_opt_in_and_round_trips() {

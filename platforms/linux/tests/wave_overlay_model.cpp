@@ -35,6 +35,10 @@ int main() {
   unsetenv("WAYLAND_DISPLAY");
   assert(msime::linux_host::create_wave_overlay_surface(nullptr));
   assert(msime_voice_stream_inline_enabled(true, "doubao"));
+  assert(msime_voice_stream_inline_enabled(true, "doubao", "tsf"));
+  assert(msime_voice_stream_inline_enabled(true, "doubao", ""));
+  assert(!msime_voice_stream_inline_enabled(true, "doubao", "sendinput"));
+  assert(!msime_voice_stream_inline_enabled(true, "doubao", "ctrl_v"));
   assert(!msime_voice_stream_inline_enabled(true, "openai"));
   assert(!msime_voice_stream_inline_enabled(false, "doubao"));
 }
