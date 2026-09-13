@@ -895,6 +895,7 @@ pub struct NavigationPreferences {
     pub brackets: bool,
     pub tab: bool,
     pub page_up_down: bool,
+    #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
 }
 
@@ -2114,6 +2115,13 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn navigation_accepts_windows_candidate_arrow_alias() {
+        let value = serde_json::json!({"minus_equal": true, "comma_period": true, "brackets": false, "tab": true, "page_up_down": true, "candidate_arrow_navigation": false});
+        let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
+        assert!(!parsed.arrows);
+    }
+
     fn navigation_defaults_and_independent_flags_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
