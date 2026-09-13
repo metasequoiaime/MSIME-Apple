@@ -53,7 +53,8 @@ int main(int argc, char **argv) {
       throw std::runtime_error("Missing configuration");
     std::array<char, 16385> buffer;
     file.read(buffer.data(), buffer.size());
-    if (file.bad())
+    if (file.bad() || file.gcount() == 0 ||
+        static_cast<std::size_t>(file.gcount()) >= buffer.size())
       throw std::runtime_error("Cannot read configuration");
     std::string options(buffer.data(), static_cast<size_t>(file.gcount()));
     msime_preview_configure(options);
