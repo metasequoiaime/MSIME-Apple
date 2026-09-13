@@ -29,6 +29,7 @@ struct Observation {
   bool forbidden_gloss_seen = false;
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
+  guint first_candidate_number_color = 0;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -125,6 +126,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
         seen.first_candidate_color = ibus_attribute_get_value(attribute);
       if (auto attribute = ibus_attr_list_get(attributes, 1))
         seen.first_candidate_background = ibus_attribute_get_value(attribute);
+      auto label = ibus_lookup_table_get_label(table, 0);
+      if (auto label_attributes = ibus_text_get_attributes(label))
+        if (auto attribute = ibus_attr_list_get(label_attributes, 0))
+          seen.first_candidate_number_color = ibus_attribute_get_value(attribute);
     }
     gboolean visible;
     g_variant_get_child(parameters, 1, "b", &visible);
@@ -209,6 +214,7 @@ int main(int argc, char **argv) {
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_surface_color"] = "#654321";
+    options["preferences"]["candidate_number_color"] = "#abcdef";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
@@ -1080,6 +1086,8 @@ int main(int argc, char **argv) {
             "Candidate text color attribute missing");
     require(seen.first_candidate_background == 0x654321,
             "Candidate surface color attribute missing");
+    require(seen.first_candidate_number_color == 0xabcdef,
+            "Candidate number color attribute missing");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");

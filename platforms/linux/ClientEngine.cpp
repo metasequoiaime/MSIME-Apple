@@ -66,6 +66,9 @@ Json skin_display_preferences(Json preferences) {
     if (!preferences.value("candidate_text_color", Json(nullptr)).is_string() &&
         palette.contains("text"))
       preferences["candidate_text_color"] = palette["text"];
+    if (!preferences.value("candidate_number_color", Json(nullptr)).is_string() &&
+        palette.contains("number"))
+      preferences["candidate_number_color"] = palette["number"];
     if (palette.contains("surface"))
       preferences["candidate_background_color"] = palette["surface"];
     break;

@@ -137,6 +137,7 @@ impl<R: ClientKeyRouter> ClientKeyRouter for LeasedClientKeyRouter<R> {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KeyboardInputRequest {
     /// Windows virtual-key value. Other hosts may map this value to their own
     /// native key event while keeping the panel contract stable.

@@ -348,11 +348,13 @@ void CandidateWindow::paint() {
     const D2D1_RECT_F rect{
         static_cast<float>(row.left), static_cast<float>(row.top),
         static_cast<float>(row.right), static_cast<float>(row.bottom)};
-    if (value->candidates[i].highlighted) {
+    if (value->candidates[i].highlighted || hovered_ == i) {
       const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
                                         palette_.item_radius};
-      target->FillRoundedRectangle(selection, brush(palette_.selected));
-      if (palette_.show_selected_bar) {
+      target->FillRoundedRectangle(selection, brush(value->candidates[i].highlighted
+                                                        ? palette_.selected
+                                                        : palette_.hover));
+      if (value->candidates[i].highlighted && palette_.show_selected_bar) {
         const float inset_y =
             static_cast<float>(metrics.candidate_row) * 0.25f;
         const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f, rect.top + inset_y,
@@ -432,6 +434,19 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
             self->pressed_.reset();
         }
         return 0;
+      case WM_MOUSEMOVE: {
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+        TrackMouseEvent(&track);
+        const auto click = self->hit(static_cast<short>(LOWORD(lparam)),
+                                     static_cast<short>(HIWORD(lparam)));
+        std::optional<size_t> hovered;
+        if (click && self->painted_) {
+          for (size_t i = 0; i < self->painted_->candidates.size(); ++i)
+            if (self->painted_->candidates[i].index == click->index) hovered = i;
+        }
+        if (hovered != self->hovered_) { self->hovered_ = hovered; InvalidateRect(window, nullptr, FALSE); }
+        return 0;
+      }
       case WM_LBUTTONUP: {
         const auto pressed = self->pressed_;
         self->pressed_.reset();
@@ -450,6 +465,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_CAPTURECHANGED:
       case WM_MOUSELEAVE:
         self->pressed_.reset();
+        self->hovered_.reset();
         return 0;
       case WM_ERASEBKGND:
         return 1;

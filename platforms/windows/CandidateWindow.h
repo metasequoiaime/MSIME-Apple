@@ -49,6 +49,7 @@ private:
   unsigned shown_dpi_ = 0;
   std::optional<CandidatePresentation> painted_;
   std::optional<CandidateClick> pressed_;
+  std::optional<size_t> hovered_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
   unsigned font_size_ = 16;
