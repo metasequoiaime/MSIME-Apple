@@ -1,5 +1,7 @@
 # Linux IBus 预览宿主
 
+候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
+
 ## 生成 Linux 安装包
 
 在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。该选项默认关闭，不启用 CI。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
