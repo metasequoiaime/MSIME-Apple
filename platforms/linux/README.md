@@ -104,7 +104,7 @@ Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工
 
 候选行保留 Engine 的来源身份：本地词库和用户词库不额外标记，云候选显示 `云`，AI 候选显示 `AI`。来源标签只用于 IBus panel 展示，不进入提交文本、候选索引或异步结果校验。
 
-共享 `candidate_text_color`、`candidate_number_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景和候选背景属性；未设置时交由 panel 主题决定。候选字体族、字号和回退字体仍由桌面 panel 的字体栈控制。
+共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。候选字体族、字号和回退字体仍由桌面 panel 的字体栈控制。
 
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。
 
