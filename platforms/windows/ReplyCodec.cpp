@@ -197,6 +197,38 @@ std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode) {
     bytes[i] = static_cast<uint8_t>(type >> (8 * i));
   return bytes;
 }
+std::optional<std::vector<std::vector<uint8_t>>>
+voice_composition_bytes(uint32_t message, std::wstring_view text,
+                         wchar_t generation) {
+  if (message != FanyImeWorkerReplyType::UpdateVoiceComposition &&
+      message != FanyImeWorkerReplyType::CommitVoiceComposition &&
+      message != FanyImeWorkerReplyType::CancelVoiceComposition)
+    return std::nullopt;
+  if (!generation || text.size() > FanyImeVoiceCompositionPipe::kMaxSnapshotChars ||
+      text.find(L'\0') != std::wstring_view::npos)
+    return std::nullopt;
+  const auto frames = FanyImeVoiceCompositionPipe::EncodeSnapshot(
+      std::wstring(text), generation);
+  std::vector<std::vector<uint8_t>> encoded;
+  encoded.reserve(frames.size());
+  for (const auto &frame : frames) {
+    if (frame.size() >= FanyImeVoiceCompositionPipe::kPacketChars)
+      return std::nullopt;
+    std::vector<uint8_t> bytes(
+        sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+    for (size_t i = 0; i < sizeof(uint32_t); ++i)
+      bytes[i] = static_cast<uint8_t>(message >> (8 * i));
+    for (size_t i = 0; i < frame.size(); ++i) {
+      const auto unit = static_cast<uint16_t>(frame[i]);
+      bytes[offsetof(FanyImeNamedpipeDataToTsfWorkerThread, data) + 2 * i] =
+          static_cast<uint8_t>(unit);
+      bytes[offsetof(FanyImeNamedpipeDataToTsfWorkerThread, data) + 2 * i + 1] =
+          static_cast<uint8_t>(unit >> 8);
+    }
+    encoded.push_back(std::move(bytes));
+  }
+  return encoded;
+}
 EncodedReply partial_selection(uint64_t request, std::string_view raw,
                                std::string_view prefix,
                                std::string_view display) {

@@ -1,5 +1,7 @@
 #include "ReplyCodec.h"
 #include "ipc_negotiation.h"
+#include <array>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 
@@ -100,6 +102,21 @@ int main() {
         require(bytes->at(i) == 0);
     }
     require(!worker_mode_bytes(static_cast<WorkerMode>(99)));
+    {
+      const auto frames = voice_composition_bytes(
+          FanyImeWorkerReplyType::UpdateVoiceComposition, L"你好😀", 7);
+      require(frames && frames->size() == 1 && frames->front().size() == 404);
+      require(frames->front()[0] == FanyImeWorkerReplyType::UpdateVoiceComposition);
+      std::array<wchar_t, FanyImeVoiceCompositionPipe::kPacketChars> payload{};
+      std::memcpy(payload.data(), frames->front().data() + 4,
+                  frames->front().size() - 4);
+      const auto parsed = FanyImeVoiceCompositionPipe::ParseFrame(payload.data());
+      require(parsed.valid && parsed.first && parsed.last && parsed.generation == 7 &&
+              parsed.chunk == L"你好😀");
+      require(!voice_composition_bytes(
+          FanyImeWorkerReplyType::UpdateVoiceComposition, L"", 0));
+      require(!voice_composition_bytes(FanyImeWorkerReplyType::PipeReady, L"x", 7));
+    }
     for (const auto &example : std::vector<std::pair<uint64_t, std::string>>{
              {1, "1"},
              {77, "77"},

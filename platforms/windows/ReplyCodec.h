@@ -1,5 +1,6 @@
 #pragma once
 #include "windows_ipc.h"
+#include "../../vendor/MSIME-Engine/contracts/voice_composition_pipe.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -57,6 +58,12 @@ enum class WorkerMode {
 };
 // Only six mode commands, never arbitrary opcodes or unsolicited text.
 std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
+// Encode a bounded voice composition snapshot for the TSF worker pipe. The
+// returned frames are ordered and each one has the fixed worker-packet size.
+// Generation is a voice session generation and must be non-zero.
+std::optional<std::vector<std::vector<uint8_t>>>
+voice_composition_bytes(uint32_t message, std::wstring_view text,
+                         wchar_t generation);
 // UI selection is not a key reply: complete text travels only on the worker
 // endpoint. Partial/out-of-range replies use id 0 BEFORE an empty worker
 // trigger. Caller must own a pending selection and validate focus for the
