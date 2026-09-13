@@ -13,6 +13,10 @@ if [[ ! -f "$android_jar" ]]; then
 fi
 output_dir=$(mktemp -d)
 trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$output_dir" -name "*.class" -delete; find "$output_dir" -depth -type d -empty -delete' EXIT
+if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/app/msime/client/MSIMEInputService.java"; then
+  echo "Android input service must not use unmapped command 9" >&2
+  exit 1
+fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root"/platforms/android/java/app/msime/client/*.java \
   "$repo_root/platforms/android/tests/EditorSmoke.java" \

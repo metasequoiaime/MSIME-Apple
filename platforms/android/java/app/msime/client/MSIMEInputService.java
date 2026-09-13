@@ -563,7 +563,7 @@ public final class MSIMEInputService extends InputMethodService {
         skinSaving = false;
         traditionalOutputSaving = false;
         if (session != 0) {
-            try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
+            try { if (finish && connection != null) apply(NativeClient.command(session, 2)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
@@ -3009,7 +3009,7 @@ public final class MSIMEInputService extends InputMethodService {
         final long expectedRevision;
         try {
             // Scheme replacement is never deferred: complete Engine composition first.
-            apply(NativeClient.command(targetSession, 9));
+            apply(NativeClient.command(targetSession, 2));
             if (session != targetSession || preferencesSnapshot == null
                     || !targetDirectory.equals(preferencesDirectory)) return;
             pending = new JSONObject(preferencesSnapshot.toString());
