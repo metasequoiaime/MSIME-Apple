@@ -108,6 +108,7 @@ bool VoiceInputSession::start() {
   const auto model = config.model.empty()
                          ? default_asr_model(config.asr_provider)
                          : config.model;
+  const bool stream_inline = config.stream_inline_preedit && doubao;
   if (!config.enabled || config.token.empty() || endpoint.empty() ||
       (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
     return false;
@@ -133,13 +134,17 @@ bool VoiceInputSession::start() {
         endpoint, config.app_key, config.token, config.resource_id,
         config.enable_itn, config.enable_punc, config.enable_ddc,
         config.boosting_table_id,
-        [this, lease = *lease, generation, session](const std::string &text) {
+        [this, lease = *lease, generation, session,
+         stream_inline](const std::string &text) {
           if (session_.load() != session || cancel_requested_.load())
             return;
           const auto converted = wide(text);
+          if (stream_inline) {
+            (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
+                          converted, generation);
+            return;
+          }
           overlay_.set_transcript(converted);
-          (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
-                        converted, generation);
         });
     {
       std::lock_guard lock(doubao_mutex_);
@@ -209,6 +214,7 @@ bool VoiceInputSession::start() {
   starting_.store(false);
   overlay_.set_input_level(0.0f);
   overlay_.set_listening(true);
+  overlay_.set_show_transcript(!stream_inline);
   overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
   overlay_.set_actions_visible(false);
   overlay_.set_transcript(L"");
@@ -243,9 +249,20 @@ void VoiceInputSession::stop() {
     std::lock_guard lock(doubao_mutex_);
     doubao = doubao_;
   }
+  const auto cancel_inline = [&] {
+    if (!config.stream_inline_preedit || !doubao || !lease)
+      return;
+    const auto generation = static_cast<wchar_t>((session_.load() % 0xfffeu) + 1u);
+    const auto encoded = voice_composition_bytes(
+        FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
+    if (encoded)
+      (void)sender_(*lease, FanyImeWorkerReplyType::CancelVoiceComposition,
+                    L"", generation);
+  };
   if (!lease || capture_overflow_.load()) {
     if (doubao)
       doubao->Cancel();
+    cancel_inline();
     clear_overlay();
     return;
   }
@@ -257,12 +274,15 @@ void VoiceInputSession::stop() {
   if (samples.size() < kSampleRate / 4) {
     if (doubao)
       doubao->Cancel();
+    cancel_inline();
     clear_overlay();
     return;
   }
   const uint64_t session = session_.load();
+  const bool stream_inline = config.stream_inline_preedit && doubao;
   overlay_.set_compact_status(WaveOverlay::CompactStatus::Recognizing);
-  overlay_.set_actions_visible(false);
+  overlay_.set_actions_visible(stream_inline);
+  overlay_.set_show_transcript(!stream_inline);
   overlay_.show();
   std::lock_guard lock(tasks_mutex_);
   tasks_.erase(std::remove_if(tasks_.begin(), tasks_.end(),
@@ -289,6 +309,17 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     if (doubao_ == doubao)
       doubao_.reset();
   };
+  const bool stream_inline = config.stream_inline_preedit && doubao;
+  const auto cancel_inline = [&] {
+    if (!stream_inline)
+      return;
+    const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+    const auto encoded = voice_composition_bytes(
+        FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
+    if (encoded)
+      (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition, L"",
+                    generation);
+  };
   if (session_.load() != session || cancel_requested_.load()) {
     clear_overlay();
     release_doubao();
@@ -299,6 +330,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     if (doubao) {
       text = doubao->Finish();
       if (text.empty() && !doubao->LastError().empty()) {
+        cancel_inline();
         clear_overlay();
         release_doubao();
         return;
@@ -316,11 +348,13 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       text = recognizer.recognize(samples);
     }
   } catch (const std::exception &) {
+    cancel_inline();
     clear_overlay();
     release_doubao();
     return;
   }
   if (session_.load() != session || cancel_requested_.load() || text.empty()) {
+    cancel_inline();
     clear_overlay();
     release_doubao();
     return;
@@ -339,6 +373,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     final_text = polisher.polish(text);
   }
   if (session_.load() != session || cancel_requested_.load() || final_text.empty()) {
+    cancel_inline();
     clear_overlay();
     release_doubao();
     return;
@@ -353,8 +388,10 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
                         converted, generation) ==
                     VoiceCompositionResult::Sent)
     clear_overlay();
-  else
+  else {
+    cancel_inline();
     clear_overlay();
+  }
   release_doubao();
 }
 
@@ -398,6 +435,7 @@ void VoiceInputSession::lock() {
 void VoiceInputSession::clear_overlay() {
   overlay_.set_listening(false);
   overlay_.set_input_level(0.0f);
+  overlay_.set_show_transcript(true);
   overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
   overlay_.set_actions_visible(false);
   overlay_.set_transcript(L"");

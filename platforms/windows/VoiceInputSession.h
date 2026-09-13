@@ -31,6 +31,7 @@ struct VoiceInputConfig {
   bool hotkey_ctrl_win = false;
   bool hotkey_rctrl_ralt = false;
   bool hotkey_hold_space_lock = true;
+  bool stream_inline_preedit = true;
   std::string asr_provider = "doubao";
   std::string endpoint;
   std::string model;
