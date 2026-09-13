@@ -50,6 +50,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL pairedPunctuation;
+@property(nonatomic, copy) NSString *punctuationLock;
 @property(nonatomic) BOOL autocorrect;
 @property(nonatomic) BOOL candidateLearningEnabled;
 @property(nonatomic, copy) NSString *frequencyAdjustmentMode;

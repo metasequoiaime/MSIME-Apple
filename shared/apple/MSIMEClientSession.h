@@ -17,6 +17,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)setFocused:(BOOL)focused error:(NSError **)error;
 /// Returns the current View, not a transition; preserves live composition.
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
+/// Returns a View; updates Engine paired-punctuation behavior without persisting preferences.
+- (nullable NSDictionary<NSString *, id> *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error;
+/// Returns a View; lock is follow, chinese, or english and maps to the Engine's 0/1/2 values.
+- (nullable NSDictionary<NSString *, id> *)setPunctuationLock:(NSString *)lock error:(NSError **)error;
 /// Returns a View (not a transition). Finish composition before changing mode.
 - (nullable NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error;
 /// Compatibility selector with the same session-mode restoration behavior.

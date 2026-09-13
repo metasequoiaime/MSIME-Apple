@@ -52,6 +52,8 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *_hostOptions;
     BOOL _dedicatedEnglishEnabled;
     NSNumber *_punctuationOverride;
+    NSNumber *_pairedPunctuationOverride;
+    NSNumber *_punctuationLockOverride;
     NSNumber *_characterWidthOverride;
 }
 - (NSDictionary *)voiceProviderRequest:(NSDictionary *)query socket:(NSString *)socket error:(NSError **)error {
@@ -98,6 +100,8 @@ static NSDictionary *decode(char *response, NSError **error) {
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
+    if (restored && _pairedPunctuationOverride) restored = decode(msime_client_set_paired_punctuation(_handle, _pairedPunctuationOverride.boolValue), error) != nil;
+    if (restored && _punctuationLockOverride) restored = decode(msime_client_set_punctuation_lock(_handle, _punctuationLockOverride.unsignedCharValue), error) != nil;
     if (restored && _characterWidthOverride) restored = decode(msime_client_set_character_width(_handle, _characterWidthOverride.boolValue), error) != nil;
     if (restored && _dedicatedEnglishEnabled) restored = decode(msime_client_set_english_mode(_handle, true), error) != nil;
     if (restored) return YES;
@@ -450,6 +454,22 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     NSDictionary *view = decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
     if (view) _punctuationOverride = @(enabled);
+    return view;
+}
+- (nullable NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    NSDictionary *view = decode(msime_client_set_paired_punctuation(_handle, enabled), error);
+    if (view) _pairedPunctuationOverride = @(enabled);
+    return view;
+}
+- (nullable NSDictionary *)setPunctuationLock:(NSString *)lock error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    uint8_t value = 0;
+    if ([lock isEqualToString:@"chinese"]) value = 1;
+    else if ([lock isEqualToString:@"english"]) value = 2;
+    else if (![lock isEqualToString:@"follow"]) { setError(error, @"标点锁定值无效"); return nil; }
+    NSDictionary *view = decode(msime_client_set_punctuation_lock(_handle, value), error);
+    if (view) _punctuationLockOverride = @(value);
     return view;
 }
 - (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {

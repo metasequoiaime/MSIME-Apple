@@ -62,6 +62,8 @@ static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
+static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
+static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const CandidateLearningKey = @"MSIMEClientCandidateLearning";
 static NSString *const FrequencyModeKey = @"MSIMEClientFrequencyAdjustmentMode";
@@ -139,6 +141,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
     NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
+    NSNumber *_sharedPairedPunctuation;
+    NSString *_sharedPunctuationLock;
+    NSButton *_pairedPunctuationButton;
+    NSPopUpButton *_punctuationLockButton;
     NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedAutocorrect;
     NSNumber *_sharedCloudCandidates;
@@ -327,6 +333,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    merged[@"paired_punctuation"] = @(self.pairedPunctuation);
+    merged[@"punctuation_lock"] = self.punctuationLock;
     merged[@"autocorrect"] = @(self.autocorrect);
     if ([_defaults objectForKey:CandidateLearningKey] != nil || _sharedCandidateLearning != nil)
         merged[@"learning"] = @(self.candidateLearningEnabled);
@@ -657,6 +665,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
+    id paired = preferences[@"paired_punctuation"];
+    if (LocalModeBoolean(paired)) _sharedPairedPunctuation = paired;
+    id punctuationLock = preferences[@"punctuation_lock"];
+    if ([@[@"follow", @"chinese", @"english"] containsObject:punctuationLock]) _sharedPunctuationLock = [punctuationLock copy];
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
     id cloud = preferences[@"cloud_candidates"];
@@ -731,6 +743,25 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)setChinesePunctuation:(BOOL)value {
     _sharedChinesePunctuation = nil;
     [_defaults setBool:value forKey:ChinesePunctuationKey];
+    [self preferencesChanged];
+}
+- (BOOL)pairedPunctuation {
+    if (_sharedPairedPunctuation) return _sharedPairedPunctuation.boolValue;
+    return [_defaults objectForKey:PairedPunctuationKey] == nil ? YES : [_defaults boolForKey:PairedPunctuationKey];
+}
+- (void)setPairedPunctuation:(BOOL)value {
+    _sharedPairedPunctuation = nil;
+    [_defaults setBool:value forKey:PairedPunctuationKey];
+    [self preferencesChanged];
+}
+- (NSString *)punctuationLock {
+    NSString *value = _sharedPunctuationLock ?: [_defaults stringForKey:PunctuationLockKey];
+    return [@[@"follow", @"chinese", @"english"] containsObject:value] ? value : @"follow";
+}
+- (void)setPunctuationLock:(NSString *)value {
+    if (![@[@"follow", @"chinese", @"english"] containsObject:value]) value = @"follow";
+    _sharedPunctuationLock = nil;
+    [_defaults setObject:value forKey:PunctuationLockKey];
     [self preferencesChanged];
 }
 - (void)setTraditionalOutput:(BOOL)value {
@@ -1004,6 +1035,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _pairedPunctuationButton.state = self.pairedPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
+    [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1201,6 +1235,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _punctuationButton.toolTip = @"Control+. 切换中英文标点";
+    _pairedPunctuationButton = [NSButton checkboxWithTitle:@"成对标点" target:self action:@selector(pairedPunctuationChanged:)];
+    _pairedPunctuationButton.toolTip = @"自动插入并配对引号、括号等标点";
+    _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_punctuationLockButton addItemsWithTitles:@[@"跟随中文标点", @"始终中文", @"始终英文"]];
+    _punctuationLockButton.accessibilityLabel = @"标点锁定";
+    _punctuationLockButton.target = self;
+    _punctuationLockButton.action = @selector(punctuationLockChanged:);
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
@@ -1257,6 +1298,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
+        @[[NSTextField labelWithString:@"标点输入"], _pairedPunctuationButton],
+        @[[NSTextField labelWithString:@"标点锁定"], _punctuationLockButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
@@ -1378,6 +1421,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (void)punctuationChanged:(NSButton *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
+- (void)pairedPunctuationChanged:(NSButton *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
+- (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
 - (void)toolbarChanged:(NSButton *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {

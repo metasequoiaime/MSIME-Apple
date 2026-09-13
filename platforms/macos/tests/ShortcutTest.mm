@@ -71,6 +71,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *punctuationView;
+@property(nonatomic) BOOL pairedPunctuation;
+@property(nonatomic) NSUInteger pairedPunctuationCalls;
+@property(nonatomic) uint8_t punctuationLock;
+@property(nonatomic) NSUInteger punctuationLockCalls;
 @property(nonatomic) BOOL fullwidth;
 @property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
@@ -113,6 +117,20 @@ static void CheckMenu(NSMenu *menu, id controller) {
     (void)error;
     self.chinesePunctuation = enabled;
     ++self.punctuationCalls;
+    return self.punctuationView;
+}
+- (NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error;
+    self.pairedPunctuation = enabled;
+    ++self.pairedPunctuationCalls;
+    return self.punctuationView;
+}
+- (NSDictionary *)setPunctuationLock:(NSString *)lock error:(NSError **)error {
+    (void)error;
+    if ([lock isEqual:@"chinese"]) self.punctuationLock = 1;
+    else if ([lock isEqual:@"english"]) self.punctuationLock = 2;
+    else self.punctuationLock = 0;
+    ++self.punctuationLockCalls;
     return self.punctuationView;
 }
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
@@ -727,6 +745,44 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     session.punctuationView = nil;
     [controller syncPunctuation];
     assert([[controller valueForKey:@"view"] isEqual:punctuationView]);
+}
+
+static void TestPairedPunctuationPreferences() {
+    NSString *suite = [@"msime.paired-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"follow"]);
+    NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}];
+    assert([initial[@"paired_punctuation"] isEqual:@YES] && [initial[@"punctuation_lock"] isEqual:@"follow"]);
+    [preferences applySharedInputPreferences:@{ @"paired_punctuation": @NO, @"punctuation_lock": @"english" }];
+    assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"english"]);
+    assert([defaults objectForKey:@"MSIMEClientPairedPunctuation"] == nil && [defaults objectForKey:@"MSIMEClientPunctuationLock"] == nil);
+    [preferences applySharedInputPreferences:@{ @"paired_punctuation": @1, @"punctuation_lock": @"invalid" }];
+    assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"english"]);
+    NSButton *paired = (id)PreferenceControl(preferences, @selector(pairedPunctuationChanged:));
+    NSPopUpButton *lock = (id)PreferenceControl(preferences, @selector(punctuationLockChanged:));
+    assert(paired.state == NSControlStateValueOff && lock.indexOfSelectedItem == 2);
+    paired.state = NSControlStateValueOn;
+    [NSApp sendAction:paired.action to:paired.target from:paired];
+    [lock selectItemAtIndex:1];
+    [NSApp sendAction:lock.action to:lock.target from:lock];
+    assert(preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"chinese"]);
+    assert([defaults boolForKey:@"MSIMEClientPairedPunctuation"] && [[defaults stringForKey:@"MSIMEClientPunctuationLock"] isEqual:@"chinese"]);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(reopened.pairedPunctuation && [reopened.punctuationLock isEqual:@"chinese"]);
+    [preferences applySharedInputPreferences:@{ @"paired_punctuation": @NO, @"punctuation_lock": @"follow" }];
+    assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"follow"]);
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:preferences forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    session.punctuationView = @{ @"editing_text": @"", @"candidates": @[] };
+    [controller syncPunctuation];
+    assert(!session.pairedPunctuation && session.punctuationLock == 0 && session.pairedPunctuationCalls == 1 && session.punctuationLockCalls == 1);
+    [defaults removePersistentDomainForName:suite];
 }
 
 static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -3350,6 +3406,7 @@ int main() {
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
+        TestPairedPunctuationPreferences();
         TestCharacterSetShortcut(defaults, appearance);
         TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);
