@@ -171,6 +171,8 @@ pub fn init() -> TauriPlugin<Wry> {
 struct SnapshotMetadata {
     cloud_revision: i64,
     sha256: String,
+    #[serde(skip_serializing)]
+    file_sha256: String,
     bytes: u64,
     records: usize,
     entries: usize,
@@ -562,6 +564,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     let mut category = 0u8;
     let mut revision = None;
     let mut digest = Sha256::new();
+    let mut file_digest = Sha256::new();
     let mut checksum = None;
     let mut entry_keys = HashMap::new();
     let mut entry_ids = HashSet::new();
@@ -592,6 +595,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
             reader.consume(length);
         };
         let has_newline = complete;
+        file_digest.update(&line);
         if has_newline {
             line.pop();
             if line.ends_with(b"\r") {
@@ -712,6 +716,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     Ok(SnapshotMetadata {
         cloud_revision: revision,
         sha256,
+        file_sha256: format!("{:x}", file_digest.finalize()),
         bytes: total_bytes,
         records,
         entries: counts[0],
@@ -819,6 +824,10 @@ async fn dictionary_snapshot_enqueue(
             if profile.user.id != pending.account_id {
                 return Err(AccountError::Conflict);
             }
+            let changes = session.dictionary_changes(pending.metadata.cloud_revision, 1)?;
+            if !changes.changes.is_empty() {
+                return Err(AccountError::Conflict);
+            }
             let state = platform
                 .run_mobile_plugin::<Value>("snapshotState", ())
                 .map_err(|_| AccountError::Unavailable)?;
@@ -832,7 +841,7 @@ async fn dictionary_snapshot_enqueue(
                 account_id: pending.account_id,
                 cloud_revision: pending.metadata.cloud_revision,
                 expected_local_version: expected,
-                file_sha256: pending.metadata.sha256.clone(),
+                file_sha256: pending.metadata.file_sha256.clone(),
             };
             platform
                 .run_mobile_plugin::<Value>("enqueueSnapshot", request)
