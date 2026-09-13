@@ -14,6 +14,15 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+  func testDoubaoVoicePresetUsesNativeWebSocketEndpoint() throws {
+    let config = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    XCTAssertEqual(config.endpoint, "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async")
+    XCTAssertEqual(config.model, "volc.seedasr.sauc.duration")
+    XCTAssertEqual(config.voiceProvider, .doubao)
+    XCTAssertThrowsError(try config.validatedURL())
+    XCTAssertNoThrow(try config.validatedURL(allowWebSocket: true))
+  }
+
 }
 
 final class CustomServiceTests: XCTestCase {
