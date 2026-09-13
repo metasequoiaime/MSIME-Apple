@@ -20,7 +20,7 @@ nlohmann::json response(char *raw) {
 } // namespace
 ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
-  if (!client_ || options.size() > 16384 || msime_client_abi_version() != 1)
+  if (!client_ || options.size() > 16384 || msime_client_abi_version() != 2)
     throw std::invalid_argument("Invalid Windows session configuration");
   auto created = response(msime_client_create(
       reinterpret_cast<const uint8_t *>(options.data()), options.size()));
