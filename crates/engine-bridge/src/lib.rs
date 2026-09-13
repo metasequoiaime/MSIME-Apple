@@ -183,6 +183,7 @@ mod ffi {
             content_id: &str,
         ) -> Result<EngineOptions>;
         fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
+        fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
@@ -312,6 +313,12 @@ pub fn dictionary_entries(
 /// verified Engine dictionary for native dictionary import tooling.
 pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
     ffi::hanzi_to_pinyin(options, text)
+}
+
+/// Normalize an unsegmented full-pinyin code using the Engine's canonical
+/// syllable table. An expected Han-character count resolves ambiguous cuts.
+pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
+    ffi::normalize_full_pinyin(input, expected_syllables)
 }
 
 /// Atomically add, replace, or remove one personal-dictionary entry.
@@ -602,6 +609,18 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_full_pinyin_using_the_expected_word_length() {
+        assert_eq!(normalize_full_pinyin("xian", 1), "xian");
+        assert_eq!(normalize_full_pinyin("xian", 2), "xi'an");
+        assert_eq!(
+            normalize_full_pinyin("a'ba'la'ti'ya'yun'hai", 7),
+            "a'ba'la'ti'ya'yun'hai"
+        );
+        assert_eq!(normalize_full_pinyin("xian", 3), "");
+        assert_eq!(normalize_full_pinyin("ni'hao'", 2), "");
+    }
 
     #[test]
     fn learned_glosses_survive_unavailable_packaged_dictionary() {

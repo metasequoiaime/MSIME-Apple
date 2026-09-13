@@ -223,7 +223,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             let (entries, report) = if format == "hans" {
                 (parse_hans_import(&kind, &text, &options)?, None)
             } else {
-                let (entries, report) = parse_import(&kind, &format, &text)?;
+                let (entries, report) = parse_import(&kind, &format, &text, Some(&options))?;
                 (entries, Some(report))
             };
             if request_id.is_empty()
@@ -429,7 +429,7 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let entries = if format == "hans" {
                 parse_hans_import(&kind, &text, &options)?
             } else {
-                parse_import(&kind, &format, &text)?.0
+                parse_import(&kind, &format, &text, Some(&options))?.0
             };
             let words = entries
                 .into_iter()
@@ -684,14 +684,49 @@ type ParsedImport = (
 /// Parse a submitted dictionary file through the shared parser. Unusable rows
 /// are skipped and counted there rather than rejecting the whole file, so the
 /// report is returned alongside the entries.
-fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<ParsedImport, String> {
-    let report = msime_client_core::dictionary_import::parse(
+fn parse_import(
+    kind: &Kind,
+    format: &str,
+    text: &str,
+    engine_options: Option<&msime_engine_bridge::EngineOptions>,
+) -> Result<ParsedImport, String> {
+    let mut report = msime_client_core::dictionary_import::parse(
         kind.into(),
         format,
         text,
         msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES,
     )
     .map_err(|error| error.to_string())?;
+    if matches!(kind, Kind::Pinyin) && engine_options.is_some() {
+        let mut usable = Vec::with_capacity(report.entries.len());
+        for mut entry in report.entries.drain(..) {
+            let expected_syllables = entry
+                .value
+                .chars()
+                .filter(|&character| is_han_character(character))
+                .count();
+            let normalized = if (1..=128).contains(&expected_syllables) {
+                msime_engine_bridge::normalize_full_pinyin(&entry.key, expected_syllables)
+            } else {
+                String::new()
+            };
+            if normalized.is_empty() {
+                report.failed += 1;
+                if report.first_failures.len() < 5 {
+                    report.first_failures.push(
+                        msime_client_core::dictionary_import::ImportFailure {
+                            line: entry.line,
+                            issue: msime_client_core::dictionary_import::ImportIssue::Pinyin,
+                        },
+                    );
+                }
+            } else {
+                entry.key = normalized;
+                usable.push(entry);
+            }
+        }
+        report.entries = usable;
+    }
     let entries = report
         .entries
         .iter()
@@ -760,6 +795,43 @@ fn is_han_character(character: char) -> bool {
 mod tests {
     use super::*;
 
+    fn import_engine_options() -> msime_engine_bridge::EngineOptions {
+        msime_engine_bridge::EngineOptions {
+            resources: String::new(),
+            user_data: String::new(),
+            cache: String::new(),
+            dictionaries: String::new(),
+            scheme: 0,
+            shuangpin_profile: 0,
+            shuangpin_preedit_uses_raw: true,
+            learning: false,
+            autocorrect_transposition: true,
+            autocorrect_neighbor: true,
+            fuzzy_pinyin_rules: 0,
+            helpcode: false,
+            show_helpcode: true,
+            helpcode_schema: "ziranma".into(),
+            chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: 0,
+            frequency_mode: "promote".into(),
+            frequency_trigger_count: 1,
+            frequency_linear_step: 1,
+            mixed_english: true,
+            english_minimum_prefix: 2,
+            mixed_emoji: false,
+            mixed_kaomoji: false,
+            local_unicode: true,
+            local_date_time: true,
+            local_quick_phrase: true,
+            local_emoji: true,
+            local_kaomoji: true,
+            local_super_jianpin: true,
+            local_temporary_english: true,
+            local_temporary_japanese: true,
+        }
+    }
+
     #[test]
     fn malformed_and_oversized_requests_are_redacted() {
         for bytes in [b"invalid-fixture".as_slice(), b"{}", b"{\"options\":null}"] {
@@ -783,6 +855,7 @@ mod tests {
             &Kind::Pinyin,
             "standard",
             "你好\tni'hao\t7\n# comment\n西安\txi'an\n",
+            None,
         )
         .unwrap();
         assert_eq!(standard.len(), 2);
@@ -794,10 +867,40 @@ mod tests {
         assert_eq!(report.failed, 0);
         assert!(!report.truncated);
 
-        let (windows, _) = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n").unwrap();
+        let (windows, _) = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n", None).unwrap();
         assert_eq!(windows[0].key, "wq");
         assert_eq!(windows[0].value, "你好");
         assert_eq!(windows[0].kind, Kind::Wubi.into());
+    }
+
+    #[test]
+    fn engine_backed_pinyin_import_resolves_lengths_and_reports_invalid_rows() {
+        let options = import_engine_options();
+        let (entries, report) = parse_import(
+            &Kind::Pinyin,
+            "standard",
+            "西安\txian\n坏词\tzzzz\n你好\tnihao\n",
+            Some(&options),
+        )
+        .unwrap();
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            ["xi'an", "ni'hao"]
+        );
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.first_failures[0].line, 2);
+        assert_eq!(
+            report.first_failures[0].issue,
+            msime_client_core::dictionary_import::ImportIssue::Pinyin
+        );
+
+        let (wubi, _) =
+            parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n", Some(&options)).unwrap();
+        assert_eq!(wubi[0].key, "wq");
     }
 
     #[test]
@@ -848,6 +951,7 @@ mod tests {
             &Kind::Pinyin,
             "standard",
             "你好\tni'hao\n没有制表符\n世界\tshi'jie\n",
+            None,
         )
         .unwrap();
         assert_eq!(entries.len(), 2);
@@ -857,9 +961,9 @@ mod tests {
 
     #[test]
     fn an_unusable_envelope_is_still_rejected_outright() {
-        assert!(parse_import(&Kind::Pinyin, "hans", "你好\tni'hao").is_err());
-        assert!(parse_import(&Kind::Pinyin, "standard", "# only comments\n").is_err());
+        assert!(parse_import(&Kind::Pinyin, "hans", "你好\tni'hao", None).is_err());
+        assert!(parse_import(&Kind::Pinyin, "standard", "# only comments\n", None).is_err());
         // Every row unusable means nothing to import.
-        assert!(parse_import(&Kind::Wubi, "windows", "abcde\t你好").is_err());
+        assert!(parse_import(&Kind::Wubi, "windows", "abcde\t你好", None).is_err());
     }
 }

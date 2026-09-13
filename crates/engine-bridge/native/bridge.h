@@ -60,6 +60,7 @@ private:
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
 rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text);
+rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables);
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);

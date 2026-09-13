@@ -79,6 +79,9 @@ pub struct ImportEntry {
     pub key: String,
     pub value: String,
     pub weight: i64,
+    /// Source line for host-side validation that depends on the Engine.
+    #[serde(skip)]
+    pub line: usize,
 }
 
 /// Why one row was skipped. Deliberately describes the shape of the problem and
@@ -90,6 +93,7 @@ pub enum ImportIssue {
     EmptyKey,
     KeyTooLong,
     KeyAlphabet,
+    Pinyin,
     EmptyValue,
     ValueTooLong,
     QuickPhraseTooLong,
@@ -189,7 +193,10 @@ pub fn parse(
             }
         }
         match parse_row(kind, format, line) {
-            Ok(entry) => report.entries.push(entry),
+            Ok(mut entry) => {
+                entry.line = index + 1;
+                report.entries.push(entry);
+            }
             Err(issue) => {
                 report.failed += 1;
                 if report.first_failures.len() < REPORTED_FAILURES {
@@ -255,6 +262,7 @@ fn parse_row(
         key,
         value: word.to_owned(),
         weight,
+        line: 0,
     })
 }
 

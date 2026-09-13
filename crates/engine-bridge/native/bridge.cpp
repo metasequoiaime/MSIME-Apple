@@ -11,6 +11,7 @@
 #include <metasequoia/handwriting.h>
 #endif
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include "../../vendor/MSIME-Engine/contracts/assets/assets.h"
 #include "../../vendor/MSIME-Engine/english/english_dictionary.h"
+#include "../../vendor/MSIME-Engine/quanpin/quanpin_query.h"
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_map>
@@ -487,6 +489,51 @@ rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text) {
     }
     sqlite3_close(database);
     return result;
+}
+rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables) {
+    std::string source(input);
+    source.erase(std::remove_if(source.begin(), source.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    }), source.end());
+    std::transform(source.begin(), source.end(), source.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (source.empty() || source.front() == '\'' || source.back() == '\'' || source.find("''") != std::string::npos)
+        return {};
+
+    quanpin::Segments segments;
+    if (source.find('\'') != std::string::npos) {
+        segments = quanpin::split_segments(source);
+    } else {
+        const auto cuts = quanpin::cut_pinyin_by_mode(source, "correction");
+        if (cuts.empty()) return {};
+        segments = cuts.front();
+        if (expected_syllables != 0 && segments.size() != expected_syllables) {
+            const auto alternatives = quanpin::enumerate_complete_segmentations(
+                quanpin::build_syllable_graph(source));
+            const auto match = std::find_if(alternatives.begin(), alternatives.end(),
+                [expected_syllables](const quanpin::Segments& cut) {
+                    return cut.size() == expected_syllables;
+                });
+            if (match != alternatives.end()) segments = *match;
+        }
+    }
+
+    if (expected_syllables != 0 && segments.size() != expected_syllables) return {};
+
+    const auto& valid = quanpin::intact_pinyin_set();
+    if (segments.empty() || !std::all_of(segments.begin(), segments.end(), [&valid](const std::string& segment) {
+        return !segment.empty() && valid.find(segment) != valid.end();
+    })) return {};
+
+    const std::string normalized = quanpin::join_segments(segments);
+    std::string without_delimiters = normalized;
+    without_delimiters.erase(std::remove(without_delimiters.begin(), without_delimiters.end(), '\''),
+                             without_delimiters.end());
+    std::string source_without_delimiters = source;
+    source_without_delimiters.erase(std::remove(source_without_delimiters.begin(), source_without_delimiters.end(), '\''),
+                                    source_without_delimiters.end());
+    return without_delimiters == source_without_delimiters ? rust::String(normalized) : rust::String();
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
