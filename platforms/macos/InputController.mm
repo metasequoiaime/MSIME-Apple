@@ -28,6 +28,7 @@
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
+#import "VoiceWaveOverlay.h"
 #import "VoiceProviderSettings.h"
 #import "VoiceSettings.h"
 #import "CloudCandidateRequest.h"
@@ -192,6 +193,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
     MSIMEVoiceInputService *_voiceService;
+    MSIMEVoiceWaveOverlay *_voiceOverlay;
     uint64_t _voiceGeneration;
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
@@ -836,13 +838,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_session) [self prepareSession];
     if (!_session) return;
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
-    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; return; }
+    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceOverlay setListening:NO]; return; }
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
+        [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
         if (socket.length) {
@@ -865,7 +868,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             (void)final;
             [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
         } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
-        if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) { (void)buffer; } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; }
+        if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
+            const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : NULL;
+            float level = 0;
+            for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
+            [weakSelf->_voiceOverlay setInputLevel:level];
+        } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; }
     };
     if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
         [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
