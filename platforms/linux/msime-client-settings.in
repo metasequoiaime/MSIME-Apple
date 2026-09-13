@@ -30,6 +30,13 @@ if [ "${MSIME_CLIENT_PANEL:-}" = "dictionary" ]; then
   export MSIME_CLIENT_PANEL MSIME_CLIENT_SETTINGS_PAGE
 fi
 
+# Share the cross-platform surface route with hosts that understand the
+# newer route contract while retaining MSIME_CLIENT_PANEL compatibility.
+if [ -n "${MSIME_CLIENT_PANEL:-}" ]; then
+  MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}
+  export MSIME_CLIENT_ROUTE
+fi
+
 if [ -n "${MSIME_CLIENT_HOST_OPTIONS:-}" ]; then
   config=$MSIME_CLIENT_HOST_OPTIONS
 elif [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
