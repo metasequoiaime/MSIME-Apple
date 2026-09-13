@@ -183,6 +183,8 @@ public final class MSIMEInputService extends InputMethodService {
     private Button languageButton;
     private Button enterButton;
     private Button spaceButton;
+    private Button japaneseSpaceKey;
+    private Button japaneseReturnKey;
     private TextView status;
     private String message = "MSIME Preview";
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
@@ -967,6 +969,21 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private boolean japaneseNineKeyActive() {
+        return displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT;
+    }
+
+    private String spaceKeyTitle() {
+        return japaneseNineKeyActive()
+            ? JapaneseNineKeyActions.spaceTitle(view != null
+                && !view.optString("editing_text", "").isEmpty()) : "空格";
+    }
+
+    private String spaceKeyDescription() {
+        return japaneseNineKeyActive()
+            ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
+    }
+
     private int displayedTouchLayout(JSONObject value) {
         return dedicatedEnglish ? STANDARD_TOUCH_LAYOUT : touchLayout(value);
     }
@@ -1085,34 +1102,49 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
-        command(9);
+        if (command(9)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
-        if (ReturnKeyAction.performsEditorAction(action, disabled)
+        if (ReturnKeyAction.shouldPerformEditorAction(action, disabled, false)
                 && connection.performEditorAction(action)) return;
         commitText("\n");
     }
 
     private void updateReturnKey() {
-        if (enterButton == null) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE
                 : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         String title = ReturnKeyAction.title(action, disabled);
-        enterButton.setText(title);
-        enterButton.setContentDescription(title);
+        if (enterButton != null) {
+            enterButton.setText(title);
+            enterButton.setContentDescription(title);
+        }
+        if (japaneseReturnKey != null) {
+            boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
+            String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
+            japaneseReturnKey.setText(japaneseTitle);
+            japaneseReturnKey.setContentDescription(japaneseTitle);
+        }
+        if (japaneseSpaceKey != null) {
+            japaneseSpaceKey.setText(spaceKeyTitle());
+            japaneseSpaceKey.setContentDescription(spaceKeyDescription());
+        }
+        if (spaceButton != null && !cursorMovement.isActive()) {
+            spaceButton.setText(spaceKeyTitle());
+            spaceButton.setContentDescription(spaceKeyDescription());
+        }
     }
 
     private void resetSpaceCursor() {
         cursorMovement.cancel();
         if (spaceButton == null) return;
         spaceButton.setPressed(false);
-        spaceButton.setText("空格");
-        spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
+        spaceButton.setText(spaceKeyTitle());
+        spaceButton.setContentDescription(spaceKeyDescription());
     }
 
     private void moveEditorCursor(int offset) {
@@ -3839,6 +3871,8 @@ public final class MSIMEInputService extends InputMethodService {
         symbolKeyButtons.clear();
         symbolKeyInputs.clear();
         microsoftFinalKey = null;
+        japaneseSpaceKey = null;
+        japaneseReturnKey = null;
         keyRows.removeAllViews();
         if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
             rebuildJapaneseNineKeyRows();
@@ -4089,8 +4123,12 @@ public final class MSIMEInputService extends InputMethodService {
         addNineKey(actions, keyboardKey("⌫", "删除", () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
         }));
-        addNineKey(actions, keyboardKey("空格", "空格", this::space));
-        Button enter = keyboardKey("换行", "换行", this::enter);
+        japaneseSpaceKey = keyboardKey("空白", "空白", this::space);
+        japaneseSpaceKey.setContentDescription("空白；左右滑动移动光标");
+        addNineKey(actions, japaneseSpaceKey);
+        japaneseReturnKey = keyboardKey("改行", "改行", this::enter);
+        japaneseReturnKey.setContentDescription("改行");
+        Button enter = japaneseReturnKey;
         actions.addView(enter, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
         container.addView(actions, new LinearLayout.LayoutParams(0,

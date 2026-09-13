@@ -21,6 +21,12 @@ public final class ReturnKeyAction {
         };
     }
 
+    /** A handled composition consumes Return before any editor action or newline is considered. */
+    public static boolean shouldPerformEditorAction(
+            int action, boolean disabled, boolean compositionHandled) {
+        return !compositionHandled && performsEditorAction(action, disabled);
+    }
+
     public static String title(int action, boolean disabled) {
         if (!performsEditorAction(action, disabled)) return "换行";
         return switch (action) {
