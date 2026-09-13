@@ -220,6 +220,10 @@ std::vector<uint8_t> worker_flag_frame(uint32_t type, bool value) {
 }
 } // namespace
 
+std::vector<uint8_t> caps_lock_frame(bool enabled) {
+  return worker_flag_frame(FanyImeWorkerReplyType::CapsLockChanged, enabled);
+}
+
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
   std::vector<std::vector<uint8_t>> frames;
   // The paging frame carries the preedit style after a '|', which is how the

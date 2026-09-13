@@ -13,6 +13,7 @@ enum class MaintenanceAction : uint8_t {
   ClearCache,      // Ctrl+Shift+Alt+C
   Restart,         // Ctrl+Shift+Alt+R
   Stop,            // Ctrl+Shift+Alt+T
+  OpenScreenKeyboard, // Ctrl+Shift+Win+K
 };
 struct MaintenanceHotkey {
   MaintenanceAction action = MaintenanceAction::ClearCache;
@@ -26,8 +27,13 @@ struct MaintenanceHotkey {
 // are accepted, because the digits are the shortcut's whole point and a user
 // with a keypad should not be told the feature is missing.
 inline std::optional<MaintenanceHotkey>
-maintenance_hotkey(uint32_t vk, bool ctrl, bool shift, bool alt) {
-  if (!ctrl || !shift || !alt)
+maintenance_hotkey(uint32_t vk, bool ctrl, bool shift, bool alt,
+                   bool win = false) {
+  // Ctrl+Shift+Win+K opens the on-screen keyboard. It uses Win rather than Alt,
+  // so it is checked before the Alt-based group and must not be claimed by it.
+  if (ctrl && shift && win && !alt && vk == 'K')
+    return MaintenanceHotkey{MaintenanceAction::OpenScreenKeyboard, 0};
+  if (!ctrl || !shift || !alt || win)
     return std::nullopt;
   // 1..8 only: the reference deletes candidates 1 through 8, and 9 and 0 are
   // deliberately not bound.

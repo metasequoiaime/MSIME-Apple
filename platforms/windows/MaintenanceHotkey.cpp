@@ -3,8 +3,12 @@
 namespace msime::windows {
 MaintenanceHotkeyController *MaintenanceHotkeyController::instance_ = nullptr;
 
-MaintenanceHotkeyController::MaintenanceHotkeyController(Handler handler)
-    : handler_(std::move(handler)) {
+MaintenanceHotkeyController::MaintenanceHotkeyController(Handler handler,
+                                                         CapsSink caps)
+    : handler_(std::move(handler)), caps_sink_(std::move(caps)),
+      // Seed from the OS so the first report is an actual change, not the
+      // state the session already started in.
+      caps_((GetKeyState(VK_CAPITAL) & 1) != 0) {
   if (!handler_)
     return;
   instance_ = this;
@@ -40,10 +44,25 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
   // something could drive itself.
   if (event->flags & LLKHF_INJECTED)
     return CallNextHookEx(nullptr, code, wparam, lparam);
+  // Caps Lock is observed, not claimed: the Server is the authority for the
+  // indicator, and the TIP only sampled GetKeyState at activation, so pressing
+  // Caps mid-session left the language-bar icon stale. The stroke is always
+  // passed on - Caps Lock still has to work.
+  if (event->vkCode == VK_CAPITAL && !(event->flags & LLKHF_UP)) {
+    self->caps_ = !self->caps_;
+    if (self->caps_sink_) {
+      try {
+        self->caps_sink_(self->caps_);
+      } catch (...) {
+      }
+    }
+  }
   const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
   const bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-  const auto hotkey = maintenance_hotkey(event->vkCode, ctrl, shift, alt);
+  const bool win = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+  const auto hotkey = maintenance_hotkey(event->vkCode, ctrl, shift, alt, win);
   if (!hotkey)
     return CallNextHookEx(nullptr, code, wparam, lparam);
   bool handled = false;

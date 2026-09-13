@@ -62,6 +62,21 @@ int main() {
                               static_cast<uint32_t>(0x0D)}) // VK_RETURN
       require(!maintenance_hotkey(vk, true, true, true));
 
+    // Ctrl+Shift+Win+K opens the on-screen keyboard. It uses Win instead of
+    // Alt, so the Alt-based group must not claim it and it must not claim any
+    // of theirs.
+    const auto keyboard = maintenance_hotkey('K', true, true, false, true);
+    require(keyboard && keyboard->action == MaintenanceAction::OpenScreenKeyboard);
+    require(!maintenance_hotkey('K', true, true, true, false));
+    require(!maintenance_hotkey('K', true, true, false, false));
+    require(!maintenance_hotkey('K', true, false, false, true));
+    require(!maintenance_hotkey('K', false, true, false, true));
+    // Holding Win must not turn the Alt group into something else.
+    require(!maintenance_hotkey('C', true, true, true, true));
+    require(!maintenance_hotkey('3', true, true, true, true));
+    // And the Alt group still works without Win.
+    require(maintenance_hotkey('C', true, true, true, false));
+
     std::cout << "Maintenance hotkeys: the documented four are recognised\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

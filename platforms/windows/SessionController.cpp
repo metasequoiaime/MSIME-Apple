@@ -323,6 +323,26 @@ std::optional<ModePresentation> SessionController::mode_view() {
     return std::nullopt;
   return value;
 }
+bool SessionController::send_caps_lock(const FocusLease &lease, bool enabled) {
+  if (input_.on_worker_thread() || active_controller == this || stopping_)
+    return false;
+  const auto frame = caps_lock_frame(enabled);
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return false;
+  bool sent = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (stopping_ || !transport_.current(lease.transport))
+        return;
+      sent = transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
+                             frame) == KeyEventSendResult::Sent;
+    });
+  } catch (...) {
+    return false;
+  }
+  return sent;
+}
 bool SessionController::send_tsf_config(const FocusLease &lease,
                                        const TsfLocalConfig &config) {
   if (input_.on_worker_thread() || active_controller == this)

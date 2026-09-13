@@ -752,6 +752,10 @@ int wmain(int argc, wchar_t **argv) {
         },
         [&] { return toolbar_visible; });
     tray.set_palette(resolved_palette);
+    // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
+    // at activation, so pressing Caps mid-session left its indicator stale.
+    std::atomic<bool> caps_lock{(GetKeyState(VK_CAPITAL) & 1) != 0};
+    std::atomic<bool> caps_lock_dirty{true};
     // Starts true: the Server is launched by the TIP, so the IME is active by
     // the time this runs, and waiting for the first edge would hide the toolbar
     // until the user switched focus once.
@@ -807,6 +811,11 @@ int wmain(int argc, wchar_t **argv) {
             msime_client_reset_cache(view->session), msime_client_string_free);
         return static_cast<bool>(reply);
       }
+      case MaintenanceAction::OpenScreenKeyboard: {
+        const auto request =
+            shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
+        return request && launch_shell(*request);
+      }
       case MaintenanceAction::DeleteCandidate: {
         // Only meaningful while a candidate list is on screen; otherwise the
         // stroke belongs to the focused application and must not be eaten.
@@ -821,6 +830,12 @@ int wmain(int argc, wchar_t **argv) {
       }
       }
       return false;
+    },
+    [&](bool caps) {
+      // The Server owns the indicator; publish and let the loop deliver it, so
+      // the hook callback never touches the transport.
+      caps_lock.store(caps, std::memory_order_release);
+      caps_lock_dirty.store(true, std::memory_order_release);
     });
     if (!maintenance.installed())
       std::cerr << "Maintenance shortcuts unavailable; continuing without them\n";
@@ -867,6 +882,12 @@ int wmain(int argc, wchar_t **argv) {
           if (server.send_tsf_config(view->lease, pending))
             tsf_config_dirty->store(false, std::memory_order_release);
         }
+      }
+      if (caps_lock_dirty.load(std::memory_order_acquire)) {
+        if (const auto view = server.mode_view())
+          if (server.send_caps_lock(view->lease,
+                                    caps_lock.load(std::memory_order_acquire)))
+            caps_lock_dirty.store(false, std::memory_order_release);
       }
       const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
       // The DLL's activation edges, not the mode view: a temporary focus

@@ -80,6 +80,9 @@ struct TsfLocalConfig {
 };
 // One frame per setting, in the order the reference pushes them.
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config);
+// Caps Lock changes on its own cadence, so it gets its own frame rather than
+// resending the whole configuration on every press.
+std::vector<uint8_t> caps_lock_frame(bool enabled);
 // Encode a bounded voice composition snapshot for the TSF worker pipe. The
 // returned frames are ordered and each one has the fixed worker-packet size.
 // Generation is a voice session generation and must be non-zero.

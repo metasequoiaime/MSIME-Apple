@@ -18,7 +18,10 @@ public:
   // Return true when the action was handled; only then is the stroke consumed.
   using Handler = std::function<bool(MaintenanceHotkey)>;
 
-  explicit MaintenanceHotkeyController(Handler handler);
+  // Reports the new Caps Lock state on every press. The Server is the
+  // authority for it; the TIP only sampled it at activation.
+  using CapsSink = std::function<void(bool)>;
+  explicit MaintenanceHotkeyController(Handler handler, CapsSink caps = {});
   ~MaintenanceHotkeyController();
   MaintenanceHotkeyController(const MaintenanceHotkeyController &) = delete;
   MaintenanceHotkeyController &operator=(const MaintenanceHotkeyController &) = delete;
@@ -27,6 +30,8 @@ public:
 private:
   static LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam);
   Handler handler_;
+  CapsSink caps_sink_;
+  bool caps_ = false;
   HHOOK hook_ = nullptr;
   static MaintenanceHotkeyController *instance_;
 };
