@@ -30,6 +30,7 @@
 #import "VoiceInputService.h"
 #import "VoiceWaveOverlay.h"
 #import "VoiceCuePlayer.h"
+#import "VoiceAudioMuter.h"
 #import "VoiceProviderSettings.h"
 #import "VoiceSettings.h"
 #import "CloudCandidateRequest.h"
@@ -196,6 +197,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceInputService *_voiceService;
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
+    MSIMEVoiceAudioMuter *_voiceAudioMuter;
     uint64_t _voiceGeneration;
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
@@ -841,14 +843,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_session) return;
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
+    if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
     if (!_voiceOverlay) _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
-    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceOverlay setListening:NO]; [_voiceCuePlayer playStopCue]; return; }
+    if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; [_voiceCuePlayer playStopCue]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; [_voiceCuePlayer playStopCue]; return; }
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
+        [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         [controller->_voiceCuePlayer playStartCue];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
@@ -865,7 +869,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                         (void)final;
                     });
                 } phase:^(NSUInteger phase) { (void)phase; } error:&providerError];
-                dispatch_async(dispatch_get_main_queue(), ^{ if (controller->_voiceGeneration == generation && controller->_voiceService.active) [controller->_voiceService cancelWithError:nil]; });
+                dispatch_async(dispatch_get_main_queue(), ^{ if (controller->_voiceGeneration == generation && controller->_voiceService.active) { [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; [controller->_voiceOverlay setListening:NO]; } });
             });
             return;
         }
@@ -879,7 +883,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
             MSIMEInputController *liveController = weakSelf;
             if (liveController) [liveController->_voiceOverlay setInputLevel:level];
-        } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; }
+        } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; }
     };
     if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
         [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
