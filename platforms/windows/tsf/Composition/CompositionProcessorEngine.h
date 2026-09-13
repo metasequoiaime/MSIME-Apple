@@ -97,7 +97,7 @@ class CCompositionProcessorEngine
     // Toggle IME Mode
     void ToggleIMEMode(_In_ ITfThreadMgr *pThreadMgr, TfClientId tfClientId);
     void SetIMEMode(_In_ ITfThreadMgr *pThreadMgr, TfClientId tfClientId, BOOL bOpen);
-    BOOL CCompositionProcessorEngine::GetIMEMode(_In_ ITfThreadMgr *pThreadMgr, TfClientId tfClientId);
+    BOOL GetIMEMode(_In_ ITfThreadMgr *pThreadMgr, TfClientId tfClientId);
     // Apply CN/EN compartment change deferred until after composition commit.
     // Closing KEYBOARD_OPENCLOSE before EndComposition makes CUAS/Win32 EDIT
     // finalize the same preedit twice (Chrome/TSF-only hosts are unaffected).

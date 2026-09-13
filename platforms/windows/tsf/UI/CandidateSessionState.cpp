@@ -1,7 +1,7 @@
 #include "Private.h"
 #include "CandidateSessionState.h"
 #include <utility>
-#include <corecrt_wstring.h>
+#include <cstring>
 #include <debugapi.h>
 #include "fmt/xchar.h"
 

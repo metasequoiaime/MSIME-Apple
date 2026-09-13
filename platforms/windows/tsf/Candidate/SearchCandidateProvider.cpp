@@ -147,7 +147,7 @@ STDMETHODIMP CSearchCandidateProvider::GetSearchCandidates(BSTR bstrQuery, BSTR 
     CMetasequoiaImeArray<CCandidateListItem> candidateList;
     pCompositionProcessorEngine->GetCandidateList(&candidateList, TRUE, FALSE);
 
-    int cCand = min(candidateList.Count(), FAKECANDIDATENUMBER);
+    int cCand = (std::min)(static_cast<int>(candidateList.Count()), FAKECANDIDATENUMBER);
     if (0 < cCand)
     {
         hr = CTipCandidateList::CreateInstance(pplist, cCand);

@@ -3,6 +3,11 @@
 #include <msctf.h>
 #include "initguid.h"
 
+#ifdef __MINGW32__
+#undef UNREFERENCED_PARAMETER
+#define UNREFERENCED_PARAMETER(parameter) (void)(parameter)
+#endif
+
 class CTextEditor;
 
 typedef struct

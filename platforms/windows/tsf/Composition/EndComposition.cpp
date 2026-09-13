@@ -15,6 +15,9 @@ HRESULT SafeEndComposition(_In_ ITfComposition *composition, TfEditCookie ec)
         return E_INVALIDARG;
     }
 
+#ifdef __MINGW32__
+    return composition->EndComposition(ec);
+#else
     __try
     {
         return composition->EndComposition(ec);
@@ -23,6 +26,7 @@ HRESULT SafeEndComposition(_In_ ITfComposition *composition, TfEditCookie ec)
     {
         return E_FAIL;
     }
+#endif
 }
 } // namespace
 

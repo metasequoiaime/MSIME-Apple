@@ -21,6 +21,9 @@ HRESULT SafeRangeSetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _In
         return E_INVALIDARG;
     }
 
+#ifdef __MINGW32__
+    return range->SetText(ec, flags, text, len);
+#else
     __try
     {
         return range->SetText(ec, flags, text, len);
@@ -29,6 +32,7 @@ HRESULT SafeRangeSetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _In
     {
         return E_FAIL;
     }
+#endif
 }
 
 HRESULT SafeRangeGetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _Out_writes_(len) WCHAR *text, ULONG len,
@@ -39,6 +43,9 @@ HRESULT SafeRangeGetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _Ou
         return E_INVALIDARG;
     }
 
+#ifdef __MINGW32__
+    return range->GetText(ec, flags, text, len, fetched);
+#else
     __try
     {
         return range->GetText(ec, flags, text, len, fetched);
@@ -48,6 +55,7 @@ HRESULT SafeRangeGetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _Ou
         *fetched = 0;
         return E_FAIL;
     }
+#endif
 }
 
 HRESULT SafeRangeShiftStart(_In_ ITfRange *range, TfEditCookie ec, LONG count, _Out_ LONG *shifted)
@@ -57,6 +65,9 @@ HRESULT SafeRangeShiftStart(_In_ ITfRange *range, TfEditCookie ec, LONG count, _
         return E_INVALIDARG;
     }
 
+#ifdef __MINGW32__
+    return range->ShiftStart(ec, count, shifted, nullptr);
+#else
     __try
     {
         return range->ShiftStart(ec, count, shifted, nullptr);
@@ -66,6 +77,7 @@ HRESULT SafeRangeShiftStart(_In_ ITfRange *range, TfEditCookie ec, LONG count, _
         *shifted = 0;
         return E_FAIL;
     }
+#endif
 }
 } // namespace
 

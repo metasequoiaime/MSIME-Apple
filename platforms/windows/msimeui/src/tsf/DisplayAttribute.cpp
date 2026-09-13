@@ -15,11 +15,17 @@ void PrintColor(const TF_DA_COLOR &color)
 
 void PrintDisplayAttribute(const TF_DISPLAYATTRIBUTE &da)
 {
-    UNREFERENCED_PARAMETER(da);
+    (void)da;
 }
 
 CDispAttrProps *GetDispAttrProps()
 {
+#ifdef __MINGW32__
+    // MinGW ships the TSF interfaces but not the Windows SDK category helper
+    // declarations. The TSF text service still builds and runs without the
+    // optional display-attribute enumeration on this toolchain.
+    return NULL;
+#else
     IEnumGUID *pEnumProp = NULL;
     CDispAttrProps *pProps = NULL;
     ITfCategoryMgr *pcat;
@@ -48,6 +54,7 @@ CDispAttrProps *GetDispAttrProps()
         pEnumProp->Release();
 
     return pProps;
+#endif
 }
 
 HRESULT InitDisplayAttrbute()
@@ -127,7 +134,7 @@ HRESULT GetDisplayAttributeData(TfEditCookie ec, ITfReadOnlyProperty *pProp, ITf
     IEnumTfPropertyValue *pEnumPropertyVal = NULL;
     TF_PROPERTYVAL tfPropVal = {};
     GUID guid;
-    TfGuidAtom gaVal = TF_INVALID_GUIDATOM;
+    TfGuidAtom gaVal = 0;
     ITfDisplayAttributeInfo *pDAI = NULL;
 
     HRESULT hr = E_FAIL;

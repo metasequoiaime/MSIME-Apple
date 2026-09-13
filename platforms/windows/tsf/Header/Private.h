@@ -12,4 +12,12 @@
 
 #include "initguid.h"
 #include "msctf.h"
-#include "ctffunc.h"
+#ifdef __MINGW32__
+#include <algorithm>
+#include <cstring>
+#include "ctffunc_compat.h"
+#undef UNREFERENCED_PARAMETER
+#define UNREFERENCED_PARAMETER(parameter) (void)(parameter)
+using std::min;
+using std::max;
+#endif

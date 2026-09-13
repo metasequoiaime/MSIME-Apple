@@ -1258,6 +1258,7 @@ HRESULT CCandidateListUIPresenter::_CandidateChangeNotification(_In_ enum CANDWN
     ITfThreadMgr *pThreadMgr = nullptr;
     ITfDocumentMgr *pDocumentMgr = nullptr;
     ITfContext *pContext = nullptr;
+    CKeyHandlerEditSession *pEditSession = nullptr;
 
     _KEYSTROKE_STATE KeyState;
     KeyState.Category = _Category;
@@ -1300,7 +1301,7 @@ HRESULT CCandidateListUIPresenter::_CandidateChangeNotification(_In_ enum CANDWN
         goto Exit;
     }
 
-    CKeyHandlerEditSession *pEditSession = new (std::nothrow) CKeyHandlerEditSession(
+    pEditSession = new (std::nothrow) CKeyHandlerEditSession(
         _pTextService, pContext, 0, 0, KeyState, FANY_IME_NO_REQUEST_ID, {}, {},
         _pTextService->_CaptureFocusSessionToken(), 0, _pTextService->_CaptureCompositionEpoch());
     if (nullptr != pEditSession)
@@ -1332,12 +1333,11 @@ HRESULT CCandidateListUIPresenter::_UpdateUIElement()
     HRESULT hr = S_OK;
 
     ITfThreadMgr *pThreadMgr = _pTextService->_GetThreadMgr();
+    ITfUIElementMgr *pUIElementMgr = nullptr;
     if (nullptr == pThreadMgr)
     {
         return S_OK;
     }
-
-    ITfUIElementMgr *pUIElementMgr = nullptr;
 
     hr = pThreadMgr->QueryInterface(IID_ITfUIElementMgr, (void **)&pUIElementMgr);
     if (hr == S_OK)
@@ -1419,13 +1419,13 @@ HRESULT CCandidateListUIPresenter::BeginUIElement()
     HRESULT hr = S_OK;
 
     ITfThreadMgr *pThreadMgr = _pTextService->_GetThreadMgr();
+    ITfUIElementMgr *pUIElementMgr = nullptr;
     if (nullptr == pThreadMgr)
     {
         hr = E_FAIL;
         goto Exit;
     }
 
-    ITfUIElementMgr *pUIElementMgr = nullptr;
     hr = pThreadMgr->QueryInterface(IID_ITfUIElementMgr, (void **)&pUIElementMgr);
     if (hr == S_OK)
     {
@@ -1451,13 +1451,13 @@ HRESULT CCandidateListUIPresenter::EndUIElement()
     HRESULT hr = S_OK;
 
     ITfThreadMgr *pThreadMgr = _pTextService->_GetThreadMgr();
+    ITfUIElementMgr *pUIElementMgr = nullptr;
     if ((nullptr == pThreadMgr) || (-1 == _uiElementId))
     {
         hr = E_FAIL;
         goto Exit;
     }
 
-    ITfUIElementMgr *pUIElementMgr = nullptr;
     hr = pThreadMgr->QueryInterface(IID_ITfUIElementMgr, (void **)&pUIElementMgr);
     if (hr == S_OK)
     {

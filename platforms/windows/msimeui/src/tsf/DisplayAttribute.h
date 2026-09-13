@@ -3,7 +3,7 @@
 //
 #pragma once
 
-#include "ctffunc.h"
+#include <msctf.h>
 
 #define MAX_DISPATTRGUID 10
 

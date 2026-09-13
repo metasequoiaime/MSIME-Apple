@@ -323,16 +323,16 @@ extern const std::unordered_set<WCHAR> CommitWithHighlightedCandPunc = {
 #define TF_MOD_RLSHIFT (TF_MOD_RSHIFT | TF_MOD_LSHIFT)
 
 #define CheckMod(m0, m1, mod)                                                                                          \
-    if (m1 & TF_MOD_##mod##)                                                                                           \
+    if (m1 & TF_MOD_##mod)                                                                                              \
     {                                                                                                                  \
-        if (!(m0 & TF_MOD_##mod##))                                                                                    \
+        if (!(m0 & TF_MOD_##mod))                                                                                       \
         {                                                                                                              \
             return FALSE;                                                                                              \
         }                                                                                                              \
     }                                                                                                                  \
     else                                                                                                               \
     {                                                                                                                  \
-        if ((m1 ^ m0) & TF_MOD_RL##mod##)                                                                              \
+        if ((m1 ^ m0) & TF_MOD_RL##mod)                                                                                 \
         {                                                                                                              \
             return FALSE;                                                                                              \
         }                                                                                                              \

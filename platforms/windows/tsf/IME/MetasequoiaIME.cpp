@@ -1288,6 +1288,10 @@ STDAPI_(ULONG) CMetasequoiaIME::Release()
 
 STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClientId, DWORD dwFlags)
 {
+    BOOL hasThreadFocus = FALSE;
+    HRESULT threadFocusResult = E_FAIL;
+    ITfDocumentMgr *pDocMgrFocus = nullptr;
+
     _pThreadMgr = pThreadMgr;
     _pThreadMgr->AddRef();
 
@@ -1358,8 +1362,7 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
     Global::msgWndHandle = _msgWndHandle;
     _StartThemeRegistryWatcher();
 
-    BOOL hasThreadFocus = FALSE;
-    const HRESULT threadFocusResult = _pThreadMgr->IsThreadFocus(&hasThreadFocus);
+    threadFocusResult = _pThreadMgr->IsThreadFocus(&hasThreadFocus);
     // Preserve the historical eager-connect behavior if a host cannot report
     // focus. Otherwise an already-focused activation could remain offline
     // forever because no later focus callback is guaranteed.
@@ -1383,7 +1386,6 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         PostMessage(_msgWndHandle, WM_ConnectNamedpipe, 0, 0);
     }
 
-    ITfDocumentMgr *pDocMgrFocus = nullptr;
     if (SUCCEEDED(_pThreadMgr->GetFocus(&pDocMgrFocus)) && (pDocMgrFocus != nullptr))
     {
         _InitTextEditSink(pDocMgrFocus);

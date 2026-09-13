@@ -393,6 +393,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
     TF_SELECTION tfSelection;
     ULONG fetched = 0;
     BOOL isCovered = TRUE;
+    DWORD_PTR previousLength = 0;
 
     CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
     pCompositionProcessorEngine = _pCompositionProcessorEngine;
@@ -484,7 +485,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
     }
 
     // Add virtual key to composition processor engine
-    const DWORD_PTR previousLength = pCompositionProcessorEngine->GetVirtualKeyLength();
+    previousLength = pCompositionProcessorEngine->GetVirtualKeyLength();
     if (pCompositionProcessorEngine->AddVirtualKey(wch) &&
         pCompositionProcessorEngine->GetVirtualKeyLength() > previousLength)
     {
@@ -992,6 +993,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
     TF_SELECTION tfSelection;
     ULONG fetched = 0;
     BOOL isCovered = TRUE;
+    CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
+    DWORD_PTR vKeyLen = 0;
 
     // Start the new (std::nothrow) compositon if there is no composition.
     if (!_IsComposing())
@@ -1021,7 +1024,6 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
     //
     // Add virtual key to composition processor engine
     //
-    CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
     pCompositionProcessorEngine = _pCompositionProcessorEngine;
 
     if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
@@ -1046,7 +1048,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
         }
     }
 
-    DWORD_PTR vKeyLen = pCompositionProcessorEngine->GetVirtualKeyLength();
+    vKeyLen = pCompositionProcessorEngine->GetVirtualKeyLength();
 
     if (!g_toggleImeFallbackBuffer.empty())
     {
@@ -1513,6 +1515,8 @@ HRESULT CMetasequoiaIME::_InvokeKeyHandler(_In_ ITfContext *pContext, UINT code,
 
     CKeyHandlerEditSession *pEditSession = nullptr;
     HRESULT hr = E_FAIL;
+    HRESULT editSessionHr = E_FAIL;
+    HRESULT requestHr = E_FAIL;
 
     // we'll insert a char ourselves in place of this keystroke
     LARGE_INTEGER requestStartQpc;
@@ -1535,8 +1539,7 @@ HRESULT CMetasequoiaIME::_InvokeKeyHandler(_In_ ITfContext *pContext, UINT code,
     //
     // Do not specify TF_ES_SYNC so edit session is not invoked on WinWord
     //
-    HRESULT editSessionHr = E_FAIL;
-    HRESULT requestHr =
+    requestHr =
         pContext->RequestEditSession(_tfClientId, pEditSession, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &editSessionHr);
     hr = FAILED(requestHr) ? requestHr : editSessionHr;
     DebugTsfIssue47(L"edit-session-request", requestId, code, wch, keyState.Category, keyState.Function, 1,

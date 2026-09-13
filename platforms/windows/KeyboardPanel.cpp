@@ -55,9 +55,9 @@ void DrawLabel(DeviceResources &resources, const std::wstring &text, const RectF
     auto *brush = resources.GetSolidColorBrush(color);
     if (target && format && brush)
     {
-        target->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format,
-                          D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height), brush,
-                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
+                         D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height), brush,
+                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
 }
 
@@ -479,4 +479,3 @@ HCURSOR KeyboardPanel::GetCursor() const
     return LoadCursor(nullptr, IDC_ARROW);
 }
 } // namespace msimeui
-

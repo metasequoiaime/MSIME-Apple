@@ -247,13 +247,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _RetryDeferredKeyReplay(uint64_t replayToken);
 
     // comless helpers
-    static HRESULT CMetasequoiaIME::CreateInstance(REFCLSID rclsid, REFIID riid, _Outptr_result_maybenull_ LPVOID *ppv,
-                                                   _Out_opt_ HINSTANCE *phInst, BOOL isComLessMode);
-    static HRESULT CMetasequoiaIME::ComLessCreateInstance(REFGUID rclsid, REFIID riid,
-                                                          _Outptr_result_maybenull_ void **ppv,
-                                                          _Out_opt_ HINSTANCE *phInst);
-    static HRESULT CMetasequoiaIME::GetComModuleName(REFGUID rclsid, _Out_writes_(cchPath) WCHAR *wchPath,
-                                                     DWORD cchPath);
+    static HRESULT CreateInstance(REFCLSID rclsid, REFIID riid, _Outptr_result_maybenull_ LPVOID *ppv,
+                                  _Out_opt_ HINSTANCE *phInst, BOOL isComLessMode);
+    static HRESULT ComLessCreateInstance(REFGUID rclsid, REFIID riid, _Outptr_result_maybenull_ void **ppv,
+                                         _Out_opt_ HINSTANCE *phInst);
+    static HRESULT GetComModuleName(REFGUID rclsid, _Out_writes_(cchPath) WCHAR *wchPath, DWORD cchPath);
 
     static void IpcWorkerThread(CMetasequoiaIME *pIME);
     void _QueuePendingServerCandidate(UINT msgType, _In_z_ const WCHAR *pCandidateString);
