@@ -1186,6 +1186,13 @@ impl Default for HelpcodePreferences {
     }
 }
 
+/// Recognition providers a host can actually reach. The Linux voice provider
+/// builds the same set, and the Engine's Windows voice configuration defaults
+/// into it; a value outside this list is rejected by every backend.
+pub const ASR_PROVIDERS: [&str; 4] = ["doubao", "siliconflow", "openai", "groq"];
+/// Polishing additionally supports DeepSeek, which offers no recognition.
+pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
+
 impl Preferences {
     pub fn quanpin_autocorrect_transposition(&self) -> bool {
         self.quanpin
@@ -1207,6 +1214,19 @@ impl Preferences {
                 enabled: false,
                 ..HelpcodePreferences::default()
             },
+        }
+    }
+
+    /// Replace recognition and polishing provider ids no backend implements with
+    /// the shared defaults. Used on the read path only: a file written by an
+    /// older build must still load, and it is never rewritten as a side effect.
+    pub fn normalize_voice_providers(&mut self) {
+        let default = Self::default();
+        if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str()) {
+            self.voice_input.asr_provider = default.voice_input.asr_provider;
+        }
+        if !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str()) {
+            self.voice_input.polish_provider = default.voice_input.polish_provider;
         }
     }
 
@@ -1244,6 +1264,11 @@ impl Preferences {
             )
         {
             return Err(PreferencesError::InvalidAiAssistant);
+        }
+        if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
+            || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
+        {
+            return Err(PreferencesError::InvalidVoiceInput);
         }
         if !(50..=200).contains(&self.floating_toolbar.scale_percent)
             || !(12..=48).contains(&self.floating_toolbar.font_size)
@@ -1406,6 +1431,8 @@ pub enum PreferencesError {
     InvalidFloatingToolbar,
     #[error("AI assistant provider or candidate limit is invalid")]
     InvalidAiAssistant,
+    #[error("voice recognition or polishing provider is not supported")]
+    InvalidVoiceInput,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
@@ -1498,10 +1525,13 @@ impl PreferencesStore {
             }
             Err(error) => return Err(error.into()),
         };
-        let snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
+        let mut snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
         }
+        // Older builds offered recognition providers no backend implements. Fall
+        // back in memory so those files still load; the file is not rewritten.
+        snapshot.preferences.normalize_voice_providers();
         snapshot.preferences.validate()?;
         Ok(snapshot)
     }
@@ -1598,6 +1628,104 @@ mod tests {
             .remove("commit_mode");
         let restored: Preferences = serde_json::from_value(value).unwrap();
         assert_eq!(restored.voice_input.commit_mode, "tsf");
+    }
+
+    #[test]
+    fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
+        // A file written by a build that offered "local_whisper" must still load.
+        // No backend implements it: the Linux provider builds
+        // {openai, groq, siliconflow, doubao}, so it would fail every recording.
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut document = serde_json::to_value(PreferencesSnapshot {
+            format_version: 1,
+            revision: 3,
+            preferences: Preferences::default(),
+        })
+        .unwrap();
+        document["preferences"]["voice_input"]["asr_provider"] =
+            serde_json::Value::String("local_whisper".into());
+        document["preferences"]["voice_input"]["polish_provider"] =
+            serde_json::Value::String("nonesuch".into());
+        let path = directory.path().join("preferences.json");
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let original = std::fs::read(&path).unwrap();
+
+        let snapshot = store.load().expect("a legacy file still loads");
+        assert_eq!(
+            snapshot.preferences.voice_input.asr_provider,
+            Preferences::default().voice_input.asr_provider
+        );
+        assert_eq!(
+            snapshot.preferences.voice_input.polish_provider,
+            Preferences::default().voice_input.polish_provider
+        );
+        // Reading must not rewrite the user's file.
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
+        for provider in ASR_PROVIDERS {
+            let preferences = Preferences {
+                voice_input: VoiceInputPreferences {
+                    asr_provider: provider.into(),
+                    ..Preferences::default().voice_input
+                },
+                ..Preferences::default()
+            };
+            assert!(
+                preferences.validate().is_ok(),
+                "{provider} should be accepted"
+            );
+        }
+        for provider in POLISH_PROVIDERS {
+            let preferences = Preferences {
+                voice_input: VoiceInputPreferences {
+                    polish_provider: provider.into(),
+                    ..Preferences::default().voice_input
+                },
+                ..Preferences::default()
+            };
+            assert!(
+                preferences.validate().is_ok(),
+                "{provider} should polish"
+            );
+        }
+        // Saving a provider no backend implements is refused rather than stored.
+        for rejected in ["local_whisper", "cloud", "", "DOUBAO"] {
+            let preferences = Preferences {
+                voice_input: VoiceInputPreferences {
+                    asr_provider: rejected.into(),
+                    ..Preferences::default().voice_input
+                },
+                ..Preferences::default()
+            };
+            assert!(
+                matches!(
+                    preferences.validate(),
+                    Err(PreferencesError::InvalidVoiceInput)
+                ),
+                "{rejected} should be rejected"
+            );
+        }
+        // Recognition has no DeepSeek profile even though polishing does.
+        let preferences = Preferences {
+            voice_input: VoiceInputPreferences {
+                asr_provider: "deepseek".into(),
+                ..Preferences::default().voice_input
+            },
+            ..Preferences::default()
+        };
+        assert!(preferences.validate().is_err());
+    }
+
+    #[test]
+    fn the_shipped_defaults_are_themselves_reachable() {
+        let defaults = Preferences::default();
+        assert!(ASR_PROVIDERS.contains(&defaults.voice_input.asr_provider.as_str()));
+        assert!(POLISH_PROVIDERS.contains(&defaults.voice_input.polish_provider.as_str()));
+        assert!(defaults.validate().is_ok());
     }
 
     #[test]
