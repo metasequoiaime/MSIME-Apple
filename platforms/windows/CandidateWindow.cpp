@@ -439,6 +439,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         TrackMouseEvent(&track);
         const auto click = self->hit(static_cast<short>(LOWORD(lparam)),
                                      static_cast<short>(HIWORD(lparam)));
+        SetCursor(LoadCursorW(nullptr, click ? IDC_HAND : IDC_ARROW));
         std::optional<size_t> hovered;
         if (click && self->painted_) {
           for (size_t i = 0; i < self->painted_->candidates.size(); ++i)
