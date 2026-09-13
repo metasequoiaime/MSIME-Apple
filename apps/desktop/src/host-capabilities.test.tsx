@@ -136,6 +136,12 @@ test("toolbar scale and components are hidden on a host that cannot apply them",
   expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
 });
 
+test("the floating-toolbar settings page is hidden when the host has no toolbar", async () => {
+  mount({ host: capabilities({ platform: "android", floating_toolbar: false, floating_toolbar_appearance: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+});
+
 test("candidate appearance follows host capabilities", async () => {
   mount({ host: capabilities({ platform: "linux", candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false }) });
   await screen.findByRole("button", { name: "保存设置" });

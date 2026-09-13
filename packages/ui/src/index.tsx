@@ -673,6 +673,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
+  const showFloatingToolbar = host ? host.floating_toolbar : true;
   // An IBus property menu has no scale, icon size or component list to apply.
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
@@ -1060,7 +1061,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const availablePages = pages.filter(item =>
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
     && (item.id !== "account" || Boolean(client.account))
-    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)));
+    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
+    && (item.id !== "floating-toolbar" || showFloatingToolbar));
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
   }, [availablePages, page]);
