@@ -26,6 +26,11 @@ struct VoiceInputConfig {
   bool end_sound = true;
   bool sound_enabled = true;
   bool mute_system_audio = false;
+  bool hotkey_ralt = true;
+  bool hotkey_ctrl_f9 = true;
+  bool hotkey_ctrl_win = false;
+  bool hotkey_rctrl_ralt = false;
+  bool hotkey_hold_space_lock = true;
   std::string endpoint;
   std::string model;
   std::string token;
@@ -66,13 +71,15 @@ public:
   VoiceInputSession &operator=(const VoiceInputSession &) = delete;
 
   bool toggle();
+  void stop();
   void cancel();
+  void lock();
   bool init_cues(const std::wstring &start_path, const std::wstring &end_path);
   bool recording() const { return recording_.load(); }
+  bool locked() const { return locked_.load(); }
 
 private:
   bool start();
-  void stop();
   void finish(std::vector<float> samples, FocusLease lease,
               VoiceInputConfig config, uint64_t session,
               std::shared_ptr<DoubaoAsrClient> doubao);
@@ -87,6 +94,7 @@ private:
   CuePlayer cue_player_;
   std::atomic<bool> recording_{false};
   std::atomic<bool> starting_{false};
+  std::atomic<bool> locked_{false};
   std::atomic<bool> cancel_requested_{false};
   std::atomic<uint64_t> session_{0};
   std::mutex samples_mutex_;

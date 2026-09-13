@@ -9,6 +9,8 @@
 #include "StateRootLease.h"
 #include "WindowsServer.h"
 #include "VoiceInputSession.h"
+#include "VoiceHotkey.h"
+#include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
 #include "ipc_negotiation.h"
 #include <fstream>
@@ -27,7 +29,7 @@ std::filesystem::path executable_directory() {
     return {};
   return std::filesystem::path(std::wstring(path.data(), length)).parent_path();
 }
-std::wstring voice_audio_path(const PreviewConfig &config,
+std::wstring voice_audio_path(const msime::windows::PreviewConfig &config,
                               const wchar_t *filename) {
   const auto executable = executable_directory();
   const std::array<std::filesystem::path, 5> candidates = {
@@ -173,6 +175,11 @@ int wmain(int argc, wchar_t **argv) {
           next.end_sound = input.value("end_sound", true);
           next.sound_enabled = input.value("sound_enabled", true);
           next.mute_system_audio = input.value("mute_system_audio", false);
+          next.hotkey_ralt = input.value("hotkey_ralt", true);
+          next.hotkey_ctrl_f9 = input.value("hotkey_ctrl_f9", true);
+          next.hotkey_ctrl_win = input.value("hotkey_ctrl_win", false);
+          next.hotkey_rctrl_ralt = input.value("hotkey_rctrl_ralt", false);
+          next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           next.token = input.value("asr_token", std::string{});
@@ -221,6 +228,13 @@ int wmain(int argc, wchar_t **argv) {
         (config.state_root / "voice_system_audio_mute_state.txt").wstring());
     (void)voice->init_cues(voice_audio_path(config, L"start.mp3"),
                            voice_audio_path(config, L"end.mp3"));
+    VoiceHotkeyController voice_hotkeys(
+        *voice,
+        [voice_config, voice_config_mutex] {
+          std::lock_guard lock(*voice_config_mutex);
+          return *voice_config;
+        },
+        [&] { return server.mode_view().has_value(); });
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
     if (!clipboard_monitor.start())

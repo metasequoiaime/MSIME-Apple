@@ -51,12 +51,13 @@ struct PreviewConfig {
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
       throw std::invalid_argument("Invalid preview configuration");
-    PreviewConfig result{
-        std::filesystem::u8path(value.at("resources").get<std::string>()),
-        std::filesystem::u8path(value.at("state_root").get<std::string>()),
-        value.at("pipe_namespace").get<std::string>(), TsfPreeditStyle::Local,
-        NavigationBindings{}, false, true, 1.0, 24, WordCharacterBinding::Disabled,
-        std::filesystem::path{}, std::string{}, true, true};
+    PreviewConfig result;
+    result.resources =
+        std::filesystem::u8path(value.at("resources").get<std::string>());
+    result.state_root =
+        std::filesystem::u8path(value.at("state_root").get<std::string>());
+    result.pipe_namespace = value.at("pipe_namespace").get<std::string>();
+    result.style = TsfPreeditStyle::Local;
     if (!result.resources.is_absolute() || !result.state_root.is_absolute() ||
         result.resources.u8string().find('\0') != std::string::npos ||
         result.state_root.u8string().find('\0') != std::string::npos)
