@@ -18,6 +18,23 @@ public final class NativeClient {
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
     public static String create(String options) { return text(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
+    /** Reads the current native dictionary version without creating a session. */
+    public static String snapshotVersion(String options) {
+        return text(snapshotVersionRaw(options.getBytes(StandardCharsets.UTF_8)));
+    }
+    /** Streams one NDJSON record at a time into native preparation. Call on a worker. */
+    public static String snapshotPrepare(String request, String file) {
+        return text(snapshotPrepareRaw(request.getBytes(StandardCharsets.UTF_8),
+            file.getBytes(StandardCharsets.UTF_8)));
+    }
+    public static String snapshotDiscard(long handle) {
+        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
+        return text(snapshotDiscardRaw(handle));
+    }
+    public static String snapshotActivate(long handle, String expectedVersion) {
+        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
+        return text(snapshotActivateRaw(handle, expectedVersion.getBytes(StandardCharsets.UTF_8)));
+    }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
     /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
@@ -111,6 +128,10 @@ public final class NativeClient {
     public static String destroy(long session) { return text(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
+    private static native byte[] snapshotVersionRaw(byte[] options);
+    private static native byte[] snapshotPrepareRaw(byte[] request, byte[] file);
+    private static native byte[] snapshotDiscardRaw(long handle);
+    private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
