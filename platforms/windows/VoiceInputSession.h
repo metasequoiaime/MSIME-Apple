@@ -33,6 +33,17 @@ struct VoiceInputConfig {
   bool enable_ddc = false;
   std::string boosting_table_id;
   std::string language = "zh-cn";
+  bool polish_enabled = false;
+  bool polish_text = false;
+  std::string polish_provider;
+  std::string polish_token;
+  std::string polish_endpoint;
+  std::string polish_model;
+  std::string polish_prompt_id = "cleanup";
+  std::string polish_prompt;
+  std::string polish_prompt_custom_1;
+  std::string polish_prompt_custom_2;
+  std::string polish_prompt_custom_3;
 };
 
 // Owns microphone capture and the asynchronous batch recognizer. All UI

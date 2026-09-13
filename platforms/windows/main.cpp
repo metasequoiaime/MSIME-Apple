@@ -166,6 +166,17 @@ int wmain(int argc, wchar_t **argv) {
           next.enable_ddc = input.value("doubao_enable_ddc", false);
           next.boosting_table_id = input.value("doubao_boosting_table_id", std::string{});
           next.language = input.value("language", std::string{"zh-cn"});
+          next.polish_enabled = input.value("polish_enabled", false);
+          next.polish_text = input.value("polish_text", false);
+          next.polish_provider = input.value("polish_provider", std::string{});
+          next.polish_token = input.value("polish_token", std::string{});
+          next.polish_endpoint = input.value("polish_endpoint", std::string{});
+          next.polish_model = input.value("polish_model", std::string{});
+          next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});
+          next.polish_prompt = input.value("polish_prompt", std::string{});
+          next.polish_prompt_custom_1 = input.value("polish_prompt_custom_1", std::string{});
+          next.polish_prompt_custom_2 = input.value("polish_prompt_custom_2", std::string{});
+          next.polish_prompt_custom_3 = input.value("polish_prompt_custom_3", std::string{});
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);
         };
