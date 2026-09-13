@@ -22,11 +22,17 @@ targets:
     sources:
       - path: App/Sources
       - path: App/Services
+      - path: ../../shared/backend
+        excludes:
+          - Tests/**
+          - Package.swift
+      - path: ../../shared/backend-ui
       - path: SharedUI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
         PRODUCT_NAME: MSIMEClientApp
+        GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
         OTHER_LDFLAGS:
           - "$(inherited)"
@@ -49,11 +55,23 @@ targets:
         excludes:
           - HandwritingInputView.swift
       - path: SharedUI
+      - path: ../../shared/backend/BackendAccountClient.swift
+      - path: ../../shared/backend/BackendSnapshotClient.swift
+      - path: App/Services/KeyboardAIService.swift
+      - path: KeyboardExtension/Sources/KeyboardServiceFallback.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
+        GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lmsime_host_api"
+          - "-lc++"
+          - "-lsqlite3"
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
   MSIMEClientTests:
     type: bundle.unit-test
     platform: iOS

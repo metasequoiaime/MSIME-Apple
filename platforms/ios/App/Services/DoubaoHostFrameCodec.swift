@@ -43,13 +43,14 @@ enum DoubaoHostFrameCodec {
                                  boostingTable: String) throws -> Data {
     let table = Data(boostingTable.utf8)
     var output = Data(count: 1_048_576)
+    let capacity = output.count
     var written: UInt = 0
     let ok = output.withUnsafeMutableBytes { outputBytes in
       table.withUnsafeBytes { tableBytes in
         msimeClientDoubaoStartFrame(
           enableITN, punctuation, DDC,
           tableBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(table.count),
-          outputBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(output.count), &written)
+          outputBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(capacity), &written)
       }
     }
     guard ok, written <= UInt(output.count) else { throw Failure.startFrame }
@@ -59,12 +60,13 @@ enum DoubaoHostFrameCodec {
 
   private static func audioFrame(sequence: Int32, pcm: Data, final: Bool) throws -> Data {
     var output = Data(count: pcm.count + 65_536)
+    let capacity = output.count
     var written: UInt = 0
     let ok = output.withUnsafeMutableBytes { outputBytes in
       pcm.withUnsafeBytes { pcmBytes in
         msimeClientDoubaoAudioFrame(
           sequence, pcmBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(pcm.count), final,
-          outputBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(output.count), &written)
+          outputBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(capacity), &written)
       }
     }
     guard ok, written <= UInt(output.count) else { throw Failure.audioFrame }
