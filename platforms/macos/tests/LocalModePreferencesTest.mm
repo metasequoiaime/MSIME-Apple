@@ -19,6 +19,9 @@ int main() {
         assert([defaults objectForKey:@"MSIMEClientLocalModes"] == nil);
         [prefs applySharedAssistancePreferences:@{@"fuzzy_pinyin": @{@"enabled": @NO, @"rules": @[@"z-zh", @"an-ang"]}}];
         assert(!prefs.fuzzyPinyinEnabled && [prefs fuzzyPinyinRuleEnabled:@"z-zh"] && ![prefs fuzzyPinyinRuleEnabled:@"c-ch"]);
+        [prefs applySharedAssistancePreferences:@{@"learning": @NO, @"frequency": @{@"mode": @"linear", @"trigger_count": @3, @"linear_step": @4}}];
+        assert(!prefs.candidateLearningEnabled && [prefs.frequencyAdjustmentMode isEqual:@"linear"] &&
+               prefs.frequencyTriggerCount == 3 && prefs.frequencyLinearStep == 4);
         [prefs applySharedLocalModes:@{@"unicode": @1}];
         assert(![prefs localModeEnabled:@"unicode"]);
         NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
@@ -46,6 +49,31 @@ int main() {
         assert(![prefs fuzzyPinyinRuleEnabled:@"z-zh"] && [prefs fuzzyPinyinRuleEnabled:@"an-ang"]);
         assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"enabled"] isEqual:@YES]);
         assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"rules"] isEqual:@[@"an-ang"]]);
+        NSButton *learning = nil;
+        NSPopUpButton *frequencyMode = nil;
+        NSPopUpButton *frequencyTrigger = nil;
+        NSPopUpButton *frequencyStep = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if (![control isKindOfClass:NSControl.class]) continue;
+            if (control.action == @selector(candidateLearningChanged:)) learning = (id)control;
+            if (control.action == @selector(frequencyModeChanged:)) frequencyMode = (id)control;
+            if (control.action == @selector(frequencyTriggerChanged:)) frequencyTrigger = (id)control;
+            if (control.action == @selector(frequencyStepChanged:)) frequencyStep = (id)control;
+        }
+        assert(learning != nil && learning.state == NSControlStateValueOff);
+        assert(frequencyMode != nil && frequencyTrigger != nil && frequencyStep != nil);
+        learning.state = NSControlStateValueOn;
+        [NSApp sendAction:learning.action to:learning.target from:learning];
+        [frequencyMode selectItemAtIndex:2];
+        [NSApp sendAction:frequencyMode.action to:frequencyMode.target from:frequencyMode];
+        [frequencyTrigger selectItemAtIndex:2];
+        [NSApp sendAction:frequencyTrigger.action to:frequencyTrigger.target from:frequencyTrigger];
+        [frequencyStep selectItemAtIndex:3];
+        [NSApp sendAction:frequencyStep.action to:frequencyStep.target from:frequencyStep];
+        NSDictionary *assistance = [prefs sharedPreferencesByMerging:base];
+        assert([assistance[@"learning"] isEqual:@YES]);
+        assert(([assistance[@"frequency"] isEqual:@{@"mode": @"halve", @"trigger_count": @3, @"linear_step": @4}]));
         for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese"]) {
             NSButton *button = buttons[mode];
             assert(button && [prefs localModeEnabled:mode] == ![mode isEqual:@"unicode"]);

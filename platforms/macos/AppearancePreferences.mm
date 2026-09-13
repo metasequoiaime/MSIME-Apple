@@ -62,6 +62,16 @@ static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
+static NSString *const CandidateLearningKey = @"MSIMEClientCandidateLearning";
+static NSString *const FrequencyModeKey = @"MSIMEClientFrequencyAdjustmentMode";
+static NSString *const FrequencyTriggerCountKey = @"MSIMEClientFrequencyTriggerCount";
+static NSString *const FrequencyLinearStepKey = @"MSIMEClientFrequencyLinearStep";
+static NSArray<NSString *> *FrequencyModes() { return @[@"disabled", @"pin", @"halve", @"linear", @"promote"]; }
+static BOOL ValidFrequencyMode(id value) { return [value isKindOfClass:NSString.class] && [FrequencyModes() containsObject:value]; }
+static BOOL ValidFrequencyCount(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 1 && [value integerValue] <= 10;
+}
 static NSString *const FuzzyPinyinKey = @"MSIMEClientFuzzyPinyinEnabled";
 static NSString *const FuzzyPinyinRulesKey = @"MSIMEClientFuzzyPinyinRules";
 static NSArray<NSArray<NSString *> *> *FuzzyPinyinRuleControls() {
@@ -190,8 +200,16 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_toolbarButton;
     NSButton *_transpositionButton;
     NSButton *_neighborButton;
+    NSButton *_candidateLearningButton;
+    NSPopUpButton *_frequencyModeButton;
+    NSPopUpButton *_frequencyTriggerButton;
+    NSPopUpButton *_frequencyStepButton;
     NSNumber *_sharedFuzzyPinyinEnabled;
     NSArray<NSString *> *_sharedFuzzyPinyinRules;
+    NSNumber *_sharedCandidateLearning;
+    NSString *_sharedFrequencyMode;
+    NSNumber *_sharedFrequencyTriggerCount;
+    NSNumber *_sharedFrequencyLinearStep;
     NSButton *_fuzzyPinyinButton;
     NSMutableDictionary<NSString *, NSButton *> *_fuzzyPinyinRuleButtons;
     NSButton *_quanpinHelpcodeButton;
@@ -306,6 +324,17 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"autocorrect"] = @(self.autocorrect);
+    if ([_defaults objectForKey:CandidateLearningKey] != nil || _sharedCandidateLearning != nil)
+        merged[@"learning"] = @(self.candidateLearningEnabled);
+    if ([_defaults objectForKey:FrequencyModeKey] != nil || [_defaults objectForKey:FrequencyTriggerCountKey] != nil ||
+        [_defaults objectForKey:FrequencyLinearStepKey] != nil || _sharedFrequencyMode != nil ||
+        _sharedFrequencyTriggerCount != nil || _sharedFrequencyLinearStep != nil) {
+        NSMutableDictionary *frequency = [merged[@"frequency"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        frequency[@"mode"] = self.frequencyAdjustmentMode;
+        frequency[@"trigger_count"] = @(self.frequencyTriggerCount);
+        frequency[@"linear_step"] = @(self.frequencyLinearStep);
+        merged[@"frequency"] = frequency;
+    }
     if ([_defaults objectForKey:FuzzyPinyinKey] != nil || [_defaults objectForKey:FuzzyPinyinRulesKey] != nil ||
         _sharedFuzzyPinyinEnabled != nil || _sharedFuzzyPinyinRules != nil) {
         NSMutableDictionary *fuzzy = [merged[@"fuzzy_pinyin"] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -421,6 +450,45 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (BOOL)candidateLearningEnabled {
+    if (_sharedCandidateLearning) return _sharedCandidateLearning.boolValue;
+    return [_defaults objectForKey:CandidateLearningKey] == nil ? YES : [_defaults boolForKey:CandidateLearningKey];
+}
+- (void)setCandidateLearningEnabled:(BOOL)value {
+    _sharedCandidateLearning = nil;
+    [_defaults setBool:value forKey:CandidateLearningKey];
+    [self preferencesChanged];
+}
+- (NSString *)frequencyAdjustmentMode {
+    id value = _sharedFrequencyMode ?: [_defaults objectForKey:FrequencyModeKey];
+    return ValidFrequencyMode(value) ? value : @"promote";
+}
+- (void)setFrequencyAdjustmentMode:(NSString *)value {
+    if (!ValidFrequencyMode(value)) value = @"promote";
+    _sharedFrequencyMode = nil;
+    [_defaults setObject:value forKey:FrequencyModeKey];
+    [self preferencesChanged];
+}
+- (NSInteger)frequencyTriggerCount {
+    id value = _sharedFrequencyTriggerCount ?: [_defaults objectForKey:FrequencyTriggerCountKey];
+    return ValidFrequencyCount(value) ? [value integerValue] : 1;
+}
+- (void)setFrequencyTriggerCount:(NSInteger)value {
+    if (value < 1 || value > 10) value = 1;
+    _sharedFrequencyTriggerCount = nil;
+    [_defaults setInteger:value forKey:FrequencyTriggerCountKey];
+    [self preferencesChanged];
+}
+- (NSInteger)frequencyLinearStep {
+    id value = _sharedFrequencyLinearStep ?: [_defaults objectForKey:FrequencyLinearStepKey];
+    return ValidFrequencyCount(value) ? [value integerValue] : 1;
+}
+- (void)setFrequencyLinearStep:(NSInteger)value {
+    if (value < 1 || value > 10) value = 1;
+    _sharedFrequencyLinearStep = nil;
+    [_defaults setInteger:value forKey:FrequencyLinearStepKey];
+    [self preferencesChanged];
+}
 - (BOOL)fuzzyPinyinEnabled {
     if (_sharedFuzzyPinyinEnabled) return _sharedFuzzyPinyinEnabled.boolValue;
     return [_defaults objectForKey:FuzzyPinyinKey] == nil ? NO : [_defaults boolForKey:FuzzyPinyinKey];
@@ -487,10 +555,18 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id autocorrect = preferences[@"autocorrect"];
+    id learning = preferences[@"learning"];
+    NSDictionary *frequency = preferences[@"frequency"];
     NSDictionary *fuzzy = preferences[@"fuzzy_pinyin"];
     id quanpin = preferences[@"quanpin_helpcode"];
     id shuangpin = preferences[@"shuangpin_helpcode"];
     if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
+    if (LocalModeBoolean(learning)) _sharedCandidateLearning = learning;
+    if ([frequency isKindOfClass:NSDictionary.class]) {
+        if (ValidFrequencyMode(frequency[@"mode"])) _sharedFrequencyMode = [frequency[@"mode"] copy];
+        if (ValidFrequencyCount(frequency[@"trigger_count"])) _sharedFrequencyTriggerCount = frequency[@"trigger_count"];
+        if (ValidFrequencyCount(frequency[@"linear_step"])) _sharedFrequencyLinearStep = frequency[@"linear_step"];
+    }
     if ([fuzzy isKindOfClass:NSDictionary.class]) {
         if (LocalModeBoolean(fuzzy[@"enabled"])) _sharedFuzzyPinyinEnabled = fuzzy[@"enabled"];
         if (ValidFuzzyPinyinRules(fuzzy[@"rules"])) _sharedFuzzyPinyinRules = [fuzzy[@"rules"] copy];
@@ -916,6 +992,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateLearningButton.state = self.candidateLearningEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    [_frequencyModeButton selectItemAtIndex:[FrequencyModes() indexOfObject:self.frequencyAdjustmentMode]];
+    [_frequencyTriggerButton selectItemAtIndex:self.frequencyTriggerCount - 1];
+    [_frequencyStepButton selectItemAtIndex:self.frequencyLinearStep - 1];
     _fuzzyPinyinButton.state = self.fuzzyPinyinEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSString *rule in _fuzzyPinyinRuleButtons) {
         NSButton *button = _fuzzyPinyinRuleButtons[rule];
@@ -1106,6 +1186,22 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
+    _candidateLearningButton = [NSButton checkboxWithTitle:@"学习候选词频" target:self action:@selector(candidateLearningChanged:)];
+    _frequencyModeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_frequencyModeButton addItemsWithTitles:@[@"关闭", @"置顶", @"折半", @"线性", @"置前"]];
+    _frequencyModeButton.target = self;
+    _frequencyModeButton.action = @selector(frequencyModeChanged:);
+    _frequencyTriggerButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _frequencyStepButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    NSMutableArray<NSString *> *frequencyCounts = [NSMutableArray array];
+    for (NSInteger count = 1; count <= 10; ++count)
+        [frequencyCounts addObject:[NSString stringWithFormat:@"%ld 次", (long)count]];
+    [_frequencyTriggerButton addItemsWithTitles:frequencyCounts];
+    [_frequencyStepButton addItemsWithTitles:frequencyCounts];
+    _frequencyTriggerButton.target = self;
+    _frequencyTriggerButton.action = @selector(frequencyTriggerChanged:);
+    _frequencyStepButton.target = self;
+    _frequencyStepButton.action = @selector(frequencyStepChanged:);
     _fuzzyPinyinButton = [NSButton checkboxWithTitle:@"启用模糊音" target:self action:@selector(fuzzyPinyinChanged:)];
     _cloudCandidatesButton = [NSButton checkboxWithTitle:@"启用云候选（将查询发送至 Google 输入工具）" target:self action:@selector(cloudCandidatesChanged:)];
     _candidateTranslationsButton = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(candidateTranslationsChanged:)];
@@ -1149,6 +1245,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
         @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
+        @[[NSTextField labelWithString:@"候选学习"], _candidateLearningButton],
+        @[[NSTextField labelWithString:@"词频调整方式"], _frequencyModeButton],
+        @[[NSTextField labelWithString:@"词频触发次数"], _frequencyTriggerButton],
+        @[[NSTextField labelWithString:@"线性调整步长"], _frequencyStepButton],
         @[[NSTextField labelWithString:@"模糊音"], _fuzzyPinyinButton],
         @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
         @[[NSTextField labelWithString:@"双拼辅助码"], _shuangpinHelpcodeButton]
@@ -1236,6 +1336,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
 - (void)transpositionChanged:(NSButton *)sender { self.autocorrectTransposition = sender.state == NSControlStateValueOn; }
 - (void)neighborChanged:(NSButton *)sender { self.autocorrectNeighbor = sender.state == NSControlStateValueOn; }
+- (void)candidateLearningChanged:(NSButton *)sender { self.candidateLearningEnabled = sender.state == NSControlStateValueOn; }
+- (void)frequencyModeChanged:(NSPopUpButton *)sender { self.frequencyAdjustmentMode = FrequencyModes()[sender.indexOfSelectedItem]; }
+- (void)frequencyTriggerChanged:(NSPopUpButton *)sender { self.frequencyTriggerCount = sender.indexOfSelectedItem + 1; }
+- (void)frequencyStepChanged:(NSPopUpButton *)sender { self.frequencyLinearStep = sender.indexOfSelectedItem + 1; }
 - (void)cloudCandidatesChanged:(NSButton *)sender { self.cloudCandidates = sender.state == NSControlStateValueOn; }
 - (void)candidateTranslationsChanged:(NSButton *)sender { self.candidateTranslations = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
