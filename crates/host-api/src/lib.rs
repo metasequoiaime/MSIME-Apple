@@ -3363,6 +3363,31 @@ mod tests {
     }
 
     #[test]
+    fn japanese_commands_apply_to_the_twenty_six_key_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host_preferences(
+            dir.path(),
+            Preferences {
+                scheme: InputScheme::Japanese,
+                touch_keyboard_layout: TouchKeyboardLayout::TwentySixKey,
+                ..Preferences::default()
+            },
+        );
+        read(msime_client_focus(handle, true));
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["touch_keyboard_layout"], "twenty_six_key");
+        assert_eq!(typed["value"]["view"]["reading"], "あ");
+
+        let variant = read(msime_client_command(handle, 10));
+        assert_eq!(variant["value"]["handled"], true);
+        assert_eq!(variant["value"]["view"]["reading"], "ぁ");
+        let committed = read(msime_client_command(handle, 11));
+        assert_eq!(committed["value"]["commit"], "ぁ");
+        assert_eq!(committed["value"]["view"]["reading"], "");
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn handwriting_layout_is_exposed_only_after_pending_composition_finishes() {
         let dir = tempfile::tempdir().unwrap();
         let handle = test_host(dir.path());

@@ -1087,7 +1087,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
-        if (japaneseNineKeyActive() && view != null) {
+        if (japaneseSchemeActive() && view != null) {
             String editingText = view.optString("editing_text", "");
             JSONArray candidates = view.optJSONArray("candidates");
             if (!editingText.isEmpty() && candidates != null && candidates.length() > 0) {
@@ -1113,18 +1113,22 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private boolean japaneseSchemeActive() {
+        return view != null && view.optInt("scheme", -1) == 3;
+    }
+
     private boolean japaneseNineKeyActive() {
         return displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT;
     }
 
     private String spaceKeyTitle() {
-        return japaneseNineKeyActive()
+        return japaneseSchemeActive()
             ? JapaneseNineKeyActions.spaceTitle(view != null
                 && !view.optString("editing_text", "").isEmpty()) : "空格";
     }
 
     private String spaceKeyDescription() {
-        return japaneseNineKeyActive()
+        return japaneseSchemeActive()
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
@@ -1268,7 +1272,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
-        if (japaneseNineKeyActive() && view != null
+        if (japaneseSchemeActive() && view != null
                 && !view.optString("editing_text", "").isEmpty()) {
             if (japaneseConversionIndex != null && command(1)) return;
             if (command(11)) return;
@@ -1289,13 +1293,14 @@ public final class MSIMEInputService extends InputMethodService {
                 : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
+        boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
         String title = ReturnKeyAction.title(action, disabled);
+        String shownTitle = japaneseSchemeActive() && composing ? "確定" : title;
         if (enterButton != null) {
-            enterButton.setText(title);
-            enterButton.setContentDescription(title);
+            enterButton.setText(shownTitle);
+            enterButton.setContentDescription(shownTitle);
         }
         if (japaneseReturnKey != null) {
-            boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
             String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
             japaneseReturnKey.setText(japaneseTitle);
             japaneseReturnKey.setContentDescription(japaneseTitle);
@@ -1305,8 +1310,6 @@ public final class MSIMEInputService extends InputMethodService {
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
         }
         if (japaneseVariantsButton != null) {
-            boolean composing = view != null
-                && !view.optString("editing_text", "").isEmpty();
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
             boolean enabled = symbols ? japaneseNineKeyActive() : JapaneseVariantPolicy.enabled(
                 japaneseNineKeyActive(), false, composing);
@@ -5292,7 +5295,7 @@ public final class MSIMEInputService extends InputMethodService {
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
-        if (!japaneseNineKeyActive() || currentEditingText.isEmpty()) {
+        if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
             japaneseConversionEditingText = "";
         } else if (japaneseConversionIndex != null
