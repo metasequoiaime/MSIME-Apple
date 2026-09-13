@@ -210,6 +210,8 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
     InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::hide() {
+  // The composition is over, so the next one starts its flip decision fresh.
+  tallest_ = 0;
   shown_.reset();
   painted_.reset();
   pressed_.reset();
@@ -313,11 +315,26 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
   const auto height =
       (std::min)(static_cast<int64_t>(card.height * scale + 0.5), available_height);
-  return {static_cast<int>((std::clamp)(int64_t(value.x), int64_t(work.left),
-                                        int64_t(work.right) - width)),
-          static_cast<int>((std::clamp)(int64_t(value.y), int64_t(work.top),
-                                        int64_t(work.bottom) - height)),
-          static_cast<int>(width), static_cast<int>(height)};
+  // A vertical list grows as the user keeps typing. Deciding the flip from the
+  // tallest it has been this composition keeps it on one side of the caret
+  // instead of jumping below-to-above mid-word; tallest_ is cleared in hide().
+  if (!horizontal_)
+    tallest_ = (std::max)(tallest_, height);
+  CandidatePlacementInput placement;
+  placement.anchor_x = value.x;
+  placement.anchor_y = value.y;
+  placement.width = static_cast<int>(width);
+  placement.height = static_cast<int>(height);
+  placement.decision_height =
+      static_cast<int>(horizontal_ ? height : (std::min)(tallest_, available_height));
+  placement.work_left = work.left;
+  placement.work_top = work.top;
+  placement.work_right = work.right;
+  placement.work_bottom = work.bottom;
+  placement.scale = scale;
+  const auto placed = candidate_card_placement(placement);
+  return {placed.x, placed.y, static_cast<int>(width),
+          static_cast<int>(height)};
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;

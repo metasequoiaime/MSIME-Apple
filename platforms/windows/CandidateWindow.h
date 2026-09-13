@@ -75,6 +75,9 @@ private:
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;
+  // Tallest this vertical list has been since the last hide(), in physical
+  // pixels. Only the flip decision reads it; placement uses the real height.
+  int64_t tallest_ = 0;
   int wheel_accumulator_ = 0;
 };
 } // namespace msime::windows
