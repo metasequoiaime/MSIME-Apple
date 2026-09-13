@@ -402,3 +402,8 @@ target_include_directories(candidate-selection-state-test PRIVATE . ../../vendor
 target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-selection-state-test PRIVATE "-framework Foundation")
 add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
+
+add_executable(voice-wave-overlay-test tests/VoiceWaveOverlayTest.mm VoiceWaveOverlay.mm)
+target_compile_options(voice-wave-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+target_link_libraries(voice-wave-overlay-test PRIVATE "-framework Cocoa")
+add_test(NAME voice-wave-overlay COMMAND voice-wave-overlay-test)
