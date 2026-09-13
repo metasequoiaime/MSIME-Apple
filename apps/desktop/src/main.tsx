@@ -219,6 +219,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | null>(null);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
   const [initialPage, setInitialPage] = useState<string | undefined>();
@@ -233,13 +234,30 @@ function DesktopSettings() {
       const hosted: SettingsClient = host
         ? { ...client, host, ...(host.typing_statistics ? { typingStatistics } : {}), ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}) }
         : client;
-      setSettingsClient(reader ? { ...hosted, listFontFamilies: reader } : hosted);
+      const mobileHosted = host?.platform === "android"
+        ? {
+          ...hosted,
+          openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
+          // Cloud dictionary remains a desktop provider surface until its Android account
+          // transport is available; do not expose a button that can only return unavailable.
+          openCloudDictionary: undefined,
+        }
+        : hosted;
+      setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
     });
     return () => { active = false; };
   }, []);
   // Mount once after discovery: replacing the client later would reload draft preferences.
-  return settingsClient ? <SettingsPage client={settingsClient} initialPage={initialPage} />
-    : <p role="status">正在连接设置…</p>;
+  if (!settingsClient) return <p role="status">正在连接设置…</p>;
+  if (mobilePanel === "cloud-clipboard") {
+    return <CloudClipboardPanel client={{
+      ...panelClients.cloudClipboard,
+      rememberInputTarget: undefined,
+      sendText: undefined,
+      close: async () => setMobilePanel(null),
+    }} />;
+  }
+  return <SettingsPage client={settingsClient} initialPage={initialPage} />
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);

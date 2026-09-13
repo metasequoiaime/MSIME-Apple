@@ -49,6 +49,19 @@ pub struct AccountProfile {
     pub identities: Vec<AccountProfileIdentity>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountClipboardItem {
+    pub id: String,
+    pub text: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountClipboardPage {
+    pub enabled: bool,
+    pub items: Vec<AccountClipboardItem>,
+}
+
 /// The deliberately small value set accepted by the account preferences API.
 /// Credentials, arbitrary JSON objects, and input contents never cross this
 /// boundary; platform hosts map their safe local settings to these scalars.
@@ -182,6 +195,34 @@ pub trait AccountApi: Send + Sync + 'static {
         _preferences: &AccountPreferences,
         _access_token: &str,
     ) -> Result<AccountPreferences, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn clipboard(
+        &self,
+        _search: &str,
+        _access_token: &str,
+    ) -> Result<AccountClipboardPage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn set_clipboard_enabled(
+        &self,
+        _enabled: bool,
+        _access_token: &str,
+    ) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn add_clipboard(
+        &self,
+        _text: &str,
+        _access_token: &str,
+    ) -> Result<AccountClipboardItem, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn delete_clipboard(&self, _id: Option<&str>, _access_token: &str) -> Result<(), AccountError> {
         Err(AccountError::Unavailable)
     }
 }
@@ -376,6 +417,144 @@ impl BackendAccountClient {
             .map_err(|_| AccountError::Invalid)?;
         self.request(method, path, token, body).map(|_| ())
     }
+
+    pub fn clipboard(
+        &self,
+        search: &str,
+        access_token: &str,
+    ) -> Result<AccountClipboardPage, AccountError> {
+        validate_clipboard_search(search)?;
+        let encoded = percent_encode_query(search);
+        let page = self.json::<AccountClipboardPage, ()>(
+            Method::GET,
+            &format!("/v1/users/me/clipboard?q={encoded}"),
+            Some(access_token),
+            None,
+        )?;
+        validate_clipboard_page(&page)?;
+        Ok(page)
+    }
+
+    pub fn set_clipboard_enabled(
+        &self,
+        enabled: bool,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        #[derive(Serialize)]
+        struct Body {
+            enabled: bool,
+        }
+        self.empty(
+            Method::PUT,
+            "/v1/users/me/clipboard/settings",
+            Some(access_token),
+            Some(&Body { enabled }),
+        )
+    }
+
+    pub fn add_clipboard(
+        &self,
+        text: &str,
+        access_token: &str,
+    ) -> Result<AccountClipboardItem, AccountError> {
+        validate_clipboard_text(text)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            text: &'a str,
+        }
+        let item = self.json(
+            Method::POST,
+            "/v1/users/me/clipboard",
+            Some(access_token),
+            Some(&Body { text }),
+        )?;
+        validate_clipboard_item(&item)?;
+        Ok(item)
+    }
+
+    pub fn delete_clipboard(
+        &self,
+        id: Option<&str>,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        if let Some(id) = id {
+            validate_clipboard_id(id)?;
+        }
+        let path = id
+            .map(|value| format!("/v1/users/me/clipboard/{value}"))
+            .unwrap_or_else(|| "/v1/users/me/clipboard".to_owned());
+        self.empty::<()>(Method::DELETE, &path, Some(access_token), None)
+    }
+}
+
+fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
+    if value.len() > 1024 || value.chars().any(char::is_control) {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn percent_encode_query(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
+        }
+    }
+    encoded
+}
+
+fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
+    if value.trim().is_empty()
+        || value.encode_utf16().count() > 4000
+        || value.contains('\0')
+        || value
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<(), AccountError> {
+    validate_clipboard_id(&value.id)?;
+    validate_clipboard_text(&value.text)?;
+    if value.updated_at.is_empty()
+        || value.updated_at.len() > 128
+        || value.updated_at.chars().any(char::is_control)
+    {
+        return Err(AccountError::Unavailable);
+    }
+    Ok(())
+}
+
+fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<(), AccountError> {
+    if value.items.len() > 50 {
+        return Err(AccountError::Unavailable);
+    }
+    for item in &value.items {
+        validate_clipboard_item(item)?;
+    }
+    Ok(())
 }
 
 fn read_bounded_response(
@@ -562,6 +741,30 @@ impl AccountApi for BackendAccountClient {
         )?;
         validate_account_preferences(&updated)?;
         Ok(updated)
+    }
+
+    fn clipboard(
+        &self,
+        search: &str,
+        access_token: &str,
+    ) -> Result<AccountClipboardPage, AccountError> {
+        self.clipboard(search, access_token)
+    }
+
+    fn set_clipboard_enabled(&self, enabled: bool, access_token: &str) -> Result<(), AccountError> {
+        self.set_clipboard_enabled(enabled, access_token)
+    }
+
+    fn add_clipboard(
+        &self,
+        text: &str,
+        access_token: &str,
+    ) -> Result<AccountClipboardItem, AccountError> {
+        self.add_clipboard(text, access_token)
+    }
+
+    fn delete_clipboard(&self, id: Option<&str>, access_token: &str) -> Result<(), AccountError> {
+        self.delete_clipboard(id, access_token)
     }
 }
 
@@ -1070,6 +1273,22 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         Ok(updated)
     }
 
+    pub fn clipboard(&self, search: &str) -> Result<AccountClipboardPage, AccountError> {
+        self.authenticated(|api, token| api.clipboard(search, token))
+    }
+
+    pub fn set_clipboard_enabled(&self, enabled: bool) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.set_clipboard_enabled(enabled, token))
+    }
+
+    pub fn add_clipboard(&self, text: &str) -> Result<AccountClipboardItem, AccountError> {
+        self.authenticated(|api, token| api.add_clipboard(text, token))
+    }
+
+    pub fn delete_clipboard(&self, id: Option<&str>) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.delete_clipboard(id, token))
+    }
+
     pub fn forget(&self) -> Result<(), AccountError> {
         let mut state = self.lock()?;
         state.generation = state.generation.wrapping_add(1);
@@ -1172,6 +1391,41 @@ mod tests {
             expires_in,
             user: user(),
         }
+    }
+
+    #[test]
+    fn validates_clipboard_boundaries() {
+        let valid_id = "0123456789abcdef".repeat(4);
+        assert!(validate_clipboard_id(&valid_id).is_ok());
+        assert!(validate_clipboard_id(&valid_id.to_uppercase()).is_err());
+        assert!(validate_clipboard_id(&format!("{valid_id}0")).is_err());
+
+        assert!(validate_clipboard_search(&"a".repeat(1024)).is_ok());
+        assert!(validate_clipboard_search(&"a".repeat(1025)).is_err());
+        assert!(validate_clipboard_search("safe\u{7f}query").is_err());
+
+        let valid_text = "😀".repeat(2000);
+        assert!(validate_clipboard_text(&valid_text).is_ok());
+        assert!(validate_clipboard_text(&format!("{valid_text}😀")).is_err());
+        assert!(validate_clipboard_text("\n\r\t").is_err());
+
+        let item = || AccountClipboardItem {
+            id: valid_id.clone(),
+            text: "fixture clipboard text".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        assert!(validate_clipboard_page(&AccountClipboardPage {
+            enabled: true,
+            items: vec![item(); 50],
+        })
+        .is_ok());
+        let mut too_many = vec![item(); 50];
+        too_many.push(item());
+        assert!(validate_clipboard_page(&AccountClipboardPage {
+            enabled: true,
+            items: too_many,
+        })
+        .is_err());
     }
 
     #[derive(Clone, Default)]

@@ -1,6 +1,8 @@
 package app.msime.client
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
@@ -26,6 +28,11 @@ class SaveFeedbackArgs {
 @InvokeArg
 class SetAppIconArgs {
     var style: String = ""
+}
+
+@InvokeArg
+class CopyTextArgs {
+    lateinit var text: String
 }
 
 @TauriPlugin
@@ -174,6 +181,26 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("invalid_app_icon", error.message)
         } catch (_: Exception) {
             invoke.reject("app_icon", "app_icon")
+        }
+    }
+
+    @Command
+    fun copyText(invoke: Invoke) {
+        try {
+            val text = invoke.parseArgs(CopyTextArgs::class.java).text
+            if (text.isEmpty() || text.length > 4000 || text.contains('\u0000') ||
+                text.any { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }) {
+                invoke.reject("invalid_text", "invalid_text")
+                return
+            }
+            val clipboard = hostActivity.getSystemService(ClipboardManager::class.java)
+                ?: throw IllegalStateException("clipboard unavailable")
+            clipboard.setPrimaryClip(ClipData.newPlainText("MSIME", text))
+            invoke.resolve()
+        } catch (_: IllegalArgumentException) {
+            invoke.reject("invalid_text", "invalid_text")
+        } catch (_: Exception) {
+            invoke.reject("clipboard", "clipboard")
         }
     }
 }

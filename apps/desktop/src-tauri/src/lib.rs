@@ -639,6 +639,7 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn cloud_clipboard_request(
     options: tauri::State<'_, DictionaryHostOptions>,
@@ -684,6 +685,18 @@ async fn cloud_clipboard_request(
     .map_err(|_| CommandError {
         code: "unavailable",
     })?
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn cloud_clipboard_request(
+    state: tauri::State<'_, android_account::AccountState>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
+        code: "invalid_cloud_clipboard",
+    })?;
+    android_account::cloud_clipboard_request(state, action).await
 }
 
 #[tauri::command]
@@ -3091,14 +3104,57 @@ async fn copy_text(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
 ) -> Result<(), HostActionError> {
     let state = state.inner().clone();
     let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
+    #[cfg(target_os = "android")]
+    {
+        if text.is_empty() || text.encode_utf16().count() > 4000 || text.contains('\0') {
+            return Err(HostActionError {
+                code: "invalid_text",
+            });
+        }
+        let plugin = account.platform.clone();
+        let clipboard_text = text.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            plugin
+                .run_mobile_plugin::<()>("copyText", serde_json::json!({ "text": clipboard_text }))
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })
+        })
         .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?
+        })??;
+        if clipboard_enabled(&store)? {
+            store
+                .capture_clipboard_text(text)
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+            state
+                .0
+                .lock()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
+                .load()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        }
+        return Ok(());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+    }
 }
 
 fn copy_text_blocking(
