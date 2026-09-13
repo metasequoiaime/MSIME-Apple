@@ -336,7 +336,7 @@ target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-f
 target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceWaveOverlay.mm VoiceCuePlayer.mm VoiceAudioMuter.mm VoiceSettings.mm VoiceProviderSettings.mm CloudCandidateRequest.mm CustomTranslationBatch.mm)
-target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText")
+target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText" "-framework CoreAudio")
 add_test(NAME shortcut COMMAND shortcut-test)
 target_sources(shortcut-test PRIVATE TranslationCache.mm)
 add_executable(shuangpin-keymap-input-test tests/ShuangpinKeymapInputTest.mm ShuangpinKeymapPanel.mm)
