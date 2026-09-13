@@ -250,7 +250,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         _provider.accessibilityLabel = @"识别方式";
         [_provider addItemsWithTitles:@[ @"豆包", @"OpenAI", @"SiliconFlow", @"Groq", @"本地 Whisper" ]];
         _provider.target = self;
-        _provider.action = @selector(updateEnabled:);
+        _provider.action = @selector(providerChanged:);
         [window.contentView addSubview:_provider];
         _endpoint = [self field:@"识别服务地址" y:415 secure:NO];
         _model = [self field:@"识别模型" y:380 secure:NO];
@@ -299,6 +299,17 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     [self updateEnabled:nil];
     [self showWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+- (void)providerChanged:(id)sender
+{
+    (void)sender;
+    NSArray *endpoints = @[ @"", @"https://api.openai.com/v1/audio/transcriptions", @"https://api.siliconflow.cn/v1/audio/transcriptions", @"https://api.groq.com/openai/v1/audio/transcriptions", @"" ];
+    NSArray *models = @[ @"", @"whisper-1", @"FunAudioLLM/SenseVoiceSmall", @"whisper-large-v3-turbo", @"" ];
+    NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, endpoints.count - 1);
+    if (endpoints[index].length > 0) _endpoint.stringValue = endpoints[index];
+    if (models[index].length > 0) _model.stringValue = models[index];
+    _token.stringValue = @"";
+    [self updateEnabled:nil];
 }
 - (void)updateEnabled:(id)sender
 {
