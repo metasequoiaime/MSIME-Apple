@@ -871,3 +871,9 @@ Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win
 Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切换快捷键，`HostCapabilities` 同步将 `mode_switch_shortcuts` 对 Windows 置为可用。Tauri 设置页因此显示并保存与 TIP 实际消费一致的快捷键选项；macOS 原生输入源快捷键和 Linux IBus 行为保持各自平台边界。
 
 本地验证：`msime-client-core` 的 host-surface 能力回归测试通过，覆盖 Windows 能力声明、序列化和各平台差异；GitNexus staged 变更检测已执行。未执行 Windows 原生 TSF、编辑器或安装验收，CI 保持禁用。
+
+### Windows Server 生产启动文案与模式说明
+
+修正 `msime-client-server.exe --help` 与当前生产装配不一致的问题：帮助信息现在明确区分 `--production`/`--watchdog-managed` 的安装态生产管道和 `--config` 的隔离预览，并说明 TSF 注册由安装器负责。同步更新 Windows 文档，避免把已接入生产管道的 Server 描述成只有预览能力；隔离预览仍明确不是可安装输入法，未改变协议、注册或启动行为。
+
+本地验证：`platforms/windows/tests/server_launch.cpp` 以 C++17、`-Wall -Wextra -Werror` 编译并通过；`git diff --check` 通过。没有 Windows 主机，因此未执行 Server、TSF 注册、真实编辑器或安装验收，CI 保持禁用。

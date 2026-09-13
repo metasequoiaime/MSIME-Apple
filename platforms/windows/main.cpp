@@ -495,9 +495,14 @@ private:
 int wmain(int argc, wchar_t **argv) {
   using namespace msime::windows;
   if (argc == 2 && std::wstring(argv[1]) == L"--help") {
-    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
-                 "Managed launches use the installed TSF pipe names; preview "
-                 "launches use names from the config. Ctrl+C stops.\n"
+    std::cout << "MSIME Client Server\n"
+                 "  --production (or --watchdog-managed) use installed state "
+                 "and production TSF pipes\n"
+                 "  --config <absolute-json-path> run an isolated preview "
+                 "configuration\n"
+                 "  --help show this message\n"
+                 "TSF registration remains the installer's responsibility; "
+                 "Ctrl+C stops the Server.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";
     return 0;
   }
