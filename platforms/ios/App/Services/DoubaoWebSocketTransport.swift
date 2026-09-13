@@ -1,5 +1,37 @@
 import Foundation
 
+struct DoubaoHandshake {
+  enum Failure: Error { case missingAccessKey, missingResourceID }
+
+  let appKey: String
+  let accessKey: String
+  let resourceID: String
+  let requestID: String
+
+  init(appKey: String, accessKey: String, resourceID: String, requestID: String = UUID().uuidString) throws {
+    guard !accessKey.isEmpty else { throw Failure.missingAccessKey }
+    guard !resourceID.isEmpty else { throw Failure.missingResourceID }
+    self.appKey = appKey
+    self.accessKey = accessKey
+    self.resourceID = resourceID
+    self.requestID = requestID
+  }
+
+  var headers: [String: String] {
+    var result = [
+      "X-Api-Resource-Id": resourceID,
+      "X-Api-Request-Id": requestID,
+    ]
+    if appKey.isEmpty {
+      result["X-Api-Key"] = accessKey
+    } else {
+      result["X-Api-App-Key"] = appKey
+      result["X-Api-Access-Key"] = accessKey
+    }
+    return result
+  }
+}
+
 /// iOS host-side WebSocket lifecycle for the injected client-core voice transport.
 final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate {
   enum Failure: Error { case notConnected, closed }
@@ -7,6 +39,10 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate {
   private var session: URLSession?
   private var task: URLSessionWebSocketTask?
   private(set) var isConnected = false
+
+  func start(endpoint: URL, handshake: DoubaoHandshake) async throws {
+    try await start(endpoint: endpoint, headers: handshake.headers)
+  }
 
   func start(endpoint: URL, headers: [String: String] = [:]) async throws {
     guard task == nil else { return }
