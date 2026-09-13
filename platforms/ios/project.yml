@@ -1,0 +1,42 @@
+name: MSIMEClient
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  bundleIdPrefix: com.metasequoiaime
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+targets:
+  MSIMEClientApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Services
+      - path: SharedUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
+    dependencies:
+      - target: MSIMEKeyboardExtension
+  MSIMEKeyboardExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: KeyboardExtension/Sources
+      - path: SharedUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
+  MSIMEClientTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: KeyboardTests
+      - path: ServiceTests
+      - path: tests
+    dependencies:
+      - target: MSIMEClientApp
