@@ -785,6 +785,49 @@ static void TestPairedPunctuationPreferences() {
     [defaults removePersistentDomainForName:suite];
 }
 
+static void TestMixedInputPreferences() {
+    NSString *suite = [@"msime.mixed-input." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 2 &&
+           !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
+    NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
+    assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@2] &&
+           [initial[@"emoji"] isEqual:@NO] && [initial[@"kaomoji"] isEqual:@NO]);
+    [preferences applySharedInputPreferences:@{ @"mixed_input": @{
+        @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES } }];
+    assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
+           preferences.mixedEmojiInput && preferences.mixedKaomojiInput);
+    assert([defaults objectForKey:@"MSIMEClientMixedInput"] == nil);
+    [preferences applySharedInputPreferences:@{ @"mixed_input": @{
+        @"english": @1, @"minimum_prefix": @9, @"emoji": @"true", @"kaomoji": NSNull.null } }];
+    assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
+           preferences.mixedEmojiInput && preferences.mixedKaomojiInput);
+    NSButton *english = (id)PreferenceControl(preferences, @selector(mixedEnglishChanged:));
+    NSPopUpButton *prefix = (id)PreferenceControl(preferences, @selector(mixedEnglishPrefixChanged:));
+    NSButton *emoji = (id)PreferenceControl(preferences, @selector(mixedEmojiChanged:));
+    NSButton *kaomoji = (id)PreferenceControl(preferences, @selector(mixedKaomojiChanged:));
+    assert(english.state == NSControlStateValueOff && prefix.indexOfSelectedItem == 6 && !prefix.enabled &&
+           emoji.state == NSControlStateValueOn && kaomoji.state == NSControlStateValueOn);
+    english.state = NSControlStateValueOn;
+    [NSApp sendAction:english.action to:english.target from:english];
+    [prefix selectItemAtIndex:4];
+    [NSApp sendAction:prefix.action to:prefix.target from:prefix];
+    emoji.state = NSControlStateValueOff;
+    [NSApp sendAction:emoji.action to:emoji.target from:emoji];
+    kaomoji.state = NSControlStateValueOff;
+    [NSApp sendAction:kaomoji.action to:kaomoji.target from:kaomoji];
+    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
+           !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput && prefix.enabled);
+    NSDictionary *edited = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
+    assert(([edited isEqual:@{ @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO }]));
+    assert([defaults dictionaryForKey:@"MSIMEClientMixedInput"] != nil);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(reopened.mixedEnglishInput && reopened.mixedEnglishMinimumPrefix == 5 &&
+           !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(appearance.characterSetShortcut);
     NSDictionary *keys = @{@"toggle_character_set_ctrl_shift_f":@NO, @"switch_language_shift":@NO};
@@ -3407,6 +3450,7 @@ int main() {
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
+        TestMixedInputPreferences();
         TestCharacterSetShortcut(defaults, appearance);
         TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);

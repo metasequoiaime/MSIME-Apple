@@ -27,6 +27,10 @@ static BOOL KnownLocalMode(NSString *mode) {
 static BOOL LocalModeBoolean(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
 }
+static BOOL ValidMixedPrefix(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 1 && [value integerValue] <= 8;
+}
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
 static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
@@ -64,6 +68,7 @@ static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
 static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
+static NSString *const MixedInputKey = @"MSIMEClientMixedInput";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const CandidateLearningKey = @"MSIMEClientCandidateLearning";
 static NSString *const FrequencyModeKey = @"MSIMEClientFrequencyAdjustmentMode";
@@ -145,6 +150,11 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSString *_sharedPunctuationLock;
     NSButton *_pairedPunctuationButton;
     NSPopUpButton *_punctuationLockButton;
+    NSMutableDictionary *_sharedMixedInput;
+    NSButton *_mixedEnglishButton;
+    NSPopUpButton *_mixedEnglishPrefixButton;
+    NSButton *_mixedEmojiButton;
+    NSButton *_mixedKaomojiButton;
     NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedAutocorrect;
     NSNumber *_sharedCloudCandidates;
@@ -335,6 +345,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
+    merged[@"mixed_input"] = @{
+        @"english": @(self.mixedEnglishInput),
+        @"minimum_prefix": @(self.mixedEnglishMinimumPrefix),
+        @"emoji": @(self.mixedEmojiInput),
+        @"kaomoji": @(self.mixedKaomojiInput)
+    };
     merged[@"autocorrect"] = @(self.autocorrect);
     if ([_defaults objectForKey:CandidateLearningKey] != nil || _sharedCandidateLearning != nil)
         merged[@"learning"] = @(self.candidateLearningEnabled);
@@ -669,6 +685,15 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (LocalModeBoolean(paired)) _sharedPairedPunctuation = paired;
     id punctuationLock = preferences[@"punctuation_lock"];
     if ([@[@"follow", @"chinese", @"english"] containsObject:punctuationLock]) _sharedPunctuationLock = [punctuationLock copy];
+    id mixedInput = preferences[@"mixed_input"];
+    if ([mixedInput isKindOfClass:NSDictionary.class]) {
+        NSMutableDictionary *values = [_sharedMixedInput mutableCopy] ?: [NSMutableDictionary dictionary];
+        if (LocalModeBoolean(mixedInput[@"english"])) values[@"english"] = mixedInput[@"english"];
+        if (ValidMixedPrefix(mixedInput[@"minimum_prefix"])) values[@"minimum_prefix"] = mixedInput[@"minimum_prefix"];
+        if (LocalModeBoolean(mixedInput[@"emoji"])) values[@"emoji"] = mixedInput[@"emoji"];
+        if (LocalModeBoolean(mixedInput[@"kaomoji"])) values[@"kaomoji"] = mixedInput[@"kaomoji"];
+        _sharedMixedInput = values;
+    }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
     id cloud = preferences[@"cloud_candidates"];
@@ -763,6 +788,31 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _sharedPunctuationLock = nil;
     [_defaults setObject:value forKey:PunctuationLockKey];
     [self preferencesChanged];
+}
+- (NSDictionary *)mixedInputValues {
+    NSDictionary *values = _sharedMixedInput ?: [_defaults dictionaryForKey:MixedInputKey];
+    return [values isKindOfClass:NSDictionary.class] ? values : @{};
+}
+- (BOOL)mixedEnglishInput { id value = [self mixedInputValues][@"english"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
+- (void)setMixedEnglishInput:(BOOL)value {
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"english"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
+}
+- (NSInteger)mixedEnglishMinimumPrefix { id value = [self mixedInputValues][@"minimum_prefix"]; return ValidMixedPrefix(value) ? [value integerValue] : 2; }
+- (void)setMixedEnglishMinimumPrefix:(NSInteger)value {
+    if (value < 1 || value > 8) value = 2;
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"minimum_prefix"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
+}
+- (BOOL)mixedEmojiInput { id value = [self mixedInputValues][@"emoji"]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
+- (void)setMixedEmojiInput:(BOOL)value {
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"emoji"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
+}
+- (BOOL)mixedKaomojiInput { id value = [self mixedInputValues][@"kaomoji"]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
+- (void)setMixedKaomojiInput:(BOOL)value {
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"kaomoji"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
 }
 - (void)setTraditionalOutput:(BOOL)value {
     _sharedTraditionalOutput = nil;
@@ -1038,6 +1088,11 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _pairedPunctuationButton.state = self.pairedPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
+    _mixedEnglishButton.state = self.mixedEnglishInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _mixedEnglishPrefixButton.enabled = self.mixedEnglishInput;
+    [_mixedEnglishPrefixButton selectItemAtIndex:self.mixedEnglishMinimumPrefix - 1];
+    _mixedEmojiButton.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _mixedKaomojiButton.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1242,6 +1297,20 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _punctuationLockButton.accessibilityLabel = @"标点锁定";
     _punctuationLockButton.target = self;
     _punctuationLockButton.action = @selector(punctuationLockChanged:);
+    _mixedEnglishButton = [NSButton checkboxWithTitle:@"中英混输" target:self action:@selector(mixedEnglishChanged:)];
+    _mixedEnglishButton.toolTip = @"在中文组词中允许英文候选";
+    _mixedEnglishPrefixButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    NSMutableArray<NSString *> *mixedPrefixes = [NSMutableArray array];
+    for (NSInteger prefix = 1; prefix <= 8; ++prefix)
+        [mixedPrefixes addObject:[NSString stringWithFormat:@"%ld 个字符", (long)prefix]];
+    [_mixedEnglishPrefixButton addItemsWithTitles:mixedPrefixes];
+    _mixedEnglishPrefixButton.accessibilityLabel = @"中英混输触发字符数";
+    _mixedEnglishPrefixButton.target = self;
+    _mixedEnglishPrefixButton.action = @selector(mixedEnglishPrefixChanged:);
+    _mixedEmojiButton = [NSButton checkboxWithTitle:@"Emoji 混输" target:self action:@selector(mixedEmojiChanged:)];
+    _mixedEmojiButton.toolTip = @"在中文组词中提供 Emoji 候选";
+    _mixedKaomojiButton = [NSButton checkboxWithTitle:@"颜文字混输" target:self action:@selector(mixedKaomojiChanged:)];
+    _mixedKaomojiButton.toolTip = @"在中文组词中提供颜文字候选";
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
@@ -1300,6 +1369,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
         @[[NSTextField labelWithString:@"标点输入"], _pairedPunctuationButton],
         @[[NSTextField labelWithString:@"标点锁定"], _punctuationLockButton],
+        @[[NSTextField labelWithString:@"混合输入"], _mixedEnglishButton],
+        @[[NSTextField labelWithString:@"混合输入"], _mixedEnglishPrefixButton],
+        @[[NSTextField labelWithString:@"混合输入"], _mixedEmojiButton],
+        @[[NSTextField labelWithString:@"混合输入"], _mixedKaomojiButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
@@ -1423,6 +1496,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)punctuationChanged:(NSButton *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
 - (void)pairedPunctuationChanged:(NSButton *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
 - (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
+- (void)mixedEnglishChanged:(NSButton *)sender { self.mixedEnglishInput = sender.state == NSControlStateValueOn; }
+- (void)mixedEnglishPrefixChanged:(NSPopUpButton *)sender { self.mixedEnglishMinimumPrefix = sender.indexOfSelectedItem + 1; }
+- (void)mixedEmojiChanged:(NSButton *)sender { self.mixedEmojiInput = sender.state == NSControlStateValueOn; }
+- (void)mixedKaomojiChanged:(NSButton *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
 - (void)toolbarChanged:(NSButton *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
