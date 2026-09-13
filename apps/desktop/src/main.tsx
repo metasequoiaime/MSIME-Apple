@@ -290,6 +290,7 @@ function DesktopSettings() {
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
+  const panelLabel = initialPage === "clipboard" ? "clipboard-panel" : "emoji-panel";
   useEffect(() => {
     let active = true;
     const capability = isTauri()
@@ -299,14 +300,15 @@ function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "l
       if (!active) return;
       setEmojiClient(supported ? {
         ...panelClients.emoji,
+        close: () => invoke("close_panel", { label: panelLabel }),
         clipboard: {
           ...panelClients.emoji.clipboard,
           paste: text => invoke<void>("paste_clipboard_text", { text }),
         },
-      } : panelClients.emoji);
+      } : { ...panelClients.emoji, close: () => invoke("close_panel", { label: panelLabel }) });
     });
     return () => { active = false; };
-  }, []);
+  }, [panelLabel]);
   return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
     : <p role="status">正在连接面板…</p>;
 }

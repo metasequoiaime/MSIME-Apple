@@ -3006,6 +3006,7 @@ fn close_panel(
         "keyboard-panel"
             | "handwriting-panel"
             | "emoji-panel"
+            | "clipboard-panel"
             | "voice-panel"
             | "cloud-clipboard-panel"
             | "cloud-dictionary-panel"
@@ -3031,6 +3032,7 @@ fn close_panel(
             label.as_str(),
             "keyboard-panel"
                 | "handwriting-panel"
+                | "clipboard-panel"
                 | "voice-panel"
                 | "cloud-clipboard-panel"
                 | "cloud-dictionary-panel"
