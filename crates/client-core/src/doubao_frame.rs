@@ -24,6 +24,10 @@ mod tests {
         assert!(frame.len() > 12);
         let (last, sequence, payload) = decode_json_frame(&frame).unwrap();
         assert!(!last && sequence == 1 && payload == b"{}");
+        let final_frame = encode_json_frame(9, 2, 1, b"{}");
+        assert!(decode_json_frame(&final_frame).unwrap().0);
+        let final_frame = encode_json_frame(9, 2, 1, b"{}");
+        assert!(decode_json_frame(&final_frame).unwrap().0);
         let mut invalid = frame.clone(); invalid[2] = 0x10;
         assert!(decode_json_frame(&invalid).is_none());
     }
