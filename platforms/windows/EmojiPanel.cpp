@@ -1,905 +1,3040 @@
-#define NOMINMAX
-#include <Windows.h>
-#include "CandidatePalette.h"
+#include "EmojiPanel.h"
+#include "emoji_panel_icons.h"
 #include "ClipboardHistory.h"
-#include <msimeui/DeviceResources.h>
-#include <shellapi.h>
-#include <shlobj.h>
-#include <nlohmann/json.hpp>
+
+#include "msimeui/DeviceResources.h"
+#include "msimeui/Theme.h"
+#include "msimeui/Window.h"
+
 #include <sqlite3.h>
 
+#include <Windows.h>
+#include <shlobj.h>
+#include <wrl/client.h>
 #include <algorithm>
 #include <cwctype>
-#include <cstring>
 #include <filesystem>
+#include <limits>
 #include <fstream>
-#include <iterator>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
-#include <string_view>
-#include <vector>
 
-namespace {
-constexpr wchar_t kClassName[] = L"MSIMEClient.EmojiPanel";
-constexpr wchar_t kTitle[] = L"Emoji and more";
-constexpr size_t kInvalid = static_cast<size_t>(-1);
-constexpr int kHeaderHeight = 38;
-constexpr int kSearchTop = 50;
-constexpr int kSearchHeight = 32;
-constexpr int kTabsTop = 94;
-constexpr int kTabsHeight = 48;
-constexpr int kSubTabsTop = 145;
-constexpr int kContentTop = 190;
-constexpr int kCellHeight = 70;
-constexpr int kGroupTitleHeight = 34;
-constexpr int kGridLeft = 18;
-constexpr int kGridRight = 18;
-constexpr int kGap = 6;
-constexpr int kClipboardRowHeight = 62;
-constexpr int kClipboardRowGap = 6;
+namespace msimeui
+{
+namespace
+{
+constexpr float kPanelScale = 2.0f / 3.0f;
+constexpr float kHeaderHeight = 58.0f;
+constexpr float kNavTop = 66.0f;
+constexpr float kNavHeight = 58.0f;
+constexpr float kNavTitleFontSize = 24.0f;
+constexpr float kSearchTop = 142.0f;
+constexpr float kSearchHeight = 52.0f;
+constexpr float kContentTop = 218.0f;
+constexpr float kCellSize = 84.0f;
+constexpr float kGridLeft = 20.0f;
+constexpr float kGridRightPad = 30.0f;
+constexpr float kGroupTitleHeight = 48.0f;
+constexpr float kGroupBottomPad = 18.0f;
+constexpr float kMoreButtonSize = 36.0f;
+constexpr float kBackSize = 44.0f;
+constexpr float kEmojiFontSize = 42.0f;
+constexpr float kLongTextFontSize = 18.0f;
+constexpr float kToastHeight = 52.0f;
+constexpr float kToastBottomPad = 28.0f;
+constexpr UINT_PTR kToastTimerId = 42;
+constexpr UINT kToastDurationMs = 1600;
+constexpr UINT_PTR kTooltipTimerId = 43;
+constexpr UINT kTooltipDelayMs = 600;
+constexpr UINT_PTR kClipboardPollTimerId = 44;
+constexpr UINT kClipboardPollMs = 400;
+constexpr float kClipboardRowHeight = 80.0f;
+constexpr float kClipboardRowGap = 8.0f;
+constexpr float kClipboardHintFontSize = 24.0f;
+constexpr float kClipboardButtonFontSize = 22.0f;
+constexpr float kClipboardItemFontSize = 22.0f;
+constexpr float kClipboardEmptyFontSize = 24.0f;
 
-enum class Page : size_t { Home, Emoji, Sticker, Gif, Kaomoji, Symbols, Clipboard };
-
-struct Item {
-  std::wstring text;
-  std::wstring keywords;
-};
-
-struct Group {
-  std::wstring title;
-  std::wstring icon;
-  std::vector<Item> items;
-};
-
-struct VisibleGroup {
-  std::wstring title;
-  std::wstring icon;
-  std::vector<const Item *> items;
-};
-
-std::wstring utf8_to_wide(const unsigned char *value) {
-  if (!value || !*value) return {};
-  const char *text = reinterpret_cast<const char *>(value);
-  const int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
-  if (length <= 1) return {};
-  std::wstring result(static_cast<size_t>(length - 1), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, text, -1, result.data(), length);
-  return result;
-}
-
-std::wstring utf8_to_wide(std::string_view value) {
-  if (value.empty()) return {};
-  const int length = MultiByteToWideChar(
-      CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-      nullptr, 0);
-  if (length <= 0) return {};
-  std::wstring result(static_cast<size_t>(length), L'\0');
-  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                          static_cast<int>(value.size()), result.data(), length) !=
-      length)
-    return {};
-  return result;
-}
-
-std::string wide_to_utf8(std::wstring_view value) {
-  if (value.empty()) return {};
-  const int length = WideCharToMultiByte(
-      CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-      nullptr, 0, nullptr, nullptr);
-  if (length <= 0) return {};
-  std::string result(static_cast<size_t>(length), '\0');
-  if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
-                          static_cast<int>(value.size()), result.data(), length,
-                          nullptr, nullptr) != length)
-    return {};
-  return result;
-}
-
-std::wstring lower(std::wstring value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
-  return value;
-}
-
-bool contains(const RECT &rect, POINT point) {
-  return point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
-}
-
-bool copy_to_clipboard(HWND owner, const std::wstring &text) {
-  if (!OpenClipboard(owner)) return false;
-  EmptyClipboard();
-  const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-  if (!memory) {
-    CloseClipboard();
-    return false;
-  }
-  void *destination = GlobalLock(memory);
-  if (!destination) {
-    GlobalFree(memory);
-    CloseClipboard();
-    return false;
-  }
-  memcpy(destination, text.c_str(), bytes);
-  GlobalUnlock(memory);
-  if (!SetClipboardData(CF_UNICODETEXT, memory)) {
-    GlobalFree(memory);
-    CloseClipboard();
-    return false;
-  }
-  CloseClipboard();
-  return true;
-}
-
-std::filesystem::path state_directory(int argc, wchar_t **argv) {
-  for (int index = 1; index + 1 < argc; ++index) {
-    if (std::wstring(argv[index]) == L"--state-root") {
-      const std::filesystem::path value(argv[++index]);
-      return value.is_absolute() ? value : std::filesystem::path{};
+bool FontFamilyExists(const wchar_t *name)
+{
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                   reinterpret_cast<IUnknown **>(factory.GetAddressOf()))))
+    {
+        return false;
     }
-  }
-  wchar_t buffer[32768]{};
-  DWORD length = GetEnvironmentVariableW(
-      L"MSIME_CLIENT_STATE_DIR", buffer, static_cast<DWORD>(std::size(buffer)));
-  if (length > 0 && length < std::size(buffer)) {
-    const std::filesystem::path value(buffer);
-    return value.is_absolute() ? value : std::filesystem::path{};
-  }
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+    if (FAILED(factory->GetSystemFontCollection(&fonts)) || !fonts)
+    {
+        return false;
+    }
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    return SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists;
+}
 
-  PWSTR app_data = nullptr;
-  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
-                                      &app_data))) {
-    const auto directory = std::filesystem::path(app_data) / L"MSIME-Client";
-    CoTaskMemFree(app_data);
-    try {
-      std::ifstream input(directory / L"runtime-options.json",
-                          std::ios::binary);
-      if (input) {
+const wchar_t *CjkUiFont()
+{
+    static const wchar_t *family = FontFamilyExists(L"Noto Sans SC") ? L"Noto Sans SC" : L"Microsoft YaHei";
+    return family;
+}
+constexpr float kTooltipPadX = 18.0f;
+constexpr float kTooltipPadY = 12.0f;
+constexpr float kTooltipFontSize = 20.0f;
+constexpr size_t kColumns = 6;
+constexpr size_t kKaomojiColumns = 5;
+constexpr size_t kPreviewRows = 3;
+constexpr size_t kPreviewLimit = kColumns * kPreviewRows;
+constexpr size_t kKaomojiPreviewLimit = kKaomojiColumns * kPreviewRows;
+constexpr float kFlowGapX = 6.0f;
+constexpr float kFlowRowGap = 4.0f;
+constexpr float kFlowCellPadX = 12.0f;
+constexpr float kFlowMinCellWidth = 52.0f;
+constexpr float kFlowMeasureSlack = 6.0f;
+constexpr size_t kInvalidIndex = static_cast<size_t>(-1);
+constexpr float kMainTabWidths[] = {58.0f, 58.0f, 58.0f, 58.0f, 66.0f, 64.0f, 58.0f};
+constexpr size_t kMainTabCount = 7;
+
+bool Contains(const RectF &rect, const PointF &point)
+{
+    return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+}
+
+bool VerticallyIntersects(float top, float bottom, float viewTop, float viewBottom)
+{
+    return bottom > viewTop && top < viewBottom;
+}
+
+void FillRect(DeviceResources &resources, const RectF &rect, const D2D1_COLOR_F &color, float radius = 0.0f)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !brush)
+    {
+        return;
+    }
+    const auto d2dRect = D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+    if (radius > 0.0f)
+    {
+        target->FillRoundedRectangle(D2D1::RoundedRect(d2dRect, radius, radius), brush);
+    }
+    else
+    {
+        target->FillRectangle(d2dRect, brush);
+    }
+}
+
+void StrokeRect(DeviceResources &resources, const RectF &rect, const D2D1_COLOR_F &color, float radius, float width)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (target && brush)
+    {
+        target->DrawRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height), radius, radius),
+            brush, width);
+    }
+}
+
+void DrawText(DeviceResources &resources, const std::wstring &text, const RectF &rect, float size,
+              const D2D1_COLOR_F &color, const wchar_t *font = L"Segoe UI",
+              DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_LEADING,
+              DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL, bool colorFont = false)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(font, size, weight, alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                           DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !factory || !format || !brush || text.empty())
+    {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, rect.width,
+                                         rect.height, &layout)))
+    {
+        return;
+    }
+    const D2D1_DRAW_TEXT_OPTIONS options =
+        colorFont ? static_cast<D2D1_DRAW_TEXT_OPTIONS>(D2D1_DRAW_TEXT_OPTIONS_CLIP |
+                                                        D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT)
+                  : D2D1_DRAW_TEXT_OPTIONS_CLIP;
+    target->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush, options);
+}
+
+void DrawFormattedText(DeviceResources &resources, const std::wstring &text, const RectF &rect,
+                       IDWriteTextFormat *format, ID2D1SolidColorBrush *brush, bool colorFont)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    if (!target || !factory || !format || !brush || text.empty())
+    {
+        return;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, rect.width,
+                                         rect.height, &layout)))
+    {
+        return;
+    }
+    const D2D1_DRAW_TEXT_OPTIONS options =
+        colorFont ? static_cast<D2D1_DRAW_TEXT_OPTIONS>(D2D1_DRAW_TEXT_OPTIONS_CLIP |
+                                                        D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT)
+                  : D2D1_DRAW_TEXT_OPTIONS_CLIP;
+    target->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush, options);
+}
+
+void DrawCloseIcon(DeviceResources &resources, const RectF &rect, const D2D1_COLOR_F &color)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !brush)
+    {
+        return;
+    }
+    const float centerX = rect.x + rect.width * 0.5f;
+    const float centerY = rect.y + rect.height * 0.5f;
+    const float halfLength = std::min(rect.width, rect.height) * 0.19f;
+    const float strokeWidth = std::max(std::min(rect.width, rect.height) * 0.055f, 1.0f);
+    target->DrawLine(D2D1::Point2F(centerX - halfLength, centerY - halfLength),
+                     D2D1::Point2F(centerX + halfLength, centerY + halfLength), brush, strokeWidth);
+    target->DrawLine(D2D1::Point2F(centerX + halfLength, centerY - halfLength),
+                     D2D1::Point2F(centerX - halfLength, centerY + halfLength), brush, strokeWidth);
+}
+
+void DrawChevron(DeviceResources &resources, const RectF &rect, const D2D1_COLOR_F &color, bool back)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !brush)
+    {
+        return;
+    }
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float arm = std::min(rect.width, rect.height) * 0.16f;
+    const float stroke = std::max(std::min(rect.width, rect.height) * 0.06f, 1.4f);
+    if (back)
+    {
+        target->DrawLine(D2D1::Point2F(cx + arm * 0.35f, cy - arm), D2D1::Point2F(cx - arm * 0.55f, cy), brush, stroke);
+        target->DrawLine(D2D1::Point2F(cx - arm * 0.55f, cy), D2D1::Point2F(cx + arm * 0.35f, cy + arm), brush, stroke);
+    }
+    else
+    {
+        target->DrawLine(D2D1::Point2F(cx - arm * 0.35f, cy - arm), D2D1::Point2F(cx + arm * 0.55f, cy), brush, stroke);
+        target->DrawLine(D2D1::Point2F(cx + arm * 0.55f, cy), D2D1::Point2F(cx - arm * 0.35f, cy + arm), brush, stroke);
+    }
+}
+
+std::wstring Lower(std::wstring value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return std::towlower(ch); });
+    return value;
+}
+
+bool CopyToClipboard(HWND hwnd, const std::wstring &text)
+{
+    if (!OpenClipboard(hwnd))
+    {
+        return false;
+    }
+    EmptyClipboard();
+    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!memory)
+    {
+        CloseClipboard();
+        return false;
+    }
+    void *destination = GlobalLock(memory);
+    if (!destination)
+    {
+        GlobalFree(memory);
+        CloseClipboard();
+        return false;
+    }
+    memcpy(destination, text.c_str(), bytes);
+    GlobalUnlock(memory);
+    if (!SetClipboardData(CF_UNICODETEXT, memory))
+    {
+        GlobalFree(memory);
+        CloseClipboard();
+        return false;
+    }
+    CloseClipboard();
+    return true;
+}
+
+std::wstring Utf8ToWide(const char *text)
+{
+    if (!text || !*text)
+    {
+        return {};
+    }
+    const int size = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
+    if (size <= 1)
+    {
+        return {};
+    }
+    std::wstring result(static_cast<size_t>(size - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, result.data(), size);
+    return result;
+}
+
+std::filesystem::path OthersDatabasePath()
+{
+    wchar_t buffer[32768] = {};
+    const DWORD length = GetEnvironmentVariableW(L"MSIME_CLIENT_RESOURCES", buffer, static_cast<DWORD>(std::size(buffer)));
+    if (length > 0 && length < std::size(buffer))
+    {
+        std::filesystem::path value(buffer);
+        if (std::filesystem::is_directory(value))
+            value /= L"others.db";
+        return value;
+    }
+    wchar_t module[32768] = {};
+    const DWORD moduleLength = GetModuleFileNameW(nullptr, module, static_cast<DWORD>(std::size(module)));
+    if (!moduleLength || moduleLength >= std::size(module))
+        return {};
+    const auto parent = std::filesystem::path(std::wstring(module, moduleLength)).parent_path();
+    for (const auto &candidate : {parent / L"resources" / L"others.db", parent / L"others.db"})
+    {
+        if (std::filesystem::exists(candidate))
+            return candidate;
+    }
+    return {};
+}
+
+
+bool ReadClipboardEnabled(const std::filesystem::path &stateRoot)
+{
+    if (stateRoot.empty())
+        return false;
+    std::ifstream input(stateRoot / L"preferences.json", std::ios::binary);
+    if (!input)
+        return false;
+    try
+    {
         const auto document = nlohmann::json::parse(input);
-        const auto configured = std::filesystem::u8path(
-            document.value("preferences_directory", std::string{}));
-        if (configured.is_absolute()) return configured;
-      }
-    } catch (...) {
+        if (!document.is_object() || !document.contains("preferences") ||
+            !document.at("preferences").is_object())
+            return false;
+        return document.at("preferences").value("clipboard_history", false);
     }
-    return directory;
-  }
-  if (app_data) CoTaskMemFree(app_data);
-  return {};
+    catch (...)
+    {
+        return false;
+    }
 }
 
-class Panel {
- public:
-  HWND hwnd = nullptr;
-  HWND search = nullptr;
-  HBRUSH search_brush = nullptr;
-  HFONT search_font = nullptr;
-  Page page = Page::Home;
-  size_t category = 0;
-  size_t hovered_item = kInvalid;
-  size_t pressed_item = kInvalid;
-  size_t pressed_tab = kInvalid;
-  size_t pressed_category = kInvalid;
-  bool close_hovered = false;
-  bool close_pressed = false;
-  bool back_hovered = false;
-  bool back_pressed = false;
-  int scroll = 0;
-  std::wstring search_text;
-  std::wstring notice = L"Click an item to copy";
-  // Direct2D through the shared UI stack, with the candidate card tokens.
-  msimeui::DeviceResources device;
-  msime::windows::CandidatePalette palette;
-  std::vector<Group> emoji;
-  std::vector<Group> kaomoji;
-  std::vector<Group> symbols;
-  std::vector<Item> recent;
-  std::vector<Item> clipboard;
-  std::unique_ptr<msime::windows::ClipboardHistory> clipboard_history;
-  std::filesystem::path state_root;
-  bool clipboard_enabled = false;
-  bool clipboard_clear_hovered = false;
-  bool clipboard_clear_pressed = false;
-  size_t clipboard_delete_hovered = kInvalid;
-  size_t clipboard_delete_pressed = kInvalid;
-
-  ~Panel() {
-    if (search_brush) DeleteObject(search_brush);
-    if (search_font) DeleteObject(search_font);
-  }
-
-  void layout() {
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    if (search) MoveWindow(search, 18, kSearchTop, std::max<LONG>(bounds.right - 72, 120), kSearchHeight, TRUE);
-  }
-
-  Group *find_group(std::vector<Group> &groups, const std::wstring &title, const std::wstring &icon) {
-    if (!groups.empty() && groups.back().title == title) return &groups.back();
-    groups.push_back({title, icon, {}});
-    return &groups.back();
-  }
-
-  void load(const std::filesystem::path &database) {
-    if (database.empty() || !std::filesystem::exists(database)) {
-      notice = L"Emoji database not found";
-      return;
+class PreferencesFileLock final
+{
+  public:
+    explicit PreferencesFileLock(const std::filesystem::path &stateRoot)
+    {
+        auto path = stateRoot / L"preferences.lock";
+        handle_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE)
+        {
+            handle_ = nullptr;
+            return;
+        }
+        OVERLAPPED offset = {};
+        if (!LockFileEx(handle_, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &offset))
+        {
+            CloseHandle(handle_);
+            handle_ = nullptr;
+        }
     }
+    ~PreferencesFileLock()
+    {
+        if (handle_)
+        {
+            OVERLAPPED offset = {};
+            UnlockFileEx(handle_, 0, MAXDWORD, MAXDWORD, &offset);
+            CloseHandle(handle_);
+        }
+    }
+    explicit operator bool() const { return handle_ != nullptr; }
+
+  private:
+    HANDLE handle_ = nullptr;
+};
+
+bool WriteClipboardEnabled(const std::filesystem::path &stateRoot, bool enabled)
+{
+    if (stateRoot.empty())
+        return false;
+    PreferencesFileLock lock(stateRoot);
+    if (!lock)
+        return false;
+    const auto path = stateRoot / L"preferences.json";
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return false;
+    nlohmann::json document;
+    try
+    {
+        document = nlohmann::json::parse(input);
+    }
+    catch (...)
+    {
+        return false;
+    }
+    if (!document.is_object() || !document.contains("preferences") ||
+        !document.at("preferences").is_object())
+        return false;
+    document["preferences"]["clipboard_history"] = enabled;
+    if (document.contains("revision") && document.at("revision").is_number_unsigned())
+        document["revision"] = document.at("revision").get<uint64_t>() + 1;
+    const auto temporary = path.wstring() + L".tmp." + std::to_wstring(GetCurrentProcessId());
+    std::ofstream output(temporary.c_str(), std::ios::binary | std::ios::trunc);
+    if (!output)
+        return false;
+    const auto payload = document.dump();
+    output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    output.close();
+    if (!output)
+    {
+        std::error_code error;
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        std::error_code error;
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+
+std::string WideToUtf8(const std::wstring &value)
+{
+    if (value.empty())
+        return {};
+    const int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                                           static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    if (length <= 0)
+        return {};
+    std::string result(static_cast<size_t>(length), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                            static_cast<int>(value.size()), result.data(), length, nullptr, nullptr) != length)
+        return {};
+    return result;
+}
+
+float GroupBodyHeight(size_t itemCount, size_t columns, float cellSize)
+{
+    if (itemCount == 0)
+    {
+        return 0.0f;
+    }
+    return static_cast<float>((itemCount + columns - 1) / columns) * cellSize;
+}
+
+float EstimateFlowGroupHeight(size_t itemCount, float gridWidth)
+{
+    if (itemCount == 0)
+    {
+        return 0.0f;
+    }
+    float rowFill = 0.0f;
+    size_t rows = 1;
+    for (size_t index = 0; index < itemCount; ++index)
+    {
+        const float cellWidth = std::min(kCellSize * 1.6f, gridWidth);
+        if (rowFill > 0.0f && rowFill + cellWidth > gridWidth)
+        {
+            ++rows;
+            rowFill = 0.0f;
+        }
+        rowFill += cellWidth + kFlowGapX;
+    }
+    return static_cast<float>(rows) * kCellSize + static_cast<float>(rows - 1) * kFlowRowGap;
+}
+
+const wchar_t *IconForCategory(const std::wstring &title)
+{
+    if (title.find(L"Smileys") != std::wstring::npos)
+        return L"\U0001F600";
+    if (title.find(L"People") != std::wstring::npos)
+        return L"\U0001F9D1";
+    if (title.find(L"Animals") != std::wstring::npos)
+        return L"\U0001F43E";
+    if (title.find(L"Food") != std::wstring::npos)
+        return L"\U0001F355";
+    if (title.find(L"Travel") != std::wstring::npos)
+        return L"\U0001F697";
+    if (title.find(L"Activities") != std::wstring::npos)
+        return L"\U0001F389";
+    if (title.find(L"Objects") != std::wstring::npos)
+        return L"\U0001F4A1";
+    if (title.find(L"Symbols") != std::wstring::npos)
+        return L"\u2764";
+    if (title.find(L"Flags") != std::wstring::npos)
+        return L"\U0001F3F3";
+    return L"\u263A";
+}
+
+bool IsCjk(wchar_t ch)
+{
+    return (ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF) || (ch >= 0xF900 && ch <= 0xFAFF) ||
+           (ch >= 0x3000 && ch <= 0x303F);
+}
+
+bool TokenHasCjk(const std::wstring &token)
+{
+    return std::any_of(token.begin(), token.end(), IsCjk);
+}
+
+std::wstring DisplayNameForItem(const std::wstring &keywords, const std::wstring &fallback)
+{
+    std::wstring firstToken;
+    std::wstring firstCjk;
+    size_t start = 0;
+    while (start < keywords.size())
+    {
+        while (start < keywords.size() && keywords[start] == L' ')
+        {
+            ++start;
+        }
+        if (start >= keywords.size())
+        {
+            break;
+        }
+        size_t end = start;
+        while (end < keywords.size() && keywords[end] != L' ')
+        {
+            ++end;
+        }
+        std::wstring token = keywords.substr(start, end - start);
+        if (!token.empty())
+        {
+            if (firstToken.empty())
+            {
+                firstToken = token;
+            }
+            if (firstCjk.empty() && TokenHasCjk(token))
+            {
+                firstCjk = token;
+                break;
+            }
+        }
+        start = end;
+    }
+    if (!firstCjk.empty())
+    {
+        return firstCjk;
+    }
+    if (!firstToken.empty())
+    {
+        return firstToken;
+    }
+    return fallback;
+}
+
+float MeasureTextWidth(DeviceResources &resources, const std::wstring &text, float fontSize, DWRITE_FONT_WEIGHT weight,
+                       const wchar_t *fontFamily = L"Segoe UI")
+{
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(fontFamily, fontSize, weight, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                           DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (!factory || !format || text.empty())
+    {
+        return 0.0f;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(
+            factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, 1000.0f, 64.0f, &layout)))
+    {
+        return 0.0f;
+    }
+    DWRITE_TEXT_METRICS metrics{};
+    if (FAILED(layout->GetMetrics(&metrics)))
+    {
+        return 0.0f;
+    }
+    return metrics.widthIncludingTrailingWhitespace;
+}
+
+struct TextSize
+{
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+TextSize MeasureTextSize(DeviceResources &resources, const std::wstring &text, float fontSize,
+                         DWRITE_FONT_WEIGHT weight, const wchar_t *fontFamily = L"Segoe UI")
+{
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(fontFamily, fontSize, weight, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                           DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (!factory || !format || text.empty())
+    {
+        return {};
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(
+            factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, 1000.0f, 64.0f, &layout)))
+    {
+        return {};
+    }
+    DWRITE_TEXT_METRICS metrics{};
+    if (FAILED(layout->GetMetrics(&metrics)))
+    {
+        return {};
+    }
+    return {metrics.widthIncludingTrailingWhitespace, metrics.height};
+}
+
+float MeasureTextLayoutWidth(DeviceResources &resources, const std::wstring &text, float fontSize,
+                             DWRITE_FONT_WEIGHT weight, const wchar_t *fontFamily = L"Segoe UI")
+{
+    const TextSize size = MeasureTextSize(resources, text, fontSize, weight, fontFamily);
+    if (size.width <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(fontFamily, fontSize, weight, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                           DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (!factory || !format)
+    {
+        return size.width;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, size.width, 64.0f,
+                                         &layout)))
+    {
+        return size.width;
+    }
+    DWRITE_OVERHANG_METRICS overhang{};
+    if (FAILED(layout->GetOverhangMetrics(&overhang)))
+    {
+        return size.width;
+    }
+    return size.width - overhang.left + overhang.right;
+}
+
+float FitFontSizeForCell(DeviceResources &resources, const std::wstring &text, float maxWidth, float maxHeight,
+                         float maxFontSize, float minFontSize, const wchar_t *fontFamily = L"Segoe UI")
+{
+    auto fits = [&](float size) {
+        const TextSize measured = MeasureTextSize(resources, text, size, DWRITE_FONT_WEIGHT_NORMAL, fontFamily);
+        return measured.width <= maxWidth && measured.height <= maxHeight;
+    };
+    if (!fits(minFontSize))
+    {
+        return minFontSize;
+    }
+    float low = minFontSize;
+    float high = maxFontSize;
+    while (high - low > 0.5f)
+    {
+        const float mid = (low + high) * 0.5f;
+        if (fits(mid))
+        {
+            low = mid;
+        }
+        else
+        {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+void DrawLongTextInCell(DeviceResources &resources, const std::wstring &text, const RectF &cell,
+                        const D2D1_COLOR_F &color, float *cachedFontSize = nullptr, float *cachedCellWidth = nullptr)
+{
+    constexpr float kMinFontSize = 9.0f;
+    float fontSize = kLongTextFontSize;
+    const bool cacheHit =
+        cachedFontSize && cachedCellWidth && *cachedFontSize > 0.0f && std::abs(*cachedCellWidth - cell.width) <= 0.5f;
+    if (cacheHit)
+    {
+        fontSize = *cachedFontSize;
+    }
+    else
+    {
+        const TextSize natural = MeasureTextSize(resources, text, fontSize, DWRITE_FONT_WEIGHT_NORMAL);
+        if (natural.width > cell.width || natural.height > cell.height)
+        {
+            fontSize = FitFontSizeForCell(resources, text, cell.width, cell.height, kLongTextFontSize, kMinFontSize);
+        }
+        if (cachedFontSize && cachedCellWidth)
+        {
+            *cachedFontSize = fontSize;
+            *cachedCellWidth = cell.width;
+        }
+    }
+
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    auto *format =
+        resources.GetTextFormat(L"Segoe UI", fontSize, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
+                                DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !factory || !format || !brush || text.empty())
+    {
+        return;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, cell.width,
+                                         cell.height, &layout)))
+    {
+        return;
+    }
+    const D2D1_RECT_F clip = D2D1::RectF(cell.x, cell.y, cell.x + cell.width, cell.y + cell.height);
+    target->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
+    target->DrawTextLayout(D2D1::Point2F(cell.x, cell.y), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    target->PopAxisAlignedClip();
+}
+
+void DrawWrappedText(DeviceResources &resources, const std::wstring &text, const RectF &rect, float size,
+                     const D2D1_COLOR_F &color, DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_CENTER,
+                     DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL, const wchar_t *font = nullptr)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(font ? font : CjkUiFont(), size, weight, alignment,
+                                           DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_WRAP);
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !factory || !format || !brush || text.empty())
+        return;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, rect.width,
+                                         rect.height, &layout)))
+        return;
+    DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+    layout->SetTrimming(&trimming, nullptr);
+    target->DrawTextLayout(D2D1::Point2F(rect.x, rect.y), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
+void DrawClipboardItemText(DeviceResources &resources, const std::wstring &text, const RectF &cell,
+                           const D2D1_COLOR_F &color)
+{
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    auto *format = resources.GetTextFormat(CjkUiFont(), kClipboardItemFontSize, DWRITE_FONT_WEIGHT_NORMAL,
+                                           DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                           DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *brush = resources.GetSolidColorBrush(color);
+    if (!target || !factory || !format || !brush || text.empty())
+        return;
+
+    std::wstring line = text;
+    for (wchar_t &ch : line)
+    {
+        if (ch == L'\r' || ch == L'\n' || ch == L'\t')
+            ch = L' ';
+    }
+
+    const RectF textRect = {cell.x + 16.0f, cell.y + 10.0f, std::max(cell.width - 58.0f, 20.0f), cell.height - 20.0f};
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(line.c_str(), static_cast<UINT32>(line.size()), format, textRect.width,
+                                         textRect.height, &layout)))
+        return;
+
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+    if (SUCCEEDED(factory->CreateEllipsisTrimmingSign(format, &ellipsis)))
+    {
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        layout->SetTrimming(&trimming, ellipsis.Get());
+    }
+
+    target->DrawTextLayout(D2D1::Point2F(textRect.x, textRect.y), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
+constexpr size_t kClipboardTooltipMaxChars = 200;
+constexpr UINT32 kClipboardTooltipMaxLines = 12;
+
+std::wstring ClipboardTooltipText(const std::wstring &text)
+{
+    std::wstring tip = text;
+    for (wchar_t &ch : tip)
+    {
+        if (ch == L'\r' || ch == L'\t')
+            ch = L' ';
+    }
+    while (!tip.empty() && tip.back() == L'\n')
+        tip.pop_back();
+    if (tip.size() > kClipboardTooltipMaxChars)
+        tip = tip.substr(0, kClipboardTooltipMaxChars) + L"...";
+    return tip;
+}
+
+void DrawClipboardHoverTooltip(DeviceResources &resources, const std::wstring &rawText, const RectF &panel,
+                               const RectF &anchor, float contentTop, bool lightTheme)
+{
+    const std::wstring tip = ClipboardTooltipText(rawText);
+    if (tip.empty())
+        return;
+
+    auto *target = resources.GetRenderTarget();
+    auto *factory = resources.GetDWriteFactory();
+    const wchar_t *font = CjkUiFont();
+    constexpr float kFontSize = 13.0f;
+    constexpr float kPadX = 14.0f;
+    constexpr float kPadY = 10.0f;
+    constexpr float kMaxWidthMargin = 24.0f;
+    auto *format = resources.GetTextFormat(font, kFontSize, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                           DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_WRAP);
+    auto *brush = resources.GetSolidColorBrush(D2D1::ColorF(0xF5F5F7));
+    if (!target || !factory || !format || !brush)
+        return;
+
+    const float maxBoxWidth = std::max(panel.width - kMaxWidthMargin, 80.0f);
+    const float maxTextWidth = std::max(maxBoxWidth - kPadX * 2.0f, 40.0f);
+    const float maxTextHeight = kFontSize * 1.35f * static_cast<float>(kClipboardTooltipMaxLines);
+
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory->CreateTextLayout(tip.c_str(), static_cast<UINT32>(tip.size()), format, maxTextWidth,
+                                         maxTextHeight, &layout)))
+        return;
+
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+    if (SUCCEEDED(factory->CreateEllipsisTrimmingSign(format, &ellipsis)))
+    {
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        layout->SetTrimming(&trimming, ellipsis.Get());
+    }
+
+    DWRITE_TEXT_METRICS metrics{};
+    if (FAILED(layout->GetMetrics(&metrics)))
+        return;
+
+    const float tipWidth = std::clamp(metrics.width + kPadX * 2.0f, 72.0f, maxBoxWidth);
+    const float tipHeight =
+        std::clamp(metrics.height + kPadY * 2.0f, kFontSize + kPadY * 2.0f, maxTextHeight + kPadY * 2.0f);
+
+    float tipX = anchor.x + (anchor.width - tipWidth) * 0.5f;
+    tipX = std::clamp(tipX, panel.x + 12.0f, panel.x + panel.width - tipWidth - 12.0f);
+    float tipY = anchor.y - tipHeight - 8.0f;
+    if (tipY < panel.y + contentTop)
+    {
+        tipY = anchor.y + anchor.height + 8.0f;
+    }
+    if (tipY + tipHeight > panel.y + panel.height - 8.0f)
+    {
+        tipY = std::max(panel.y + contentTop, panel.y + panel.height - tipHeight - 8.0f);
+    }
+
+    const RectF tipRect = {tipX, tipY, tipWidth, tipHeight};
+    const D2D1_COLOR_F tipBg = lightTheme ? D2D1::ColorF(0x2B2B33, 0.96f) : D2D1::ColorF(0x1C1C22, 0.96f);
+    FillRect(resources, tipRect, tipBg, 10.0f);
+
+    const D2D1_RECT_F textRect = D2D1::RectF(tipRect.x + kPadX, tipRect.y + kPadY, tipRect.x + tipRect.width - kPadX,
+                                             tipRect.y + tipRect.height - kPadY);
+    target->PushAxisAlignedClip(textRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    target->DrawTextLayout(D2D1::Point2F(textRect.left, textRect.top), layout.Get(), brush,
+                           D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    target->PopAxisAlignedClip();
+}
+
+} // namespace
+
+EmojiPanel::EmojiPanel(bool lightTheme, std::filesystem::path stateRoot)
+    : stateRoot_(std::move(stateRoot)), lightTheme_(lightTheme)
+{
+    if (stateRoot_.empty())
+    {
+        wchar_t buffer[32768] = {};
+        const DWORD length = GetEnvironmentVariableW(L"MSIME_CLIENT_STATE_DIR", buffer, static_cast<DWORD>(std::size(buffer)));
+        if (length > 0 && length < std::size(buffer))
+            stateRoot_ = std::filesystem::path(buffer);
+        if (stateRoot_.empty())
+        {
+            PWSTR appData = nullptr;
+            if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData)))
+            {
+                stateRoot_ = std::filesystem::path(appData) / L"MSIME-Client";
+                CoTaskMemFree(appData);
+            }
+        }
+    }
+    if (!stateRoot_.empty())
+    {
+        clipboardHistory_ = std::make_unique<msime::windows::ClipboardHistory>(stateRoot_ / L"clipboard_history.json");
+    }
+    Theme theme = ThemeManager::GetCurrent();
+    theme.textInputFontFamily = CjkUiFont();
+    ThemeManager::SetCurrent(std::move(theme));
+
+    LoadEmojiCatalog();
+    LoadKaomojiCatalog();
+    LoadSymbolCatalog();
+    searchBox_ = std::make_shared<TextBox>(kSearchHeight * kPanelScale, L"Search");
+    searchBox_->SetFontSize(14.0f);
+    searchBox_->SetPlaceholderFontSize(12.0f);
+    searchBox_->SetChromeVisible(false);
+    searchBox_->SetOnTextChanged([this](const std::wstring &text) {
+        searchText_ = text;
+        DismissToast();
+        ResetView();
+    });
+    searchBox_->SetOnFocusChanged([this](bool) { InvalidateVisual(); });
+    UpdateSearchPlaceholder();
+    SyncClipboardState(true);
+}
+
+EmojiPanel::~EmojiPanel()
+{
+    if (window_ && window_->GetHandle())
+    {
+        KillTimer(window_->GetHandle(), kClipboardPollTimerId);
+    }
+}
+
+void EmojiPanel::UpdateSearchPlaceholder()
+{
+    if (!searchBox_)
+    {
+        return;
+    }
+    if (page_ == Page::Clipboard)
+    {
+        searchBox_->SetPlaceholderText(L"搜索剪贴板");
+        searchBox_->SetFontSize(16.0f);
+        searchBox_->SetPlaceholderFontSize(16.0f);
+        return;
+    }
+
+    searchBox_->SetFontSize(14.0f);
+    searchBox_->SetPlaceholderFontSize(12.0f);
+    if (page_ == Page::Home)
+    {
+        searchBox_->SetPlaceholderText(L"Search emoji, kaomoji, and symbols");
+    }
+    else if (page_ == Page::Emoji)
+    {
+        searchBox_->SetPlaceholderText(L"Search emojis");
+    }
+    else if (page_ == Page::Kaomoji)
+    {
+        searchBox_->SetPlaceholderText(L"Search kaomoji");
+    }
+    else if (page_ == Page::Symbols)
+    {
+        searchBox_->SetPlaceholderText(L"Search symbols");
+    }
+    else
+    {
+        searchBox_->SetPlaceholderText(L"Search");
+    }
+}
+
+void EmojiPanel::LoadEmojiCatalog()
+{
+    emojiGroups_.clear();
+    const auto path = OthersDatabasePath();
+    if (path.empty() || !std::filesystem::exists(path))
+    {
+        return;
+    }
+
     sqlite3 *db = nullptr;
-    const std::string path = database.u8string();
-    if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
-      if (db) sqlite3_close(db);
-      notice = L"Emoji database unavailable";
-      return;
+    const auto widePath = path.wstring();
+    if (sqlite3_open16(widePath.c_str(), &db) != SQLITE_OK)
+    {
+        if (db)
+        {
+            sqlite3_close(db);
+        }
+        return;
     }
     sqlite3_busy_timeout(db, 3000);
-    load_emoji(db);
-    load_kaomoji(db);
-    load_symbols(db);
-    sqlite3_close(db);
-    if (!emoji.empty() || !kaomoji.empty() || !symbols.empty()) notice = L"Click an item to copy";
-  }
 
-  void load_clipboard(const std::filesystem::path &directory) {
-    state_root = directory;
-    if (directory.empty()) return;
-    clipboard_history = std::make_unique<msime::windows::ClipboardHistory>(
-        directory / L"clipboard_history.json");
-    refresh_clipboard();
-  }
-
-  void refresh_clipboard() {
-    bool enabled = false;
-    std::vector<Item> items;
-    if (clipboard_history && !state_root.empty()) try {
-      std::ifstream input(state_root / L"preferences.json", std::ios::binary);
-      if (input) {
-        const auto document = nlohmann::json::parse(input);
-        enabled = document.is_object() &&
-                  document.value("preferences", nlohmann::json::object())
-                      .value("clipboard_history", false);
-      }
-    } catch (...) {
-      enabled = false;
-    }
-    if (enabled) {
-      for (const auto &text : clipboard_history->load()) {
-        const auto wide = utf8_to_wide(text);
-        if (!wide.empty()) items.push_back({wide, wide});
-      }
-    }
-    const bool changed = enabled != clipboard_enabled ||
-                         items.size() != clipboard.size() ||
-                         !std::equal(items.begin(), items.end(), clipboard.begin(),
-                                     [](const Item &left, const Item &right) {
-                                       return left.text == right.text;
-                                     });
-    if (!changed) return;
-    clipboard_enabled = enabled;
-    clipboard = std::move(items);
-    clipboard_delete_hovered = clipboard_delete_pressed = kInvalid;
-    hovered_item = pressed_item = kInvalid;
-    if (hwnd) {
-      clamp_scroll();
-      if (page == Page::Clipboard) InvalidateRect(hwnd, nullptr, FALSE);
-    }
-  }
-
-  void load_emoji(sqlite3 *db) {
-    sqlite3_stmt *statement = nullptr;
-    constexpr char sql[] = "SELECT emoji, category, keywords FROM emoji ORDER BY sort_order";
-    if (sqlite3_prepare_v2(db, sql, -1, &statement, nullptr) != SQLITE_OK) return;
-    while (sqlite3_step(statement) == SQLITE_ROW) {
-      const std::wstring text = utf8_to_wide(sqlite3_column_text(statement, 0));
-      const std::wstring group = utf8_to_wide(sqlite3_column_text(statement, 1));
-      const std::wstring keywords = utf8_to_wide(sqlite3_column_text(statement, 2));
-      if (text.empty() || group.empty()) continue;
-      find_group(emoji, group, L"😀")->items.push_back({text, keywords.empty() ? text : keywords});
-    }
-    sqlite3_finalize(statement);
-  }
-
-  void load_kaomoji(sqlite3 *db) {
-    sqlite3_stmt *statement = nullptr;
-    constexpr char sql[] = "SELECT kaomoji, keywords FROM kaomoji_catalog ORDER BY sort_order";
-    if (sqlite3_prepare_v2(db, sql, -1, &statement, nullptr) != SQLITE_OK) return;
-    Group *group = find_group(kaomoji, L"All", L";-)");
-    while (sqlite3_step(statement) == SQLITE_ROW) {
-      const std::wstring text = utf8_to_wide(sqlite3_column_text(statement, 0));
-      const std::wstring keywords = utf8_to_wide(sqlite3_column_text(statement, 1));
-      if (!text.empty()) group->items.push_back({text, keywords.empty() ? text : keywords});
-    }
-    sqlite3_finalize(statement);
-    if (group->items.empty()) kaomoji.clear();
-  }
-
-  void load_symbols(sqlite3 *db) {
-    sqlite3_stmt *statement = nullptr;
-    constexpr char sql[] = "SELECT symbol, category, parent_category, keywords FROM symbol_catalog ORDER BY sort_order";
-    if (sqlite3_prepare_v2(db, sql, -1, &statement, nullptr) != SQLITE_OK) return;
-    while (sqlite3_step(statement) == SQLITE_ROW) {
-      const std::wstring text = utf8_to_wide(sqlite3_column_text(statement, 0));
-      const std::wstring group = utf8_to_wide(sqlite3_column_text(statement, 1));
-      const std::wstring parent = utf8_to_wide(sqlite3_column_text(statement, 2));
-      const std::wstring keywords = utf8_to_wide(sqlite3_column_text(statement, 3));
-      if (text.empty() || group.empty()) continue;
-      const std::wstring icon = text.substr(0, std::min<size_t>(text.size(), 2));
-      (void)parent;
-      find_group(symbols, group, icon)->items.push_back({text, keywords.empty() ? group : keywords});
-    }
-    sqlite3_finalize(statement);
-  }
-
-  bool matches(const Item &item) const {
-    if (search_text.empty()) return true;
-    const std::wstring query = lower(search_text);
-    return lower(item.text + L" " + item.keywords).find(query) != std::wstring::npos;
-  }
-
-  std::vector<VisibleGroup> visible_groups() const {
-    const auto add = [this](std::vector<VisibleGroup> &result, const Group &group, size_t limit) {
-      VisibleGroup visible{group.title, group.icon, {}};
-      for (const Item &item : group.items) {
-        if (matches(item) && (limit == 0 || visible.items.size() < limit)) visible.items.push_back(&item);
-      }
-      if (!visible.items.empty()) result.push_back(std::move(visible));
-    };
-    std::vector<VisibleGroup> result;
-    if (page == Page::Clipboard) {
-      if (!clipboard_enabled) return result;
-      VisibleGroup history{L"Clipboard history", L"", {}};
-      for (const Item &item : clipboard)
-        if (matches(item)) history.items.push_back(&item);
-      if (!history.items.empty()) result.push_back(std::move(history));
-      return result;
-    }
-    if (page == Page::Home) {
-      if (!recent.empty()) {
-        VisibleGroup recent_group{L"Recently used", L"◷", {}};
-        for (const Item &item : recent) {
-          if (matches(item)) recent_group.items.push_back(&item);
-        }
-        if (!recent_group.items.empty()) result.push_back(std::move(recent_group));
-      }
-      if (!emoji.empty()) for (const Group &group : emoji) add(result, group, 18);
-      if (!kaomoji.empty()) add(result, kaomoji.front(), 12);
-      if (!symbols.empty()) for (const Group &group : symbols) add(result, group, 12);
-      return result;
-    }
-    const std::vector<Group> *groups = page == Page::Emoji ? &emoji : page == Page::Kaomoji ? &kaomoji : &symbols;
-    if (groups && category < groups->size()) add(result, (*groups)[category], 0);
-    return result;
-  }
-
-  int content_height() const {
-    if (page == Page::Clipboard) {
-      const auto groups = visible_groups();
-      return static_cast<int>(groups.empty()
-                                  ? 0
-                                  : groups.front().items.size() *
-                                            (kClipboardRowHeight +
-                                             kClipboardRowGap) +
-                                        12);
-    }
-    int height = 0;
-    for (const VisibleGroup &group : visible_groups()) {
-      height += kGroupTitleHeight + static_cast<int>((group.items.size() + 5) / 6) * kCellHeight + 12;
-    }
-    return height;
-  }
-
-  void clamp_scroll() {
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    scroll = std::clamp(scroll, 0, std::max(content_height() - (static_cast<int>(bounds.bottom) - kContentTop - 30), 0));
-  }
-
-  void enter(Page next) {
-    page = next;
-    category = 0;
-    scroll = 0;
-    search_text.clear();
-    if (search) SetWindowTextW(search, L"");
-    notice = L"Click an item to copy";
-    if (next == Page::Clipboard) refresh_clipboard();
-    InvalidateRect(hwnd, nullptr, FALSE);
-  }
-
-  void activate_item(size_t index) {
-    size_t current = 0;
-    for (const VisibleGroup &group : visible_groups()) {
-      for (const Item *item : group.items) {
-        if (current++ != index) continue;
-        const bool copied = copy_to_clipboard(hwnd, item->text);
-        notice = copied ? L"Copied  " + item->text : L"Could not access the clipboard";
-        if (copied && page != Page::Clipboard) {
-          recent.erase(std::remove_if(recent.begin(), recent.end(), [item](const Item &entry) { return entry.text == item->text; }), recent.end());
-          recent.insert(recent.begin(), *item);
-          if (recent.size() > 28) recent.resize(28);
-        }
-        InvalidateRect(hwnd, nullptr, FALSE);
+    sqlite3_stmt *stmt = nullptr;
+    const char *sql = "SELECT emoji, category, keywords FROM emoji ORDER BY sort_order";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        sqlite3_close(db);
         return;
-      }
     }
-  }
 
-  RECT clipboard_clear_rect() const {
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    return {bounds.right - 116, kSubTabsTop + 4, bounds.right - 18,
-            kSubTabsTop + 32};
-  }
-
-  void remove_clipboard_item(size_t index) {
-    const auto groups = visible_groups();
-    if (!clipboard_history || groups.empty() ||
-        index >= groups.front().items.size())
-      return;
-    const auto encoded = wide_to_utf8(groups.front().items[index]->text);
-    if (encoded.empty() || !clipboard_history->remove(encoded)) {
-      notice = L"Could not remove clipboard item";
-      return;
+    Group *current = nullptr;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        auto emoji = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+        auto category = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)));
+        auto keywords = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)));
+        if (emoji.empty() || category.empty())
+        {
+            continue;
+        }
+        if (!current || current->title != category)
+        {
+            emojiGroups_.push_back({category, IconForCategory(category), {}});
+            current = &emojiGroups_.back();
+        }
+        if (keywords.empty())
+        {
+            keywords = emoji;
+        }
+        const bool longText = emoji.size() > 4;
+        auto keywordsLower = Lower(keywords);
+        current->items.push_back({std::move(emoji), std::move(keywords), std::move(keywordsLower), longText});
     }
-    refresh_clipboard();
-    notice = L"Clipboard item removed";
-  }
 
-  void clear_clipboard() {
-    if (!clipboard_history || !clipboard_history->clear()) {
-      notice = L"Could not clear clipboard history";
-      return;
-    }
-    refresh_clipboard();
-    notice = L"Clipboard history cleared";
-  }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    displayDirty_ = true;
+}
 
-  size_t hit_clipboard_delete(POINT point) const {
-    if (page != Page::Clipboard || !clipboard_enabled) return kInvalid;
-    const auto groups = visible_groups();
-    if (groups.empty()) return kInvalid;
-    const auto &items = groups.front().items;
-    const int right = GetClientWidth() - kGridRight;
-    int y = kContentTop + 6 - scroll;
-    for (size_t index = 0; index < items.size(); ++index) {
-      const RECT cell{kGridLeft, y, right, y + kClipboardRowHeight};
-      const RECT remove{right - 40, cell.top + 16, right - 10, cell.bottom - 16};
-      if (contains(cell, point) && contains(remove, point)) return index;
-      y += kClipboardRowHeight + kClipboardRowGap;
+void EmojiPanel::LoadKaomojiCatalog()
+{
+    kaomojiGroups_.clear();
+    const auto path = OthersDatabasePath();
+    if (path.empty() || !std::filesystem::exists(path))
+    {
+        return;
     }
-    return kInvalid;
-  }
 
-  size_t hit_item(POINT point) const {
-    if (point.y < kContentTop) return kInvalid;
-    if (page == Page::Clipboard) {
-      if (!clipboard_enabled) return kInvalid;
-      const auto groups = visible_groups();
-      if (groups.empty()) return kInvalid;
-      const auto &items = groups.front().items;
-      const int right = GetClientWidth() - kGridRight;
-      int y = kContentTop + 6 - scroll;
-      for (size_t index = 0; index < items.size(); ++index) {
-        const RECT cell{kGridLeft, y, right, y + kClipboardRowHeight};
-        if (contains(cell, point)) return index;
-        y += kClipboardRowHeight + kClipboardRowGap;
-      }
-      return kInvalid;
+    sqlite3 *db = nullptr;
+    const auto widePath = path.wstring();
+    if (sqlite3_open16(widePath.c_str(), &db) != SQLITE_OK)
+    {
+        if (db)
+        {
+            sqlite3_close(db);
+        }
+        return;
     }
-    int y = kContentTop - scroll;
-    size_t index = 0;
-    for (const VisibleGroup &group : visible_groups()) {
-      y += kGroupTitleHeight;
-      const int width = std::max(1, (GetClientWidth() - kGridLeft - kGridRight - 5 * kGap) / 6);
-      for (size_t item = 0; item < group.items.size(); ++item) {
-        const int row = static_cast<int>(item / 6);
-        const int column = static_cast<int>(item % 6);
-        RECT cell{kGridLeft + column * (width + kGap), y + row * kCellHeight, kGridLeft + column * (width + kGap) + width, y + row * kCellHeight + kCellHeight - kGap};
-        if (contains(cell, point)) return index + item;
-      }
-      index += group.items.size();
-      y += static_cast<int>((group.items.size() + 5) / 6) * kCellHeight + 12;
-    }
-    return kInvalid;
-  }
+    sqlite3_busy_timeout(db, 3000);
 
-  int GetClientWidth() const {
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    return bounds.right;
-  }
-
-  size_t hit_tab(POINT point) const {
-    if (point.y < kTabsTop || point.y >= kTabsTop + kTabsHeight) return kInvalid;
-    const int width = std::max(1, (GetClientWidth() - 36 - 6 * 4) / 7);
-    for (size_t index = 0; index < 7; ++index) {
-      RECT tab{18 + static_cast<int>(index) * (width + 4), kTabsTop, 18 + static_cast<int>(index + 1) * width + static_cast<int>(index) * 4, kTabsTop + kTabsHeight};
-      if (contains(tab, point)) return index;
+    sqlite3_stmt *stmt = nullptr;
+    const char *sql = "SELECT kaomoji, keywords FROM kaomoji_catalog ORDER BY sort_order";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        sqlite3_close(db);
+        return;
     }
-    return kInvalid;
-  }
 
-  size_t hit_category(POINT point) const {
-    if (page != Page::Emoji && page != Page::Symbols) return kInvalid;
-    const auto &groups = page == Page::Emoji ? emoji : symbols;
-    if (point.y < kSubTabsTop || point.y >= kSubTabsTop + 34) return kInvalid;
-    const size_t count = std::max<size_t>(groups.size(), 1);
-    const int width = std::max(1, (GetClientWidth() - 58) / static_cast<int>(count));
-    for (size_t index = 0; index < groups.size(); ++index) {
-      RECT tab{50 + static_cast<int>(index) * width, kSubTabsTop, 50 + static_cast<int>(index + 1) * width, kSubTabsTop + 34};
-      if (contains(tab, point)) return index;
+    kaomojiGroups_.push_back({L"All", L";-)", {}});
+    Group *current = &kaomojiGroups_.back();
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        auto kaomoji = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+        auto keywords = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)));
+        if (kaomoji.empty())
+        {
+            continue;
+        }
+        if (keywords.empty())
+        {
+            keywords = kaomoji;
+        }
+        const bool longText = kaomoji.size() > 4;
+        auto keywordsLower = Lower(keywords);
+        current->items.push_back({std::move(kaomoji), std::move(keywords), std::move(keywordsLower), longText});
     }
-    return kInvalid;
-  }
 
-  void paint() {
-    PAINTSTRUCT paint{};
-    const HDC dc = BeginPaint(hwnd, &paint);
-    struct End {
-      HWND window;
-      PAINTSTRUCT &state;
-      ~End() { EndPaint(window, &state); }
-    } end{hwnd, paint};
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    if (!dc || !device.EnsureForWindow(hwnd))
-      return;
-    auto *target = device.GetRenderTarget();
-    if (!target)
-      return;
-    using msime::windows::CandidateColor;
-    auto brush = [&](const CandidateColor &color) {
-      return device.GetSolidColorBrush(
-          D2D1::ColorF(color.r, color.g, color.b, color.a));
-    };
-    auto format = [&](const wchar_t *family, float size,
-                      DWRITE_TEXT_ALIGNMENT alignment) {
-      return device.GetTextFormat(family, size, DWRITE_FONT_WEIGHT_NORMAL,
-                                  alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-                                  DWRITE_WORD_WRAPPING_NO_WRAP);
-    };
-    auto *leading = format(L"Segoe UI", 14.0f, DWRITE_TEXT_ALIGNMENT_LEADING);
-    auto *centered = format(L"Segoe UI", 14.0f, DWRITE_TEXT_ALIGNMENT_CENTER);
-    auto *glyphs =
-        format(L"Segoe UI Emoji", 28.0f, DWRITE_TEXT_ALIGNMENT_CENTER);
-    auto *text_brush = brush(palette.text);
-    auto *muted = brush(palette.number);
-    auto *hover = brush(palette.hover);
-    auto *selected = brush(palette.selected);
-    if (!leading || !centered || !glyphs || !text_brush || !muted || !hover ||
-        !selected)
-      return;
-    auto box = [](int left, int top, int right, int bottom) {
-      return D2D1_RECT_F{static_cast<float>(left), static_cast<float>(top),
-                         static_cast<float>(right), static_cast<float>(bottom)};
-    };
-    auto write = [&](const std::wstring &value, D2D1_RECT_F where,
-                     ID2D1SolidColorBrush *color, IDWriteTextFormat *with) {
-      target->DrawText(value.c_str(), static_cast<UINT32>(value.size()), with,
-                       where, color);
-    };
-    target->BeginDraw();
-    target->Clear(D2D1::ColorF(palette.surface.r, palette.surface.g,
-                               palette.surface.b, palette.surface.a));
-    write(kTitle, box(18, 0, bounds.right - 48, kHeaderHeight), text_brush,
-          leading);
-    const auto close = box(bounds.right - 38, 6, bounds.right - 8, 32);
-    if (close_hovered || close_pressed)
-      target->FillRectangle(close, close_pressed ? selected : hover);
-    const float cx = (close.left + close.right) / 2.0f;
-    const float cy = (close.top + close.bottom) / 2.0f;
-    target->DrawLine({cx - 6.0f, cy - 6.0f}, {cx + 6.0f, cy + 6.0f}, text_brush,
-                     2.0f);
-    target->DrawLine({cx + 6.0f, cy - 6.0f}, {cx - 6.0f, cy + 6.0f}, text_brush,
-                     2.0f);
-    if (page != Page::Home)
-      write(L"\u2039", box(18, kSubTabsTop, 46, kSubTabsTop + 34), muted,
-            centered);
-    for (size_t index = 0; index < 7; ++index) {
-      const int width =
-          std::max(1, (static_cast<int>(bounds.right) - 36 - 6 * 4) / 7);
-      const auto tab = box(18 + static_cast<int>(index) * (width + 4), kTabsTop,
-                           18 + static_cast<int>(index + 1) * width +
-                               static_cast<int>(index) * 4,
-                           kTabsTop + kTabsHeight);
-      if (index == static_cast<size_t>(page))
-        target->FillRectangle(tab, selected);
-      const wchar_t *icons[] = {L"\u25f7", L"\U0001F600", L"\U0001F5BC", L"GIF",
-                                L"\u30FE", L"\u2605",     L"\u25A3"};
-      const wchar_t *labels[] = {L"Recent",  L"Emoji",   L"Stickers", L"GIF",
-                                 L"Kaomoji", L"Symbols", L"Clipboard"};
-      auto icon = tab;
-      icon.bottom -= 17.0f;
-      write(icons[index], icon, text_brush, glyphs);
-      auto label = tab;
-      label.top = label.bottom - 19.0f;
-      write(labels[index], label, muted, centered);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    if (current->items.empty())
+    {
+        kaomojiGroups_.clear();
     }
-    if (page == Page::Emoji || page == Page::Symbols) {
-      const auto &groups = page == Page::Emoji ? emoji : symbols;
-      const size_t count = std::max<size_t>(groups.size(), 1);
-      const int width = std::max(
-          1, (static_cast<int>(bounds.right) - 58) / static_cast<int>(count));
-      for (size_t index = 0; index < groups.size(); ++index) {
-        const auto tab = box(50 + static_cast<int>(index) * width, kSubTabsTop,
-                             50 + static_cast<int>(index + 1) * width,
-                             kSubTabsTop + 34);
-        if (index == category)
-          target->FillRectangle(tab, selected);
-        write(groups[index].icon, tab, text_brush, glyphs);
-      }
-    } else if (page != Page::Home) {
-      const wchar_t *label = page == Page::Kaomoji  ? L"Kaomoji"
-                             : page == Page::Sticker ? L"Stickers"
-                             : page == Page::Gif     ? L"GIF"
-                                                     : L"Clipboard";
-      write(label, box(50, kSubTabsTop, bounds.right - 18, kSubTabsTop + 34),
-            text_brush, leading);
-    }
-    if (page == Page::Sticker || page == Page::Gif || page == Page::Clipboard) {
-      if (page == Page::Clipboard) {
-        if (!clipboard_enabled) {
-          write(L"Clipboard history is disabled in Settings",
-                box(18, kContentTop + 40, bounds.right - 18,
-                    kContentTop + 120),
-                muted, centered);
-        } else if (clipboard.empty()) {
-          write(L"No clipboard history",
-                box(18, kContentTop + 40, bounds.right - 18,
-                    kContentTop + 120),
-                muted, centered);
-        } else {
-          const auto clear = box(bounds.right - 116, kSubTabsTop + 4,
-                                 bounds.right - 18, kSubTabsTop + 32);
-          if (clipboard_clear_hovered || clipboard_clear_pressed)
-            target->FillRoundedRectangle(
-                {clear, palette.item_radius, palette.item_radius},
-                clipboard_clear_pressed ? selected : hover);
-          write(L"Clear all", clear, text_brush, centered);
+    InvalidateIdleKaomojiLayout();
+    displayDirty_ = true;
+}
 
-          const auto groups = visible_groups();
-          if (groups.empty()) {
-            write(L"No matching clipboard history",
-                  box(18, kContentTop + 40, bounds.right - 18,
-                      kContentTop + 120),
-                  muted, centered);
-          } else {
-            int y = kContentTop + 6 - scroll;
-            for (size_t index = 0; index < groups.front().items.size(); ++index) {
-              const auto cell = box(kGridLeft, y, bounds.right - kGridRight,
-                                    y + kClipboardRowHeight);
-              const auto item = groups.front().items[index];
-              if (index == hovered_item || index == pressed_item)
-                target->FillRoundedRectangle(
-                    {cell, palette.item_radius, palette.item_radius},
-                    index == pressed_item ? selected : hover);
-              auto text_cell = cell;
-              text_cell.right -= 52.0f;
-              write(item->text, text_cell, text_brush, leading);
-              const auto remove = box(bounds.right - 58, y + 16,
-                                      bounds.right - 28, y + 46);
-              if (index == clipboard_delete_hovered ||
-                  index == clipboard_delete_pressed)
-                target->FillRoundedRectangle(
-                    {remove, palette.item_radius, palette.item_radius},
-                    index == clipboard_delete_pressed ? selected : hover);
-              write(L"×", remove, muted, centered);
-              y += kClipboardRowHeight + kClipboardRowGap;
+void EmojiPanel::LoadSymbolCatalog()
+{
+    symbolGroups_.clear();
+    symbolTabs_.clear();
+    const auto path = OthersDatabasePath();
+    if (path.empty() || !std::filesystem::exists(path))
+    {
+        return;
+    }
+
+    sqlite3 *db = nullptr;
+    const auto widePath = path.wstring();
+    if (sqlite3_open16(widePath.c_str(), &db) != SQLITE_OK)
+    {
+        if (db)
+        {
+            sqlite3_close(db);
+        }
+        return;
+    }
+    sqlite3_busy_timeout(db, 3000);
+
+    sqlite3_stmt *stmt = nullptr;
+    const char *sql = "SELECT symbol, category, parent_category, keywords FROM symbol_catalog ORDER BY sort_order";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        sqlite3_close(db);
+        return;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        auto symbol = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+        auto category = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)));
+        auto parent = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)));
+        auto keywords = Utf8ToWide(reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3)));
+        if (symbol.empty() || category.empty())
+        {
+            continue;
+        }
+        if (parent.empty())
+        {
+            parent = category;
+        }
+        if (symbolTabs_.empty() || symbolTabs_.back().title != parent)
+        {
+            symbolTabs_.push_back({parent, symbol, {}});
+        }
+        if (symbolGroups_.empty() || symbolGroups_.back().title != category)
+        {
+            symbolGroups_.push_back({category, symbol, {}});
+            symbolTabs_.back().groupIndices.push_back(symbolGroups_.size() - 1);
+            if (symbolTabs_.back().icon.empty())
+            {
+                symbolTabs_.back().icon = symbol;
             }
-          }
         }
-      } else {
-        const wchar_t *message = page == Page::Sticker
-                                     ? L"Stickers can be connected here"
-                                     : L"GIF sources can be connected here";
-        write(message,
-              box(18, kContentTop + 40, bounds.right - 18,
-                  kContentTop + 120),
-              muted, centered);
-      }
-    } else {
-      const auto groups = visible_groups();
-      int y = kContentTop - scroll;
-      size_t flat = 0;
-      for (const VisibleGroup &group : groups) {
-        write(group.title,
-              box(kGridLeft, y, bounds.right - kGridRight,
-                  y + kGroupTitleHeight),
-              muted, leading);
-        y += kGroupTitleHeight;
-        const int width =
-            std::max(1, (static_cast<int>(bounds.right) - kGridLeft -
-                         kGridRight - 5 * kGap) /
-                            6);
-        for (size_t item = 0; item < group.items.size(); ++item) {
-          const int row = static_cast<int>(item / 6);
-          const int column = static_cast<int>(item % 6);
-          const auto cell =
-              box(kGridLeft + column * (width + kGap), y + row * kCellHeight,
-                  kGridLeft + column * (width + kGap) + width,
-                  y + row * kCellHeight + kCellHeight - kGap);
-          const size_t item_index = flat + item;
-          if (item_index == hovered_item || item_index == pressed_item)
-            target->FillRoundedRectangle(
-                {cell, palette.item_radius, palette.item_radius},
-                item_index == pressed_item ? selected : hover);
-          write(group.items[item]->text, cell, text_brush, glyphs);
+        if (keywords.empty())
+        {
+            keywords = category;
         }
-        flat += group.items.size();
-        y += static_cast<int>((group.items.size() + 5) / 6) * kCellHeight + 12;
-      }
-      (void)flat;
+        const bool longText = symbol.size() > 4;
+        auto keywordsLower = Lower(keywords);
+        symbolGroups_.back().items.push_back(
+            {std::move(symbol), std::move(keywords), std::move(keywordsLower), longText});
     }
-    write(notice, box(18, bounds.bottom - 30, bounds.right - 18, bounds.bottom),
-          muted, centered);
-    if (target->EndDraw() == D2DERR_RECREATE_TARGET)
-      device.DiscardTarget();
-  }
-};
 
-Panel *panel_for(HWND hwnd) { return reinterpret_cast<Panel *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)); }
-
-std::filesystem::path resource_database(int argc, wchar_t **argv) {
-  std::filesystem::path value;
-  for (int index = 1; index + 1 < argc; ++index) {
-    if (std::wstring(argv[index]) == L"--resources") value = argv[++index];
-  }
-  if (value.empty()) {
-    wchar_t buffer[32768]{};
-    const DWORD length = GetEnvironmentVariableW(L"MSIME_CLIENT_RESOURCES", buffer, static_cast<DWORD>(std::size(buffer)));
-    if (length > 0 && length < std::size(buffer)) value = buffer;
-  }
-  if (!value.empty() && std::filesystem::is_directory(value)) value /= L"others.db";
-  if (!value.empty()) return value;
-  wchar_t module[32768]{};
-  const DWORD length = GetModuleFileNameW(nullptr, module, static_cast<DWORD>(std::size(module)));
-  if (!length || length >= std::size(module)) return {};
-  const auto parent = std::filesystem::path(module).parent_path();
-  for (const auto &candidate : {parent / L"resources" / L"others.db", parent / L"others.db"}) {
-    if (std::filesystem::exists(candidate)) return candidate;
-  }
-  return {};
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    if (symbolGroups_.empty())
+    {
+        symbolTabs_.clear();
+    }
+    displayDirty_ = true;
 }
 
-LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-  if (message == WM_NCCREATE) {
-    const auto *create = reinterpret_cast<const CREATESTRUCTW *>(lparam);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
-  }
-  Panel *panel = panel_for(hwnd);
-  if (!panel) return DefWindowProcW(hwnd, message, wparam, lparam);
-  switch (message) {
-    case WM_CREATE:
-      panel->hwnd = hwnd;
-      panel->search_brush = CreateSolidBrush(RGB(43, 43, 51));
-      panel->search = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 18, kSearchTop, 620, kSearchHeight, hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
-      panel->search_font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-      SendMessageW(panel->search, WM_SETFONT, reinterpret_cast<WPARAM>(panel->search_font), TRUE);
-      panel->layout();
-      SetTimer(hwnd, 1, 400, nullptr);
-      return 0;
-    case WM_CTLCOLOREDIT:
-      if (reinterpret_cast<HWND>(lparam) == panel->search) {
-        HDC dc = reinterpret_cast<HDC>(wparam);
-        SetTextColor(dc, RGB(245, 245, 247)); SetBkColor(dc, RGB(43, 43, 51)); return reinterpret_cast<LRESULT>(panel->search_brush);
-      }
-      break;
-    case WM_COMMAND:
-      if (reinterpret_cast<HWND>(lparam) == panel->search && HIWORD(wparam) == EN_CHANGE) {
-        wchar_t text[1024]{}; GetWindowTextW(panel->search, text, static_cast<int>(std::size(text)));
-        panel->search_text = text; panel->scroll = 0; InvalidateRect(hwnd, nullptr, FALSE);
-      }
-      return 0;
-    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
-    case WM_ERASEBKGND: return 1;
-    case WM_SIZE: panel->layout(); panel->clamp_scroll(); return 0;
-    case WM_TIMER:
-      if (wparam == 1) panel->refresh_clipboard();
-      return 0;
-    case WM_MOUSEWHEEL:
-      panel->scroll -= GET_WHEEL_DELTA_WPARAM(wparam) / 4; panel->clamp_scroll(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
-    case WM_MOUSEMOVE: {
-      POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-      RECT bounds{}; GetClientRect(hwnd, &bounds);
-      panel->close_hovered = contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
-      panel->clipboard_clear_hovered = panel->page == Page::Clipboard &&
-                                      panel->clipboard_enabled &&
-                                      !panel->clipboard.empty() &&
-                                      contains(panel->clipboard_clear_rect(), point);
-      panel->clipboard_delete_hovered = panel->hit_clipboard_delete(point);
-      panel->back_hovered = panel->page != Page::Home && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
-      panel->hovered_item = panel->close_hovered || panel->back_hovered ||
-                                    panel->clipboard_clear_hovered ||
-                                    panel->clipboard_delete_hovered != kInvalid
-                                ? kInvalid
-                                : panel->hit_item(point);
-      InvalidateRect(hwnd, nullptr, FALSE); return 0;
-    }
-    case WM_LBUTTONDOWN: {
-      POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-      RECT bounds{}; GetClientRect(hwnd, &bounds);
-      panel->close_pressed = contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
-      panel->clipboard_clear_pressed = panel->page == Page::Clipboard &&
-                                      panel->clipboard_enabled &&
-                                      !panel->clipboard.empty() &&
-                                      contains(panel->clipboard_clear_rect(), point);
-      panel->clipboard_delete_pressed = panel->hit_clipboard_delete(point);
-      panel->back_pressed = panel->page != Page::Home && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
-      panel->pressed_tab = panel->close_pressed || panel->back_pressed ||
-                                   panel->clipboard_clear_pressed ||
-                                   panel->clipboard_delete_pressed != kInvalid
-                               ? kInvalid
-                               : panel->hit_tab(point);
-      panel->pressed_category = panel->pressed_tab == kInvalid ? panel->hit_category(point) : kInvalid;
-      panel->pressed_item = panel->pressed_tab == kInvalid && panel->pressed_category == kInvalid &&
-                                    panel->clipboard_delete_pressed == kInvalid
-                                ? panel->hit_item(point)
-                                : kInvalid;
-      SetCapture(hwnd); InvalidateRect(hwnd, nullptr, FALSE); return 0;
-    }
-    case WM_LBUTTONUP: {
-      POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-      RECT bounds{}; GetClientRect(hwnd, &bounds);
-      const bool close = panel->close_pressed && contains({bounds.right - 38, 6, bounds.right - 8, 32}, point);
-      const bool clear_clipboard = panel->clipboard_clear_pressed &&
-                                   contains(panel->clipboard_clear_rect(), point);
-      const size_t delete_clipboard = panel->hit_clipboard_delete(point);
-      const bool back = panel->back_pressed && contains({18, kSubTabsTop, 46, kSubTabsTop + 34}, point);
-      const size_t tab = panel->hit_tab(point);
-      const size_t category = panel->hit_category(point);
-      const size_t item = panel->hit_item(point);
-      if (panel->clipboard_delete_pressed != kInvalid &&
-          panel->clipboard_delete_pressed == delete_clipboard) {
-        panel->remove_clipboard_item(delete_clipboard);
-      } else if (clear_clipboard) {
-        panel->clear_clipboard();
-      } else if (panel->pressed_item != kInvalid && panel->pressed_item == item) panel->activate_item(item);
-      else if (panel->pressed_category != kInvalid && panel->pressed_category == category) { panel->category = category; panel->scroll = 0; InvalidateRect(hwnd, nullptr, FALSE); }
-      else if (panel->pressed_tab != kInvalid && panel->pressed_tab == tab) panel->enter(static_cast<Page>(tab));
-      else if (back) panel->enter(Page::Home);
-      panel->close_pressed = false; panel->back_pressed = false;
-      panel->clipboard_clear_pressed = false;
-      panel->clipboard_delete_pressed = kInvalid;
-      panel->pressed_item = panel->pressed_tab = panel->pressed_category = kInvalid;
-      if (GetCapture() == hwnd) ReleaseCapture();
-      if (close) DestroyWindow(hwnd);
-      return 0;
-    }
-    case WM_PAINT: panel->paint(); return 0;
-    case WM_DESTROY: KillTimer(hwnd, 1); PostQuitMessage(0); return 0;
-    default: break;
-  }
-  return DefWindowProcW(hwnd, message, wparam, lparam);
+SizeF EmojiPanel::Measure(const SizeF &availableSize)
+{
+    return availableSize;
 }
-}  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_command) {
-  if (command_line && std::wstring(command_line) == L"--help") return 0;
-  // Direct2D imaging is a COM server; --help answers before the apartment so
-  // the smoke runner still needs nothing.
-  const HRESULT entered =
-      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-  if (FAILED(entered) && entered != RPC_E_CHANGED_MODE) return 1;
-  struct Apartment {
-    bool owned;
-    ~Apartment() { if (owned) CoUninitialize(); }
-  } apartment{entered != RPC_E_CHANGED_MODE};
-  HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\MSIMEClientEmojiPanel.SingleInstance");
-  if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) { if (mutex) CloseHandle(mutex); return 0; }
-  WNDCLASSEXW window_class{};
-  window_class.cbSize = sizeof(window_class); window_class.hInstance = instance; window_class.lpfnWndProc = window_proc; window_class.lpszClassName = kClassName; window_class.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  if (!RegisterClassExW(&window_class)) { CloseHandle(mutex); return 1; }
-  RECT work_area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
-  constexpr LONG width = 760, height = 720;
-  const LONG x = work_area.left + std::max<LONG>(0, (work_area.right - work_area.left - width) / 2);
-  const LONG y = std::max<LONG>(work_area.top, work_area.bottom - height - 12);
-  int argc = 0;
-  wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  Panel state;
-  state.load(resource_database(argc, argv));
-  state.load_clipboard(state_directory(argc, argv));
-  if (argv) LocalFree(argv);
-  HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kClassName, kTitle, WS_POPUP, x, y, width, height, nullptr, nullptr, instance, &state);
-  if (!window) { UnregisterClassW(kClassName, instance); CloseHandle(mutex); return 1; }
-  ShowWindow(window, show_command == SW_HIDE ? SW_SHOWNOACTIVATE : SW_SHOWNOACTIVATE); UpdateWindow(window);
-  MSG message{}; while (GetMessageW(&message, nullptr, 0, 0) > 0) { TranslateMessage(&message); DispatchMessageW(&message); }
-  UnregisterClassW(kClassName, instance); CloseHandle(mutex); return static_cast<int>(message.wParam);
+void EmojiPanel::Arrange(const RectF &finalRect)
+{
+    viewportBounds_ = finalRect;
+    const float newWidth = finalRect.width / kPanelScale;
+    const float newHeight = finalRect.height / kPanelScale;
+    if (std::abs(newWidth - bounds_.width) > 0.5f || std::abs(newHeight - bounds_.height) > 0.5f)
+    {
+        MarkDisplayDirty();
+        InvalidateIdleKaomojiLayout();
+    }
+    bounds_ = {0.0f, 0.0f, newWidth, newHeight};
+    if (searchBox_)
+    {
+        // Leave room on the left for the magnifying-glass chrome (Windows-style search).
+        const RectF search = SearchRect();
+        const RectF textArea = {search.x + 46.0f, search.y + 4.0f, search.width - 58.0f, search.height - 8.0f};
+        const RectF searchViewportRect = ToViewportRect(textArea);
+        searchBox_->MeasureInLayout({searchViewportRect.width, searchViewportRect.height});
+        searchBox_->ArrangeInLayout(searchViewportRect);
+    }
+    ClampScroll();
 }
+
+void EmojiPanel::Attach(Window *window)
+{
+    Visual::Attach(window);
+    if (searchBox_)
+    {
+        searchBox_->Attach(window);
+    }
+    if (window && window->GetHandle())
+    {
+        SetTimer(window->GetHandle(), kClipboardPollTimerId, kClipboardPollMs, nullptr);
+    }
+    SyncClipboardState(true);
+}
+
+Visual *EmojiPanel::FindVisualAt(const PointF &point)
+{
+    if (searchBox_ && searchBox_->HitTest(point))
+    {
+        return searchBox_.get();
+    }
+    return HitTest(ToDesignPoint(point)) ? this : nullptr;
+}
+
+Visual *EmojiPanel::FindFocusableAt(const PointF &point)
+{
+    if (searchBox_ && searchBox_->HitTest(point))
+    {
+        return searchBox_.get();
+    }
+    return HitTest(ToDesignPoint(point)) ? this : nullptr;
+}
+
+Visual *EmojiPanel::FindFirstFocusableDescendant()
+{
+    if (searchBox_)
+    {
+        return searchBox_.get();
+    }
+    return this;
+}
+
+RectF EmojiPanel::CloseRect() const
+{
+    return {bounds_.x + bounds_.width - 52.0f, bounds_.y + 9.0f, 42.0f, 40.0f};
+}
+
+RectF EmojiPanel::SearchRect() const
+{
+    return {bounds_.x + 24.0f, bounds_.y + kSearchTop, bounds_.width - 48.0f, kSearchHeight};
+}
+
+RectF EmojiPanel::BackRect() const
+{
+    return {bounds_.x + 14.0f, bounds_.y + kNavTop + (kNavHeight - kBackSize) * 0.5f, kBackSize, kBackSize};
+}
+
+RectF EmojiPanel::ToastRect() const
+{
+    // Width is measured at paint time; this is only a fallback placement.
+    const float width = 160.0f;
+    return {bounds_.x + (bounds_.width - width) * 0.5f, bounds_.y + bounds_.height - kToastBottomPad - kToastHeight,
+            width, kToastHeight};
+}
+
+RectF EmojiPanel::ToViewportRect(const RectF &designRect) const
+{
+    return {viewportBounds_.x + designRect.x * kPanelScale, viewportBounds_.y + designRect.y * kPanelScale,
+            designRect.width * kPanelScale, designRect.height * kPanelScale};
+}
+
+PointF EmojiPanel::ToDesignPoint(const PointF &viewportPoint) const
+{
+    return {(viewportPoint.x - viewportBounds_.x) / kPanelScale, (viewportPoint.y - viewportBounds_.y) / kPanelScale};
+}
+
+RectF EmojiPanel::ContentViewportRect() const
+{
+    return {bounds_.x, bounds_.y + kContentTop, bounds_.width, std::max(bounds_.height - kContentTop, 0.0f)};
+}
+
+RectF EmojiPanel::ScrollbarTrackRect() const
+{
+    const float viewportHeight = std::max(bounds_.height - kContentTop, 0.0f);
+    return {bounds_.x + bounds_.width - 16.0f, bounds_.y + kContentTop + 6.0f, 14.0f,
+            std::max(viewportHeight - 12.0f, 0.0f)};
+}
+
+RectF EmojiPanel::ScrollbarThumbRect() const
+{
+    const RectF track = ScrollbarTrackRect();
+    const float viewportHeight = std::max(bounds_.height - kContentTop, 1.0f);
+    const float contentHeight = ContentHeight();
+    if (contentHeight <= viewportHeight || track.height <= 0.0f)
+    {
+        return {};
+    }
+    const float thumbHeight = std::max(track.height * viewportHeight / contentHeight, 34.0f);
+    const float travel = std::max(track.height - thumbHeight, 0.0f);
+    const float maxScroll = std::max(contentHeight - viewportHeight, 1.0f);
+    return {bounds_.x + bounds_.width - 12.0f, track.y + travel * (scrollOffset_ / maxScroll), 8.0f, thumbHeight};
+}
+
+RectF EmojiPanel::MoreButtonRect(const LayoutGroup &group, float contentOriginY) const
+{
+    return {bounds_.x + bounds_.width - 28.0f - kMoreButtonSize,
+            contentOriginY + group.top + (kGroupTitleHeight - kMoreButtonSize) * 0.5f, kMoreButtonSize,
+            kMoreButtonSize};
+}
+
+RectF EmojiPanel::MainTabRect(size_t index) const
+{
+    float x = bounds_.x + 22.0f;
+    for (size_t i = 0; i < index; ++i)
+    {
+        x += kMainTabWidths[i] + 8.0f;
+    }
+    return {x, bounds_.y + kNavTop, kMainTabWidths[index], kNavHeight};
+}
+
+RectF EmojiPanel::EmojiSubTabRect(size_t index) const
+{
+    const float startX = bounds_.x + 14.0f + kBackSize + 6.0f;
+    const float available = bounds_.width - (startX - bounds_.x) - 18.0f;
+    const size_t count = std::max<size_t>(EmojiSubTabCount(), 1);
+    const float width = std::min(52.0f, available / static_cast<float>(count));
+    return {startX + static_cast<float>(index) * width, bounds_.y + kNavTop, width, kNavHeight};
+}
+
+bool EmojiPanel::InDetailPage() const
+{
+    return page_ != Page::Home;
+}
+
+size_t EmojiPanel::EmojiSubTabCount() const
+{
+    if (page_ == Page::Symbols)
+    {
+        return symbolTabs_.size();
+    }
+    return emojiGroups_.size() + 1;
+}
+
+const EmojiPanel::Group *EmojiPanel::ActiveEmojiGroup() const
+{
+    if (emojiSubTab_ == 0 || emojiSubTab_ > emojiGroups_.size())
+    {
+        return nullptr;
+    }
+    return &emojiGroups_[emojiSubTab_ - 1];
+}
+
+const EmojiPanel::SymbolTab *EmojiPanel::ActiveSymbolTab() const
+{
+    if (emojiSubTab_ >= symbolTabs_.size())
+    {
+        return nullptr;
+    }
+    return &symbolTabs_[emojiSubTab_];
+}
+
+std::vector<const EmojiPanel::Item *> EmojiPanel::CollectPreviewItems(const std::vector<Group> &groups,
+                                                                      size_t limit) const
+{
+    std::vector<const Item *> items;
+    items.reserve(limit);
+    for (const auto &group : groups)
+    {
+        for (const auto &item : group.items)
+        {
+            items.push_back(&item);
+            if (items.size() >= limit)
+            {
+                return items;
+            }
+        }
+    }
+    return items;
+}
+
+std::vector<const EmojiPanel::Item *> EmojiPanel::CollectDiversePreviewItems(const std::vector<Group> &groups,
+                                                                             size_t limit) const
+{
+    std::vector<const Item *> items;
+    if (limit == 0 || groups.empty())
+    {
+        return items;
+    }
+    items.reserve(limit);
+    size_t round = 0;
+    while (items.size() < limit)
+    {
+        bool added = false;
+        for (const auto &group : groups)
+        {
+            if (round < group.items.size())
+            {
+                items.push_back(&group.items[round]);
+                added = true;
+                if (items.size() >= limit)
+                {
+                    return items;
+                }
+            }
+        }
+        if (!added)
+        {
+            break;
+        }
+        ++round;
+    }
+    return items;
+}
+
+size_t EmojiPanel::HitMainTab(const PointF &point) const
+{
+    if (InDetailPage())
+    {
+        return kInvalidIndex;
+    }
+    for (size_t index = 0; index < kMainTabCount; ++index)
+    {
+        if (Contains(MainTabRect(index), point))
+        {
+            return index;
+        }
+    }
+    return kInvalidIndex;
+}
+
+size_t EmojiPanel::HitEmojiSubTab(const PointF &point) const
+{
+    if (page_ != Page::Emoji && page_ != Page::Symbols)
+    {
+        return kInvalidIndex;
+    }
+    if (page_ == Page::Symbols && symbolTabs_.empty())
+    {
+        return kInvalidIndex;
+    }
+    for (size_t index = 0; index < EmojiSubTabCount(); ++index)
+    {
+        if (Contains(EmojiSubTabRect(index), point))
+        {
+            return index;
+        }
+    }
+    return kInvalidIndex;
+}
+
+bool EmojiPanel::HitBack(const PointF &point) const
+{
+    return InDetailPage() && Contains(BackRect(), point);
+}
+
+RectF EmojiPanel::EnableClipboardButtonRect() const
+{
+    const float width = 248.0f;
+    const float height = 56.0f;
+    return {bounds_.x + (bounds_.width - width) * 0.5f, bounds_.y + kContentTop + 196.0f, width, height};
+}
+
+RectF EmojiPanel::ClipboardDeleteRect(const RectF &cell) const
+{
+    return {cell.x + cell.width - 42.0f, cell.y + (cell.height - 32.0f) * 0.5f, 32.0f, 32.0f};
+}
+
+bool EmojiPanel::HitEnableClipboardButton(const PointF &point) const
+{
+    return page_ == Page::Clipboard && !clipboardEnabled_ && Contains(EnableClipboardButtonRect(), point);
+}
+
+size_t EmojiPanel::HitClipboardDelete(const PointF &point) const
+{
+    if (page_ != Page::Clipboard || !clipboardEnabled_)
+        return kInvalidIndex;
+    const size_t item = HitItem(point);
+    if (item == kInvalidIndex)
+        return kInvalidIndex;
+    EnsureDisplayLayout();
+    const RectF viewport = ContentViewportRect();
+    const float contentOriginY = viewport.y - scrollOffset_;
+    for (const auto &group : layoutGroups_)
+    {
+        if (item < group.firstFlatIndex || item >= group.firstFlatIndex + group.items.size() || !group.listLayout)
+            continue;
+        const RectF cell = ItemCellRect(group, item - group.firstFlatIndex, contentOriginY);
+        return Contains(ClipboardDeleteRect(cell), point) ? item : kInvalidIndex;
+    }
+    return kInvalidIndex;
+}
+
+void EmojiPanel::SyncClipboardState(bool forceReload)
+{
+    const bool enabled = clipboardHistory_ && ReadClipboardEnabled(stateRoot_);
+    std::vector<Item> items;
+    if (enabled)
+    {
+        for (const auto &text : clipboardHistory_->load())
+        {
+            const std::wstring wide = Utf8ToWide(text.c_str());
+            if (!wide.empty())
+            {
+                std::wstring lower = Lower(wide);
+                items.push_back({wide, wide, std::move(lower), true});
+            }
+        }
+    }
+
+    const bool changed = forceReload || enabled != clipboardEnabled_ || items.size() != clipboardItems_.size() ||
+                         !std::equal(items.begin(), items.end(), clipboardItems_.begin(),
+                                     [](const Item &left, const Item &right) { return left.text == right.text; });
+    if (!changed)
+        return;
+
+    const bool wasEnabled = clipboardEnabled_;
+    clipboardEnabled_ = enabled;
+    clipboardItems_ = std::move(items);
+    if (page_ == Page::Clipboard || (!enabled && wasEnabled))
+    {
+        MarkDisplayDirty();
+        ClampScroll();
+        InvalidateVisual();
+    }
+}
+
+void EmojiPanel::EnableClipboardHistory()
+{
+    if (!WriteClipboardEnabled(stateRoot_, true))
+    {
+        ShowToast(L"无法开启剪贴板");
+        return;
+    }
+    SyncClipboardState(true);
+    ShowToast(L"剪贴板已开启");
+}
+
+void EmojiPanel::RemoveClipboardItem(size_t index)
+{
+    const Item *item = DisplayItemAt(index);
+    if (!item || !clipboardHistory_)
+        return;
+    const std::string text = WideToUtf8(item->text);
+    if (!text.empty())
+        clipboardHistory_->remove(text);
+    SyncClipboardState(true);
+}
+
+void EmojiPanel::EnsureDisplayLayout() const
+{
+    if (!displayDirty_)
+    {
+        return;
+    }
+
+    if (RestoreIdleKaomojiLayout())
+    {
+        return;
+    }
+
+    layoutGroups_.clear();
+    cachedItemCount_ = 0;
+    cachedContentHeight_ = 0.0f;
+
+    const std::wstring query = Lower(searchText_);
+    const bool searching = !query.empty();
+    const float flowGridWidth = std::max(bounds_.width - kGridLeft - kGridRightPad, kCellSize * 2.0f);
+    auto appendGroup = [this, flowGridWidth](std::wstring title, std::vector<const Item *> items, Page moreTarget,
+                                             bool showMore) {
+        LayoutGroup layout;
+        layout.title = std::move(title);
+        layout.items = std::move(items);
+        layout.top = cachedContentHeight_;
+        layout.firstFlatIndex = cachedItemCount_;
+        layout.moreTarget = moreTarget;
+        layout.showMore = showMore;
+        layout.titleHeight = kGroupTitleHeight;
+        layout.flowLayout = page_ == Page::Kaomoji || moreTarget == Page::Kaomoji;
+        if (layout.flowLayout)
+        {
+            layout.height =
+                kGroupTitleHeight + EstimateFlowGroupHeight(layout.items.size(), flowGridWidth) + kGroupBottomPad;
+        }
+        else
+        {
+            layout.columns = kColumns;
+            layout.cellSize = kCellSize;
+            layout.height = kGroupTitleHeight + GroupBodyHeight(layout.items.size(), layout.columns, layout.cellSize) +
+                            kGroupBottomPad;
+        }
+        cachedItemCount_ += layout.items.size();
+        cachedContentHeight_ += layout.height;
+        layoutGroups_.push_back(std::move(layout));
+    };
+
+    auto filterItems = [&](const std::vector<Item> &source) {
+        std::vector<const Item *> items;
+        items.reserve(source.size());
+        for (const auto &item : source)
+        {
+            if (!searching || item.keywordsLower.find(query) != std::wstring::npos ||
+                item.text.find(searchText_) != std::wstring::npos)
+            {
+                items.push_back(&item);
+            }
+        }
+        return items;
+    };
+
+    if (page_ == Page::Home)
+    {
+        if (!recentItems_.empty())
+        {
+            auto recent = filterItems(recentItems_);
+            if (!recent.empty())
+            {
+                appendGroup(L"Recently used", std::move(recent), Page::Home, false);
+            }
+        }
+
+        auto emojiPreview = CollectPreviewItems(emojiGroups_, kPreviewLimit);
+        if (searching)
+        {
+            emojiPreview.clear();
+            for (const auto &group : emojiGroups_)
+            {
+                for (const auto &item : group.items)
+                {
+                    if (item.keywordsLower.find(query) != std::wstring::npos ||
+                        item.text.find(searchText_) != std::wstring::npos)
+                    {
+                        emojiPreview.push_back(&item);
+                        if (emojiPreview.size() >= kPreviewLimit)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if (emojiPreview.size() >= kPreviewLimit)
+                {
+                    break;
+                }
+            }
+        }
+        appendGroup(L"Emoji", std::move(emojiPreview), Page::Emoji, true);
+
+        auto kaomojiPreview = CollectPreviewItems(kaomojiGroups_, kKaomojiPreviewLimit);
+        if (searching)
+        {
+            kaomojiPreview.clear();
+            for (const auto &group : kaomojiGroups_)
+            {
+                for (const auto &item : group.items)
+                {
+                    if (item.keywordsLower.find(query) != std::wstring::npos ||
+                        item.text.find(searchText_) != std::wstring::npos)
+                    {
+                        kaomojiPreview.push_back(&item);
+                        if (kaomojiPreview.size() >= kKaomojiPreviewLimit)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if (kaomojiPreview.size() >= kKaomojiPreviewLimit)
+                {
+                    break;
+                }
+            }
+        }
+        appendGroup(L"Kaomoji", std::move(kaomojiPreview), Page::Kaomoji, true);
+
+        auto symbolPreview = CollectDiversePreviewItems(symbolGroups_, kPreviewLimit);
+        if (searching)
+        {
+            symbolPreview.clear();
+            for (const auto &group : symbolGroups_)
+            {
+                for (const auto &item : group.items)
+                {
+                    if (item.keywordsLower.find(query) != std::wstring::npos ||
+                        item.text.find(searchText_) != std::wstring::npos)
+                    {
+                        symbolPreview.push_back(&item);
+                        if (symbolPreview.size() >= kPreviewLimit)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if (symbolPreview.size() >= kPreviewLimit)
+                {
+                    break;
+                }
+            }
+        }
+        appendGroup(L"Symbols", std::move(symbolPreview), Page::Symbols, true);
+
+        appendGroup(L"Sticker", {}, Page::Sticker, true);
+        appendGroup(L"GIF", {}, Page::Gif, true);
+    }
+    else if (page_ == Page::Emoji)
+    {
+        if (emojiSubTab_ == 0)
+        {
+            auto recent = filterItems(recentItems_);
+            appendGroup(L"Recent", std::move(recent), Page::Home, false);
+        }
+        else if (const Group *group = ActiveEmojiGroup())
+        {
+            appendGroup(group->title, filterItems(group->items), Page::Home, false);
+        }
+    }
+    else if (page_ == Page::Kaomoji)
+    {
+        for (const auto &group : kaomojiGroups_)
+        {
+            auto items = filterItems(group.items);
+            if (!items.empty() || !searching)
+            {
+                appendGroup(group.title, std::move(items), Page::Home, false);
+            }
+        }
+    }
+    else if (page_ == Page::Symbols)
+    {
+        if (searching || symbolTabs_.empty())
+        {
+            for (const auto &group : symbolGroups_)
+            {
+                auto items = filterItems(group.items);
+                if (!items.empty() || !searching)
+                {
+                    appendGroup(group.title, std::move(items), Page::Home, false);
+                }
+            }
+        }
+        else if (const SymbolTab *tab = ActiveSymbolTab())
+        {
+            for (const size_t groupIndex : tab->groupIndices)
+            {
+                if (groupIndex >= symbolGroups_.size())
+                {
+                    continue;
+                }
+                const auto &group = symbolGroups_[groupIndex];
+                appendGroup(group.title, filterItems(group.items), Page::Home, false);
+            }
+        }
+    }
+    else if (page_ == Page::Sticker || page_ == Page::Gif)
+    {
+        // Placeholder pages keep an empty layout; Render shows the hint text.
+    }
+    else if (page_ == Page::Clipboard)
+    {
+        if (clipboardEnabled_)
+        {
+            std::vector<const Item *> items;
+            items.reserve(clipboardItems_.size());
+            for (const auto &item : clipboardItems_)
+            {
+                if (!searching || item.keywordsLower.find(query) != std::wstring::npos ||
+                    item.text.find(searchText_) != std::wstring::npos)
+                {
+                    items.push_back(&item);
+                }
+            }
+            if (!items.empty())
+            {
+                LayoutGroup layout;
+                layout.title.clear();
+                layout.titleHeight = 10.0f;
+                layout.items = std::move(items);
+                layout.top = 0.0f;
+                layout.firstFlatIndex = 0;
+                layout.listLayout = true;
+                layout.columns = 1;
+                layout.cellSize = kClipboardRowHeight;
+                cachedItemCount_ = layout.items.size();
+                layout.height = layout.titleHeight +
+                                static_cast<float>(layout.items.size()) * (layout.cellSize + kClipboardRowGap) +
+                                kGroupBottomPad;
+                cachedContentHeight_ = layout.height;
+                layoutGroups_.push_back(std::move(layout));
+            }
+        }
+    }
+
+    cachedContentHeight_ = std::max(cachedContentHeight_, 100.0f);
+    displayDirty_ = false;
+    flowLayoutDirty_ = true;
+}
+
+void EmojiPanel::MarkDisplayDirty()
+{
+    displayDirty_ = true;
+    flowLayoutDirty_ = true;
+}
+
+float EmojiPanel::FlowGridWidth() const
+{
+    return std::max(bounds_.width - kGridLeft - kGridRightPad, kCellSize * 2.0f);
+}
+
+void EmojiPanel::InvalidateIdleKaomojiLayout() const
+{
+    idleKaomojiLayoutValid_ = false;
+    idleKaomojiLayout_.clear();
+}
+
+bool EmojiPanel::RestoreIdleKaomojiLayout() const
+{
+    if (page_ != Page::Kaomoji || !searchText_.empty() || !idleKaomojiLayoutValid_ ||
+        std::abs(idleKaomojiGridWidth_ - FlowGridWidth()) > 0.5f)
+    {
+        return false;
+    }
+
+    layoutGroups_ = idleKaomojiLayout_;
+    cachedContentHeight_ = idleKaomojiHeight_;
+    cachedItemCount_ = idleKaomojiCount_;
+    displayDirty_ = false;
+    flowLayoutDirty_ = false;
+    return true;
+}
+
+void EmojiPanel::CaptureIdleKaomojiLayout() const
+{
+    if (page_ != Page::Kaomoji || !searchText_.empty() || idleKaomojiLayoutValid_)
+    {
+        return;
+    }
+    idleKaomojiLayout_ = layoutGroups_;
+    idleKaomojiHeight_ = cachedContentHeight_;
+    idleKaomojiCount_ = cachedItemCount_;
+    idleKaomojiGridWidth_ = FlowGridWidth();
+    idleKaomojiLayoutValid_ = true;
+}
+
+void EmojiPanel::EnsureFlowLayout(DeviceResources &resources) const
+{
+    if (!flowLayoutDirty_)
+    {
+        return;
+    }
+
+    const float gridWidth = FlowGridWidth();
+    float top = 0.0f;
+    for (auto &group : layoutGroups_)
+    {
+        group.top = top;
+        if (group.flowLayout && !group.items.empty())
+        {
+            group.itemRects.clear();
+            group.itemRows.clear();
+            group.itemRects.reserve(group.items.size());
+            group.itemRows.reserve(group.items.size());
+
+            float x = 0.0f;
+            float y = 0.0f;
+            size_t row = 0;
+            for (size_t index = 0; index < group.items.size(); ++index)
+            {
+                const Item *item = group.items[index];
+                if (!item)
+                {
+                    group.itemRects.push_back({x, y, kFlowMinCellWidth, kCellSize});
+                    group.itemRows.push_back(row);
+                    x += kFlowMinCellWidth + kFlowGapX;
+                    continue;
+                }
+
+                float layoutWidth = item->cachedFlowTextWidth;
+                if (!item->hasCachedFlowTextWidth)
+                {
+                    const TextSize measured =
+                        MeasureTextSize(resources, item->text, kLongTextFontSize, DWRITE_FONT_WEIGHT_NORMAL);
+                    layoutWidth =
+                        MeasureTextLayoutWidth(resources, item->text, kLongTextFontSize, DWRITE_FONT_WEIGHT_NORMAL);
+                    layoutWidth = std::max(layoutWidth, measured.width);
+                    item->cachedFlowTextWidth = layoutWidth;
+                    item->hasCachedFlowTextWidth = true;
+                }
+
+                const float maxInnerWidth = gridWidth - kFlowCellPadX * 2.0f;
+                if (layoutWidth > maxInnerWidth)
+                {
+                    if (item->cachedFittedMaxInner >= 0.0f &&
+                        std::abs(item->cachedFittedMaxInner - maxInnerWidth) <= 0.5f)
+                    {
+                        layoutWidth = item->cachedFittedWidth;
+                    }
+                    else
+                    {
+                        const float fitSize = FitFontSizeForCell(resources, item->text, maxInnerWidth,
+                                                                 kCellSize - 16.0f, kLongTextFontSize, 9.0f);
+                        const TextSize measured =
+                            MeasureTextSize(resources, item->text, fitSize, DWRITE_FONT_WEIGHT_NORMAL);
+                        layoutWidth = MeasureTextLayoutWidth(resources, item->text, fitSize, DWRITE_FONT_WEIGHT_NORMAL);
+                        layoutWidth = std::max(layoutWidth, measured.width);
+                        item->cachedFittedMaxInner = maxInnerWidth;
+                        item->cachedFittedWidth = layoutWidth;
+                    }
+                }
+
+                float cellWidth =
+                    std::clamp(layoutWidth + kFlowCellPadX * 2.0f + kFlowMeasureSlack, kFlowMinCellWidth, gridWidth);
+                const float cellHeight = kCellSize;
+                if (x > 0.0f && x + cellWidth > gridWidth + 0.5f)
+                {
+                    x = 0.0f;
+                    y += cellHeight + kFlowRowGap;
+                    ++row;
+                }
+
+                group.itemRects.push_back({x, y, cellWidth, cellHeight});
+                group.itemRows.push_back(row);
+                x += cellWidth + kFlowGapX;
+            }
+
+            group.height = kGroupTitleHeight + y + kCellSize + kGroupBottomPad;
+        }
+        top += group.height;
+    }
+
+    cachedContentHeight_ = std::max(top, 100.0f);
+    flowLayoutDirty_ = false;
+    CaptureIdleKaomojiLayout();
+}
+
+void EmojiPanel::TryEnsureFlowLayout() const
+{
+    if (!flowLayoutDirty_ || !window_)
+    {
+        return;
+    }
+    EnsureFlowLayout(window_->GetDeviceResources());
+}
+
+bool EmojiPanel::IsFlowFlatIndex(size_t index) const
+{
+    EnsureDisplayLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (index >= group.firstFlatIndex && index < group.firstFlatIndex + group.items.size())
+        {
+            return group.flowLayout;
+        }
+    }
+    return false;
+}
+
+size_t EmojiPanel::NavigateFlowVertical(size_t flatIndex, int direction) const
+{
+    TryEnsureFlowLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (flatIndex < group.firstFlatIndex || flatIndex >= group.firstFlatIndex + group.items.size() ||
+            !group.flowLayout || group.itemRects.size() != group.items.size())
+        {
+            continue;
+        }
+
+        const size_t local = flatIndex - group.firstFlatIndex;
+        if (local >= group.itemRows.size())
+        {
+            return flatIndex;
+        }
+        const int currentRow = static_cast<int>(group.itemRows[local]);
+        const int nextRow = currentRow + direction;
+        if (nextRow < 0)
+        {
+            return flatIndex;
+        }
+        const size_t targetRow = static_cast<size_t>(nextRow);
+        if (local >= group.itemRects.size())
+        {
+            return flatIndex;
+        }
+        const float currentCenter = group.itemRects[local].x + group.itemRects[local].width * 0.5f;
+        size_t bestLocal = local;
+        float bestDistance = std::numeric_limits<float>::max();
+        bool found = false;
+        for (size_t candidate = 0; candidate < group.items.size(); ++candidate)
+        {
+            if (candidate >= group.itemRows.size() || group.itemRows[candidate] != targetRow ||
+                candidate >= group.itemRects.size())
+            {
+                continue;
+            }
+            const float candidateCenter = group.itemRects[candidate].x + group.itemRects[candidate].width * 0.5f;
+            const float distance = std::abs(candidateCenter - currentCenter);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestLocal = candidate;
+                found = true;
+            }
+        }
+        return found ? group.firstFlatIndex + bestLocal : flatIndex;
+    }
+    return flatIndex;
+}
+
+float EmojiPanel::ContentHeight() const
+{
+    EnsureDisplayLayout();
+    TryEnsureFlowLayout();
+    return cachedContentHeight_;
+}
+
+size_t EmojiPanel::DisplayItemCount() const
+{
+    EnsureDisplayLayout();
+    return cachedItemCount_;
+}
+
+const EmojiPanel::Item *EmojiPanel::DisplayItemAt(size_t target) const
+{
+    EnsureDisplayLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (target < group.firstFlatIndex)
+        {
+            break;
+        }
+        const size_t local = target - group.firstFlatIndex;
+        if (local < group.items.size())
+        {
+            return group.items[local];
+        }
+    }
+    return nullptr;
+}
+
+RectF EmojiPanel::ItemCellRect(const LayoutGroup &group, size_t indexInGroup, float contentOriginY) const
+{
+    const float bodyTop = contentOriginY + group.top + group.titleHeight;
+    if (group.listLayout)
+    {
+        const float width = std::max(bounds_.width - kGridLeft - kGridRightPad, 80.0f);
+        return {bounds_.x + kGridLeft, bodyTop + static_cast<float>(indexInGroup) * (group.cellSize + kClipboardRowGap),
+                width, group.cellSize};
+    }
+    if (group.flowLayout)
+    {
+        if (indexInGroup >= group.itemRects.size())
+        {
+            return {};
+        }
+        const RectF &placed = group.itemRects[indexInGroup];
+        return {bounds_.x + kGridLeft + placed.x, bodyTop + placed.y, placed.width, placed.height};
+    }
+    const float inset = std::min(10.0f, group.cellSize * 0.08f);
+    return {bounds_.x + kGridLeft + static_cast<float>(indexInGroup % group.columns) * group.cellSize,
+            bodyTop + static_cast<float>(indexInGroup / group.columns) * group.cellSize, group.cellSize - inset,
+            group.cellSize - inset};
+}
+
+size_t EmojiPanel::ColumnsForFlatIndex(size_t index) const
+{
+    EnsureDisplayLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (index >= group.firstFlatIndex && index < group.firstFlatIndex + group.items.size())
+        {
+            return group.columns;
+        }
+    }
+    return kColumns;
+}
+
+size_t EmojiPanel::HitMoreButton(const PointF &point) const
+{
+    if (page_ != Page::Home)
+    {
+        return kInvalidIndex;
+    }
+    const RectF viewport = ContentViewportRect();
+    if (!Contains(viewport, point))
+    {
+        return kInvalidIndex;
+    }
+    EnsureDisplayLayout();
+    const float contentOriginY = viewport.y - scrollOffset_;
+    for (size_t index = 0; index < layoutGroups_.size(); ++index)
+    {
+        const auto &group = layoutGroups_[index];
+        if (!group.showMore)
+        {
+            continue;
+        }
+        // Title row or chevron both drill into the category (Windows emoji panel).
+        const RectF titleHit = {bounds_.x + 20.0f, contentOriginY + group.top, bounds_.width - 40.0f,
+                                kGroupTitleHeight};
+        if (Contains(MoreButtonRect(group, contentOriginY), point) || Contains(titleHit, point))
+        {
+            return index;
+        }
+    }
+    return kInvalidIndex;
+}
+
+size_t EmojiPanel::HitItem(const PointF &point) const
+{
+    const RectF viewport = ContentViewportRect();
+    if (!Contains(viewport, point) || point.x < bounds_.x + kGridLeft)
+    {
+        return kInvalidIndex;
+    }
+
+    EnsureDisplayLayout();
+    TryEnsureFlowLayout();
+    const float contentY = point.y - viewport.y + scrollOffset_;
+    const float contentOriginY = viewport.y - scrollOffset_;
+    for (const auto &group : layoutGroups_)
+    {
+        if (contentY < group.top || contentY >= group.top + group.height)
+        {
+            continue;
+        }
+        const float titleHeight = group.titleHeight > 0.0f ? group.titleHeight : kGroupTitleHeight;
+        const float localY = contentY - group.top - titleHeight;
+        if (localY < 0.0f || group.items.empty())
+        {
+            return kInvalidIndex;
+        }
+        if (group.flowLayout || group.listLayout)
+        {
+            for (size_t indexInGroup = 0; indexInGroup < group.items.size(); ++indexInGroup)
+            {
+                const RectF cell = ItemCellRect(group, indexInGroup, contentOriginY);
+                if (Contains(cell, point))
+                {
+                    return group.firstFlatIndex + indexInGroup;
+                }
+            }
+            return kInvalidIndex;
+        }
+        const size_t row = static_cast<size_t>(localY / group.cellSize);
+        const size_t col = static_cast<size_t>((point.x - bounds_.x - kGridLeft) / group.cellSize);
+        if (col >= group.columns)
+        {
+            return kInvalidIndex;
+        }
+        const size_t indexInGroup = row * group.columns + col;
+        if (indexInGroup >= group.items.size())
+        {
+            return kInvalidIndex;
+        }
+        const RectF cell = ItemCellRect(group, indexInGroup, contentOriginY);
+        return Contains(cell, point) ? group.firstFlatIndex + indexInGroup : kInvalidIndex;
+    }
+    return kInvalidIndex;
+}
+
+void EmojiPanel::EnsureItemVisible(size_t index)
+{
+    EnsureDisplayLayout();
+    TryEnsureFlowLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (index < group.firstFlatIndex || index >= group.firstFlatIndex + group.items.size())
+        {
+            continue;
+        }
+        const size_t local = index - group.firstFlatIndex;
+        float itemTop = 0.0f;
+        float itemBottom = 0.0f;
+        if (group.flowLayout)
+        {
+            if (local >= group.itemRects.size())
+            {
+                return;
+            }
+            const RectF &placed = group.itemRects[local];
+            itemTop = group.top + group.titleHeight + placed.y;
+            itemBottom = itemTop + placed.height;
+        }
+        else if (group.listLayout)
+        {
+            itemTop = group.top + group.titleHeight + static_cast<float>(local) * (group.cellSize + kClipboardRowGap);
+            itemBottom = itemTop + group.cellSize;
+        }
+        else
+        {
+            itemTop = group.top + group.titleHeight + static_cast<float>(local / group.columns) * group.cellSize;
+            itemBottom = itemTop + group.cellSize;
+        }
+        const float viewportHeight = std::max(bounds_.height - kContentTop, 0.0f);
+        if (itemTop < scrollOffset_)
+        {
+            scrollOffset_ = itemTop;
+        }
+        else if (itemBottom > scrollOffset_ + viewportHeight)
+        {
+            scrollOffset_ = itemBottom - viewportHeight;
+        }
+        ClampScroll();
+        return;
+    }
+}
+
+void EmojiPanel::ClampScroll()
+{
+    const float viewportHeight = std::max(bounds_.height - kContentTop, 0.0f);
+    scrollOffset_ = std::clamp(scrollOffset_, 0.0f, std::max(ContentHeight() - viewportHeight, 0.0f));
+}
+
+void EmojiPanel::ResetView()
+{
+    MarkDisplayDirty();
+    scrollOffset_ = 0.0f;
+    selectedItem_ = 0;
+    hoveredItem_ = kInvalidIndex;
+    pressedItem_ = kInvalidIndex;
+    hoveredMore_ = kInvalidIndex;
+    pressedMore_ = kInvalidIndex;
+    hoveredClipboardDelete_ = kInvalidIndex;
+    pressedClipboardDelete_ = kInvalidIndex;
+    enableClipboardHovered_ = false;
+    enableClipboardPressed_ = false;
+    ClampScroll();
+    InvalidateVisual();
+}
+
+void EmojiPanel::GoHome()
+{
+    page_ = Page::Home;
+    emojiSubTab_ = 0;
+    UpdateSearchPlaceholder();
+    DismissToast();
+    ResetView();
+}
+
+void EmojiPanel::EnterPage(Page page, size_t emojiSubTab)
+{
+    page_ = page;
+    emojiSubTab_ = emojiSubTab;
+    UpdateSearchPlaceholder();
+    DismissToast();
+    if (page == Page::Clipboard)
+        SyncClipboardState(true);
+    ResetView();
+}
+
+void EmojiPanel::ShowToast(std::wstring text)
+{
+    toastText_ = std::move(text);
+    if (window_ && window_->GetHandle())
+    {
+        KillTimer(window_->GetHandle(), kToastTimerId);
+        SetTimer(window_->GetHandle(), kToastTimerId, kToastDurationMs, nullptr);
+    }
+    InvalidateVisual();
+}
+
+void EmojiPanel::DismissToast()
+{
+    if (toastText_.empty())
+    {
+        return;
+    }
+    toastText_.clear();
+    if (window_ && window_->GetHandle())
+    {
+        KillTimer(window_->GetHandle(), kToastTimerId);
+    }
+    InvalidateVisual();
+}
+
+void EmojiPanel::CancelTooltip()
+{
+    const bool hadTooltip = tooltipItem_ != kInvalidIndex;
+    tooltipItem_ = kInvalidIndex;
+    if (window_ && window_->GetHandle())
+    {
+        KillTimer(window_->GetHandle(), kTooltipTimerId);
+    }
+    if (hadTooltip)
+    {
+        InvalidateVisual();
+    }
+}
+
+void EmojiPanel::ArmTooltip(size_t itemIndex)
+{
+    CancelTooltip();
+    if (itemIndex == kInvalidIndex || !window_ || !window_->GetHandle())
+    {
+        return;
+    }
+    SetTimer(window_->GetHandle(), kTooltipTimerId, kTooltipDelayMs, nullptr);
+}
+
+void EmojiPanel::ActivateMore(size_t layoutIndex)
+{
+    EnsureDisplayLayout();
+    if (layoutIndex >= layoutGroups_.size())
+    {
+        return;
+    }
+    const Page target = layoutGroups_[layoutIndex].moreTarget;
+    if (target == Page::Emoji)
+    {
+        EnterPage(Page::Emoji, recentItems_.empty() ? 1 : 0);
+    }
+    else if (target == Page::Kaomoji || target == Page::Symbols || target == Page::Sticker || target == Page::Gif ||
+             target == Page::Clipboard)
+    {
+        EnterPage(target, 0);
+    }
+}
+
+void EmojiPanel::ActivateItem(size_t index)
+{
+    const Item *item = DisplayItemAt(index);
+    if (!item || !window_)
+    {
+        return;
+    }
+    const Item selected = *item;
+    const bool copied = CopyToClipboard(window_->GetHandle(), selected.text);
+    std::wstring preview = selected.text;
+    preview.erase(std::remove(preview.begin(), preview.end(), L'\r'), preview.end());
+    preview.erase(std::remove(preview.begin(), preview.end(), L'\n'), preview.end());
+    if (preview.size() > 24)
+        preview = preview.substr(0, 24) + L"...";
+    ShowToast(copied ? (L"Copied  " + preview) : L"Could not access the clipboard");
+    if (page_ != Page::Clipboard)
+    {
+        recentItems_.erase(std::remove_if(recentItems_.begin(), recentItems_.end(),
+                                          [&selected](const Item &entry) { return entry.text == selected.text; }),
+                           recentItems_.end());
+        recentItems_.insert(recentItems_.begin(), selected);
+        if (recentItems_.size() > 28)
+        {
+            recentItems_.resize(28);
+        }
+    }
+    MarkDisplayDirty();
+    InvalidateVisual();
+}
+
+void EmojiPanel::Render(DeviceResources &resources)
+{
+    const D2D1_COLOR_F background = D2D1::ColorF(lightTheme_ ? 0xF7F7FA : 0x202027);
+    const D2D1_COLOR_F text = D2D1::ColorF(lightTheme_ ? 0x202027 : 0xF5F5F7);
+    const D2D1_COLOR_F mutedText = D2D1::ColorF(lightTheme_ ? 0x686873 : 0xAFAFB7);
+    const D2D1_COLOR_F hover = D2D1::ColorF(lightTheme_ ? 0xE9E7ED : 0x303038);
+    const D2D1_COLOR_F selected = D2D1::ColorF(lightTheme_ ? 0xE0D7E5 : 0x3B3B44);
+    const D2D1_COLOR_F pressed = D2D1::ColorF(lightTheme_ ? 0xD3C7D9 : 0x555560);
+    const D2D1_COLOR_F accent = D2D1::ColorF(lightTheme_ ? 0x9A62AD : 0xD88BDE);
+    auto *target = resources.GetRenderTarget();
+    if (!target)
+    {
+        return;
+    }
+    D2D1_MATRIX_3X2_F oldTransform = {};
+    target->GetTransform(&oldTransform);
+    const D2D1_TEXT_ANTIALIAS_MODE oldTextAntialiasMode = target->GetTextAntialiasMode();
+    target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    target->SetTransform(D2D1::Matrix3x2F::Scale(kPanelScale, kPanelScale) * oldTransform);
+
+    FillRect(resources, bounds_, background);
+    DrawText(resources, L"Emoji and more", {bounds_.x + 24.0f, bounds_.y, 240.0f, kHeaderHeight}, 18.0f, text,
+             L"Segoe UI", DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+
+    const RectF close = CloseRect();
+    if (closeHovered_ || closePressed_)
+    {
+        FillRect(resources, close, closePressed_ ? pressed : hover, 7.0f);
+    }
+    DrawCloseIcon(resources, close, text);
+
+    const RectF searchChrome = SearchRect();
+    FillRect(resources, searchChrome, D2D1::ColorF(lightTheme_ ? 0xFFFFFF : 0x2B2B33), 10.0f);
+    const bool searchFocused = searchBox_ && searchBox_->IsFocused();
+    const D2D1_COLOR_F searchBorder =
+        searchFocused ? (lightTheme_ ? D2D1::ColorF(0x9A62AD, 0.75f) : D2D1::ColorF(0xD88BDE, 0.70f))
+                      : D2D1::ColorF(lightTheme_ ? 0xD0D0D8 : 0x3A3A44);
+    StrokeRect(resources, searchChrome, searchBorder, 10.0f, searchFocused ? 2.0f : 1.0f);
+    DrawText(resources, L"\uE721", {searchChrome.x + 6.0f, searchChrome.y, 40.0f, searchChrome.height}, 24.0f,
+             mutedText, L"Segoe MDL2 Assets", DWRITE_TEXT_ALIGNMENT_CENTER);
+
+    if (InDetailPage())
+    {
+        const RectF back = BackRect();
+        if (backHovered_ || backPressed_)
+        {
+            FillRect(resources, back, backPressed_ ? pressed : hover, 8.0f);
+        }
+        DrawChevron(resources, back, text, true);
+
+        if (page_ == Page::Emoji || (page_ == Page::Symbols && !symbolTabs_.empty()))
+        {
+            const bool isSymbolPage = page_ == Page::Symbols;
+            for (size_t index = 0; index < EmojiSubTabCount(); ++index)
+            {
+                const RectF rect = EmojiSubTabRect(index);
+                if (hoveredSubTab_ == index && emojiSubTab_ != index)
+                {
+                    FillRect(resources, rect, hover, 6.0f);
+                }
+                std::wstring icon = L"\u23F1";
+                if (isSymbolPage)
+                {
+                    if (index < symbolTabs_.size())
+                    {
+                        icon = symbolTabs_[index].icon;
+                    }
+                }
+                else if (index > 0 && index - 1 < emojiGroups_.size())
+                {
+                    icon = emojiGroups_[index - 1].icon;
+                }
+                DrawText(resources, icon, rect, 22.0f, text, L"Segoe UI Emoji", DWRITE_TEXT_ALIGNMENT_CENTER,
+                         DWRITE_FONT_WEIGHT_NORMAL, true);
+                if (emojiSubTab_ == index)
+                {
+                    FillRect(resources, {rect.x + (rect.width - 22.0f) * 0.5f, bounds_.y + 121.0f, 22.0f, 3.0f}, accent,
+                             2.0f);
+                }
+            }
+        }
+        else
+        {
+            // Keep these in step with the tab labels in emoji_panel_icons.cpp,
+            // which the tabs fall back to when no icon font has the glyph.
+            const wchar_t *title = L"";
+            if (page_ == Page::Sticker)
+                title = L"贴纸";
+            else if (page_ == Page::Gif)
+                title = L"GIF";
+            else if (page_ == Page::Kaomoji)
+                title = L"颜文字";
+            else if (page_ == Page::Symbols)
+                title = L"符号";
+            else if (page_ == Page::Clipboard)
+                title = L"剪贴板";
+            DrawText(resources, title, {bounds_.x + 70.0f, bounds_.y + kNavTop, 280.0f, kNavHeight}, kNavTitleFontSize,
+                     text, CjkUiFont(), DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        }
+    }
+    else
+    {
+        for (size_t index = 0; index < kMainTabCount; ++index)
+        {
+            const RectF rect = MainTabRect(index);
+            if (hoveredMainTab_ == index && static_cast<size_t>(page_) != index)
+            {
+                FillRect(resources, rect, hover, 6.0f);
+            }
+            tabIcons_.DrawTabIcon(resources, static_cast<EmojiPanelIcons::Tab>(index), rect, lightTheme_);
+            if (static_cast<size_t>(page_) == index)
+            {
+                FillRect(resources, {rect.x + (rect.width - 24.0f) * 0.5f, bounds_.y + 122.0f, 24.0f, 2.0f}, accent,
+                         1.0f);
+            }
+        }
+    }
+
+    EnsureDisplayLayout();
+    for (const auto &group : layoutGroups_)
+    {
+        if (group.flowLayout && group.itemRects.size() != group.items.size())
+        {
+            flowLayoutDirty_ = true;
+            break;
+        }
+    }
+    EnsureFlowLayout(resources);
+    const RectF viewport = ContentViewportRect();
+    target->PushAxisAlignedClip(
+        D2D1::RectF(viewport.x, viewport.y, viewport.x + viewport.width, viewport.y + viewport.height),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    auto *emojiFormat = resources.GetTextFormat(L"Segoe UI Emoji", kEmojiFontSize, DWRITE_FONT_WEIGHT_NORMAL,
+                                                DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                                DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *titleFormat =
+        resources.GetTextFormat(L"Segoe UI", 18.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *textBrush = resources.GetSolidColorBrush(text);
+
+    const float contentOriginY = viewport.y - scrollOffset_;
+    const float viewTop = viewport.y;
+    const float viewBottom = viewport.y + viewport.height;
+
+    for (size_t groupIndex = 0; groupIndex < layoutGroups_.size(); ++groupIndex)
+    {
+        const auto &group = layoutGroups_[groupIndex];
+        const float groupTop = contentOriginY + group.top;
+        const float groupBottom = groupTop + group.height;
+        if (!VerticallyIntersects(groupTop, groupBottom, viewTop, viewBottom))
+        {
+            continue;
+        }
+
+        const RectF titleRect = {bounds_.x + 24.0f, groupTop, bounds_.width - 88.0f, group.titleHeight};
+        if (!group.title.empty() &&
+            VerticallyIntersects(titleRect.y, titleRect.y + titleRect.height, viewTop, viewBottom))
+        {
+            DrawFormattedText(resources, group.title, titleRect, titleFormat, textBrush, false);
+        }
+
+        if (group.showMore)
+        {
+            const RectF more = MoreButtonRect(group, contentOriginY);
+            if (hoveredMore_ == groupIndex || pressedMore_ == groupIndex)
+            {
+                FillRect(resources, more, pressedMore_ == groupIndex ? pressed : hover, 8.0f);
+            }
+            DrawChevron(resources, more, mutedText, false);
+        }
+
+        if (group.items.empty())
+        {
+            continue;
+        }
+        const float bodyTop = groupTop + group.titleHeight;
+
+        if (group.listLayout)
+        {
+            for (size_t indexInGroup = 0; indexInGroup < group.items.size(); ++indexInGroup)
+            {
+                const RectF cell = ItemCellRect(group, indexInGroup, contentOriginY);
+                if (!VerticallyIntersects(cell.y, cell.y + cell.height, viewTop, viewBottom))
+                    continue;
+                const size_t flatIndex = group.firstFlatIndex + indexInGroup;
+                const bool active =
+                    flatIndex == selectedItem_ || flatIndex == hoveredItem_ || flatIndex == pressedItem_;
+                FillRect(resources, cell,
+                         active ? (flatIndex == pressedItem_ ? pressed : selected)
+                                : D2D1::ColorF(lightTheme_ ? 0xFFFFFF : 0x2B2B33),
+                         12.0f);
+                if (flatIndex == selectedItem_)
+                    StrokeRect(resources, cell, lightTheme_ ? accent : D2D1::ColorF(0xF0F0F4), 12.0f, 2.0f);
+                const Item *item = group.items[indexInGroup];
+                if (item)
+                    DrawClipboardItemText(resources, item->text, cell, text);
+                if (flatIndex == hoveredItem_ || flatIndex == pressedClipboardDelete_)
+                {
+                    const RectF del = ClipboardDeleteRect(cell);
+                    if (hoveredClipboardDelete_ == flatIndex || pressedClipboardDelete_ == flatIndex)
+                        FillRect(resources, del, pressedClipboardDelete_ == flatIndex ? pressed : selected, 8.0f);
+                    DrawCloseIcon(resources, del, mutedText);
+                }
+            }
+            continue;
+        }
+
+        if (group.flowLayout)
+        {
+            for (size_t indexInGroup = 0; indexInGroup < group.items.size(); ++indexInGroup)
+            {
+                if (indexInGroup >= group.itemRects.size())
+                {
+                    break;
+                }
+                const RectF cell = ItemCellRect(group, indexInGroup, contentOriginY);
+                if (!VerticallyIntersects(cell.y, cell.y + cell.height, viewTop, viewBottom))
+                {
+                    continue;
+                }
+                const size_t flatIndex = group.firstFlatIndex + indexInGroup;
+                if (flatIndex == selectedItem_ || flatIndex == hoveredItem_ || flatIndex == pressedItem_)
+                {
+                    FillRect(resources, cell, flatIndex == pressedItem_ ? pressed : selected, 10.0f);
+                    if (flatIndex == selectedItem_)
+                    {
+                        StrokeRect(resources, cell, lightTheme_ ? accent : D2D1::ColorF(0xF0F0F4), 10.0f, 2.0f);
+                    }
+                }
+                const Item *item = group.items[indexInGroup];
+                if (!item)
+                {
+                    continue;
+                }
+                if (item->longText)
+                {
+                    DrawLongTextInCell(resources, item->text, cell, text, &item->cachedPaintFontSize,
+                                       &item->cachedPaintCellWidth);
+                }
+                else
+                {
+                    DrawFormattedText(resources, item->text, cell, emojiFormat, textBrush, true);
+                }
+            }
+            continue;
+        }
+
+        const size_t rowCount = (group.items.size() + group.columns - 1) / group.columns;
+        size_t firstVisibleRow = 0;
+        if (bodyTop < viewTop)
+        {
+            firstVisibleRow = static_cast<size_t>((viewTop - bodyTop) / group.cellSize);
+        }
+        size_t lastVisibleRow = static_cast<size_t>(std::max((viewBottom - bodyTop) / group.cellSize, 0.0f));
+        lastVisibleRow = std::min(lastVisibleRow, rowCount - 1);
+        if (firstVisibleRow > lastVisibleRow)
+        {
+            continue;
+        }
+
+        for (size_t row = firstVisibleRow; row <= lastVisibleRow; ++row)
+        {
+            for (size_t col = 0; col < group.columns; ++col)
+            {
+                const size_t indexInGroup = row * group.columns + col;
+                if (indexInGroup >= group.items.size())
+                {
+                    break;
+                }
+                const size_t flatIndex = group.firstFlatIndex + indexInGroup;
+                const RectF cell = ItemCellRect(group, indexInGroup, contentOriginY);
+                if (flatIndex == selectedItem_ || flatIndex == hoveredItem_ || flatIndex == pressedItem_)
+                {
+                    FillRect(resources, cell, flatIndex == pressedItem_ ? pressed : selected, 10.0f);
+                    if (flatIndex == selectedItem_)
+                    {
+                        StrokeRect(resources, cell, lightTheme_ ? accent : D2D1::ColorF(0xF0F0F4), 10.0f, 2.0f);
+                    }
+                }
+                const Item *item = group.items[indexInGroup];
+                if (!item)
+                {
+                    continue;
+                }
+                if (item->longText)
+                {
+                    DrawLongTextInCell(resources, item->text, cell, text, &item->cachedPaintFontSize,
+                                       &item->cachedPaintCellWidth);
+                }
+                else
+                {
+                    DrawFormattedText(resources, item->text, cell, emojiFormat, textBrush, true);
+                }
+            }
+        }
+    }
+
+    if (page_ == Page::Clipboard && !clipboardEnabled_)
+    {
+        DrawWrappedText(resources, L"开启剪贴板后",
+                        {bounds_.x + 40.0f, bounds_.y + kContentTop + 48.0f, bounds_.width - 80.0f, 44.0f},
+                        kClipboardHintFontSize, mutedText, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_FONT_WEIGHT_NORMAL);
+        DrawWrappedText(resources, L"复制过的内容将在这里展示",
+                        {bounds_.x + 40.0f, bounds_.y + kContentTop + 96.0f, bounds_.width - 80.0f, 44.0f},
+                        kClipboardHintFontSize, mutedText, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_FONT_WEIGHT_NORMAL);
+        const RectF enable = EnableClipboardButtonRect();
+        const D2D1_COLOR_F purple =
+            enableClipboardPressed_   ? (lightTheme_ ? D2D1::ColorF(0x7A3E91) : D2D1::ColorF(0xB06CBC))
+            : enableClipboardHovered_ ? (lightTheme_ ? D2D1::ColorF(0xB07CC4) : D2D1::ColorF(0xE2A8E8))
+                                      : accent;
+        FillRect(resources, enable, purple, 12.0f);
+        DrawText(resources, L"开启剪贴板", enable, kClipboardButtonFontSize, D2D1::ColorF(0xFFFFFF), CjkUiFont(),
+                 DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    }
+    else if (layoutGroups_.empty() || cachedItemCount_ == 0)
+    {
+        std::wstring emptyText = L"No results";
+        const wchar_t *emptyFont = L"Segoe UI";
+        float emptySize = 20.0f;
+        if (page_ == Page::Home && searchText_.empty() && recentItems_.empty() && emojiGroups_.empty())
+            emptyText = L"Emoji database not found";
+        else if (page_ == Page::Sticker)
+            emptyText = L"Stickers can be connected here";
+        else if (page_ == Page::Gif)
+            emptyText = L"GIF sources can be connected here";
+        else if (page_ == Page::Clipboard)
+        {
+            emptyText = searchText_.empty() ? L"暂无剪贴板记录" : L"没有匹配的剪贴板记录";
+            emptyFont = CjkUiFont();
+            emptySize = kClipboardEmptyFontSize;
+        }
+        else if (page_ == Page::Emoji && emojiSubTab_ == 0 && recentItems_.empty())
+            emptyText = L"Your recently used items will appear here";
+        else if (page_ == Page::Symbols && symbolGroups_.empty())
+            emptyText = L"Symbol catalog not found";
+        DrawText(resources, emptyText,
+                 {bounds_.x + 30.0f, bounds_.y + kContentTop + 50.0f, bounds_.width - 60.0f, 64.0f}, emptySize,
+                 mutedText, emptyFont, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+    target->PopAxisAlignedClip();
+
+    const RectF scrollbarThumb = ScrollbarThumbRect();
+    if (scrollbarThumb.height > 0.0f)
+    {
+        FillRect(resources, scrollbarThumb, D2D1::ColorF(lightTheme_ ? 0x8B8790 : 0xB8B8C0), 4.0f);
+    }
+
+    target->SetTransform(oldTransform);
+    target->SetTextAntialiasMode(oldTextAntialiasMode);
+
+    if (!toastText_.empty())
+    {
+        constexpr float kToastPadX = 28.0f * kPanelScale;
+        constexpr float kToastFontSize = 20.0f * kPanelScale;
+        const RectF panel = ToViewportRect(bounds_);
+        const float textWidth = MeasureTextWidth(resources, toastText_, kToastFontSize, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        const float width =
+            std::min(std::max(textWidth + kToastPadX * 2.0f, 96.0f * kPanelScale), panel.width - 40.0f * kPanelScale);
+        const RectF toast = {panel.x + (panel.width - width) * 0.5f,
+                             panel.y + panel.height - (kToastBottomPad + kToastHeight) * kPanelScale, width,
+                             kToastHeight * kPanelScale};
+        const D2D1_COLOR_F toastBg = lightTheme_ ? D2D1::ColorF(0x2B2B33, 0.94f) : D2D1::ColorF(0x3A3A44, 0.96f);
+        const D2D1_COLOR_F toastFg = D2D1::ColorF(0xF5F5F7);
+        FillRect(resources, toast, toastBg, toast.height * 0.5f);
+        DrawText(resources, toastText_, toast, kToastFontSize, toastFg, L"Segoe UI", DWRITE_TEXT_ALIGNMENT_CENTER,
+                 DWRITE_FONT_WEIGHT_SEMI_BOLD, true);
+    }
+
+    if (tooltipItem_ != kInvalidIndex && tooltipItem_ == hoveredItem_)
+    {
+        if (const Item *hovered = DisplayItemAt(tooltipItem_))
+        {
+            const std::wstring tip =
+                page_ == Page::Clipboard ? hovered->text : DisplayNameForItem(hovered->keywords, hovered->text);
+            EnsureDisplayLayout();
+            TryEnsureFlowLayout();
+            RectF anchorDesign{};
+            bool found = false;
+            const float tipOriginY = ContentViewportRect().y - scrollOffset_;
+            for (const auto &group : layoutGroups_)
+            {
+                if (tooltipItem_ < group.firstFlatIndex || tooltipItem_ >= group.firstFlatIndex + group.items.size())
+                {
+                    continue;
+                }
+                anchorDesign = ItemCellRect(group, tooltipItem_ - group.firstFlatIndex, tipOriginY);
+                found = true;
+                break;
+            }
+            if (found && !tip.empty())
+            {
+                const RectF panel = ToViewportRect(bounds_);
+                const RectF anchor = ToViewportRect(anchorDesign);
+                if (page_ == Page::Clipboard)
+                {
+                    DrawClipboardHoverTooltip(resources, hovered->text, panel, anchor, kContentTop * kPanelScale,
+                                              lightTheme_);
+                }
+                else
+                {
+                    const std::wstring &tipFont = ThemeManager::GetCurrent().textInputFontFamily;
+                    const float tooltipFontSize = kTooltipFontSize * kPanelScale;
+                    const float textWidth =
+                        MeasureTextWidth(resources, tip, tooltipFontSize, DWRITE_FONT_WEIGHT_NORMAL, tipFont.c_str());
+                    const float tipWidth =
+                        std::min(textWidth + kTooltipPadX * 2.0f * kPanelScale, panel.width - 24.0f * kPanelScale);
+                    const float tipHeight = (kTooltipFontSize + kTooltipPadY * 2.0f + 6.0f) * kPanelScale;
+                    float tipX = anchor.x + (anchor.width - tipWidth) * 0.5f;
+                    tipX = std::clamp(tipX, panel.x + 12.0f * kPanelScale,
+                                      panel.x + panel.width - tipWidth - 12.0f * kPanelScale);
+                    float tipY = anchor.y - tipHeight - 8.0f * kPanelScale;
+                    if (tipY < panel.y + kContentTop * kPanelScale)
+                    {
+                        tipY = anchor.y + anchor.height + 8.0f * kPanelScale;
+                    }
+                    const RectF tipRect = {tipX, tipY, tipWidth, tipHeight};
+                    const D2D1_COLOR_F tipBg =
+                        lightTheme_ ? D2D1::ColorF(0x2B2B33, 0.96f) : D2D1::ColorF(0x1C1C22, 0.96f);
+                    const D2D1_COLOR_F tipFg = D2D1::ColorF(0xF5F5F7);
+                    FillRect(resources, tipRect, tipBg, 10.0f * kPanelScale);
+                    DrawText(resources, tip, tipRect, tooltipFontSize, tipFg, tipFont.c_str(),
+                             DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_FONT_WEIGHT_NORMAL);
+                }
+            }
+        }
+    }
+
+    if (searchBox_)
+    {
+        searchBox_->Render(resources);
+    }
+}
+
+bool EmojiPanel::HitTest(const PointF &point) const
+{
+    return Contains(bounds_, point);
+}
+bool EmojiPanel::IsFocusable() const
+{
+    return true;
+}
+void EmojiPanel::OnFocusChanged(bool focused)
+{
+    focused_ = focused;
+    InvalidateVisual();
+}
+
+bool EmojiPanel::OnMouseDown(const POINT &point, WPARAM)
+{
+    if (!window_)
+        return false;
+    const PointF dip = ToDesignPoint(window_->ClientPixelsToDips(point));
+    const RectF scrollbarThumb = ScrollbarThumbRect();
+    const RectF scrollbarHitRect = {scrollbarThumb.x - 4.0f, scrollbarThumb.y, scrollbarThumb.width + 8.0f,
+                                    scrollbarThumb.height};
+    if (scrollbarThumb.height > 0.0f && Contains(scrollbarHitRect, dip))
+    {
+        scrollbarDragging_ = true;
+        scrollbarDragOffsetY_ = dip.y - scrollbarThumb.y;
+        closePressed_ = false;
+        backPressed_ = false;
+        pressedMainTab_ = kInvalidIndex;
+        pressedSubTab_ = kInvalidIndex;
+        pressedItem_ = kInvalidIndex;
+        pressedMore_ = kInvalidIndex;
+        return true;
+    }
+    closePressed_ = Contains(CloseRect(), dip);
+    backPressed_ = !closePressed_ && HitBack(dip);
+    enableClipboardPressed_ = !closePressed_ && !backPressed_ && HitEnableClipboardButton(dip);
+    pressedMainTab_ = (closePressed_ || backPressed_ || enableClipboardPressed_) ? kInvalidIndex : HitMainTab(dip);
+    pressedSubTab_ = (closePressed_ || backPressed_ || enableClipboardPressed_ || pressedMainTab_ != kInvalidIndex)
+                         ? kInvalidIndex
+                         : HitEmojiSubTab(dip);
+    pressedMore_ = (closePressed_ || backPressed_ || enableClipboardPressed_ || pressedMainTab_ != kInvalidIndex ||
+                    pressedSubTab_ != kInvalidIndex)
+                       ? kInvalidIndex
+                       : HitMoreButton(dip);
+    pressedClipboardDelete_ =
+        (closePressed_ || backPressed_ || enableClipboardPressed_ || pressedMainTab_ != kInvalidIndex ||
+         pressedSubTab_ != kInvalidIndex || pressedMore_ != kInvalidIndex)
+            ? kInvalidIndex
+            : HitClipboardDelete(dip);
+    pressedItem_ =
+        (closePressed_ || backPressed_ || enableClipboardPressed_ || pressedMainTab_ != kInvalidIndex ||
+         pressedSubTab_ != kInvalidIndex || pressedMore_ != kInvalidIndex || pressedClipboardDelete_ != kInvalidIndex)
+            ? kInvalidIndex
+            : HitItem(dip);
+    InvalidateVisual();
+    return true;
+}
+
+bool EmojiPanel::OnMouseUp(const POINT &point, WPARAM)
+{
+    if (!window_)
+        return false;
+    const PointF dip = ToDesignPoint(window_->ClientPixelsToDips(point));
+    if (scrollbarDragging_)
+    {
+        scrollbarDragging_ = false;
+        scrollbarDragOffsetY_ = 0.0f;
+        InvalidateVisual();
+        return true;
+    }
+    const bool close = closePressed_ && Contains(CloseRect(), dip);
+    const bool back = backPressed_ && HitBack(dip);
+    const bool enableClipboard = enableClipboardPressed_ && HitEnableClipboardButton(dip);
+    const size_t mainTab = HitMainTab(dip);
+    const size_t subTab = HitEmojiSubTab(dip);
+    const size_t more = HitMoreButton(dip);
+    const size_t deleted = HitClipboardDelete(dip);
+    const size_t item = HitItem(dip);
+
+    if (back)
+    {
+        GoHome();
+    }
+    else if (enableClipboard)
+    {
+        EnableClipboardHistory();
+    }
+    else if (pressedMainTab_ != kInvalidIndex && mainTab == pressedMainTab_)
+    {
+        if (mainTab == 0)
+        {
+            GoHome();
+        }
+        else
+        {
+            EnterPage(static_cast<Page>(mainTab), recentItems_.empty() && mainTab == 1 ? 1 : 0);
+        }
+    }
+    else if (pressedSubTab_ != kInvalidIndex && subTab == pressedSubTab_)
+    {
+        emojiSubTab_ = subTab;
+        ResetView();
+    }
+    else if (pressedMore_ != kInvalidIndex && more == pressedMore_)
+    {
+        ActivateMore(more);
+    }
+    else if (pressedClipboardDelete_ != kInvalidIndex && deleted == pressedClipboardDelete_)
+    {
+        RemoveClipboardItem(deleted);
+    }
+    else if (pressedItem_ != kInvalidIndex && item == pressedItem_)
+    {
+        selectedItem_ = item;
+        ActivateItem(item);
+    }
+
+    closePressed_ = false;
+    backPressed_ = false;
+    enableClipboardPressed_ = false;
+    pressedMainTab_ = kInvalidIndex;
+    pressedSubTab_ = kInvalidIndex;
+    pressedMore_ = kInvalidIndex;
+    pressedClipboardDelete_ = kInvalidIndex;
+    pressedItem_ = kInvalidIndex;
+    InvalidateVisual();
+    if (close)
+        PostMessageW(window_->GetHandle(), WM_CLOSE, 0, 0);
+    return true;
+}
+
+bool EmojiPanel::OnMouseMove(const POINT &point, WPARAM)
+{
+    if (!window_)
+        return false;
+    const PointF dip = ToDesignPoint(window_->ClientPixelsToDips(point));
+    if (scrollbarDragging_)
+    {
+        const RectF track = ScrollbarTrackRect();
+        const RectF thumb = ScrollbarThumbRect();
+        const float travel = std::max(track.height - thumb.height, 0.0f);
+        const float thumbY = std::clamp(dip.y - scrollbarDragOffsetY_, track.y, track.y + travel);
+        const float viewportHeight = std::max(bounds_.height - kContentTop, 1.0f);
+        const float maxScroll = std::max(ContentHeight() - viewportHeight, 0.0f);
+        scrollOffset_ = travel > 0.0f ? ((thumbY - track.y) / travel) * maxScroll : 0.0f;
+        ClampScroll();
+        InvalidateVisual();
+        return true;
+    }
+    const bool close = Contains(CloseRect(), dip);
+    const bool back = !close && HitBack(dip);
+    const bool enableClipboard = !close && !back && HitEnableClipboardButton(dip);
+    const size_t mainTab = (close || back || enableClipboard) ? kInvalidIndex : HitMainTab(dip);
+    const size_t subTab =
+        (close || back || enableClipboard || mainTab != kInvalidIndex) ? kInvalidIndex : HitEmojiSubTab(dip);
+    const size_t more = (close || back || enableClipboard || mainTab != kInvalidIndex || subTab != kInvalidIndex)
+                            ? kInvalidIndex
+                            : HitMoreButton(dip);
+    const size_t deleted = (close || back || enableClipboard || mainTab != kInvalidIndex || subTab != kInvalidIndex ||
+                            more != kInvalidIndex)
+                               ? kInvalidIndex
+                               : HitClipboardDelete(dip);
+    const size_t item = (close || back || enableClipboard || mainTab != kInvalidIndex || subTab != kInvalidIndex ||
+                         more != kInvalidIndex)
+                            ? kInvalidIndex
+                            : HitItem(dip);
+    if (closeHovered_ != close || backHovered_ != back || enableClipboardHovered_ != enableClipboard ||
+        hoveredMainTab_ != mainTab || hoveredSubTab_ != subTab || hoveredMore_ != more || hoveredItem_ != item ||
+        hoveredClipboardDelete_ != deleted)
+    {
+        const bool itemChanged = hoveredItem_ != item;
+        closeHovered_ = close;
+        backHovered_ = back;
+        enableClipboardHovered_ = enableClipboard;
+        hoveredMainTab_ = mainTab;
+        hoveredSubTab_ = subTab;
+        hoveredMore_ = more;
+        hoveredClipboardDelete_ = deleted;
+        hoveredItem_ = item;
+        if (itemChanged)
+        {
+            ArmTooltip(item);
+        }
+        InvalidateVisual();
+    }
+    return true;
+}
+
+void EmojiPanel::OnMouseLeave()
+{
+    closeHovered_ = false;
+    backHovered_ = false;
+    enableClipboardHovered_ = false;
+    hoveredMainTab_ = kInvalidIndex;
+    hoveredSubTab_ = kInvalidIndex;
+    hoveredMore_ = kInvalidIndex;
+    hoveredClipboardDelete_ = kInvalidIndex;
+    hoveredItem_ = kInvalidIndex;
+    CancelTooltip();
+    InvalidateVisual();
+}
+
+bool EmojiPanel::OnMouseWheel(const POINT &, short delta, WPARAM)
+{
+    scrollOffset_ -= static_cast<float>(delta) / WHEEL_DELTA * 96.0f;
+    ClampScroll();
+    CancelTooltip();
+    InvalidateVisual();
+    return true;
+}
+
+bool EmojiPanel::OnKeyDown(WPARAM key, LPARAM)
+{
+    if (key == VK_ESCAPE)
+    {
+        if (InDetailPage())
+        {
+            GoHome();
+            return true;
+        }
+        return false;
+    }
+    const size_t count = DisplayItemCount();
+    if (count == 0)
+        return false;
+    if (key == VK_LEFT && selectedItem_ > 0)
+        --selectedItem_;
+    else if (key == VK_RIGHT && selectedItem_ + 1 < count)
+        ++selectedItem_;
+    else if (key == VK_UP)
+    {
+        if (IsFlowFlatIndex(selectedItem_))
+        {
+            selectedItem_ = NavigateFlowVertical(selectedItem_, -1);
+        }
+        else
+        {
+            const size_t columns = ColumnsForFlatIndex(selectedItem_);
+            selectedItem_ = selectedItem_ >= columns ? selectedItem_ - columns : 0;
+        }
+    }
+    else if (key == VK_DOWN)
+    {
+        if (IsFlowFlatIndex(selectedItem_))
+        {
+            selectedItem_ = NavigateFlowVertical(selectedItem_, 1);
+        }
+        else
+        {
+            const size_t columns = ColumnsForFlatIndex(selectedItem_);
+            selectedItem_ = std::min(selectedItem_ + columns, count - 1);
+        }
+    }
+    else if (key == VK_HOME)
+        selectedItem_ = 0;
+    else if (key == VK_END)
+        selectedItem_ = count - 1;
+    else if (key == VK_RETURN || key == VK_SPACE)
+        ActivateItem(selectedItem_);
+    else
+        return false;
+    EnsureItemVisible(selectedItem_);
+    InvalidateVisual();
+    return true;
+}
+
+bool EmojiPanel::OnChar(wchar_t ch, LPARAM)
+{
+    (void)ch;
+    return false;
+}
+
+bool EmojiPanel::OnTimer(UINT_PTR timerId)
+{
+    if (timerId == kToastTimerId)
+    {
+        DismissToast();
+        return true;
+    }
+    if (timerId == kTooltipTimerId)
+    {
+        if (window_ && window_->GetHandle())
+        {
+            KillTimer(window_->GetHandle(), kTooltipTimerId);
+        }
+        if (hoveredItem_ != kInvalidIndex)
+        {
+            tooltipItem_ = hoveredItem_;
+            InvalidateVisual();
+        }
+        return true;
+    }
+    if (timerId == kClipboardPollTimerId)
+    {
+        SyncClipboardState(false);
+        return true;
+    }
+    return false;
+}
+
+HCURSOR EmojiPanel::GetCursor() const
+{
+    if (enableClipboardHovered_ || hoveredClipboardDelete_ != kInvalidIndex)
+        return LoadCursor(nullptr, IDC_HAND);
+    return LoadCursor(nullptr, IDC_ARROW);
+}
+} // namespace msimeui

@@ -261,7 +261,9 @@ if(WIN32)
   endif()
   add_test(NAME windows-handwriting-panel-help COMMAND msime-client-handwriting-panel --help)
   set_tests_properties(windows-handwriting-panel-help PROPERTIES TIMEOUT 5)
-  add_executable(msime-client-emoji-panel EmojiPanel.cpp ClipboardHistory.cpp)
+  add_executable(msime-client-emoji-panel
+                 EmojiPanel.cpp EmojiPanelMain.cpp emoji_panel_icons.cpp
+                 ClipboardHistory.cpp)
   target_include_directories(msime-client-emoji-panel PRIVATE .)
   target_link_libraries(msime-client-emoji-panel PRIVATE msimeui user32 gdi32 shell32 ole32
                                                          nlohmann_json::nlohmann_json
