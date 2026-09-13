@@ -107,6 +107,7 @@ public final class MSIMEInputService extends InputMethodService {
     private SeekBar rowSpacingSlider;
     private SeekBar keyboardHeightSlider;
     private Switch voiceShortcutSwitch;
+    private Button resetLayoutSettingsButton;
     private TextView keySpacingValue;
     private TextView rowSpacingValue;
     private TextView keyboardHeightValue;
@@ -1235,6 +1236,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || description.toString().startsWith("候选 ")
                 || description.toString().startsWith("输入方案卡片 "));
             styleButton((Button) node, !key);
+            if (description != null && "恢复默认".contentEquals(description))
+                ((Button) node).setTextColor(Color.RED);
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
             text.setTextColor(Color.parseColor(skin.keyForeground()));
@@ -2396,7 +2399,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void renderLayoutSettingsState() {
         if (keySpacingSlider == null || rowSpacingSlider == null || keyboardHeightSlider == null
                 || keySpacingValue == null || rowSpacingValue == null || keyboardHeightValue == null
-                || voiceShortcutSwitch == null) return;
+                || voiceShortcutSwitch == null || resetLayoutSettingsButton == null) return;
         keySpacingSlider.setProgress(touchKeySpacingTenths);
         rowSpacingSlider.setProgress(touchRowSpacingTenths);
         keyboardHeightSlider.setProgress(touchKeyboardHeightAdjustment);
@@ -2405,6 +2408,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardHeightSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
         voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+        resetLayoutSettingsButton.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
         rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
         keyboardHeightValue.setText(KeyboardGeometry.displayHeight(
@@ -2476,11 +2480,26 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveTouchGeometry() {
+        saveTouchGeometry(false);
+    }
+
+    private void resetTouchGeometry() {
+        if (touchGeometrySaving || traditionalOutputSaving || session == 0
+                || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
+        touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
+        touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
+        touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
+        touchVoiceShortcutEnabled = false;
+        applyKeyboardGeometry();
+        saveTouchGeometry(true);
+    }
+
+    private void saveTouchGeometry(boolean reset) {
         if (touchGeometrySaving || traditionalOutputSaving
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
-        if (acceptedPreferences != null
+        if (!reset && acceptedPreferences != null
                 && KeyboardGeometry.keySpacing(acceptedPreferences.optInt(
                     "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
                 && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
@@ -2499,12 +2518,23 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = pending.getLong("revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
-            preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
-            preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
-            preferences.put("touch_keyboard_height_adjustment", touchKeyboardHeightAdjustment);
-            preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+            if (reset) {
+                preferences.remove("touch_key_spacing_tenths");
+                preferences.remove("touch_row_spacing_tenths");
+                preferences.remove("touch_keyboard_height_adjustment");
+                preferences.remove("touch_voice_shortcut");
+            } else {
+                preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
+                preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+                preferences.put("touch_keyboard_height_adjustment", touchKeyboardHeightAdjustment);
+                preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+            }
         } catch (JSONException error) {
-            preferencesNotice = " · 键盘设置保存失败，保留原设置";
+            if (reset && preferencesSnapshot != null) {
+                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+                applyKeyboardGeometry();
+            }
+            preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
             render();
             return;
         }
@@ -2523,14 +2553,18 @@ public final class MSIMEInputService extends InputMethodService {
             }
             final String savedResponse = response;
             main.post(() -> finishTouchGeometrySave(operation, targetSession, targetDirectory,
-                savedResponse));
+                reset, savedResponse));
         };
         try {
             preferencesWorker.execute(save);
         } catch (RuntimeException error) {
             if (operation == preferenceSaveGeneration) {
                 touchGeometrySaving = false;
-                preferencesNotice = " · 键盘设置保存失败，保留原设置";
+                if (reset && preferencesSnapshot != null) {
+                    applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+                    applyKeyboardGeometry();
+                }
+                preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
                 renderLayoutSettingsState();
                 render();
             }
@@ -2538,7 +2572,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void finishTouchGeometrySave(long operation, long targetSession,
-                                         String targetDirectory, String response) {
+                                         String targetDirectory, boolean reset, String response) {
         if (operation != preferenceSaveGeneration || session != targetSession
                 || !targetDirectory.equals(preferencesDirectory)) return;
         touchGeometrySaving = false;
@@ -2553,14 +2587,14 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
-                preferencesNotice = " · 键盘设置已保存";
+                preferencesNotice = reset ? " · 键盘设置已恢复默认" : " · 键盘设置已保存";
             }
         } catch (JSONException | LinkageError error) {
             if (preferencesSnapshot != null)
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
             applyKeyboardGeometry();
-            preferencesNotice = " · 键盘设置保存失败，已恢复原设置";
-            Toast.makeText(this, "键盘设置未能保存", Toast.LENGTH_SHORT).show();
+            preferencesNotice = reset ? " · 恢复默认失败，已恢复原设置" : " · 键盘设置保存失败，已恢复原设置";
+            Toast.makeText(this, reset ? "键盘设置未能恢复默认" : "键盘设置未能保存", Toast.LENGTH_SHORT).show();
         }
         renderLayoutSettingsState();
         render();
@@ -4085,6 +4119,8 @@ public final class MSIMEInputService extends InputMethodService {
             saveTouchGeometry();
         });
         layoutSettingsPanel.addView(voiceShortcutSwitch);
+        resetLayoutSettingsButton = button(layoutSettingsPanel, "恢复默认", this::resetTouchGeometry);
+        resetLayoutSettingsButton.setContentDescription("恢复默认");
         TextView layoutHint = new TextView(this);
         layoutHint.setText("高度和间距只改变键位外观，不改变输入方案；松手后自动保存。");
         layoutSettingsPanel.addView(layoutHint);

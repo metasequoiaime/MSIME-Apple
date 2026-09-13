@@ -62,7 +62,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             stage = "decrease keyboard height";
             tap(key("设置"));
             setProgress(await(heightSlider()), -12);
-            awaitHeightPreference(preferences, -12, tallRevision + 1);
+            long shortRevision = awaitHeightPreference(preferences, -12, tallRevision + 1);
             tap(description("返回键盘"));
             int shortHeight = keyHeight("n");
             if (shortHeight >= standard)
@@ -70,12 +70,28 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     + standard + " -> " + shortHeight);
             await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
 
+            stage = "restore keyboard settings defaults";
+            tap(key("设置"));
+            await(description("恢复默认"));
+            tap(description("恢复默认"));
+            long resetRevision = awaitResetPreference(preferences, shortRevision + 1);
+            if (resetRevision <= shortRevision)
+                throw new AssertionError("Keyboard settings reset did not advance revision");
+            if (await(description("键盘高度")).getRangeInfo().getCurrent() != 0f
+                    || await(description("顶部语音入口")).isChecked())
+                throw new AssertionError("Keyboard settings controls did not return to defaults");
+            tap(description("返回键盘"));
+            int resetHeight = keyHeight("n");
+            if (Math.abs(resetHeight - standard) > 2)
+                throw new AssertionError("Reset keyboard height did not return to default: "
+                    + standard + " -> " + resetHeight);
+
             stage = "height survives input method restart";
             shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
             rebindInputMethod();
             openEditor();
             int restarted = keyHeight("n");
-            if (Math.abs(restarted - shortHeight) > 2)
+            if (Math.abs(restarted - resetHeight) > 2)
                 throw new AssertionError("Persisted height changed after restart");
         } finally {
             shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
@@ -138,6 +154,28 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Height preference was not saved");
+    }
+
+    private long awaitResetPreference(File file, long minimumRevision) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            try {
+                JSONObject current = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+                JSONObject settings = current.getJSONObject("preferences");
+                if (current.getLong("revision") >= minimumRevision
+                        && !settings.has("touch_key_spacing_tenths")
+                        && !settings.has("touch_row_spacing_tenths")
+                        && !settings.has("touch_keyboard_height_adjustment")
+                        && !settings.has("touch_voice_shortcut")) {
+                    return current.getLong("revision");
+                }
+            } catch (RuntimeException ignored) {
+                // Atomic replacement can briefly expose no complete snapshot to this polling read.
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Keyboard settings reset was not saved");
     }
 
     private void shell(String command) throws Exception {
