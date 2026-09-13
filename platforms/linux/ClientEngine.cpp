@@ -253,7 +253,7 @@ struct State {
   bool voice_stopping = false;
   bool voice_requires_control = false;
   uint64_t voice_generation = 0;
-  uint64_t voice_failure_generation = 0;
+  uint64_t voice_failure_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
@@ -2632,7 +2632,7 @@ struct VoiceResult {
 struct VoiceFailureNotice {
   IBusEngine *engine;
   std::shared_ptr<std::atomic_bool> alive;
-  uint64_t generation;
+  uint64_t id;
 };
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
@@ -2719,7 +2719,7 @@ void voice_cancel(IBusEngine *engine) {
     s.wave_overlay_surface->hide();
   s.wave_overlay_visible = false;
   s.voice_generation = 0;
-  s.voice_failure_generation = 0;
+
   s.voice_preedit.clear();
   s.voice_transcript.clear();
   s.wave_overlay.transcript.clear();
@@ -2729,10 +2729,11 @@ void voice_cancel(IBusEngine *engine) {
     render(engine, s.view);
   publish_mode(engine);
 }
-void show_voice_failure(IBusEngine *engine, uint64_t generation,
-                        const char *message) {
+void show_voice_failure(IBusEngine *engine, const char *message) {
   auto &s = state(engine);
-  s.voice_failure_generation = generation;
+  ++s.voice_failure_id;
+  if (s.voice_failure_id == 0)
+    ++s.voice_failure_id;
   s.wave_overlay = {};
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
@@ -2746,7 +2747,7 @@ void show_voice_failure(IBusEngine *engine, uint64_t generation,
   }
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_static_string(message), TRUE);
-  auto *notice = new VoiceFailureNotice{engine, s.alive, generation};
+  auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
   g_timeout_add_full(
       G_PRIORITY_DEFAULT, 1200,
       +[](gpointer data) -> gboolean {
@@ -2756,13 +2757,12 @@ void show_voice_failure(IBusEngine *engine, uint64_t generation,
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
         if (!s.voice_active &&
-            s.voice_failure_generation == notice->generation) {
+            s.voice_failure_id == notice->id) {
           if (s.wave_overlay_visible && s.wave_overlay_surface) {
             s.wave_overlay_surface->hide();
             s.wave_overlay_visible = false;
             s.wave_overlay = {};
           }
-          s.voice_failure_generation = 0;
         }
         return G_SOURCE_REMOVE;
       },
@@ -2787,10 +2787,9 @@ void voice_stop(IBusEngine *engine) {
     }
   }
   if (!stopped) {
-    const auto generation = s.voice_generation;
     voice_cancel(engine);
-    show_voice_failure(engine, generation,
-                       "结束录音失败，本次语音已取消，请检查语音服务后重试");
+    show_voice_failure(
+        engine, "结束录音失败，本次语音已取消，请检查语音服务后重试");
   } else {
     s.voice_stopping = true;
     s.voice_phase = "正在识别…";
@@ -2824,7 +2823,6 @@ void voice_start_impl(IBusEngine *engine) {
   s.wave_overlay_visible = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
-  s.voice_failure_generation = 0;
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
@@ -2962,7 +2960,6 @@ void voice_start_impl(IBusEngine *engine) {
               }
               try {
                 if (result->text.empty()) {
-                  const auto generation = result->generation;
                   msime_client_string_free(msime_client_voice_cancel(s.session));
                   s.voice_active = false;
                   s.voice_generation = 0;
@@ -2972,7 +2969,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
-                  show_voice_failure(result->engine, generation,
+                  show_voice_failure(result->engine,
                                      result->provider_failed
                                          ? "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"
                                          : "未识别到文字，请重新录音");
@@ -3000,7 +2997,6 @@ void voice_start_impl(IBusEngine *engine) {
                 render(result->engine, s.view);
                 publish_mode(result->engine);
               } catch (...) {
-                const auto generation = result->generation;
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
@@ -3010,7 +3006,7 @@ void voice_start_impl(IBusEngine *engine) {
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 render(result->engine, s.view);
                 publish_mode(result->engine);
-                show_voice_failure(result->engine, generation,
+                show_voice_failure(result->engine,
                                    "语音结果处理失败，请重新录音");
               }
               return G_SOURCE_REMOVE;
@@ -3027,8 +3023,8 @@ void voice_start(IBusEngine *engine) {
     // Configuration and Host API errors may contain private values. Only
     // show a fixed message after dropping any partially started generation.
     voice_cancel(engine);
-    show_voice_failure(engine, 0,
-                       "无法启动语音输入，请检查语音设置后重试");
+    show_voice_failure(
+        engine, "无法启动语音输入，请检查语音设置后重试");
   }
 }
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
