@@ -11,6 +11,7 @@
 #include "WaveOverlayIbusSurface.h"
 #include "WaveOverlaySurfaceFactory.h"
 #include "CandidatePalette.h"
+#include "CandidateActionPolicy.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -1703,7 +1704,8 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     editable_candidates = true;
     const auto slot = index + 1;
     auto actions = ibus_prop_list_new();
-    auto preview = candidate.value("text", std::string{});
+    const auto candidate_text = candidate.value("text", std::string{});
+    auto preview = candidate_text;
     msime_clipboard_truncate(preview, 48);
     const auto entry_label = std::to_string(slot) + ". " + preview;
     const auto entry_name = candidate_action_name("CandidateEntry", id);
@@ -1714,13 +1716,17 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
         PROP_STATE_UNCHECKED, actions);
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
-    for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
-                                       std::pair{"CandidateRemove", "删除候选"},
+    std::vector<std::pair<const char *, const char *>> candidate_commands = {
+        {"CandidatePin", "固定候选"}};
+    if (msime::linux_host::candidate_removal_available(candidate_text))
+      candidate_commands.emplace_back("CandidateRemove", "删除候选");
+    candidate_commands.insert(candidate_commands.end(), {
                                        std::pair{"CandidateFix1", "固定到 1"},
                                        std::pair{"CandidateFix2", "固定到 2"},
                                        std::pair{"CandidateFix3", "固定到 3"},
                                        std::pair{"CandidateFix4", "固定到 4"},
-                                       std::pair{"CandidateFix5", "固定到 5"}}) {
+                                       std::pair{"CandidateFix5", "固定到 5"}});
+    for (const auto &[action, label] : candidate_commands) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto title = std::string(label) + " " + std::to_string(slot);
       const auto state = g_str_has_prefix(action, "CandidateFix") &&
@@ -3165,6 +3171,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           return;
         const auto generation = id.at("generation").get<uint64_t>();
         const auto index = id.at("index").get<size_t>();
+        if (remove && !msime::linux_host::candidate_removal_available(
+                          candidate.value("text", std::string{})))
+          return;
         if (pin)
           apply(engine, msime_client_pin_candidate(s.session, generation, index));
         else if (remove)
