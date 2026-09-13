@@ -1563,6 +1563,26 @@ int main(int argc, char **argv) {
                 seen.committed.find(shifted) == 0 &&
                 seen.committed.size() > shifted.size(),
             "Shifted symbol triggered word-to-character selection");
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    auto external_skin = options;
+    external_skin.erase("preferences_directory");
+    external_skin["candidate_skin_catalog"] = {
+        {"scanned", true},
+        {"packages",
+         {{{"id", "custom"},
+           {"candidate", {{"light", {{"surface", "#654321"}}}}}}}}};
+    external_skin["preferences"]["candidate_skin"] = "custom";
+    external_skin["preferences"]["candidate_theme"] = "light";
+    external_skin["preferences"]["candidate_surface_color"] = "#123456";
+    msime_preview_configure(external_skin.dump());
+    engine = create_engine();
+    seen = Observation{};
+    invoke("FocusIn");
+    phrase();
+    require(
+        seen.first_candidate_background == 0x123456,
+        "Custom candidate surface color was overwritten by an external skin");
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);

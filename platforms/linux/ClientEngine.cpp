@@ -78,10 +78,15 @@ Json skin_display_preferences(Json preferences) {
     if (!preferences.value("candidate_accent_color", Json(nullptr)).is_string() &&
         palette.contains("accent"))
       preferences["candidate_accent_color"] = palette["accent"];
-    if (!preferences.value("candidate_selected_color", Json(nullptr)).is_string() &&
+    if (!preferences.value("candidate_selected_color", Json(nullptr))
+             .is_string() &&
         palette.contains("selected"))
       preferences["candidate_selected_color"] = palette["selected"];
-    if (palette.contains("surface"))
+    const bool custom_surface =
+        preferences.value("candidate_background_color", Json(nullptr))
+            .is_string() ||
+        preferences.value("candidate_surface_color", Json(nullptr)).is_string();
+    if (!custom_surface && palette.contains("surface"))
       preferences["candidate_background_color"] = palette["surface"];
     break;
   }
