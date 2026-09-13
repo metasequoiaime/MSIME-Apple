@@ -1501,7 +1501,10 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         punctuationStr = _ResolveSmartPunctuation(wch, preceding);
     }
 
-    const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed);
+    // Excel cannot consume the caret move that places the caret between the
+    // auto-inserted pair. Fall back to ordinary punctuation for that host.
+    const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
+                                          !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
     if (pairedPunctuationEnabled && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
     {
         const WCHAR stepOver = GetPairedPunctuationStepOverCandidate(wch, punctuationStr);
