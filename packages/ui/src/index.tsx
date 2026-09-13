@@ -166,6 +166,7 @@ export interface HostCapabilities {
   panel_shortcuts: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
+  candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
 }
 
@@ -654,6 +655,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // An IBus property menu has no scale, icon size or component list to apply.
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
+  const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showVoiceCaptureDevices = (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
@@ -1153,12 +1155,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
         </div></div></div>
-        {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的 IBus 候选面板不支持强调、选中、悬停或边框颜色。</small></div>}
-        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
+        {!showCandidateRowColors && <div className="section"><small>当前宿主的候选面板不支持强调或选中行颜色。</small></div>}
+        {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的候选面板不支持悬停或边框颜色。</small></div>}
+        {showCandidateRowColors && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
           <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
         </div></div></div>}
-        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
+        {showCandidateRowColors && <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
           <input aria-label="候选选中色" type="color" value={candidateTextColor(draft.candidate_selected_color) ?? (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")} onChange={event => setDraft({ ...draft, candidate_selected_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
         </div></div></div>}
