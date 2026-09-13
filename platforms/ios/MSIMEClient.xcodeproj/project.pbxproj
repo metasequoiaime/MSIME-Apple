@@ -25,6 +25,7 @@
 		17AFA8BE497D9B25CB995E21 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDAD5141112AD991532BB01D /* OnboardingView.swift */; };
 		1B9FA410877A9858C84DBD11 /* ReplyKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1DEDC404AA7D119B173FB4 /* ReplyKeyboardView.swift */; };
 		1EA687C7404F82A1D3BB3795 /* GeneratedKeyboardSkinTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2DB33CC16EADBFB7FE5A14 /* GeneratedKeyboardSkinTests.swift */; };
+		249F165C11A08552BA69F0BF /* DoubaoWebSocketTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3BFFBE22E609D3DEDB7252A /* DoubaoWebSocketTransport.swift */; };
 		25E3A3849B1E8586640F991C /* AccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1F7A0F3E98E974C5A7083D /* AccountSettingsView.swift */; };
 		25FCC4487D334382A648B23C /* CloudDictionaryFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90785D3665599432398040AB /* CloudDictionaryFilesView.swift */; };
 		275E8A07DF39682121CFC5F3 /* KeyboardSkinPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0751BB503612C54F76574A71 /* KeyboardSkinPreview.swift */; };
@@ -209,6 +210,7 @@
 		2CF34895E0F30366F0D7E916 /* CustomKeyboardSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomKeyboardSkin.swift; sourceTree = "<group>"; };
 		346B18127F916031CA9DD345 /* KeyboardInputContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardInputContext.swift; sourceTree = "<group>"; };
 		369A836EF7B8678D29C117C9 /* ChineseOutputPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChineseOutputPreference.swift; sourceTree = "<group>"; };
+		391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MSIMEDoubaoTransport.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		3D2DB33CC16EADBFB7FE5A14 /* GeneratedKeyboardSkinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedKeyboardSkinTests.swift; sourceTree = "<group>"; };
 		3FA93BCB9A7CC7FFB2130B04 /* AccountCodeLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCodeLoginView.swift; sourceTree = "<group>"; };
 		405231C669C8592559936223 /* KeyboardClipboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardClipboardView.swift; sourceTree = "<group>"; };
@@ -383,6 +385,7 @@
 			children = (
 				9E30A0713267D216228DB458 /* MSIMEClientApp.app */,
 				7E530905DD87A0722FDC52F9 /* MSIMEClientTests.xctest */,
+				391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */,
 				A09AC0F9BA083FADB67F20C6 /* MSIMEKeyboardExtension.appex */,
 			);
 			name = Products;
@@ -564,6 +567,23 @@
 			productReference = 9E30A0713267D216228DB458 /* MSIMEClientApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F76F718BFCA05760B5EDAB31 /* MSIMEDoubaoTransport */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6882F4E9AA5E233E43500906 /* Build configuration list for PBXNativeTarget "MSIMEDoubaoTransport" */;
+			buildPhases = (
+				DA1E1C3FC913F817CC960442 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MSIMEDoubaoTransport;
+			packageProductDependencies = (
+			);
+			productName = MSIMEDoubaoTransport;
+			productReference = 391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */;
+			productType = "com.apple.product-type.framework";
+		};
 		F90F3A90ECC8D9E9E9DEA007 /* MSIMEClientTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 062CBEB843CD2AF4F50CD31B /* Build configuration list for PBXNativeTarget "MSIMEClientTests" */;
@@ -611,6 +631,7 @@
 				B3343CC05D37C315487BC973 /* MSIMEClientApp */,
 				292C206FC359697E0EA95DDD /* MSIMEKeyboardExtension */,
 				F90F3A90ECC8D9E9E9DEA007 /* MSIMEClientTests */,
+				F76F718BFCA05760B5EDAB31 /* MSIMEDoubaoTransport */,
 			);
 		};
 /* End PBXProject section */
@@ -753,6 +774,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DA1E1C3FC913F817CC960442 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				249F165C11A08552BA69F0BF /* DoubaoWebSocketTransport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DAFA902BDA9BFC485FF404A5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -841,6 +870,14 @@
 			};
 			name = Release;
 		};
+		A75D1CA9C69371F7870CBECB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.transport;
+				PRODUCT_NAME = MSIMEDoubaoTransport;
+			};
+			name = Release;
+		};
 		AB0CEF9C61B9356129BF0552 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -849,6 +886,14 @@
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 			};
 			name = Release;
+		};
+		B237A2859A7650B807ED3128 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.transport;
+				PRODUCT_NAME = MSIMEDoubaoTransport;
+			};
+			name = Debug;
 		};
 		D604751A421F14DDE16D621E /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -885,6 +930,15 @@
 			buildConfigurations = (
 				154E6D2854D6B750ACB655B2 /* Debug */,
 				67B85A5A7C754F65DCE3A872 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6882F4E9AA5E233E43500906 /* Build configuration list for PBXNativeTarget "MSIMEDoubaoTransport" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B237A2859A7650B807ED3128 /* Debug */,
+				A75D1CA9C69371F7870CBECB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -44,3 +44,12 @@ targets:
       - path: tests
     dependencies:
       - target: MSIMEClientApp
+  MSIMEDoubaoTransport:
+    type: framework
+    platform: iOS
+    sources:
+      - path: App/Services/DoubaoWebSocketTransport.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport
+        PRODUCT_NAME: MSIMEDoubaoTransport

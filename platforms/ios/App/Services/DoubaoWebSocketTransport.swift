@@ -18,7 +18,11 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate {
     self.session = session
     self.task = task
     task.resume()
-    try await task.sendPing()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      task.sendPing { error in
+        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+      }
+    }
     isConnected = true
   }
 
