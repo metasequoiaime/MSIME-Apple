@@ -418,6 +418,12 @@ struct ServiceSettingsView: View {
             TextField("可选", text: $configuration.voiceResourceID)
               .textInputAutocapitalization(.never).autocorrectionDisabled()
               .accessibilityIdentifier("doubaoResourceID")
+            Toggle("ITN", isOn: $configuration.doubaoEnableITN)
+            Toggle("标点", isOn: $configuration.doubaoEnablePunctuation)
+            Toggle("DDC", isOn: $configuration.doubaoEnableDDC)
+            TextField("Boosting table ID（可选）", text: $configuration.doubaoBoostingTableID)
+              .textInputAutocapitalization(.never).autocorrectionDisabled()
+              .accessibilityIdentifier("doubaoBoostingTableID")
           }.padding(.vertical, 4)
         }
         Button { fetchModels() } label: {
