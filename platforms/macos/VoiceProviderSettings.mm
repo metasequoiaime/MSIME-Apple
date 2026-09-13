@@ -117,9 +117,33 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"voiceInput"];
     if (!saved)
         saved = @{};
-    value.provider = StringSetting(saved, @"provider", @"cloud");
-    value.endpoint = StringSetting(saved, @"endpoint", @"https://api.siliconflow.cn/v1/audio/transcriptions");
-    value.model = StringSetting(saved, @"model", @"FunAudioLLM/SenseVoiceSmall");
+    NSString *rawProvider = StringSetting(saved, @"provider", @"doubao").lowercaseString;
+    // Keep legacy cloud settings readable while matching the Windows provider contract.
+    if ([rawProvider isEqualToString:@"cloud"])
+        rawProvider = @"siliconflow";
+    if (rawProvider.length == 0)
+        rawProvider = @"doubao";
+    value.provider = rawProvider;
+    value.endpoint = StringSetting(saved, @"endpoint", @"");
+    value.model = StringSetting(saved, @"model", @"");
+    if (value.endpoint.length == 0)
+    {
+        if ([rawProvider isEqualToString:@"openai"])
+            value.endpoint = @"https://api.openai.com/v1/audio/transcriptions";
+        else if ([rawProvider isEqualToString:@"groq"])
+            value.endpoint = @"https://api.groq.com/openai/v1/audio/transcriptions";
+        else if ([rawProvider isEqualToString:@"siliconflow"])
+            value.endpoint = @"https://api.siliconflow.cn/v1/audio/transcriptions";
+    }
+    if (value.model.length == 0)
+    {
+        if ([rawProvider isEqualToString:@"openai"])
+            value.model = @"whisper-1";
+        else if ([rawProvider isEqualToString:@"groq"])
+            value.model = @"whisper-large-v3-turbo";
+        else if ([rawProvider isEqualToString:@"siliconflow"])
+            value.model = @"FunAudioLLM/SenseVoiceSmall";
+    }
     value.modelPath = StringSetting(saved, @"modelPath", @"");
     id polishEnabled = saved[@"polishEnabled"];
     value.polishEnabled =
