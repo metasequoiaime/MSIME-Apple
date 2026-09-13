@@ -219,7 +219,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
-  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | null>(null);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
   const [initialPage, setInitialPage] = useState<string | undefined>();
@@ -247,9 +247,7 @@ function DesktopSettings() {
         ? {
           ...hosted,
           openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
-          // Cloud dictionary remains a desktop provider surface until its Android account
-          // transport is available; do not expose a button that can only return unavailable.
-          openCloudDictionary: undefined,
+          openCloudDictionary: async () => setMobilePanel("cloud-dictionary"),
         }
         : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
@@ -263,6 +261,12 @@ function DesktopSettings() {
       ...panelClients.cloudClipboard,
       rememberInputTarget: undefined,
       sendText: undefined,
+      close: async () => setMobilePanel(null),
+    }} />;
+  }
+  if (mobilePanel === "cloud-dictionary") {
+    return <CloudDictionaryPanel client={{
+      ...panelClients.cloudDictionary,
       close: async () => setMobilePanel(null),
     }} />;
   }

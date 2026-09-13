@@ -708,6 +708,7 @@ async fn cloud_clipboard_request(
     android_account::cloud_clipboard_request(state, action).await
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn cloud_dictionary_request(
     options: tauri::State<'_, DictionaryHostOptions>,
@@ -758,6 +759,27 @@ async fn cloud_dictionary_request(
     .map_err(|_| CommandError {
         code: "unavailable",
     })?
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn cloud_dictionary_request(
+    state: tauri::State<'_, android_account::AccountState>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    let request =
+        serde_json::from_value::<msime_host_api::cloud_dictionary::CloudDictionaryRequest>(
+            action.clone(),
+        )
+        .map_err(|_| CommandError {
+            code: "invalid_cloud_dictionary",
+        })?;
+    msime_host_api::cloud_dictionary::validate_cloud_request(&request).map_err(|_| {
+        CommandError {
+            code: "invalid_cloud_dictionary",
+        }
+    })?;
+    android_account::cloud_dictionary_request(state, action).await
 }
 
 #[derive(serde::Serialize)]

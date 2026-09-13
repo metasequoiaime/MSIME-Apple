@@ -93,7 +93,10 @@ pub fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
 pub fn entry_path(entry: &DictionaryEntry) -> Option<String> {
     if entry.revision <= 0
         || entry.id.len() != 64
-        || !entry.id.bytes().all(|b| b.is_ascii_hexdigit())
+        || !entry
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
         return None;
     }

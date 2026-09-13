@@ -1,5 +1,6 @@
 //! Account protocol and session state independent of UI and platform hosts.
 
+use crate::cloud_dictionary::DictionaryKind;
 use reqwest::blocking::{Client, Response};
 use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;
@@ -15,6 +16,8 @@ const MAX_JSON_BYTES: usize = 1024 * 1024;
 const MAX_ACCOUNT_PREFERENCE_FIELDS: usize = 512;
 const MAX_ACCOUNT_PREFERENCE_KEY_BYTES: usize = 128;
 const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
+const MAX_DICTIONARY_PAGE_ENTRIES: usize = 100;
+const MAX_DICTIONARY_EXPORT_BYTES: usize = 384 * 1024 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -60,6 +63,42 @@ pub struct AccountClipboardItem {
 pub struct AccountClipboardPage {
     pub enabled: bool,
     pub items: Vec<AccountClipboardItem>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryEntry {
+    pub id: String,
+    pub kind: DictionaryKind,
+    pub code: String,
+    pub word: String,
+    pub weight: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryPage {
+    pub entries: Vec<AccountDictionaryEntry>,
+    pub has_more: bool,
+    pub offset: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryChange {
+    pub revision: i64,
+    pub previous: Option<AccountDictionaryEntry>,
+    pub replacement: Option<AccountDictionaryEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryImportResult {
+    pub imported: usize,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountDictionaryExport {
+    pub text: String,
+    pub filename: String,
 }
 
 /// The deliberately small value set accepted by the account preferences API.
@@ -225,6 +264,70 @@ pub trait AccountApi: Send + Sync + 'static {
     fn delete_clipboard(&self, _id: Option<&str>, _access_token: &str) -> Result<(), AccountError> {
         Err(AccountError::Unavailable)
     }
+
+    fn dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _search: &str,
+        _offset: usize,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryPage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn add_dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _code: &str,
+        _word: &str,
+        _weight: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _id: &str,
+        _code: &str,
+        _word: &str,
+        _weight: i64,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn delete_dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _id: &str,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn import_dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _format: &str,
+        _text: &str,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryImportResult, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn export_dictionary(
+        &self,
+        _kind: DictionaryKind,
+        _format: &str,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryExport, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {
@@ -310,6 +413,28 @@ impl BackendAccountClient {
         maximum_response_bytes: usize,
         timeout: Duration,
     ) -> Result<Vec<u8>, AccountError> {
+        self.request_with_limit_timeout_accept(
+            method,
+            path,
+            token,
+            body,
+            maximum_response_bytes,
+            timeout,
+            "application/json",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn request_with_limit_timeout_accept(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<Vec<u8>>,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+        accept: &str,
+    ) -> Result<Vec<u8>, AccountError> {
         if !path.starts_with("/v1/") || path.contains('\\') {
             return Err(AccountError::Invalid);
         }
@@ -333,7 +458,7 @@ impl BackendAccountClient {
         let mut request = self
             .client
             .request(method, url)
-            .header(reqwest::header::ACCEPT, "application/json");
+            .header(reqwest::header::ACCEPT, accept);
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
@@ -485,6 +610,175 @@ impl BackendAccountClient {
             .unwrap_or_else(|| "/v1/users/me/clipboard".to_owned());
         self.empty::<()>(Method::DELETE, &path, Some(access_token), None)
     }
+
+    pub fn dictionary(
+        &self,
+        kind: DictionaryKind,
+        search: &str,
+        offset: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryPage, AccountError> {
+        let path = dictionary_path(kind, offset, search)?;
+        let page =
+            self.json::<AccountDictionaryPage, ()>(Method::GET, &path, Some(access_token), None)?;
+        validate_dictionary_page(&page, kind)?;
+        Ok(page)
+    }
+
+    pub fn add_dictionary(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        weight: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        validate_dictionary_value(kind, code, word, weight)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            code: &'a str,
+            word: &'a str,
+            weight: i64,
+        }
+        let path = mutation_path(kind, "add").ok_or(AccountError::Invalid)?;
+        let change = self.json(
+            Method::POST,
+            &path,
+            Some(access_token),
+            Some(&Body { code, word, weight }),
+        )?;
+        validate_dictionary_change(&change, kind)?;
+        Ok(change)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        code: &str,
+        word: &str,
+        weight: i64,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        validate_dictionary_id(id)?;
+        validate_dictionary_value(kind, code, word, weight)?;
+        if revision <= 0 {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            code: &'a str,
+            word: &'a str,
+            weight: i64,
+            revision: i64,
+        }
+        let path = format!(
+            "/v1/users/me/dictionaries/{}/{}",
+            dictionary_kind_path(kind),
+            id
+        );
+        let change = self.json(
+            Method::PUT,
+            &path,
+            Some(access_token),
+            Some(&Body {
+                code,
+                word,
+                weight,
+                revision,
+            }),
+        )?;
+        validate_dictionary_change(&change, kind)?;
+        Ok(change)
+    }
+
+    pub fn delete_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        validate_dictionary_id(id)?;
+        if revision <= 0 {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body {
+            revision: i64,
+        }
+        let path = format!(
+            "/v1/users/me/dictionaries/{}/{}",
+            dictionary_kind_path(kind),
+            id
+        );
+        let change = self.json(
+            Method::DELETE,
+            &path,
+            Some(access_token),
+            Some(&Body { revision }),
+        )?;
+        validate_dictionary_change(&change, kind)?;
+        Ok(change)
+    }
+
+    pub fn import_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        text: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryImportResult, AccountError> {
+        validate_dictionary_import(kind, format, text)?;
+        let (path, body) = if format == "hans" {
+            (
+                mutation_path(kind, "import-hans").ok_or(AccountError::Invalid)?,
+                serde_json::json!({ "text": text, "weight": 100000_i64 }),
+            )
+        } else {
+            (
+                mutation_path(kind, "import").ok_or(AccountError::Invalid)?,
+                serde_json::json!({ "text": text, "format": format }),
+            )
+        };
+        let result = self.json(Method::POST, &path, Some(access_token), Some(&body))?;
+        validate_dictionary_import_result(&result)?;
+        Ok(result)
+    }
+
+    pub fn export_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryExport, AccountError> {
+        if !matches!(format, "standard" | "windows") {
+            return Err(AccountError::Invalid);
+        }
+        let path = format!(
+            "/v1/users/me/dictionaries/{}/export?format={format}",
+            dictionary_kind_path(kind)
+        );
+        let bytes = self.request_with_limit_timeout_accept(
+            Method::GET,
+            &path,
+            Some(access_token),
+            None,
+            MAX_DICTIONARY_EXPORT_BYTES,
+            Duration::from_secs(600),
+            "text/plain",
+        )?;
+        let text = String::from_utf8(bytes).map_err(|_| AccountError::Unavailable)?;
+        if text.is_empty() || text.contains('\0') {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(AccountDictionaryExport {
+            text,
+            filename: format!("dictionary-{}.tsv", dictionary_kind_path(kind)),
+        })
+    }
 }
 
 fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
@@ -555,6 +849,160 @@ fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<(), AccountEr
         validate_clipboard_item(item)?;
     }
     Ok(())
+}
+
+fn dictionary_kind_path(kind: DictionaryKind) -> &'static str {
+    match kind {
+        DictionaryKind::Pinyin => "pinyin",
+        DictionaryKind::Wubi => "wubi",
+        DictionaryKind::Quick => "quick",
+        DictionaryKind::English => "english",
+    }
+}
+
+fn dictionary_path(
+    kind: DictionaryKind,
+    offset: usize,
+    search: &str,
+) -> Result<String, AccountError> {
+    if offset > 1_000_000 || search.len() > 1024 || search.chars().any(char::is_control) {
+        return Err(AccountError::Invalid);
+    }
+    Ok(format!(
+        "/v1/users/me/dictionaries/{}?q={}&offset={offset}&limit=100",
+        dictionary_kind_path(kind),
+        percent_encode_query(search)
+    ))
+}
+
+fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
+    matches!(operation, "add" | "import" | "import-hans" | "export").then(|| {
+        format!(
+            "/v1/users/me/dictionaries/{}/{}",
+            dictionary_kind_path(kind),
+            operation
+        )
+    })
+}
+
+fn validate_dictionary_id(value: &str) -> Result<(), AccountError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(AccountError::Invalid)
+    }
+}
+
+fn validate_dictionary_value(
+    kind: DictionaryKind,
+    code: &str,
+    word: &str,
+    weight: i64,
+) -> Result<(), AccountError> {
+    let (code_ok, code_limit) = match kind {
+        DictionaryKind::Pinyin => (
+            code.bytes()
+                .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+            256,
+        ),
+        DictionaryKind::Wubi => (code.bytes().all(|byte| byte.is_ascii_lowercase()), 4),
+        DictionaryKind::Quick => (
+            code.bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+            32,
+        ),
+        DictionaryKind::English => (code.bytes().all(|byte| byte.is_ascii_alphabetic()), 64),
+    };
+    if !code_ok
+        || code.is_empty()
+        || code.len() > code_limit
+        || word.is_empty()
+        || word.len() > 1024
+        || weight < 0
+        || code.chars().any(char::is_control)
+        || word.chars().any(char::is_control)
+        || (kind == DictionaryKind::Quick && word.encode_utf16().count() > 199)
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_dictionary_entry(
+    entry: &AccountDictionaryEntry,
+    expected_kind: DictionaryKind,
+) -> Result<(), AccountError> {
+    if entry.kind != expected_kind || entry.revision <= 0 {
+        return Err(AccountError::Unavailable);
+    }
+    validate_dictionary_id(&entry.id).map_err(|_| AccountError::Unavailable)?;
+    validate_dictionary_value(expected_kind, &entry.code, &entry.word, entry.weight)
+        .map_err(|_| AccountError::Unavailable)
+}
+
+fn validate_dictionary_page(
+    page: &AccountDictionaryPage,
+    expected_kind: DictionaryKind,
+) -> Result<(), AccountError> {
+    if page.entries.len() > MAX_DICTIONARY_PAGE_ENTRIES || page.offset > 1_000_000 {
+        return Err(AccountError::Unavailable);
+    }
+    for entry in &page.entries {
+        validate_dictionary_entry(entry, expected_kind)?;
+    }
+    Ok(())
+}
+
+fn validate_dictionary_change(
+    change: &AccountDictionaryChange,
+    expected_kind: DictionaryKind,
+) -> Result<(), AccountError> {
+    if change.revision <= 0
+        || change
+            .previous
+            .as_ref()
+            .is_some_and(|entry| validate_dictionary_entry(entry, expected_kind).is_err())
+        || change
+            .replacement
+            .as_ref()
+            .is_some_and(|entry| validate_dictionary_entry(entry, expected_kind).is_err())
+    {
+        return Err(AccountError::Unavailable);
+    }
+    Ok(())
+}
+
+fn validate_dictionary_import(
+    kind: DictionaryKind,
+    format: &str,
+    text: &str,
+) -> Result<(), AccountError> {
+    if !matches!(format, "standard" | "windows" | "hans")
+        || (format == "hans" && kind != DictionaryKind::Pinyin)
+        || text.is_empty()
+        || text.len() > 64 * 1024
+        || text.contains('\0')
+        || text
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_dictionary_import_result(
+    result: &AccountDictionaryImportResult,
+) -> Result<(), AccountError> {
+    if result.imported > 1_000_000 || result.revision < 0 {
+        Err(AccountError::Unavailable)
+    } else {
+        Ok(())
+    }
 }
 
 fn read_bounded_response(
@@ -765,6 +1213,69 @@ impl AccountApi for BackendAccountClient {
 
     fn delete_clipboard(&self, id: Option<&str>, access_token: &str) -> Result<(), AccountError> {
         self.delete_clipboard(id, access_token)
+    }
+
+    fn dictionary(
+        &self,
+        kind: DictionaryKind,
+        search: &str,
+        offset: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryPage, AccountError> {
+        self.dictionary(kind, search, offset, access_token)
+    }
+
+    fn add_dictionary(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        weight: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.add_dictionary(kind, code, word, weight, access_token)
+    }
+
+    fn update_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        code: &str,
+        word: &str,
+        weight: i64,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.update_dictionary(kind, id, code, word, weight, revision, access_token)
+    }
+
+    fn delete_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.delete_dictionary(kind, id, revision, access_token)
+    }
+
+    fn import_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        text: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryImportResult, AccountError> {
+        self.import_dictionary(kind, format, text, access_token)
+    }
+
+    fn export_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        access_token: &str,
+    ) -> Result<AccountDictionaryExport, AccountError> {
+        self.export_dictionary(kind, format, access_token)
     }
 }
 
@@ -1289,6 +1800,65 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated(|api, token| api.delete_clipboard(id, token))
     }
 
+    pub fn dictionary(
+        &self,
+        kind: DictionaryKind,
+        search: &str,
+        offset: usize,
+    ) -> Result<AccountDictionaryPage, AccountError> {
+        self.authenticated(|api, token| api.dictionary(kind, search, offset, token))
+    }
+
+    pub fn add_dictionary(
+        &self,
+        kind: DictionaryKind,
+        code: &str,
+        word: &str,
+        weight: i64,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.authenticated(|api, token| api.add_dictionary(kind, code, word, weight, token))
+    }
+
+    pub fn update_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        code: &str,
+        word: &str,
+        weight: i64,
+        revision: i64,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.authenticated(|api, token| {
+            api.update_dictionary(kind, id, code, word, weight, revision, token)
+        })
+    }
+
+    pub fn delete_dictionary(
+        &self,
+        kind: DictionaryKind,
+        id: &str,
+        revision: i64,
+    ) -> Result<AccountDictionaryChange, AccountError> {
+        self.authenticated(|api, token| api.delete_dictionary(kind, id, revision, token))
+    }
+
+    pub fn import_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        text: &str,
+    ) -> Result<AccountDictionaryImportResult, AccountError> {
+        self.authenticated(|api, token| api.import_dictionary(kind, format, text, token))
+    }
+
+    pub fn export_dictionary(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+    ) -> Result<AccountDictionaryExport, AccountError> {
+        self.authenticated(|api, token| api.export_dictionary(kind, format, token))
+    }
+
     pub fn forget(&self) -> Result<(), AccountError> {
         let mut state = self.lock()?;
         state.generation = state.generation.wrapping_add(1);
@@ -1425,6 +1995,59 @@ mod tests {
             enabled: true,
             items: too_many,
         })
+        .is_err());
+    }
+
+    #[test]
+    fn validates_dictionary_boundaries() {
+        let valid_id = "0123456789abcdef".repeat(4);
+        assert_eq!(
+            dictionary_path(DictionaryKind::Pinyin, 2, "ni hao").unwrap(),
+            "/v1/users/me/dictionaries/pinyin?q=ni%20hao&offset=2&limit=100"
+        );
+        assert!(dictionary_path(DictionaryKind::Wubi, 1_000_001, "").is_err());
+        assert!(validate_dictionary_id(&valid_id).is_ok());
+        assert!(validate_dictionary_id(&valid_id.to_uppercase()).is_err());
+
+        assert!(validate_dictionary_value(DictionaryKind::Pinyin, "ni' hao", "你好", 1).is_ok());
+        assert!(validate_dictionary_value(DictionaryKind::Wubi, "abcd", "字", 0).is_ok());
+        assert!(validate_dictionary_value(DictionaryKind::Wubi, "abcde", "字", 0).is_err());
+        assert!(
+            validate_dictionary_value(DictionaryKind::Quick, "k2", &"字".repeat(199), 1).is_ok()
+        );
+        assert!(
+            validate_dictionary_value(DictionaryKind::Quick, "k2", &"字".repeat(200), 1).is_err()
+        );
+        assert!(validate_dictionary_value(DictionaryKind::English, "hello", "word", 1).is_ok());
+        assert!(validate_dictionary_value(DictionaryKind::English, "hello1", "word", 1).is_err());
+        assert!(validate_dictionary_import(DictionaryKind::Pinyin, "hans", "你好").is_ok());
+        assert!(validate_dictionary_import(DictionaryKind::Wubi, "hans", "你好").is_err());
+
+        let entry = || AccountDictionaryEntry {
+            id: valid_id.clone(),
+            kind: DictionaryKind::Pinyin,
+            code: "ni".into(),
+            word: "你".into(),
+            weight: 1,
+            revision: 2,
+        };
+        assert!(validate_dictionary_page(
+            &AccountDictionaryPage {
+                entries: vec![entry(); 100],
+                has_more: true,
+                offset: 0,
+            },
+            DictionaryKind::Pinyin
+        )
+        .is_ok());
+        assert!(validate_dictionary_page(
+            &AccountDictionaryPage {
+                entries: vec![entry(); 101],
+                has_more: true,
+                offset: 0,
+            },
+            DictionaryKind::Pinyin
+        )
         .is_err());
     }
 
@@ -1823,5 +2446,75 @@ mod tests {
         let origin = serve_once(response);
         let client = BackendAccountClient::loopback(&origin).unwrap();
         assert_eq!(client.providers(), Err(AccountError::Unavailable));
+    }
+
+    #[test]
+    fn account_dictionary_transport_maps_flattened_responses() {
+        let id = "0123456789abcdef".repeat(4);
+        let page_body = serde_json::json!({
+            "entries": [{
+                "id": id,
+                "kind": "pinyin",
+                "code": "ni",
+                "word": "fixture",
+                "weight": 1,
+                "revision": 2
+            }],
+            "has_more": false,
+            "offset": 0
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            page_body.len(),
+            page_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let page = client
+            .dictionary(DictionaryKind::Pinyin, "fixture", 0, &token(b'a'))
+            .unwrap();
+        assert_eq!(page.entries[0].word, "fixture");
+        assert_eq!(page.entries[0].revision, 2);
+
+        let change_body = serde_json::json!({
+            "revision": 3,
+            "previous": null,
+            "replacement": {
+                "id": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+                "kind": "pinyin",
+                "code": "ni",
+                "word": "fixture",
+                "weight": 1,
+                "revision": 3
+            }
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            change_body.len(),
+            change_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let change = client
+            .add_dictionary(DictionaryKind::Pinyin, "ni", "fixture", 1, &token(b'a'))
+            .unwrap();
+        assert_eq!(change.revision, 3);
+        assert_eq!(change.replacement.unwrap().id.len(), 64);
+
+        let export = b"ni\tfixture\t1\n".to_vec();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n",
+            export.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(export)
+        .collect();
+        let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+        let exported = client
+            .export_dictionary(DictionaryKind::Pinyin, "standard", &token(b'a'))
+            .unwrap();
+        assert_eq!(exported.text, "ni\tfixture\t1\n");
+        assert_eq!(exported.filename, "dictionary-pinyin.tsv");
     }
 }

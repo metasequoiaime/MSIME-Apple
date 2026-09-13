@@ -61,7 +61,12 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             && weight >= 0
             && (kind != "quick" || word.encode_utf16().count() <= 199)
     };
-    let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let valid_id = |id: &str| {
+        id.len() == 64
+            && id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    };
     let valid_format = |kind: &str, format: &str| {
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
     };
@@ -176,6 +181,12 @@ mod tests {
         assert!(validate_cloud_request(&CloudDictionaryRequest::Delete {
             kind: "pinyin".into(),
             id: "bad".into(),
+            revision: 2,
+        })
+        .is_err());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::Delete {
+            kind: "pinyin".into(),
+            id: "A".repeat(64),
             revision: 2,
         })
         .is_err());

@@ -1,10 +1,11 @@
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountChallenge, AccountError,
-    AccountPreferenceValue, AccountPreferences, AccountPreferenceSchema, AccountProfile,
+    AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences, AccountProfile,
     AccountSessionStorage, AccountUser, BackendAccountClient, BackendAccountSession,
     SavedAccountSession,
 };
 use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+use msime_client_core::cloud_dictionary::DictionaryKind;
 use msime_client_core::community_resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
@@ -23,8 +24,8 @@ use msime_client_core::keyboard_skin_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
-    ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile, ThemeMode,
+    TouchKeyboardLayout, TouchKeyboardSkin, TouchKeyboardSkinDesign,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -835,6 +836,116 @@ pub async fn cloud_clipboard_request(
         }
         _ => Err(super::CommandError {
             code: "invalid_cloud_clipboard",
+        }),
+    }
+}
+
+fn dictionary_kind(value: &str) -> Result<DictionaryKind, super::CommandError> {
+    match value {
+        "pinyin" => Ok(DictionaryKind::Pinyin),
+        "wubi" => Ok(DictionaryKind::Wubi),
+        "quick" => Ok(DictionaryKind::Quick),
+        "english" => Ok(DictionaryKind::English),
+        _ => Err(super::CommandError {
+            code: "invalid_cloud_dictionary",
+        }),
+    }
+}
+
+pub async fn cloud_dictionary_request(
+    state: State<'_, AccountState>,
+    action: Value,
+) -> Result<Value, super::CommandError> {
+    use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
+
+    let request: CloudDictionaryRequest =
+        serde_json::from_value(action).map_err(|_| super::CommandError {
+            code: "invalid_cloud_dictionary",
+        })?;
+    match request {
+        CloudDictionaryRequest::List {
+            kind,
+            offset,
+            search,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session.dictionary(kind, &search, offset).and_then(|page| {
+                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Add {
+            kind,
+            code,
+            word,
+            weight,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .add_dictionary(kind, &code, &word, weight)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Update {
+            kind,
+            id,
+            code,
+            word,
+            weight,
+            revision,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .update_dictionary(kind, &id, &code, &word, weight, revision)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Delete { kind, id, revision } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .delete_dictionary(kind, &id, revision)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Import { kind, format, text } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .import_dictionary(kind, &format, &text)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Export { kind, format } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session.export_dictionary(kind, &format).map(|result| {
+                    serde_json::json!({
+                        "text": result.text,
+                        "filename": result.filename,
+                    })
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Changes { .. } => Err(super::CommandError {
+            code: "cloud_dictionary_unavailable",
         }),
     }
 }
