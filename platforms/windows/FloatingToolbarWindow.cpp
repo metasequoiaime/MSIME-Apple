@@ -388,9 +388,25 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // width changes.
       if (!self->moving_)
         return 0;
-      self->dragged_position_ = POINT{static_cast<LONG>(static_cast<short>(LOWORD(l))),
-                                      static_cast<LONG>(static_cast<short>(HIWORD(l)))};
+      // The window rect, not lParam: WM_MOVE reports the client area's origin,
+      // so persisting that shifted the toolbar up and left by the frame on
+      // every restart.
       {
+        RECT rect{};
+        if (GetWindowRect(window, &rect))
+          self->dragged_position_ = POINT{rect.left, rect.top};
+      }
+      return 0;
+    case WM_EXITSIZEMOVE:
+      // Once, when the drag ends. The move loop raises WM_MOVE for every frame
+      // of the drag, and the listener rewrites the whole configuration file, so
+      // persisting there rewrote it dozens of times per second on the UI thread.
+      self->moving_ = false;
+      if (self->dragged_position_) {
+        // The move loop lets the window be dropped past the work area, and the
+        // system does not pull it back. Clamping only the remembered position
+        // would leave the visible toolbar hanging off the screen until the next
+        // refresh, so the window follows the clamp.
         RECT rect{};
         if (GetWindowRect(window, &rect)) {
           const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
@@ -399,23 +415,19 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           if (GetMonitorInfoW(monitor, &info)) {
             const int width = rect.right - rect.left;
             const int height = rect.bottom - rect.top;
-            self->dragged_position_->x = std::clamp(self->dragged_position_->x,
-                                                     info.rcWork.left,
+            self->dragged_position_->x = std::clamp(rect.left, info.rcWork.left,
                                                      info.rcWork.right - width);
-            self->dragged_position_->y = std::clamp(self->dragged_position_->y,
-                                                     info.rcWork.top,
+            self->dragged_position_->y = std::clamp(rect.top, info.rcWork.top,
                                                      info.rcWork.bottom - height);
+            if (self->dragged_position_->x != rect.left || self->dragged_position_->y != rect.top)
+              SetWindowPos(window, nullptr, self->dragged_position_->x,
+                           self->dragged_position_->y, 0, 0,
+                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
           }
         }
+        if (self->position_changed_)
+          self->position_changed_(*self->dragged_position_);
       }
-      return 0;
-    case WM_EXITSIZEMOVE:
-      // Once, when the drag ends. The move loop raises WM_MOVE for every frame
-      // of the drag, and the listener rewrites the whole configuration file, so
-      // persisting there rewrote it dozens of times per second on the UI thread.
-      self->moving_ = false;
-      if (self->position_changed_ && self->dragged_position_)
-        self->position_changed_(*self->dragged_position_);
       return 0;
     case WM_LBUTTONDOWN: {
       self->pressed_.reset();
