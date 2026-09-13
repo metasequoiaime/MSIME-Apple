@@ -38,8 +38,8 @@ test.each(["pointercancel", "lostpointercapture"])("handwriting discards incompl
   expect(recognizeHandwriting).not.toHaveBeenCalled();
   expect(canvas.querySelectorAll("polyline")).toHaveLength(0);
   pointer("pointerdown", 2);
-  pointer("pointerup", 2, 60, 60);
-  expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
+  pointer("pointerup", 2);
+  expect(recognizeHandwriting).not.toHaveBeenCalled();
 });
 
 test("cancel preserves completed strokes without including the interrupted stroke", () => {

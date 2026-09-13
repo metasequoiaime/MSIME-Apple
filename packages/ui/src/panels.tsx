@@ -505,10 +505,12 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     const active = activeStroke.current;
     if (!active || active.pointerId !== event.pointerId) return;
     active.points = appendPointerSamples(active.points, event, true);
-    const nextStrokes = active.points.length > 0 ? [...strokes, { points: active.points }] : strokes;
+    // Match the Windows handwriting panel: a click without movement is not an
+    // ink stroke and must not trigger a recognition request.
+    const nextStrokes = active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
     releaseStroke();
     setStrokes(nextStrokes);
-    if (active.points.length > 0) setRedoStrokes([]);
+    if (active.points.length >= 2) setRedoStrokes([]);
     setDrawing([]);
     recognizeRemaining(nextStrokes);
   }
