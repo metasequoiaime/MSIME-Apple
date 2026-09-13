@@ -829,3 +829,9 @@ Windows Server 现在从 PipeRegistry 快照所有已完成 Main/ToTsf/Worker �
 当 TSF Main 管道在 DLL 销毁期间写入 `ClientDeactivated` 失败时，DLL 通过 Aux 管道发送 `TerminalDeactivation|client_id|focus_token`，Server 仅在输入队列中精确匹配该 client 与 focus token、完成 lease 清理后回写 UTF-16 `OK`。Aux 字段严格按十进制 `uint64_t` 解析，拒绝空值、符号、非数字、溢出和零值；旧 token 不得停用同一 client 的新激活，已完成或已不存在的旧 lease 可幂等确认。清理同时撤销 Engine 组合、候选邮箱、模式邮箱和展示状态，保留 TSF DLL / Server 进程及协议边界。
 
 新增 FocusRouter、Aux parser 和 Aux listener 回归覆盖，包括 `UINT64_MAX`、溢出、挂起/已置换 lease、旧 token 防护及真实 `OK` 回写路径。x64/i686 MinGW 严格对象编译和 macOS 路由/解析测试通过；没有 Windows 原生 Aux/TSF 主机，因此未执行真实管道、DLL 销毁、编辑器或安装验收，不能据此声称 Windows TSF 系统接入完成，CI 保持禁用。
+
+### Windows 剪贴板历史跨进程变更通知
+
+Windows Server 的 `ClipboardMonitor` 在 `WM_CLIPBOARDUPDATE` 成功写入有界共享历史文件后，发出 session-local 命名事件 `Local\MSIME.Client.ClipboardHistoryChanged`。Tauri 桌面壳通过 `host-windows` 打开该事件并等待变更，再在自己的锁内重新读取历史文件；事件只表示存储已变化，不携带剪贴板文本。事件不存在、无法打开或等待超时时，原有 750ms 文件轮询仍作为兜底，因此其他工具写入和旧 Server 也能被发现。
+
+本地验证：x86_64/i686 MinGW 对 `ClipboardMonitor.cpp`、`ClipboardHistory.cpp` 的严格编译，以及 `msime-host-windows` 两架构 `cargo check` 通过。桌面 Windows GNU 检查在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题；未执行 Windows 原生命名事件、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
