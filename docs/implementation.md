@@ -816,4 +816,4 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 
 补齐 Windows Main 管道的 `DoubleSingleByteSwitch` 事件路由。会话泵现在像中英文和中英文标点通知一样，在活动焦点 lease 内验证并交给模式邮箱；输入队列只确认 TSF 展示状态，不把全半角误送进 Engine。这样浮动工具栏的全角/半角按钮在 TSF 回报后能更新模式面板，失效连接仍按既有焦点门禁拒绝。
 
-回归覆盖 SessionController 收到全半角通知后继续处理按键，并通过 x64/i686 MinGW 严格编译检查。当前没有 Windows 主机，未执行真实 TSF、工具栏或安装后的系统验收。
+回归覆盖 SessionController 收到全半角通知后继续处理按键，并完成修改对象的 x64 MinGW 严格编译检查。全量交叉脚本仍在既有 `server_smoke.cpp` 缺失字段警告处停止；当前没有 Windows 主机，未执行真实 TSF、工具栏或安装后的系统验收。
