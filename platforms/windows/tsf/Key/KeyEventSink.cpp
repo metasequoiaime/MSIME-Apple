@@ -14,6 +14,7 @@
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
+#include "../../PipeMetadata.h"
 #include <chrono>
 #include "../../../../vendor/MSIME-Engine/contracts/ipc_negotiation.h"
 
@@ -2199,7 +2200,12 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
                 localCommitObservation.clear();
             }
         }
-        WriteDataToSharedMemory(Global::Keycode, wch, Global::ModifiersDown, nullptr, 0,
+        const UINT ipcModifiers =
+            Global::ModifiersDown |
+            (_candidateMode == CANDIDATE_ORIGINAL
+                 ? msime::windows::PipeMetadata::CandidateActive
+                 : 0u);
+        WriteDataToSharedMemory(Global::Keycode, wch, ipcModifiers, nullptr, 0,
                                 localCommitObservation,
                                 hasLocalCommitObservation && !localCommitObservation.empty()
                                     ? 0b110111

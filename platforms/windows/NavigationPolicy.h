@@ -1,5 +1,6 @@
 #pragma once
 #include "ReplyCodec.h"
+#include "PipeMetadata.h"
 #include "msime_client.h"
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -38,7 +39,7 @@ preference_navigation(const nlohmann::json &preferences) {
 inline std::optional<NavigationAction>
 navigation_action(const FanyImeNamedpipeData &packet,
                   const NavigationBindings &bindings, bool unicode) {
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   if (packet.event_type != FanyImePipeEventType::KeyEvent || (modifiers & ~1u))
     return std::nullopt;
   const auto key = packet.keycode;

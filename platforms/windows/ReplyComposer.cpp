@@ -239,10 +239,10 @@ std::optional<PendingReply> ReplyComposer::basic_key(
                          // cancel.
   if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW) {
     const auto current = session.view();
-    const bool has_candidates = !current.at("candidates").empty();
-    const auto path = has_candidates && prefix_.empty()
-                          ? ReplyPath::Selection
-                          : ReplyPath::LocalCommit;
+    const bool candidate_active =
+        (packet.modifiers_down & PipeMetadata::CandidateActive) != 0;
+    const bool has_candidates = candidate_active && !current.at("candidates").empty();
+    const auto path = has_candidates ? ReplyPath::Selection : ReplyPath::LocalCommit;
     return dispatch(session, packet, epoch, path, uiless,
                     std::move(local_text));
   }
@@ -253,7 +253,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (mode == "unknown")
     return std::nullopt;
   const auto key = normalize_digit_key(packet.keycode);
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   const bool digit = key >= '1' && key <= '9';
   if ((key == 0x20 && modifiers == 0) ||
       (digit && modifiers == (mode == "unicode" ? 1u : 0u)))

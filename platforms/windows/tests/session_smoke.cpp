@@ -4,6 +4,7 @@
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
+#include "PipeMetadata.h"
 #include "ServerSession.h"
 #include "TestHostOptions.h"
 #include "ipc_negotiation.h"
@@ -768,6 +769,7 @@ int main(int argc, char **argv) {
         enter.event_type = FanyImePipeEventType::KeyEvent;
         enter.request_id = request++;
         enter.keycode = 0x0D;
+        enter.modifiers_down = PipeMetadata::CandidateActive;
         const auto pending = enter_composer.configured_key(
             session, enter, epoch, TsfPreeditStyle::Pinyin, {});
         require(pending && pending->source.transition.at("commit") == "你好" &&
@@ -776,6 +778,31 @@ int main(int argc, char **argv) {
                     session.view().at("editing_text") == "",
                 "Candidate-state Enter did not commit the highlighted candidate");
         enter_composer.confirm_delivery(42, epoch, enter.request_id);
+      }
+      {
+        using namespace msime::windows;
+        // Without the explicit candidate-mode metadata, Enter follows the
+        // legacy TSF raw-commit path even when the Engine still publishes a
+        // candidate page. The local observation proves the TSF-owned text.
+        ReplyComposer raw_composer(42, epoch);
+        for (char c : std::string("nihao"))
+          key(c - 'a' + 'A', c);
+        FanyImeNamedpipeData enter{};
+        enter.client_id = 42;
+        enter.event_type = FanyImePipeEventType::KeyEvent;
+        enter.request_id = request++;
+        enter.keycode = 0x0D;
+        enter.pinyin_length = 5;
+        for (size_t i = 0; i < 5; ++i)
+          enter.pinyin_string[i] = "nihao"[i];
+        const auto pending = raw_composer.configured_key(
+            session, enter, epoch, TsfPreeditStyle::Pinyin, {},
+            std::string("nihao"));
+        require(pending && !pending->encoded &&
+                    pending->source.transition.at("commit") == "nihao" &&
+                    session.view().at("editing_text") == "",
+                "Raw Enter without candidate metadata did not clear Engine");
+        raw_composer.confirm_delivery(42, epoch, enter.request_id);
       }
       {
         using namespace msime::windows;

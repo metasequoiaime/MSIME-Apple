@@ -111,7 +111,7 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                 action.kind != KeyKind::Ignore,
             std::move(result)};
   }
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   const auto digit_key = normalize_digit_key(packet.keycode);
   nlohmann::json current;
   if (modifiers <= 1 && digit_key >= '1' && digit_key <= '9')

@@ -1,5 +1,6 @@
 #pragma once
 #include "msime_client.h"
+#include "PipeMetadata.h"
 #include "windows_ipc.h"
 #include <optional>
 #include <string>
@@ -26,7 +27,7 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent)
     return {};
   const auto key = packet.keycode;
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   // Existing TSF consumes these locally and tells Server to cancel without a
   // reverse-pipe key reply. This differs from raw OS modifier key-down
   // handling.
