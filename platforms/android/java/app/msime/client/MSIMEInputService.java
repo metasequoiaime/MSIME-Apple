@@ -1518,6 +1518,22 @@ public final class MSIMEInputService extends InputMethodService {
         return !dedicatedEnglish && scheme != 2 && scheme != 3;
     }
 
+    private void showLocalInputMenu() {
+        if (preedit == null || !supportsLocalTools() || view == null
+                || !view.optString("editing_text", "").isEmpty()
+                || !"none".equals(view.optString("local_mode", "none"))) return;
+        PopupMenu popup = new PopupMenu(this, preedit);
+        for (LocalInputMode mode : LocalInputMode.values()) {
+            MenuItem item = popup.getMenu().add(mode.title());
+            item.setEnabled(localModeEnabled(mode));
+            item.setOnMenuItemClickListener(ignored -> {
+                openLocalInputMode(mode);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
     private boolean localModeEnabled(LocalInputMode mode) {
         return localModes.optBoolean(mode.preferenceKey(), true);
     }
@@ -4302,6 +4318,10 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout candidateHeader = new LinearLayout(this);
         preedit = new TextView(this);
         preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+        preedit.setOnClickListener(ignored -> {
+            playFeedback(preedit);
+            showLocalInputMenu();
+        });
         candidateHeader.addView(preedit, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         candidatePage = new TextView(this);
@@ -4666,10 +4686,6 @@ public final class MSIMEInputService extends InputMethodService {
                 case SHIFTED -> " · Shift";
                 case CAPS_LOCK -> " · Caps Lock";
             });
-        if (preedit != null) {
-            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
-            preedit.setText(view == null ? "" : view.optString("editing_text", ""));
-        }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
         boolean handwriting = handwritingActive();
@@ -4679,6 +4695,27 @@ public final class MSIMEInputService extends InputMethodService {
             && "none".equals(view.optString("local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasHandwritingResults);
+        if (preedit != null) {
+            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+            String editingText = view == null ? "" : view.optString("editing_text", "");
+            boolean offersLocalModes = idle && supportsLocalTools();
+            String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
+            String localModeTitle = editingText;
+            for (LocalInputMode mode : LocalInputMode.values()) {
+                if (mode.preferenceKey().equals(localModeKey)
+                        && mode.trigger().equals(editingText)) {
+                    localModeTitle = mode.title();
+                    break;
+                }
+            }
+            boolean idleTitle = idle && editingText.isEmpty();
+            String displayText = idleTitle
+                ? (dedicatedEnglish ? "英文输入" : "水杉输入法") : localModeTitle;
+            preedit.setText(displayText);
+            preedit.setContentDescription(offersLocalModes ? "本地输入模式" : displayText);
+            preedit.setClickable(offersLocalModes);
+            preedit.setFocusable(offersLocalModes);
+        }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
