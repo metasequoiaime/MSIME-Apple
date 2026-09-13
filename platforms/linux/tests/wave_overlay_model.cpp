@@ -17,6 +17,10 @@ int main() {
   for (int i = 0; i < 200; ++i) han += "你";
   model.set_transcript(han);
   assert(model.transcript.size() == 160 * 3);
+  model.set_transcript("ok\xf0\x28\x8c\x28\xe0\x80\xaf\xe5\xb0\xbe");
+  assert(model.transcript == "ok((尾");
+  model.set_transcript("\xed\xa0\x80\xf4\x90\x80\x80valid");
+  assert(model.transcript == "valid");
   model.status = "正在识别…";
   model.listening = true;
   model.set_input_level(1.0f);
