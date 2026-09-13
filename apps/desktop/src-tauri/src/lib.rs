@@ -2171,6 +2171,7 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
         "capture_device",
         "commit_mode",
         "asr_provider",
+        "doubao_auth_mode",
         "asr_model",
         "asr_resource_id",
         "polish_provider",
@@ -2179,6 +2180,9 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
         "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
+            if key == "doubao_auth_mode" && !matches!(value, "api_key" | "legacy") {
+                continue;
+            }
             let bounded = value.chars().take(512).collect::<String>();
             options.insert(key.to_owned(), Value::String(bounded));
         }
@@ -3671,6 +3675,28 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "doubao_auth_mode": "legacy",
+                "asr_app_key": "private-app-id",
+                "asr_token": "private-token"
+            }}
+        });
+        let options = super::voice_provider_options(&document).unwrap();
+        assert_eq!(options.get("doubao_auth_mode").and_then(|v| v.as_str()), Some("legacy"));
+        assert!(options.get("asr_app_key").is_none());
+        assert!(options.get("asr_token").is_none());
+
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {"doubao_auth_mode": "unknown"}}
+        });
+        let options = super::voice_provider_options(&document).unwrap();
+        assert!(options.get("doubao_auth_mode").is_none());
+    }
+
     #[test]
     fn second_launch_routes_are_taken_from_explicit_arguments() {
         use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};

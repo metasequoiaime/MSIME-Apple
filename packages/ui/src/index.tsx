@@ -280,6 +280,7 @@ export type VoiceInputPreferences = {
   capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa";
   capture_device?: string;
   asr_provider?: string;
+  doubao_auth_mode?: "api_key" | "legacy";
   asr_endpoint?: string;
   asr_token?: string;
   asr_app_key?: string;
@@ -316,7 +317,7 @@ export type VoiceInputPreferences = {
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
 // asr_provider mirrors client-core's default; the two disagreeing meant a host
 // wrote a provider no backend implements.
-const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "doubao", asr_resource_id: "volc.seedasr.sauc.duration" };
+const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "doubao", doubao_auth_mode: "api_key", asr_resource_id: "volc.seedasr.sauc.duration" };
 
 export function aiCredentialOrigin(endpoint: string): string | null {
   if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
@@ -1570,6 +1571,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>录音和识别由已配置的 Linux provider 服务完成</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div><p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p></div>
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>
+        {voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>新版控制台使用单 API Key；旧版使用 App ID 和 Access Token</small></span><select aria-label="豆包鉴权方式" value={voiceInput.doubao_auth_mode ?? "api_key"} onChange={event => updateVoice({ doubao_auth_mode: event.target.value === "legacy" ? "legacy" : "api_key" })}><option value="api_key">新版控制台 API Key</option><option value="legacy">旧版控制台 App ID</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>
         {!linuxPlatform && <>

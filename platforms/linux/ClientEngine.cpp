@@ -2896,13 +2896,15 @@ Json voice_provider_options(const Json &preferences) {
       options[key] = voice.at(key);
   }
   constexpr const char *string_keys[] = {
-      "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
+      "capture_backend", "capture_device", "commit_mode", "asr_provider", "doubao_auth_mode", "asr_model", "asr_resource_id",
       "polish_provider", "polish_model", "doubao_boosting_table_id",
       "polish_prompt_id"};
   for (const auto *key : string_keys) {
     if (!voice.contains(key) || !voice.at(key).is_string())
       continue;
     auto value = voice.at(key).get<std::string>();
+    if (std::string_view(key) == "doubao_auth_mode" && value != "api_key" && value != "legacy")
+      continue;
     if (value.size() > 512) {
       size_t end = 512;
       while (end && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;

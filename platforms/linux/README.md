@@ -292,7 +292,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
 
 `asr.provider` 设为 `doubao` 时，语音服务使用相同录音和控制入口流式上传，无需先录完整段音频。运行服务的 Python 环境须安装 `websockets==15.0.1`；依赖清单随包安装至 `share/msime-client/requirements-voice.txt`，缺少依赖时启动返回通用配置错误，不会录音后才失败。批量识别仍只依赖 Python 标准库。同步 WebSocket 客户端参数参考其[官方文档](https://websockets.readthedocs.io/en/15.0.1/reference/sync/client.html)。
 
-Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`resource_id` 默认 `volc.seedasr.sauc.duration`。新控制台单 API Key 放入 `token`，旧控制台额外配置 `app_key` 并把 Access Token 放入 `token`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
+Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`doubao_auth_mode` 可设为 `api_key`（新版控制台，发送单个 `X-Api-Key`）或 `legacy`（旧版控制台，发送 `X-Api-App-Key` 与 `X-Api-Access-Key`）。新版 API Key 放入 `token`；旧版还必须配置 `app_key`，并把 Access Token 放入 `token`。省略或填写未知模式时，服务按是否存在 `app_key` 推断，以兼容旧配置；显式 `api_key` 会忽略残留的 `app_key`。`resource_id` 默认 `volc.seedasr.sauc.duration`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
 
 实现沿用 Windows 固定提交 `b21a1671` 的二进制协议：16kHz、16-bit、单声道 PCM，每 200ms 一帧，gzip 压缩，递增序列号，结束帧使用负序列号。`doubao_enable_itn`、`doubao_enable_punc`、`doubao_enable_ddc` 和 `doubao_boosting_table_id` 进入首帧选项。录音中的变更转写以 partial 事件返回；宿主继续根据 `stream_inline_preedit` 决定是否更新预编辑。松开或达到录音上限后发送结束帧，最多等待 30 秒获取最终结果，再进行可选润色。服务错误、超时和取消不会把中间结果冒充最终结果上屏。
 
@@ -395,7 +395,7 @@ Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、Pipe
 
 ### 语音服务独立配置
 
-私有语音配置继续要求 `asr` 默认对象，并允许 `polish` 默认对象；可以增加 `asr_profiles`、`polish_profiles` 对象，以服务名作为键，值采用对应默认对象的字段（`endpoint`、`token`、`model`，豆包另有 `app_key`、`resource_id`）。值内的 `provider` 可以省略；填写时必须与键一致。一个角色内每个服务只配置一次，默认对象的服务不应再次出现在 profiles 中。ASR 支持 doubao/openai/siliconflow/groq，润色支持 openai/siliconflow/groq/deepseek。所有配置均沿用私有文件权限、大小、HTTPS/WSS 地址与凭据校验。
+私有语音配置继续要求 `asr` 默认对象，并允许 `polish` 默认对象；可以增加 `asr_profiles`、`polish_profiles` 对象，以服务名作为键，值采用对应默认对象的字段（`endpoint`、`token`、`model`，豆包另有 `app_key`、`doubao_auth_mode`、`resource_id`）。值内的 `provider` 可以省略；填写时必须与键一致。一个角色内每个服务只配置一次，默认对象的服务不应再次出现在 profiles 中。ASR 支持 doubao/openai/siliconflow/groq，润色支持 openai/siliconflow/groq/deepseek。所有配置均沿用私有文件权限、大小、HTTPS/WSS 地址与凭据校验。
 
 设置页选择已配置的服务后，下一次录音在对应角色的配置中选取独立 endpoint、token 和模型，无需重启 provider，也不会把凭据传到输入法或 UI。Linux 切换服务时清空旧模型约束及识别服务专属热词表标识，空模型使用对应私有配置的模型；没有配置所选识别服务时请求失败，不改用其他服务。润色服务未配置时保留原转写。profiles 中配置豆包时也会在启动时检查其网络库依赖。新增或编辑私有配置从下一次录音开始加载，无需重启服务。
 

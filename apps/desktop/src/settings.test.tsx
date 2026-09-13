@@ -350,13 +350,28 @@ test("voice settings persist under the shared voice_input contract", async () =>
   expect(enabled.checked).toBe(true);
   fireEvent.click(enabled);
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), { target: { value: "doubao" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), { target: { value: "legacy" } });
   fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration" },
+    voice_input: { enabled: false, asr_provider: "doubao", doubao_auth_mode: "legacy", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration" },
   });
+});
+
+test("voice settings default to the single API Key mode", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const authMode = await screen.findByRole("combobox", { name: "豆包鉴权方式" }) as HTMLSelectElement;
+  expect(authMode.value).toBe("api_key");
+  fireEvent.change(authMode, { target: { value: "legacy" } });
+  fireEvent.change(authMode, { target: { value: "api_key" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("api_key");
 });
 
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {

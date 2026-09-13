@@ -509,6 +509,9 @@ pub struct VoiceInputPreferences {
     pub commit_mode: String,
     #[serde(default)]
     pub asr_provider: String,
+    /// Doubao console generation: api_key (new console) or legacy (App ID + Access Token).
+    #[serde(default = "default_doubao_auth_mode")]
+    pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_app_key: String,
     #[serde(default)]
@@ -577,6 +580,7 @@ impl Default for VoiceInputPreferences {
             capture_device: String::new(),
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
+            doubao_auth_mode: "api_key".into(),
             asr_app_key: String::new(),
             asr_token: String::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
@@ -959,6 +963,11 @@ impl Default for KeybindingPreferences {
 fn enabled_by_default() -> bool {
     true
 }
+
+fn default_doubao_auth_mode() -> String {
+    "api_key".into()
+}
+
 fn default_candidate_font_size() -> u8 {
     16
 }
@@ -1676,6 +1685,26 @@ mod tests {
             .remove("commit_mode");
         let restored: Preferences = serde_json::from_value(value).unwrap();
         assert_eq!(restored.voice_input.commit_mode, "tsf");
+    }
+
+    #[test]
+    fn doubao_auth_mode_defaults_and_round_trips() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        assert_eq!(value["voice_input"]["doubao_auth_mode"], "api_key");
+        value["voice_input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("doubao_auth_mode");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.doubao_auth_mode, "api_key");
+
+        let mut preferences = Preferences::default();
+        preferences.voice_input.doubao_auth_mode = "legacy".into();
+        let restored: Preferences = serde_json::from_value(
+            serde_json::to_value(preferences).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored.voice_input.doubao_auth_mode, "legacy");
     }
 
     #[test]
