@@ -23,4 +23,7 @@ for property_name in ("Learning", "FrequencyMode", "FrequencyTriggerCount", "Fre
 assert "MenuPreference::Learning" in engine
 assert "MenuPreference::FrequencyTriggerCount" in engine
 assert "MenuPreference::FrequencyLinearStep" in engine
+assert '"ShuangpinPreedit"' in engine
+assert "MenuPreference::ShuangpinPreedit" in engine
+assert 'shuangpin_preedit_uses_raw' in engine
 print("settings launcher contract: ok")

@@ -103,7 +103,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -179,6 +179,7 @@ struct State {
   std::optional<std::string> frequency_mode_override, helpcode_schema_override;
   std::optional<uint8_t> frequency_trigger_count_override, frequency_linear_step_override;
   std::optional<bool> learning_override;
+  std::optional<bool> shuangpin_preedit_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
   std::optional<std::string> translation_target_language_override;
@@ -191,6 +192,7 @@ struct State {
   bool learning = true;
   uint8_t frequency_trigger_count = 1;
   uint8_t frequency_linear_step = 1;
+  bool shuangpin_preedit_uses_raw = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool paired_punctuation = true;
@@ -424,6 +426,8 @@ struct State {
     if (frequency_linear_step_override)
       preferences["frequency"]["linear_step"] = *frequency_linear_step_override;
     if (learning_override) preferences["learning"] = *learning_override;
+    if (shuangpin_preedit_override)
+      preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
@@ -525,6 +529,8 @@ struct State {
         frequency_preferences.value("trigger_count", 1), 1, 10));
     frequency_linear_step = static_cast<uint8_t>(std::clamp(
         frequency_preferences.value("linear_step", 1), 1, 10));
+    shuangpin_preedit_uses_raw = options.at("preferences").value(
+        "shuangpin_preedit_uses_raw", true);
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -628,6 +634,8 @@ struct State {
         frequency_preferences.value("trigger_count", 1), 1, 10)));
     frequency_linear_step = frequency_linear_step_override.value_or(static_cast<uint8_t>(std::clamp(
         frequency_preferences.value("linear_step", 1), 1, 10)));
+    shuangpin_preedit_uses_raw = shuangpin_preedit_override.value_or(
+        preferences.value("shuangpin_preedit_uses_raw", true));
     const auto voice = preferences.value("voice_input", Json::object());
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
@@ -714,6 +722,8 @@ struct State {
       preferences["frequency"]["linear_step"] = *frequency_linear_step_override;
     if (learning_override)
       preferences["learning"] = *learning_override;
+    if (shuangpin_preedit_override)
+      preferences["shuangpin_preedit_uses_raw"] = *shuangpin_preedit_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override)
@@ -2332,6 +2342,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(preedit_menu, item);
   }
   ibus_property_set_sub_props(preedit_property, preedit_menu);
+  auto shuangpin_preedit_property = ibus_property_new(
+      "ShuangpinPreedit", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("双拼原始预编辑"), "",
+      ibus_text_new_from_static_string("双拼输入时显示原始双拼编码"),
+      s.focused && !s.blocked && s.input_enabled && active_scheme == "shuangpin" &&
+          !menu_save_pending,
+      TRUE, s.shuangpin_preedit_uses_raw ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选主题"), "",
@@ -2484,6 +2502,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, nine_key_spellings_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
+    ibus_prop_list_append(properties, shuangpin_preedit_property);
     ibus_prop_list_append(properties, theme_property);
     ibus_prop_list_append(properties, skin_property);
     ibus_prop_list_append(properties, scheme);
@@ -2527,6 +2546,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, nine_key_spellings_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
+    ibus_engine_update_property(engine, shuangpin_preedit_property);
     ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, skin_property);
     ibus_engine_update_property(engine, scheme);
@@ -3743,6 +3763,29 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       s.learning_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    if (property_name == "ShuangpinPreedit") {
+      const auto active_scheme = s.scheme_override.value_or(
+          configured.at("preferences").value("scheme", "quanpin"));
+      if (active_scheme != "shuangpin" || menu_save_pending)
+        return;
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.shuangpin_preedit_uses_raw)
+        return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::ShuangpinPreedit, enabled);
+        return;
+      }
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.shuangpin_preedit_override = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
@@ -5359,6 +5402,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->frequency_linear_step_override.reset();
           if (request.preference == MenuPreference::Learning)
             self->state->learning_override.reset();
+          if (request.preference == MenuPreference::ShuangpinPreedit)
+            self->state->shuangpin_preedit_override.reset();
           if (request.preference == MenuPreference::SmartPunctuation)
             self->state->smart_punctuation_override.reset();
           if (request.preference == MenuPreference::SmartPunctuationRepeat)
@@ -5457,6 +5502,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::Learning:
             snapshot["preferences"]["learning"] = request.value;
+            break;
+          case MenuPreference::ShuangpinPreedit:
+            snapshot["preferences"]["shuangpin_preedit_uses_raw"] = request.value;
             break;
           case MenuPreference::SmartPunctuation:
             snapshot["preferences"]["smart_punctuation"] = request.value;
