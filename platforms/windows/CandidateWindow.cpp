@@ -411,12 +411,22 @@ void CandidateWindow::paint() {
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }
+    // Alpha 0 means the skin named no selected colour, so the row keeps its
+    // normal one. Skins that fill the selection with an opaque accent set it,
+    // because their unselected text would otherwise be unreadable on the fill.
+    const bool selected = value->candidates[i].highlighted;
+    const auto number_color =
+        selected && palette_.selected_number.a > 0.0f ? palette_.selected_number
+                                                      : palette_.number;
+    const auto row_text_color =
+        selected && palette_.selected_text.a > 0.0f ? palette_.selected_text
+                                                    : text_color;
     const auto label = std::to_wstring(i + 1);
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.bottom},
-                      brush(palette_.number));
+                      brush(number_color));
     auto candidate_label = value->candidates[i].text +
                            value->candidates[i].annotation +
                            value->candidates[i].badge;
@@ -429,7 +439,7 @@ void CandidateWindow::paint() {
                                   rect.bottom},
                       brush(value->candidates[i].fixed_position
                                 ? palette_.accent
-                                : text_color));
+                                : row_text_color));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

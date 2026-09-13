@@ -68,9 +68,13 @@ std::wstring configured_shell_command() {
 msime::windows::CandidatePalette
 resolve_palette(const msime::windows::PreviewConfig &config) {
   const bool dark = config.dark_theme;
-  auto builtin = dark ? msime::windows::CandidatePalette{}
-                      : msime::windows::candidate_light_palette();
+  auto builtin = msime::windows::candidate_builtin_palette(config.skin_id, dark);
   if (config.skin_directory.empty() || config.skin_id.empty())
+    return builtin;
+  // The shipped skins are resolved from the table above, never from disk - the
+  // shared catalog refuses to load a package under one of their names, so
+  // asking it would only ever come back empty and fall through to fluent.
+  if (msime::windows::candidate_builtin_skin(config.skin_id))
     return builtin;
   try {
     const auto root = config.skin_directory.u8string();

@@ -95,6 +95,13 @@ struct CandidatePalette {
   CandidateColor selected = candidate_rgb(0x3E3E3E, 0.725f);
   CandidateColor hover = candidate_rgb(0x414141);
   CandidateColor accent = candidate_rgb(0x6B69D6);
+  // Row colours while the row is the selected one. Alpha 0 is the sentinel for
+  // "keep the unselected colour", matching the shipped presenter. Skins that
+  // fill the selected row with an opaque accent need these: fluent's selection
+  // is a tint the normal text still reads against, but wechat's solid green is
+  // not, and without a selected colour the row's text would vanish into it.
+  CandidateColor selected_text{0.0f, 0.0f, 0.0f, 0.0f};
+  CandidateColor selected_number{0.0f, 0.0f, 0.0f, 0.0f};
   float radius = 6.0f;
   float border_width = 1.5f;
   float container_padding = 5.0f;
@@ -111,6 +118,100 @@ inline CandidatePalette candidate_light_palette() {
   palette.number = candidate_rgb(0x1A1A1A, 0.55f);
   palette.selected = candidate_rgb(0xE8E8E8);
   palette.hover = candidate_rgb(0xECECEC);
+  return palette;
+}
+// Is this one of the ids the product ships? The shared catalog refuses to load
+// a package under these names, so they are resolved here instead of on disk.
+inline bool candidate_builtin_skin(const std::string &id) {
+  return id == "fluent" || id == "wechat" || id == "graphite" ||
+         id == "willow_green";
+}
+// Built-in skin tokens, ported from the shipped presenter's own table so the
+// native card matches ui-html/webview2/candwnd/skins/<skin>/ rather than
+// approximating it. An unknown id keeps fluent.
+inline CandidatePalette candidate_builtin_palette(const std::string &id,
+                                                  bool dark) {
+  CandidatePalette palette = dark ? CandidatePalette{}
+                                  : candidate_light_palette();
+  if (id == "wechat") {
+    palette.border_width = 1.0f;
+    palette.radius = 5.0f;
+    palette.container_padding = 2.0f;
+    palette.accent = candidate_rgb(0x07C160);
+    palette.selected = candidate_rgb(0x07C160);
+    palette.show_selected_bar = false;
+    palette.selected_text = candidate_rgb(0xFFFFFF);
+    palette.selected_number = candidate_rgb(0xFFFFFF);
+    if (dark) {
+      palette.surface = candidate_rgb(0x151515);
+      palette.border = candidate_rgb(0x292929);
+      palette.hover = candidate_rgb(0x07C160, 0.32f);
+      palette.text = candidate_rgb(0xB7B7B7);
+      palette.number = candidate_rgb(0x858585);
+    } else {
+      palette.surface = candidate_rgb(0xF7F7F7);
+      palette.border = candidate_rgb(0xDEDEDE);
+      palette.hover = candidate_rgb(0x07C160, 0.14f);
+      palette.text = candidate_rgb(0x333333);
+      palette.number = candidate_rgb(0x757575);
+    }
+  } else if (id == "willow_green") {
+    palette.border_width = 0.0f;
+    palette.radius = 9.0f;
+    palette.container_padding = 0.0f;
+    // The CSS sets the row radius to 0 and clips the window corners with
+    // clip-path, but this card does not clip its rows, so a 0 radius would let
+    // the green selection square off the rounded window. The shipped presenter
+    // deliberately diverges here and keeps 4px; match that, not the CSS.
+    palette.item_radius = 4.0f;
+    palette.border = {0.0f, 0.0f, 0.0f, 0.0f};
+    palette.show_selected_bar = false;
+    palette.selected_text = candidate_rgb(0xFFFFFF);
+    palette.selected_number = candidate_rgb(0xFFFFFF);
+    if (dark) {
+      palette.surface = candidate_rgb(0x2D2F2E);
+      palette.accent = candidate_rgb(0x65C98D);
+      palette.selected = candidate_rgb(0x65C98D);
+      palette.hover = candidate_rgb(0x65C98D, 0.22f);
+      palette.text = candidate_rgb(0xD8DBD8);
+      palette.number = candidate_rgb(0xA6ABA7);
+    } else {
+      palette.surface = candidate_rgb(0xF4F5F3);
+      palette.accent = candidate_rgb(0x58B980);
+      palette.selected = candidate_rgb(0x58B980);
+      palette.hover = candidate_rgb(0x58B980, 0.16f);
+      palette.text = candidate_rgb(0x343936);
+      palette.number = candidate_rgb(0x686F6A);
+    }
+  } else if (id == "graphite") {
+    palette.border_width = 1.0f;
+    palette.radius = 3.0f;
+    palette.container_padding = 5.0f;
+    palette.item_radius = 2.0f;
+    // Graphite marks the selected row with text colour alone; the fill stays
+    // fully transparent.
+    palette.selected = {0.0f, 0.0f, 0.0f, 0.0f};
+    palette.show_selected_bar = false;
+    if (dark) {
+      palette.surface = candidate_rgb(0x1C1F23);
+      palette.border = candidate_rgb(0x30353B);
+      palette.accent = candidate_rgb(0x8993A0);
+      palette.hover = {1.0f, 1.0f, 1.0f, 0.055f};
+      palette.text = candidate_rgb(0xAEB6C2);
+      palette.number = candidate_rgb(0x707987);
+      palette.selected_text = candidate_rgb(0xF1F3F5);
+      palette.selected_number = candidate_rgb(0xF1F3F5);
+    } else {
+      palette.surface = candidate_rgb(0xFBFBFC);
+      palette.border = candidate_rgb(0xE2E5E9);
+      palette.accent = candidate_rgb(0x5F6B7A);
+      palette.hover = {31.0f / 255.0f, 41.0f / 255.0f, 55.0f / 255.0f, 0.055f};
+      palette.text = candidate_rgb(0x586476);
+      palette.number = candidate_rgb(0x8993A1);
+      palette.selected_text = candidate_rgb(0x111827);
+      palette.selected_number = candidate_rgb(0x111827);
+    }
+  }
   return palette;
 }
 inline CandidatePalette

@@ -95,4 +95,66 @@ int main() {
   const auto themed = candidate_palette(tint, light);
   require(themed.surface == light.surface && themed.text == light.text);
   require(same(themed.border, 0.0f, 0.0f, 0.0f, 0.1f));
+
+  // The four shipped ids are resolved from the built-in table, never from a
+  // package on disk: the shared catalog refuses to load one under these names.
+  require(candidate_builtin_skin("fluent") &&
+          candidate_builtin_skin("wechat") &&
+          candidate_builtin_skin("graphite") &&
+          candidate_builtin_skin("willow_green"));
+  require(!candidate_builtin_skin("") && !candidate_builtin_skin("nord") &&
+          !candidate_builtin_skin("Fluent"));
+
+  // fluent is the baseline, so it must come back byte-for-byte as the defaults.
+  const auto fluent_dark = candidate_builtin_palette("fluent", true);
+  require(fluent_dark.surface == defaults.surface &&
+          fluent_dark.selected == defaults.selected &&
+          fluent_dark.show_selected_bar && fluent_dark.radius == 6.0f);
+  require(candidate_builtin_palette("fluent", false).surface ==
+          candidate_light_palette().surface);
+  // An unknown id keeps fluent rather than rendering something invented.
+  require(candidate_builtin_palette("nord", true).surface == defaults.surface);
+
+  // Each shipped skin has to be visibly its own, not a relabelled fluent -
+  // that identity was the whole defect. Values mirror the shipped presenter.
+  for (const bool dark : {false, true}) {
+    const auto wechat = candidate_builtin_palette("wechat", dark);
+    require(same(wechat.selected, 0x07 / 255.0f, 0xC1 / 255.0f, 0x60 / 255.0f, 1.0f));
+    require(wechat.accent == wechat.selected);
+    require(!wechat.show_selected_bar);
+    require(wechat.radius == 5.0f && wechat.border_width == 1.0f &&
+            wechat.container_padding == 2.0f);
+    // Opaque green fill, so the selected row needs its own white text.
+    require(same(wechat.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
+    require(same(wechat.selected_number, 1.0f, 1.0f, 1.0f, 1.0f));
+    require(wechat.surface != defaults.surface);
+
+    const auto willow = candidate_builtin_palette("willow_green", dark);
+    require(willow.radius == 9.0f && willow.border_width == 0.0f &&
+            willow.container_padding == 0.0f);
+    // Deliberate divergence from the CSS, which uses 0 plus a clip-path.
+    require(willow.item_radius == 4.0f);
+    require(willow.border.a == 0.0f); // Borderless card.
+    require(same(willow.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
+    require(!willow.show_selected_bar);
+
+    const auto graphite = candidate_builtin_palette("graphite", dark);
+    require(graphite.radius == 3.0f && graphite.item_radius == 2.0f &&
+            graphite.container_padding == 5.0f);
+    // Graphite marks selection by text colour alone; the fill is transparent.
+    require(graphite.selected.a == 0.0f);
+    require(!graphite.show_selected_bar);
+    // So a selected colour is mandatory here, or the row would not change.
+    require(graphite.selected_text.a > 0.0f &&
+            graphite.selected_number.a > 0.0f);
+    require(graphite.selected_text != graphite.text);
+  }
+  // Light and dark are genuinely different tokens, not one table reused.
+  require(candidate_builtin_palette("graphite", true).surface !=
+          candidate_builtin_palette("graphite", false).surface);
+  require(candidate_builtin_palette("willow_green", true).accent !=
+          candidate_builtin_palette("willow_green", false).accent);
+  // fluent names no selected colour, so rows keep their normal one.
+  require(fluent_dark.selected_text.a == 0.0f &&
+          fluent_dark.selected_number.a == 0.0f);
 }
