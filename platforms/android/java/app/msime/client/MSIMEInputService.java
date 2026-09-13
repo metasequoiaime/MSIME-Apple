@@ -3594,10 +3594,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showHandwritingStatus(String text) {
-        if (handwritingCandidates == null || handwritingStatus == null) return;
-        handwritingCandidates.removeAllViews();
+        if (handwritingStatus == null) return;
         handwritingStatus.setText(text);
-        handwritingCandidates.addView(handwritingStatus);
+        if (candidates != null) render();
     }
 
     private void refreshHandwritingAvailability() {
@@ -3766,21 +3765,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void renderHandwritingCandidates(HandwritingRequestTracker.Token token) {
-        if (handwritingCandidates == null || handwritingStatus == null) return;
-        handwritingCandidates.removeAllViews();
-        if (handwritingResults.isEmpty()) {
-            showHandwritingStatus("未识别，请撤销或重新书写");
-            return;
-        }
-        for (int index = 0; index < handwritingResults.size(); index++) {
-            String candidate = handwritingResults.get(index);
-            Button choice = keyboardKey(candidate, "手写候选 " + (index + 1),
-                () -> commitHandwritingCandidate(token, candidate));
-            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
-            handwritingCandidates.addView(choice, new LinearLayout.LayoutParams(
-                pixels(48), LinearLayout.LayoutParams.MATCH_PARENT));
-        }
-        applySkin();
+        render();
     }
 
     private void clearHandwriting() {
@@ -3815,16 +3800,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void rebuildHandwritingRows() {
-        handwritingCandidates = new LinearLayout(this);
-        handwritingCandidates.setOrientation(LinearLayout.HORIZONTAL);
         handwritingStatus = new TextView(this);
         handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
-        candidateScroll.setHorizontalScrollBarEnabled(false);
-        candidateScroll.setContentDescription("手写候选");
-        candidateScroll.addView(handwritingCandidates);
-        keyRows.addView(candidateScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(48)));
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -4692,9 +4669,13 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
+        boolean handwriting = handwritingActive();
+        boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
+            && handwritingCandidateToken != null;
         boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
-            && (visibleCandidates == null || visibleCandidates.length() == 0));
+            && (visibleCandidates == null || visibleCandidates.length() == 0)
+            && !hasHandwritingResults);
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
@@ -4821,7 +4802,9 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
-        if (entries != null) {
+        if (handwriting) {
+            renderSharedHandwritingCandidates(activeCandidates);
+        } else if (entries != null) {
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
@@ -4841,7 +4824,7 @@ public final class MSIMEInputService extends InputMethodService {
         int visibleSlots = entries == null ? 0 : entries.length();
         for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)
             candidateButtons.get(slot).setVisibility(View.GONE);
-        if (candidatePaging != null) {
+        if (!handwriting && candidatePaging != null) {
             button(candidatePaging, "上词", () -> command(103));
             button(candidatePaging, "下词", () -> command(102));
             button(candidatePaging, "上一页", () -> command(101));
@@ -4851,5 +4834,28 @@ public final class MSIMEInputService extends InputMethodService {
         if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
             renderMoreTools();
         applySkin();
+    }
+
+    private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
+        if (handwritingStatus == null) return;
+        if (handwritingResults.isEmpty() || handwritingCandidateToken == null) {
+            if (handwritingStatus.getParent() instanceof android.view.ViewGroup parent)
+                parent.removeView(handwritingStatus);
+            activeCandidates.addView(handwritingStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            return;
+        }
+        for (int index = 0; index < handwritingResults.size(); index++) {
+            String candidate = handwritingResults.get(index);
+            HandwritingRequestTracker.Token token = handwritingCandidateToken;
+            Button choice = keyboardKey(chineseOutput(candidate, view),
+                "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
+            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
+                    : LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+            activeCandidates.addView(choice, params);
+        }
     }
 }
