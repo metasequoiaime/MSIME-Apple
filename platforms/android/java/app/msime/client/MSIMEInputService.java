@@ -185,6 +185,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button spaceButton;
     private Button japaneseSpaceKey;
     private Button japaneseReturnKey;
+    private Button japaneseVariantsButton;
     private TextView status;
     private String message = "MSIME Preview";
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
@@ -1132,6 +1133,16 @@ public final class MSIMEInputService extends InputMethodService {
         if (japaneseSpaceKey != null) {
             japaneseSpaceKey.setText(spaceKeyTitle());
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
+        }
+        if (japaneseVariantsButton != null) {
+            boolean composing = view != null
+                && !view.optString("editing_text", "").isEmpty();
+            boolean enabled = JapaneseVariantPolicy.enabled(
+                japaneseNineKeyActive(), keyboardLayer == KeyboardLayout.Layer.SYMBOLS,
+                composing);
+            japaneseVariantsButton.setEnabled(enabled);
+            japaneseVariantsButton.setContentDescription(
+                JapaneseVariantPolicy.accessibilityLabel(enabled));
         }
         if (spaceButton != null && !cursorMovement.isActive()) {
             spaceButton.setText(spaceKeyTitle());
@@ -3873,6 +3884,7 @@ public final class MSIMEInputService extends InputMethodService {
         microsoftFinalKey = null;
         japaneseSpaceKey = null;
         japaneseReturnKey = null;
+        japaneseVariantsButton = null;
         keyRows.removeAllViews();
         if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
             rebuildJapaneseNineKeyRows();
@@ -4093,6 +4105,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button japaneseVariantsKey() {
         Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
+        japaneseVariantsButton = variants;
         variants.setOnClickListener(ignored -> {
             playFeedback(variants);
             showJapaneseVariants(variants);
