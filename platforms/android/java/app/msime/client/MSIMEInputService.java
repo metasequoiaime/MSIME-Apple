@@ -4029,7 +4029,8 @@ public final class MSIMEInputService extends InputMethodService {
         japaneseReturnKey = null;
         japaneseVariantsButton = null;
         keyRows.removeAllViews();
-        if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+        if (keyboardLayer == KeyboardLayout.Layer.LETTERS
+                && displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
             rebuildJapaneseNineKeyRows();
             applyKeyboardGeometry();
             return;
@@ -4304,24 +4305,6 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
-    private void showJapaneseDigitVariants(Button anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (String symbol : new String[] {"（", "）", "「", "」", "『", "』", "【", "】"}) {
-            popup.getMenu().add(symbol).setOnMenuItemClickListener(ignored -> {
-                playFeedback(anchor);
-                commitNineKeyLiteral(symbol);
-                return true;
-            });
-        }
-        popup.show();
-    }
-
-    private Button japaneseDigitVariantsKey() {
-        final Button[] holder = new Button[1];
-        holder[0] = keyboardKey("（）", "括号", () -> showJapaneseDigitVariants(holder[0]));
-        return holder[0];
-    }
-
     private Button japaneseVariantsKey() {
         Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
         japaneseVariantsButton = variants;
@@ -4341,8 +4324,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        java.util.List<JapaneseNineKeyLayout.Key> keys = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
+        java.util.List<JapaneseNineKeyLayout.Key> keys = JapaneseNineKeyLayout.keys();
         for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
             for (int column = 0; column < 3; column++) {
@@ -4351,34 +4333,21 @@ public final class MSIMEInputService extends InputMethodService {
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
-        LinearLayout finalRow = new LinearLayout(this);
-        addNineKey(finalRow, keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            ? japaneseDigitVariantsKey() : japaneseVariantsKey());
-        addNineKey(finalRow, japaneseKey(keys.get(9)));
-        addNineKey(finalRow, japaneseKey(keys.get(10)));
-        grid.addView(finalRow, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         container.addView(grid, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.81f));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
         Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
         };
         Button delete = keyboardKey("⌫", "删除", deleteAction);
         bindBackspaceRepeat(delete, deleteAction);
-        addNineKey(actions, delete);
-        japaneseSpaceKey = keyboardKey("空白", "空白", this::space);
-        japaneseSpaceKey.setContentDescription("空白；左右滑动移动光标");
-        addNineKey(actions, japaneseSpaceKey);
-        japaneseReturnKey = keyboardKey("改行", "改行", this::enter);
-        japaneseReturnKey.setContentDescription("改行");
-        Button enter = japaneseReturnKey;
-        actions.addView(enter, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
-        container.addView(actions, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+        addNineKey(side, japaneseKey(keys.get(9)));
+        addNineKey(side, japaneseVariantsKey());
+        addNineKey(side, delete);
+        container.addView(side, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.19f));
     }
 
     /** Non-interactive overlay showing the five choices while a Japanese key is being flicked. */
