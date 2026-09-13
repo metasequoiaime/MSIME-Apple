@@ -3894,7 +3894,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean handwritingActive() {
-        return session != 0 && keyboardLayer == KeyboardLayout.Layer.LETTERS
+        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        return session != 0 && !dedicatedEnglish
+            && "none".equals(localMode)
+            && keyboardLayer == KeyboardLayout.Layer.LETTERS
             && displayedTouchLayout(view) == HANDWRITING_LAYOUT && handwritingCanvas != null;
     }
 
