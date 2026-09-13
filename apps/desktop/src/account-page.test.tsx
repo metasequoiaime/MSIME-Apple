@@ -107,6 +107,31 @@ test("logged-in accounts can open their published skin list", async () => {
   expect(openPublishedSkins).toHaveBeenCalledTimes(1);
 });
 
+test("logged-in accounts expose local designs and every community collection", async () => {
+  const openLocalDesigns = vi.fn();
+  const openCommunity = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} onOpenLocalDesigns={openLocalDesigns} onOpenCommunity={openCommunity} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打开设计器" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  expect(openLocalDesigns).toHaveBeenCalledTimes(1);
+  expect(openCommunity.mock.calls).toEqual([
+    ["published-skins"], ["published-dictionary"], ["published-reply"],
+    ["saved-dictionary"], ["saved-reply"],
+  ]);
+});
+
+test("local designs remain available without an account", async () => {
+  const openLocalDesigns = vi.fn();
+  render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打开设计器" }));
+  expect(openLocalDesigns).toHaveBeenCalledTimes(1);
+});
+
 test("Android app icon choices read the launcher state and use an explicit selection", async () => {
   const set = vi.fn().mockResolvedValue({ supported: true, selected: "forest" });
   const client = account({

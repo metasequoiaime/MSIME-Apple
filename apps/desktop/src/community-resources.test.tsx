@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CommunityResourcesPage, type CommunityResource, type CommunityResourceClient } from "@msime/ui";
+import { CommunityHomePage, CommunityResourcesPage, type CommunityResource, type CommunityResourceClient } from "@msime/ui";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -35,6 +35,17 @@ test("loads a resource kind with exact search and scope, then removes duplicate 
   fireEvent.click(screen.getByRole("button", { name: "收藏" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith("dictionary", "saved", " C++ 词 ", 0));
   view.unmount();
+});
+
+test("community home opens the requested resource collection", async () => {
+  const resources = client();
+  const skins = {
+    list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
+    detail: vi.fn(), download: vi.fn(), rate: vi.fn(), publish: vi.fn(), unpublish: vi.fn(), finishTrial: vi.fn(),
+  };
+  render(<CommunityHomePage skins={skins} resources={resources} theme="light" initialCategory="reply" initialScope="saved" />);
+  await waitFor(() => expect(resources.list).toHaveBeenCalledWith("reply", "saved", "", 0));
+  expect(screen.getByRole("tab", { name: "回复" }).getAttribute("aria-selected")).toBe("true");
 });
 
 test("dictionary details apply the displayed revision and refresh saved state", async () => {

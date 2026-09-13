@@ -21,14 +21,14 @@ import { defaultTouchKeyboardSkinDesign, type AiSkinClient, type CustomSkinLibra
 export type { AiSkinClient, AiSkinProposal, AiSkinProgress, CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboardSkin, TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
-import { AccountPage, type AccountClient } from "./account-page";
+import { AccountPage, type AccountClient, type AccountCommunityDestination } from "./account-page";
 import { ChatPage, type ChatClient } from "./chat-page";
 import { HomePage, type HomePageActions } from "./home-page";
 import { WelcomeFlowPage } from "./onboarding-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
-export { AccountPage, type AccountChallenge, type AccountClient, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type AppIconClient, type AppIconInfo, type SettingsSyncClient } from "./account-page";
+export { AccountPage, type AccountChallenge, type AccountClient, type AccountCommunityDestination, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type AppIconClient, type AppIconInfo, type SettingsSyncClient } from "./account-page";
 export { ChatPage, type ChatClient, type ChatMessage, type ChatModel, type ChatModels } from "./chat-page";
 export { HomePage, type HomePageActions } from "./home-page";
 export { WelcomeFlowPage, type OnboardingActions, type OnboardingInputScheme } from "./onboarding-page";
@@ -758,7 +758,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
-  const [communityMine, setCommunityMine] = useState(false);
+  const [communityDestination, setCommunityDestination] = useState<AccountCommunityDestination | "all">("all");
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
@@ -1174,6 +1174,24 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     void client.clipboard.list().then(entries => { if (active) setClipboardEntries(entries); }).catch(() => undefined);
     return () => { active = false; };
   }, [client, page, snapshot?.revision]);
+  const openLocalDesigns = () => {
+    setPage("appearance");
+    setShowTouchSkinEditor(true);
+  };
+  const openCommunity = (destination: AccountCommunityDestination) => {
+    setCommunityDestination(destination);
+    setPage("community");
+  };
+  const initialCommunityCategory = communityDestination === "published-reply" || communityDestination === "saved-reply"
+    ? "reply"
+    : communityDestination === "published-dictionary" || communityDestination === "saved-dictionary"
+      ? "dictionary"
+      : "skin";
+  const initialCommunityScope = communityDestination === "published-dictionary" || communityDestination === "published-reply"
+    ? "mine"
+    : communityDestination === "saved-dictionary" || communityDestination === "saved-reply"
+      ? "saved"
+      : "";
   return <div className="settings-shell" onPointerDownCapture={event => {
     pendingTitlebarDrag.current = null;
     if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -1234,7 +1252,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
-        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityMine(false); }}>
+        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityDestination("all"); }}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>
@@ -1245,11 +1263,15 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => setPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => setPage("chat") : undefined} />}
-    {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
+    {client.account && page === "account" && <AccountPage
+      client={client.account}
+      onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
+      onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
+    />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
-    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityMine ? "mine" : "all"} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityMine} localDictionary={client.dictionary} />}
-    {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
-    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind="dictionary" />}
+    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}
+    {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityDestination} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityDestination === "published-skins"} />}
+    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
     {draft && page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
