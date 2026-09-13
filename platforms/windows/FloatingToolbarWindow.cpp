@@ -19,8 +19,8 @@ bool same(const FocusLease &a, const FocusLease &b) {
          same_ticket(a.transport, b.transport);
 }
 // The preference array is ordered as character_set, punctuation, fullwidth,
-// emoji, screen_keyboard, settings. Language is always present; the other
-// buttons follow the shared shell order.
+// emoji, screen_keyboard, settings. Language and handwriting are always
+// present; the other buttons follow the shared shell order.
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
   result.push_back(0); // language
