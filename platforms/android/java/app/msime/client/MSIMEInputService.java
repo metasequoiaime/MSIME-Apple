@@ -3169,6 +3169,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (schemeSaving || touchGeometrySaving || traditionalOutputSaving
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
+        // Match Apple's scheme picker: choosing a Chinese scheme from the English card
+        // returns to Chinese mode before applying the persisted Engine scheme.
+        if (dedicatedEnglish) {
+            toggleInputLanguage();
+            if (session == 0) return;
+        }
         if (scheme == selectedScheme) {
             closeSchemePicker();
             if (scheme == KeyboardScheme.THOUGHTFUL_REPLY) showReplyKeyboard();
