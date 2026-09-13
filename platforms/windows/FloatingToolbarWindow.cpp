@@ -366,6 +366,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (visible) self->refresh(true);
       return message == WM_POWERBROADCAST ? TRUE : 0;
     }
+    // Deliberately not part of the block above: refresh() itself calls
+    // SetWindowPos, which raises WM_SIZE synchronously, and discarding the
+    // target from there would pull it out from under the refresh in progress.
+    // The re-entrant refresh stops at its own unchanged-state early return.
+    case WM_SIZE:
+      if (self->shown_) self->refresh(true);
+      return 0;
     case WM_PAINT: self->paint(); return 0;
     case WM_ENTERSIZEMOVE:
       self->moving_ = true;
