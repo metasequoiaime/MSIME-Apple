@@ -157,6 +157,7 @@ const linuxReleasesPageUrl = "https://github.com/metasequoiaime/MSIME-Client/rel
 const updateManifestUrl = "https://msime.app/update.json";
 const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE";
 const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
+const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/MSIME-Client/issues";
 
@@ -733,6 +734,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
+  const androidPlatform = client.host?.platform === "android";
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -745,10 +747,11 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
-  const showVoiceCaptureDevices = (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
-  const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
-  const platformLicenseUrl = linuxPlatform ? linuxLicenseUrl : licenseUrl;
-  const platformIssuesUrl = linuxPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
+  const showVoiceCaptureDevices = !androidPlatform && (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
+  const showDesktopMaintenanceShortcuts = !host || (host.platform !== "android" && host.platform !== "ios");
+  const platformReleasesPageUrl = linuxPlatform || androidPlatform ? linuxReleasesPageUrl : releasesPageUrl;
+  const platformLicenseUrl = linuxPlatform || androidPlatform ? linuxLicenseUrl : licenseUrl;
+  const platformIssuesUrl = linuxPlatform || androidPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -1142,7 +1145,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
     && (item.id !== "account" || Boolean(client.account))
     && (item.id !== "chat" || Boolean(client.chat))
-    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)));
+    && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
+    && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
   }, [availablePages, page]);
@@ -1252,9 +1256,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">手写面板主题<small>覆盖手写识别板的明暗外观</small></span><select aria-label="手写面板主题" value={draft.handwriting_theme ?? "follow"} onChange={event => setDraft({ ...draft, handwriting_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">Emoji 面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small></span><select aria-label="Emoji 面板主题" value={draft.emoji_theme ?? "follow"} onChange={event => setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} /> : <div className="section"><small>当前宿主的 IBus 候选面板不支持自定义字体或字号。</small></div>}
+        {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} /> : <div className="section"><small>当前宿主的候选面板不支持自定义字体或字号。</small></div>}
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主题<small>预览跟随全局主题；Linux IBus panel 支持时使用，跟随时由桌面主题决定</small></span><select aria-label="候选窗主题" value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1271,7 +1275,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
         </div></div></div>
-        {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的 IBus 候选面板不支持强调、选中、悬停或边框颜色。</small></div>}
+        {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的候选面板不支持强调、选中、悬停或边框颜色。</small></div>}
         {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
           <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
@@ -1579,7 +1583,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <div className="shortcut-row"><span>提交原始输入 / 取消输入</span><kbd>Enter / Esc</kbd></div>
           </div>
         </div>
-        <div className="section shortcut-section">
+        {showDesktopMaintenanceShortcuts && <div className="section shortcut-section">
           <div className="section-title">全局维护快捷键</div>
           <small>{linuxPlatform ? "当前 IBus 会话中的候选维护与服务重启" : "程序运行时全局生效；用于维护与调试"}</small>
           <div className="shortcut-list">
@@ -1594,7 +1598,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
               <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
             </>}
           </div>
-        </div>
+        </div>}
         {showRestartInputMethod && <div className="section shortcut-section">
           <div className="section-title">输入法服务</div>
           <small>IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。</small>
@@ -1617,28 +1621,28 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
         <div className="section document-page help-document">
-          <p>{linuxPlatform ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。" : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。"}</p>
-          <div className="document-subsection"><div className="section-title">快速上手</div><p>{linuxPlatform ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。" : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。"}</p></div>
+          <p>{androidPlatform ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。" : linuxPlatform ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。" : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。"}</p>
+          <div className="document-subsection"><div className="section-title">快速上手</div><p>{androidPlatform ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。" : linuxPlatform ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。" : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。"}</p></div>
           <div className="document-subsection"><div className="section-title">基本功能</div>
             <p>支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右 2.0、首右 plus 和小鹤。</p>
-            <p>{linuxPlatform ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。" : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。"}</p>
+            <p>{androidPlatform ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。" : linuxPlatform ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。" : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。"}</p>
             <p>更多功能欢迎自由探索～</p>
           </div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-        <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>{linuxPlatform ? "为 Linux 桌面输入体验打造的开放中文输入法。" : "为现代 Windows 桌面体验打造的开放中文输入法。"}</p></div></div>
+        <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>{androidPlatform ? "为 Android 触屏输入体验打造的开放中文输入法。" : linuxPlatform ? "为 Linux 桌面输入体验打造的开放中文输入法。" : "为现代 Windows 桌面体验打造的开放中文输入法。"}</p></div></div>
         <div className="section about-links">
           <div className="about-link-row about-version-row"><div><div className="about-link-title">当前版本</div><div className="about-version">v{appVersion}</div>{updateStatus && <p className="about-update-status" role="status">{updateStatus}</p>}</div><button type="button" className="secondary about-update-button" disabled={updateBusy} onClick={() => void checkForUpdate()}>{updateBusy ? "正在检查…" : "检查更新"}</button></div>
           {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(platformLicenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
-          {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
+        {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(androidPlatform ? androidPrivacyUrl : privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
         </div>
-        <div className="section" role="group" aria-label="诊断日志">
+        {!androidPlatform && <div className="section" role="group" aria-label="诊断日志">
           <label className="section-header"><span className="section-title">Server 端日志<small>排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。</small></span><input aria-label="Server 端日志" className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label>
-        </div>
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
         <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；桌面屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1686,25 +1690,25 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
-        <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>
+        {androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>
-        {!linuxPlatform && <>
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>}
+        {!androidPlatform && !linuxPlatform && <>
           <div className="section"><label className="section-header"><span className="section-title">识别接口地址<small>留空使用当前 provider 默认地址</small></span><input aria-label="识别接口地址" type="url" value={voiceInput.asr_endpoint ?? ""} onChange={event => updateVoice({ asr_endpoint: event.target.value })} /></label></div>
           <div className="section"><label className="section-header"><span className="section-title">识别 API Token<small>仅保存在本机设置中</small></span><SecretInput label="识别 API Token" value={voiceInput.asr_token ?? ""} onChange={value => updateVoice({ asr_token: value })} /></label></div>
           {voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">Doubao App Key<small>旧版控制台鉴权可选</small></span><SecretInput label="Doubao App Key" value={voiceInput.asr_app_key ?? ""} onChange={value => updateVoice({ asr_app_key: value })} /></label></div>}
         </>}
-        <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>}
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>}
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
           <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option></select></label>
           {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
           <label className="section-header"><span className="section-title">麦克风设备<small>填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。</small></span><input aria-label="麦克风设备" maxLength={128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
         </div>}
-        <div className="section"><div className="section-title">{linuxPlatform ? "Linux provider 行为" : "录音行为"}<small>{linuxPlatform ? "这些选项会随请求传给用户管理的语音服务，不包含凭据" : "录音期间的提示音与静音由输入法在本机处理"}</small></div>
+        {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux provider 行为" : "录音行为"}<small>{linuxPlatform ? "这些选项会随请求传给用户管理的语音服务，不包含凭据" : "录音期间的提示音与静音由输入法在本机处理"}</small></div>
           {([[
             "sound_enabled", "语音提示音", true,
           ], [
@@ -1714,12 +1718,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           ], [
             "mute_system_audio", "录音时静音其他音频", false,
           ]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? voiceInput[key] !== false : voiceInput[key] === true} onChange={event => updateVoice({ [key]: event.target.checked })} /></label>)}
-        </div>
-        {voiceInput.asr_provider === "doubao" && <div className="section"><div className="section-title">豆包识别选项<small>{linuxPlatform ? "由 provider 服务应用" : "随识别请求发送给豆包"}</small></div>
+        </div>}
+        {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><div className="section-title">豆包识别选项<small>{linuxPlatform ? "由 provider 服务应用" : "随识别请求发送给豆包"}</small></div>
           {([['doubao_enable_itn', '数字格式化', true], ['doubao_enable_punc', '标点预测', true], ['doubao_enable_ddc', '语义顺滑', false]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? voiceInput[key] !== false : voiceInput[key] === true} onChange={event => updateVoice({ [key]: event.target.checked })} /></label>)}
           <label className="section-header"><span className="section-title">热词表 ID</span><input aria-label="热词表 ID" value={voiceInput.doubao_boosting_table_id ?? ""} onChange={event => updateVoice({ doubao_boosting_table_id: event.target.value })} /></label>
         </div>}
-        <div className="section"><div className="section-title">文本润色 provider<small>识别结果可交给用户管理的服务润色</small></div>
+        {!androidPlatform && <div className="section"><div className="section-title">文本润色 provider<small>识别结果可交给用户管理的服务润色</small></div>
           <label className="section-header"><span className="section-title">启用润色</span><input aria-label="启用文本润色" className="toggle" type="checkbox" checked={voiceInput.polish_text === true || voiceInput.polish_enabled === true} onChange={event => updateVoice({ polish_text: event.target.checked, polish_enabled: event.target.checked })} /></label>
           <label className="section-header"><span className="section-title">服务提供商</span><select aria-label="文本润色服务提供商" value={voiceInput.polish_provider ?? "siliconflow"} onChange={event => updateVoice(polishProviderUpdate(event.target.value, voiceInput))}><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option></select></label>
           <label className="section-header"><span className="section-title">模型</span><input aria-label="文本润色模型" value={voiceInput.polish_model ?? ""} onChange={event => updateVoice({ polish_model: event.target.value })} /></label>
@@ -1730,8 +1734,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={polishSlot} onChange={event => updateVoice({ polish_prompt_id: event.target.value, polish_prompt: polishPromptFor(event.target.value, voiceInput) })}>{POLISH_PRESET_IDS.map(id => <option key={id} value={id}>{POLISH_PRESET_NAMES[id]}</option>)}<option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
           <label className="section-header polish-prompt-row"><span className="section-title">润色提示词<small>{isPolishCustomSlot(polishSlot) ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}</small></span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value, ...(polishSlotField(polishSlot) ? { [polishSlotField(polishSlot) as string]: event.target.value } : {}) })} /></label>
           <button type="button" className="secondary" disabled={(voiceInput.polish_prompt ?? "") === polishPromptFor(polishSlot, voiceInput)} onClick={() => updateVoice({ polish_prompt: polishPromptFor(polishSlot, voiceInput) })}>恢复默认</button>
-        </div>
-        <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
+        </div>}
+        {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
           {([[
             "hotkey_ctrl_f9", "Ctrl+F9 切换语音",
           ], [
@@ -1743,7 +1747,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           ], [
             "hotkey_hold_space_lock", "空格锁定语音",
           ]] as const).map(([key, label]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={draft.voice_input?.[key] !== false} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
-        </div>
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
         <div className="section"><label className="section-header"><span className="section-title">启用 AI 辅助<small>为拼音联想和 Android 选中文字润色提供共享配置</small></span><input aria-label="启用 AI 辅助" className="toggle" type="checkbox" checked={ai.enabled} onChange={event => updateAi({ enabled: event.target.checked })} /></label></div>

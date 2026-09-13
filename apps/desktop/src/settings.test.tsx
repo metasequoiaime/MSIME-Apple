@@ -1288,6 +1288,32 @@ test("help, about and feedback pages expose their Windows content and actions", 
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues"));
 });
 
+test("Android help and about pages use mobile instructions and project links", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    host: { platform: "android", floating_toolbar: false } as never,
+  };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
+  expect(screen.getByText(/语言和输入法/)).toBeDefined();
+  expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText(/Android 触屏输入体验/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE"));
+  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+});
+
 test("about page validates a newer release before offering its URL", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
