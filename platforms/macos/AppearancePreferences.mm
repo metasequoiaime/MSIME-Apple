@@ -62,6 +62,27 @@ static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
+static NSString *const FuzzyPinyinKey = @"MSIMEClientFuzzyPinyinEnabled";
+static NSString *const FuzzyPinyinRulesKey = @"MSIMEClientFuzzyPinyinRules";
+static NSArray<NSArray<NSString *> *> *FuzzyPinyinRuleControls() {
+    return @[
+        @[@"z-zh", @"z / zh"], @[@"c-ch", @"c / ch"], @[@"s-sh", @"s / sh"],
+        @[@"n-l", @"n / l"], @[@"f-h", @"f / h"], @[@"r-l", @"r / l"],
+        @[@"an-ang", @"an / ang"], @[@"en-eng", @"en / eng"], @[@"in-ing", @"in / ing"],
+        @[@"ian-iang", @"ian / iang"], @[@"uan-uang", @"uan / uang"],
+    ];
+}
+static BOOL ValidFuzzyPinyinRules(id value) {
+    if (![value isKindOfClass:NSArray.class]) return NO;
+    NSMutableSet *known = [NSMutableSet set];
+    for (NSArray *entry in FuzzyPinyinRuleControls()) [known addObject:entry[0]];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (id rule in value) {
+        if (![rule isKindOfClass:NSString.class] || ![known containsObject:rule] || [seen containsObject:rule]) return NO;
+        [seen addObject:rule];
+    }
+    return YES;
+}
 static NSString *const CloudCandidatesKey = @"MSIMEClientCloudCandidates";
 static NSString *const CandidateTranslationsKey = @"MSIMEClientCandidateTranslations";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
@@ -169,6 +190,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_toolbarButton;
     NSButton *_transpositionButton;
     NSButton *_neighborButton;
+    NSNumber *_sharedFuzzyPinyinEnabled;
+    NSArray<NSString *> *_sharedFuzzyPinyinRules;
+    NSButton *_fuzzyPinyinButton;
+    NSMutableDictionary<NSString *, NSButton *> *_fuzzyPinyinRuleButtons;
     NSButton *_quanpinHelpcodeButton;
     NSButton *_shuangpinHelpcodeButton;
 }
@@ -281,6 +306,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"autocorrect"] = @(self.autocorrect);
+    if ([_defaults objectForKey:FuzzyPinyinKey] != nil || [_defaults objectForKey:FuzzyPinyinRulesKey] != nil ||
+        _sharedFuzzyPinyinEnabled != nil || _sharedFuzzyPinyinRules != nil) {
+        NSMutableDictionary *fuzzy = [merged[@"fuzzy_pinyin"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        fuzzy[@"enabled"] = @(self.fuzzyPinyinEnabled);
+        fuzzy[@"rules"] = [self fuzzyPinyinRules];
+        merged[@"fuzzy_pinyin"] = fuzzy;
+    }
     NSMutableDictionary *quanpin = [merged[@"quanpin"] mutableCopy] ?: [NSMutableDictionary dictionary];
     if (LocalModeBoolean([_defaults objectForKey:TranspositionKey]))
         quanpin[@"autocorrect_transposition"] = _sharedTransposition ?: @(self.autocorrectTransposition);
@@ -389,6 +421,47 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (BOOL)fuzzyPinyinEnabled {
+    if (_sharedFuzzyPinyinEnabled) return _sharedFuzzyPinyinEnabled.boolValue;
+    return [_defaults objectForKey:FuzzyPinyinKey] == nil ? NO : [_defaults boolForKey:FuzzyPinyinKey];
+}
+- (NSArray<NSString *> *)fuzzyPinyinRules {
+    id value = _sharedFuzzyPinyinRules ?: [_defaults objectForKey:FuzzyPinyinRulesKey];
+    if (!ValidFuzzyPinyinRules(value)) return @[];
+    NSSet *selected = [NSSet setWithArray:value];
+    NSMutableArray *ordered = [NSMutableArray array];
+    for (NSArray *entry in FuzzyPinyinRuleControls()) if ([selected containsObject:entry[0]]) [ordered addObject:entry[0]];
+    return ordered;
+}
+- (BOOL)fuzzyPinyinRuleEnabled:(NSString *)rule { return [[self fuzzyPinyinRules] containsObject:rule]; }
+- (void)setFuzzyPinyinEnabled:(BOOL)value {
+    _sharedFuzzyPinyinEnabled = nil;
+    [_defaults setBool:value forKey:FuzzyPinyinKey];
+    // Match the shared PreferencesStore's first-enable behavior for the native
+    // controls while retaining any explicitly pruned rule selection.
+    if (value && [_defaults objectForKey:FuzzyPinyinRulesKey] == nil) {
+        NSMutableArray *rules = [NSMutableArray array];
+        for (NSArray *entry in FuzzyPinyinRuleControls()) [rules addObject:entry[0]];
+        [_defaults setObject:rules forKey:FuzzyPinyinRulesKey];
+    }
+    [self preferencesChanged];
+}
+- (void)setFuzzyPinyinRule:(NSString *)rule enabled:(BOOL)enabled {
+    if (![rule isKindOfClass:NSString.class] || !ValidFuzzyPinyinRules(@[rule])) return;
+    NSMutableArray *rules = [[self fuzzyPinyinRules] mutableCopy];
+    [rules removeObject:rule];
+    if (enabled) [rules addObject:rule];
+    _sharedFuzzyPinyinRules = nil;
+    [_defaults setObject:rules forKey:FuzzyPinyinRulesKey];
+    [self preferencesChanged];
+}
+- (void)fuzzyPinyinChanged:(NSButton *)sender {
+    self.fuzzyPinyinEnabled = sender.state == NSControlStateValueOn;
+    [self refreshControls];
+}
+- (void)fuzzyPinyinRuleChanged:(NSButton *)sender {
+    [self setFuzzyPinyinRule:sender.identifier enabled:sender.state == NSControlStateValueOn];
+}
 - (BOOL)cloudCandidates { if (_sharedCloudCandidates) return _sharedCloudCandidates.boolValue; return [_defaults objectForKey:CloudCandidatesKey] == nil ? YES : [_defaults boolForKey:CloudCandidatesKey]; }
 - (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
 - (BOOL)candidateTranslations { if (_sharedCandidateTranslations) return _sharedCandidateTranslations.boolValue; return [_defaults objectForKey:CandidateTranslationsKey] == nil ? YES : [_defaults boolForKey:CandidateTranslationsKey]; }
@@ -414,9 +487,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id autocorrect = preferences[@"autocorrect"];
+    NSDictionary *fuzzy = preferences[@"fuzzy_pinyin"];
     id quanpin = preferences[@"quanpin_helpcode"];
     id shuangpin = preferences[@"shuangpin_helpcode"];
     if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
+    if ([fuzzy isKindOfClass:NSDictionary.class]) {
+        if (LocalModeBoolean(fuzzy[@"enabled"])) _sharedFuzzyPinyinEnabled = fuzzy[@"enabled"];
+        if (ValidFuzzyPinyinRules(fuzzy[@"rules"])) _sharedFuzzyPinyinRules = [fuzzy[@"rules"] copy];
+    }
     id correction = preferences[@"quanpin"];
     if (!correction && LocalModeBoolean(autocorrect)) correction = @{};
     if ([correction isKindOfClass:NSDictionary.class]) {
@@ -838,6 +916,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
+    _fuzzyPinyinButton.state = self.fuzzyPinyinEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    for (NSString *rule in _fuzzyPinyinRuleButtons) {
+        NSButton *button = _fuzzyPinyinRuleButtons[rule];
+        button.state = [self fuzzyPinyinRuleEnabled:rule] ? NSControlStateValueOn : NSControlStateValueOff;
+        button.enabled = self.fuzzyPinyinEnabled;
+    }
     _cloudCandidatesButton.state = self.cloudCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateTranslationsButton.state = self.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
     _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1022,6 +1106,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
+    _fuzzyPinyinButton = [NSButton checkboxWithTitle:@"启用模糊音" target:self action:@selector(fuzzyPinyinChanged:)];
     _cloudCandidatesButton = [NSButton checkboxWithTitle:@"启用云候选（将查询发送至 Google 输入工具）" target:self action:@selector(cloudCandidatesChanged:)];
     _candidateTranslationsButton = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(candidateTranslationsChanged:)];
     _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
@@ -1064,12 +1149,20 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
         @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
+        @[[NSTextField labelWithString:@"模糊音"], _fuzzyPinyinButton],
         @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
         @[[NSTextField labelWithString:@"双拼辅助码"], _shuangpinHelpcodeButton]
     ]];
     grid.rowSpacing = 16;
     _helpcodeSchemaButtons = [NSMutableDictionary dictionary];
     _helpcodeDisplayButtons = [NSMutableDictionary dictionary];
+    _fuzzyPinyinRuleButtons = [NSMutableDictionary dictionary];
+    for (NSArray *entry in FuzzyPinyinRuleControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(fuzzyPinyinRuleChanged:)];
+        button.identifier = entry[0];
+        _fuzzyPinyinRuleButtons[entry[0]] = button;
+        [grid addRowWithViews:@[[NSTextField labelWithString:@"模糊音规则"], button]];
+    }
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
         NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];

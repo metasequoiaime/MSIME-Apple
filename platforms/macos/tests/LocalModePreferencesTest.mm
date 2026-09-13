@@ -17,6 +17,8 @@ int main() {
         [prefs applySharedLocalModes:@{@"unicode": @NO}];
         assert(![prefs localModeEnabled:@"unicode"] && changes == 0);
         assert([defaults objectForKey:@"MSIMEClientLocalModes"] == nil);
+        [prefs applySharedAssistancePreferences:@{@"fuzzy_pinyin": @{@"enabled": @NO, @"rules": @[@"z-zh", @"an-ang"]}}];
+        assert(!prefs.fuzzyPinyinEnabled && [prefs fuzzyPinyinRuleEnabled:@"z-zh"] && ![prefs fuzzyPinyinRuleEnabled:@"c-ch"]);
         [prefs applySharedLocalModes:@{@"unicode": @1}];
         assert(![prefs localModeEnabled:@"unicode"]);
         NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
@@ -27,6 +29,23 @@ int main() {
             if ([control isKindOfClass:NSControl.class] && control.action == NSSelectorFromString(@"localModeChanged:")) buttons[control.identifier] = (id)control;
         }
         assert(buttons.count == 8);
+        NSButton *fuzzy = nil;
+        NSMutableDictionary<NSString *, NSButton *> *fuzzyRules = [NSMutableDictionary dictionary];
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if (![control isKindOfClass:NSControl.class]) continue;
+            if (control.action == @selector(fuzzyPinyinChanged:)) fuzzy = (id)control;
+            if (control.action == @selector(fuzzyPinyinRuleChanged:)) fuzzyRules[control.identifier] = (id)control;
+        }
+        assert(fuzzy != nil && fuzzyRules.count == 11 && !fuzzyRules[@"z-zh"].enabled);
+        fuzzy.state = NSControlStateValueOn;
+        [NSApp sendAction:fuzzy.action to:fuzzy.target from:fuzzy];
+        assert(prefs.fuzzyPinyinEnabled && fuzzyRules[@"z-zh"].enabled);
+        fuzzyRules[@"z-zh"].state = NSControlStateValueOff;
+        [NSApp sendAction:fuzzyRules[@"z-zh"].action to:fuzzyRules[@"z-zh"].target from:fuzzyRules[@"z-zh"]];
+        assert(![prefs fuzzyPinyinRuleEnabled:@"z-zh"] && [prefs fuzzyPinyinRuleEnabled:@"an-ang"]);
+        assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"enabled"] isEqual:@YES]);
+        assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"rules"] isEqual:@[@"an-ang"]]);
         for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese"]) {
             NSButton *button = buttons[mode];
             assert(button && [prefs localModeEnabled:mode] == ![mode isEqual:@"unicode"]);

@@ -50,6 +50,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) BOOL autocorrect;
+@property(nonatomic) BOOL fuzzyPinyinEnabled;
+- (BOOL)fuzzyPinyinRuleEnabled:(NSString *)rule;
+- (void)setFuzzyPinyinRule:(NSString *)rule enabled:(BOOL)enabled;
 @property(nonatomic) BOOL cloudCandidates;
 @property(nonatomic) BOOL candidateTranslations;
 @property(nonatomic) BOOL autocorrectTransposition;
