@@ -45,6 +45,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -192,6 +193,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean allowLearning;
     private String preferencesNotice = "";
     private String preferencesDirectory = "";
+    private String runtimeOptionsForSnapshot = "";
     private JSONObject preferencesSnapshot;
     private long preferenceSaveGeneration;
     private boolean schemeSaving;
@@ -456,6 +458,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyCandidateGlossPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
+                runtimeOptionsForSnapshot = options.toString();
                 // Settings edits are queued in the shared PersonalDictionary
                 // journal. There is no live Engine session yet, so this is a
                 // safe idle boundary at which to apply a bounded batch and
@@ -499,6 +502,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInput() {
         resetSpaceCursor();
         stop(true);
+        scheduleDictionarySnapshotProcessing();
         connection = null;
         currentDocumentIdentifier = 0;
         super.onFinishInput();
@@ -557,6 +561,20 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
+    }
+
+    /** The session has been destroyed, so native maintenance may take the exclusive lock. */
+    private void scheduleDictionarySnapshotProcessing() {
+        if (runtimeOptionsForSnapshot.isEmpty()) return;
+        String options = runtimeOptionsForSnapshot;
+        Path root = new File(getFilesDir(), "bootstrap/state/dictionary-snapshots").toPath();
+        Path staging = root.resolve("staging");
+        try {
+            preferencesWorker.execute(() -> {
+                try { DictionarySnapshotWorker.process(root, staging, options); }
+                catch (Exception | LinkageError ignored) { /* Retry at the next idle boundary. */ }
+            });
+        } catch (RuntimeException ignored) { /* Service shutdown owns the final worker state. */ }
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
