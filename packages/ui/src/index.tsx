@@ -330,10 +330,33 @@ export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english"
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 export type DictionaryEntry = { kind: LocalDictionaryKind; key: string; value: string; weight: number };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
+/** Mirrors the import response from `client-core::dictionary_import`. */
+export interface DictionaryImportResult {
+  applied: number;
+  /** Rows examined and skipped. Absent from hosts that predate the report. */
+  failed?: number;
+  /** Rows beyond the per-file cap were not examined. */
+  truncated?: boolean;
+  first_failures?: { line: number; issue: string }[];
+}
+
+/** A short account of an import the user can act on. */
+export function describeImportResult(kind: string, result: DictionaryImportResult): string {
+  const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
+  if (result.failed) {
+    const lines = (result.first_failures ?? []).map(failure => failure.line).join("、");
+    parts.push(lines
+      ? `跳过 ${result.failed} 行，首先出现在第 ${lines} 行。`
+      : `跳过 ${result.failed} 行。`);
+  }
+  if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
+  return parts.join("");
+}
+
 export interface DictionaryClient {
   list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
-  import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<{ applied: number }>;
+  import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<DictionaryImportResult>;
   importPersonal?(text: string, request_id: string): Promise<{ queued: boolean; pending_count: number }>;
   export?(kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number): Promise<{ text: string; has_more: boolean }>;
   retry?(request_id: string): Promise<void>;
@@ -359,6 +382,17 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
 ];
 
 /** The user-facing name of a local dictionary, for messages about it. */
+/** Prefer the host's reason; fall back to the generic format hint. */
+function importFailureMessage(kind: string, error: unknown): string {
+  const reason = error instanceof Error ? error.message
+    : typeof error === "string" ? error
+    : typeof error === "object" && error !== null && "error" in error ? String((error as { error: unknown }).error)
+    : "";
+  return reason
+    ? `${kind}导入失败：${reason}`
+    : `${kind}导入失败，请检查文本格式。`;
+}
+
 function dictionaryKindLabel(kind: LocalDictionaryKind): string {
   return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
 }
@@ -567,7 +601,7 @@ export function translationEndpointIssue(endpoint: string): string {
   if (!endpoint) return "请填写完整的接口地址。";
   if (endpoint.length > 2048) return "接口地址过长。";
   // eslint-disable-next-line no-control-regex
-  if (/[ -]/.test(endpoint)) return "接口地址不能包含控制字符。";
+  if (/[\u0000-\u001f\u007f]/.test(endpoint)) return "接口地址不能包含控制字符。";
   if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
     return "请填写以 http:// 或 https:// 开头的完整接口地址。";
   }
@@ -612,6 +646,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [dictionaryPendingCount, setDictionaryPendingCount] = useState(0);
   const [dictionaryFailures, setDictionaryFailures] = useState<DictionaryFailure[]>([]);
   const [dictionarySnapshotError, setDictionarySnapshotError] = useState("");
+  const [phraseNotice, setPhraseNotice] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
@@ -770,7 +805,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // page before showing anything.
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
     if (!client.dictionary) return;
-    setPhraseBusy(true); setPhraseError("");
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     setPhrasePage(current => ({ ...current, status: "查询中…" }));
     try {
       const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE);
@@ -795,7 +830,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     if (!client.dictionary) return;
     // Deletion is not undoable and the row is one click away from 编辑.
     if (typeof window !== "undefined" && !window.confirm(`删除词条“${entry.value}”（${entry.key}）？此操作无法撤销。`)) return;
-    setPhraseBusy(true); setPhraseError("");
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     try {
       await client.dictionary.edit(entry, null, requestId("ui-remove"));
       // Stay on the page the user was reading; deleting the last row on a page
@@ -813,7 +848,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     if (!client.dictionary || !phraseForm) return;
     const replacement: DictionaryEntry = { kind: dictionaryKind, key: phraseForm.key.trim(), value: phraseForm.value, weight: phraseForm.weight };
     if (!replacement.key || !replacement.value) { setPhraseError("编码和短语不能为空。"); return; }
-    setPhraseBusy(true); setPhraseError("");
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     try {
       await client.dictionary.edit(phraseForm.previous, replacement, requestId(phraseForm.previous ? "ui-edit" : "ui-add"));
       setPhraseForm(null);
@@ -826,11 +861,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   }
   async function importPhrases(file: File) {
     if (!client.dictionary) return;
-    setPhraseBusy(true); setPhraseError("");
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     try {
       const text = await readDictionaryFile(file);
+      let imported: DictionaryImportResult | null = null;
       if (client.dictionary.import) {
-        await client.dictionary.import(dictionaryKind, dictionaryFormat, text, requestId("ui-import"));
+        imported = await client.dictionary.import(dictionaryKind, dictionaryFormat, text, requestId("ui-import"));
       } else {
         if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
         const lines = text.split(/\r?\n/).filter(Boolean);
@@ -842,7 +878,11 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         }
       }
       await loadPhrases(dictionaryKind);
-    } catch { setPhraseError("快捷短语导入失败，请检查文本格式。"); }
+      // The host reports what it skipped; saying nothing reads as a clean import.
+      if (imported) setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
+    } catch (error) {
+      setPhraseError(importFailureMessage(dictionaryKindLabel(dictionaryKind), error));
+    }
     finally { setPhraseBusy(false); }
   }
   async function retryDictionaryFailure(requestId: string) {
@@ -866,7 +906,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   async function exportPhrases() {
     if (!client.dictionary) return;
     if (dictionaryFormat === "hans") { setPhraseError("汉字自动注音格式仅支持导入。"); return; }
-    setPhraseBusy(true); setPhraseError("");
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     try {
       let text = "";
       if (client.dictionary.export) {
@@ -1119,6 +1159,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           {dictionaryFailures.length > 0 && <div className="dictionary-failures" role="alert"><p>有 {dictionaryFailures.length} 项词库请求同步失败，可以重试或移除失败记录。</p><ul>{dictionaryFailures.map(failure => <li key={failure.request_id}><span><strong>{failure.label}</strong><small>{failure.error}</small></span><span><button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.retry} onClick={() => void retryDictionaryFailure(failure.request_id)}>重试</button> <button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.dismissFailure} onClick={() => void dismissDictionaryFailure(failure.request_id)}>移除记录</button></span></li>)}</ul></div>}
           <div className="dictionary-manager-controls"><label>词库 <select aria-label="本地词库类型" value={dictionaryKind} disabled={phraseBusy} onChange={event => { const kind = event.target.value as LocalDictionaryKind; setDictionaryKind(kind); if (kind !== "pinyin" && dictionaryFormat === "hans") setDictionaryFormat("standard"); setPhrases([]); void loadPhrases(kind); }}>{localDictionaryKinds.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label><label>文件格式 <select aria-label="本地词库文件格式" value={dictionaryFormat} disabled={phraseBusy} onChange={event => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option><option value="rime">Rime userdb / dict.yaml</option>{dictionaryKind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label></div>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
+          {phraseNotice && <p role="status" className="dict-notice">{phraseNotice}</p>}
           {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>{dictionaryKind === "quick_phrase" ? "短语" : "词条"} <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
           {phrases.length === 0 ? <p className="dict-empty">点击查询后查看{localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}词条</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
           <div className="dictionary-pagination">
