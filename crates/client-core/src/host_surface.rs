@@ -205,6 +205,7 @@ pub enum SurfaceRoute {
     Keyboard,
     Handwriting,
     Voice,
+    Clipboard,
     CloudClipboard,
     CloudDictionary,
 }
@@ -230,6 +231,7 @@ impl SurfaceRoute {
             SurfaceRoute::Keyboard => "keyboard".to_string(),
             SurfaceRoute::Handwriting => "handwriting".to_string(),
             SurfaceRoute::Voice => "voice".to_string(),
+            SurfaceRoute::Clipboard => "clipboard".to_string(),
             SurfaceRoute::CloudClipboard => "cloud-clipboard".to_string(),
             SurfaceRoute::CloudDictionary => "cloud-dictionary".to_string(),
         }
@@ -263,6 +265,7 @@ impl SurfaceRoute {
             "keyboard" => Ok(SurfaceRoute::Keyboard),
             "handwriting" => Ok(SurfaceRoute::Handwriting),
             "voice" => Ok(SurfaceRoute::Voice),
+            "clipboard" => Ok(SurfaceRoute::Clipboard),
             "cloud-clipboard" => Ok(SurfaceRoute::CloudClipboard),
             "cloud-dictionary" => Ok(SurfaceRoute::CloudDictionary),
             _ => Err(RouteError::Unknown),
@@ -302,6 +305,13 @@ impl SurfaceRoute {
                 width: 620,
                 height: 520,
             }),
+            SurfaceRoute::Clipboard => Some(PanelSurface {
+                label: "clipboard-panel",
+                query: "clipboard",
+                title: "水杉本地剪贴板",
+                width: 560,
+                height: 620,
+            }),
             SurfaceRoute::CloudClipboard => Some(PanelSurface {
                 label: "cloud-clipboard-panel",
                 query: "cloud-clipboard",
@@ -319,12 +329,13 @@ impl SurfaceRoute {
         }
     }
 
-    pub const ALL: [SurfaceRoute; 7] = [
+    pub const ALL: [SurfaceRoute; 8] = [
         SurfaceRoute::Settings(None),
         SurfaceRoute::Emoji,
         SurfaceRoute::Keyboard,
         SurfaceRoute::Handwriting,
         SurfaceRoute::Voice,
+        SurfaceRoute::Clipboard,
         SurfaceRoute::CloudClipboard,
         SurfaceRoute::CloudDictionary,
     ];
