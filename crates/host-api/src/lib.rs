@@ -1766,6 +1766,8 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         7 => Action::Command(Command::MoveEnd),
         8 => Action::Command(Command::DeleteForward),
         9 => Action::Finish,
+        10 => Action::Command(Command::CycleKanaVariant),
+        11 => Action::Command(Command::CommitReading),
         100 => Action::NextPage,
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,
@@ -3304,9 +3306,20 @@ mod tests {
         let kana = read(msime_client_character(handle, b'a', false));
         assert_eq!(kana["ok"], true);
         assert_eq!(kana["value"]["view"]["preedit"], "a");
+        assert_eq!(kana["value"]["view"]["reading"], "あ");
         assert_eq!(kana["value"]["view"]["scheme"], 3);
         assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
         assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
+        let small_kana = read(msime_client_command(handle, 10));
+        assert_eq!(small_kana["value"]["handled"], true);
+        assert_eq!(small_kana["value"]["view"]["reading"], "ぁ");
+        let committed_small_kana = read(msime_client_command(handle, 11));
+        assert_eq!(committed_small_kana["value"]["commit"], "ぁ");
+        assert_eq!(committed_small_kana["value"]["view"]["reading"], "");
+        read(msime_client_character(handle, b'a', false));
+        let committed_kana = read(msime_client_command(handle, 11));
+        assert_eq!(committed_kana["value"]["commit"], "あ");
+        assert_eq!(committed_kana["value"]["view"]["reading"], "");
         read(msime_client_command(handle, 3));
         read(msime_client_character(handle, b'n', false));
         let syllable_separator = read(msime_client_character(handle, b'\'', false));
@@ -3326,6 +3339,26 @@ mod tests {
             read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],
             "b;"
         );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn japanese_commands_are_unhandled_for_non_japanese_schemes() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["reading"], "");
+
+        let variant = read(msime_client_command(handle, 10));
+        assert_eq!(variant["value"]["handled"], false);
+        assert_eq!(variant["value"]["view"]["editing_text"], "a");
+        assert_eq!(variant["value"]["view"]["reading"], "");
+
+        let reading = read(msime_client_command(handle, 11));
+        assert_eq!(reading["value"]["handled"], false);
+        assert!(reading["value"]["commit"].is_null());
+        assert_eq!(reading["value"]["view"]["reading"], "");
         read(msime_client_destroy(handle));
     }
 

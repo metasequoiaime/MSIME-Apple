@@ -203,6 +203,8 @@ public final class MSIMEInputService extends InputMethodService {
     private Button japaneseSpaceKey;
     private Button japaneseReturnKey;
     private Button japaneseVariantsButton;
+    private Integer japaneseConversionIndex;
+    private String japaneseConversionEditingText = "";
     private TextView status;
     private String message = "MSIME Preview";
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
@@ -1085,6 +1087,24 @@ public final class MSIMEInputService extends InputMethodService {
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        if (japaneseNineKeyActive() && view != null) {
+            String editingText = view.optString("editing_text", "");
+            JSONArray candidates = view.optJSONArray("candidates");
+            if (!editingText.isEmpty() && candidates != null && candidates.length() > 0) {
+                int count = candidates.length();
+                if (japaneseConversionIndex == null
+                        || !editingText.equals(japaneseConversionEditingText)) {
+                    japaneseConversionIndex = 0;
+                    japaneseConversionEditingText = editingText;
+                    render();
+                } else {
+                    int next = japaneseConversionIndex + 1;
+                    japaneseConversionIndex = next < count ? next : 0;
+                    command(next < count ? 102 : 104);
+                }
+                return;
+            }
+        }
         if (dedicatedEnglish) {
             if (session != 0) command(1);
             if (connection != null) commitText(fullWidthOutput(" "));
@@ -1248,6 +1268,11 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        if (japaneseNineKeyActive() && view != null
+                && !view.optString("editing_text", "").isEmpty()) {
+            if (japaneseConversionIndex != null && command(1)) return;
+            if (command(11)) return;
+        }
         if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
@@ -3968,7 +3993,9 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView composition = new TextView(this);
-        String compositionText = candidatePanelSnapshot.optString("preedit", "");
+        String reading = candidatePanelSnapshot.optString("reading", "");
+        String compositionText = reading.isEmpty()
+            ? candidatePanelSnapshot.optString("preedit", "") : reading;
         composition.setText(compositionText);
         composition.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
         composition.setContentDescription("当前组合文本：" + compositionText);
@@ -4676,7 +4703,7 @@ public final class MSIMEInputService extends InputMethodService {
         variants.setOnClickListener(ignored -> {
             playFeedback(variants);
             if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) showJapaneseBracketOptions(variants);
-            else showJapaneseVariants(variants);
+            else command(10);
         });
         return variants;
     }
@@ -5264,6 +5291,15 @@ public final class MSIMEInputService extends InputMethodService {
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
+        String currentEditingText = view == null ? "" : view.optString("editing_text", "");
+        if (!japaneseNineKeyActive() || currentEditingText.isEmpty()) {
+            japaneseConversionIndex = null;
+            japaneseConversionEditingText = "";
+        } else if (japaneseConversionIndex != null
+                && !currentEditingText.equals(japaneseConversionEditingText)) {
+            japaneseConversionIndex = null;
+            japaneseConversionEditingText = "";
+        }
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
@@ -5298,7 +5334,9 @@ public final class MSIMEInputService extends InputMethodService {
             String editingText = view == null ? "" : view.optString("editing_text", "");
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
-            String localModeTitle = editingText;
+            String reading = view == null ? "" : view.optString("reading", "");
+            String localModeTitle = "none".equals(localModeKey)
+                ? (reading.isEmpty() ? editingText : reading) : editingText;
             for (LocalInputMode mode : LocalInputMode.values()) {
                 if (mode.preferenceKey().equals(localModeKey)
                         && mode.trigger().equals(editingText)) {

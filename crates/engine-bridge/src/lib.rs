@@ -92,6 +92,8 @@ mod ffi {
         pub microsoft_shuangpin: bool,
         pub shuangpin_profile: String,
         pub preedit: String,
+        /// Japanese kana reading shown to the user instead of the romaji editing text.
+        pub reading: String,
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
@@ -484,6 +486,8 @@ pub enum Command {
     MoveHome,
     MoveEnd,
     DeleteForward,
+    CycleKanaVariant,
+    CommitReading,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
