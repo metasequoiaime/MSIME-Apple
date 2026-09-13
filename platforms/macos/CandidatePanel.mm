@@ -4,6 +4,7 @@
 #include <cmath>
 
 @interface MetasequoiaCandidateWindow : NSPanel
+@property(nonatomic, weak) id<MetasequoiaCandidatePanelDelegate> candidateDelegate;
 @end
 @implementation MetasequoiaCandidateWindow
 - (BOOL)canBecomeKeyWindow
@@ -13,6 +14,12 @@
 - (BOOL)canBecomeMainWindow
 {
     return NO;
+}
+- (void)scrollWheel:(NSEvent *)event
+{
+    if (event.scrollingDeltaY > 0) [self.candidateDelegate candidatePanelPreviousPage];
+    else if (event.scrollingDeltaY < 0) [self.candidateDelegate candidatePanelNextPage];
+    else [super scrollWheel:event];
 }
 @end
 
@@ -141,6 +148,12 @@
     NSInteger _selected;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
+}
+
+- (void)setDelegate:(id<MetasequoiaCandidatePanelDelegate>)delegate
+{
+    _delegate = delegate;
+    ((MetasequoiaCandidateWindow *)_window).candidateDelegate = delegate;
 }
 
 - (instancetype)init
