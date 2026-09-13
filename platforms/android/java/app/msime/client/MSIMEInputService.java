@@ -2854,6 +2854,8 @@ public final class MSIMEInputService extends InputMethodService {
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         header.addView(title, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button settings = borderlessButton(header, "⚙", this::showLayoutSettings);
+        settings.setContentDescription("键盘设置");
         Button close = button(header, "返回键盘", this::closeSchemePicker);
         close.setContentDescription("返回键盘");
         schemePanel.addView(header);
