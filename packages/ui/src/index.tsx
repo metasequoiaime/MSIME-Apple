@@ -370,7 +370,7 @@ export function describeImportResult(kind: string, result: DictionaryImportResul
 }
 
 export interface DictionaryClient {
-  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
+  list(offset: number, limit: number, kind?: LocalDictionaryKind, query?: string): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
   import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<DictionaryImportResult>;
   importPersonal?(text: string, request_id: string): Promise<{ queued: boolean; pending_count: number }>;
@@ -917,7 +917,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     setPhrasePage(current => ({ ...current, status: "查询中…" }));
     try {
-      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE);
+      // Ask the host for this kind and code prefix. Filtering a page the host
+      // had already chosen meant a user with more than a page of pinyin words
+      // saw an empty list when they picked another dictionary, and the status
+      // line counted the filtered rows against the unfiltered page.
+      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, phraseSearch.trim());
+      // Older hosts ignore the extra arguments, so keep filtering defensively.
       const entries = page.entries.filter(entry => entry.kind === kind);
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);

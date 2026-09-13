@@ -594,7 +594,9 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
   expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
-  expect(list).toHaveBeenCalledWith(0, 100);
+  // The host now selects the kind and code prefix instead of the client
+  // filtering a page it had already fetched.
+  expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -625,13 +627,14 @@ test("dictionary manager pages through entries instead of loading the whole dict
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
-  expect(list).toHaveBeenCalledWith(0, 100);
+  // This case selected 全拼, so that is the kind the host is asked for.
+  expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
   expect(await screen.findByText("第 101–120 条")).toBeDefined();
-  expect(list).toHaveBeenLastCalledWith(100, 100);
+  expect(list).toHaveBeenLastCalledWith(100, 100, "pinyin", "");
   expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", false);
 });
