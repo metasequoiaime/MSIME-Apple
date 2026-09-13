@@ -163,6 +163,8 @@ export interface HostCapabilities {
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   voice_capture_devices: boolean;
+  candidate_font_controls: boolean;
+  candidate_selection_appearance: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -508,6 +510,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
   // An IBus property menu has no scale, icon size or component list to apply.
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
+  const showCandidateFontControls = host ? host.candidate_font_controls : true;
+  const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showVoiceCaptureDevices = (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const platformReleasesPageUrl = linuxPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = linuxPlatform ? linuxLicenseUrl : licenseUrl;
@@ -958,37 +962,38 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">手写面板主题<small>覆盖手写识别板的明暗外观</small></span><select aria-label="手写面板主题" value={draft.handwriting_theme ?? "follow"} onChange={event => setDraft({ ...draft, handwriting_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">Emoji 面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small></span><select aria-label="Emoji 面板主题" value={draft.emoji_theme ?? "follow"} onChange={event => setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} />
+        {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} /> : <div className="section"><small>当前宿主的 IBus 候选面板不支持自定义字体或字号。</small></div>}
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主题<small>预览跟随全局主题；Linux IBus panel 支持时使用，跟随时由桌面主题决定</small></span><select aria-label="候选窗主题" value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
+        {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
-        </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidateFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
+        </select></label></div>}
+        {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidateFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
-        </select></label></div>
+        </select></label></div>}
         <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
         </div></div></div>
-        <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
+        {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的 IBus 候选面板不支持强调、选中、悬停或边框颜色。</small></div>}
+        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
           <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
-        </div></div></div>
-        <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
+        </div></div></div>}
+        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
           <input aria-label="候选选中色" type="color" value={candidateTextColor(draft.candidate_selected_color) ?? (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")} onChange={event => setDraft({ ...draft, candidate_selected_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
-        </div></div></div>
-        <div className="section"><div className="section-header"><span className="section-title">候选悬停色</span><div className="candidate-color-control">
+        </div></div></div>}
+        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选悬停色</span><div className="candidate-color-control">
           <input aria-label="候选悬停色" type="color" value={candidateTextColor(draft.candidate_hover_color) ?? (candidatePreviewTheme === "light" ? "#ececec" : "#414141")} onChange={event => setDraft({ ...draft, candidate_hover_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_hover_color)} onClick={() => { if (candidateTextColor(draft.candidate_hover_color)) setDraft({ ...draft, candidate_hover_color: null }); }}>跟随主题</button>
-        </div></div></div>
+        </div></div></div>}
         <div className="section"><div className="section-header"><span className="section-title">候选表面色</span><div className="candidate-color-control"><input aria-label="候选表面色" type="color" value={candidateTextColor(draft.candidate_surface_color) ?? (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")} onChange={event => setDraft({ ...draft, candidate_surface_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_surface_color: null })}>跟随主题</button></div></div></div>
-        <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>
+        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>}
         <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
           <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>

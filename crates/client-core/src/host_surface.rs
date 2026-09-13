@@ -102,6 +102,10 @@ pub struct HostCapabilities {
     pub panel_shortcuts: bool,
     /// The host can enumerate audio capture devices for voice input.
     pub voice_capture_devices: bool,
+    /// The host can apply candidate font family, fallback family and size preferences.
+    pub candidate_font_controls: bool,
+    /// The host can apply candidate accent, selection, hover and border appearance.
+    pub candidate_selection_appearance: bool,
 }
 
 impl HostCapabilities {
@@ -135,6 +139,18 @@ impl HostCapabilities {
             mode_switch_shortcuts: platform == HostPlatform::Linux,
             panel_shortcuts: platform == HostPlatform::Linux,
             voice_capture_devices: platform == HostPlatform::Linux,
+            // Native Windows/macOS candidate windows consume the shared font
+            // controls; IBus lookup tables and mobile hosts do not expose them.
+            candidate_font_controls: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos
+            ),
+            // IBus and mobile candidate surfaces do not expose native selection
+            // colors, hover state or borders.
+            candidate_selection_appearance: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos
+            ),
         }
     }
 }
@@ -505,6 +521,8 @@ mod tests {
         assert!(!linux.floating_toolbar_appearance);
         assert!(linux.panel_shortcuts);
         assert!(linux.voice_capture_devices);
+        assert!(!linux.candidate_font_controls);
+        assert!(!linux.candidate_selection_appearance);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(!windows.restart_input_method);
@@ -514,11 +532,17 @@ mod tests {
         // showing the controls earlier would offer settings that do nothing.
         assert!(!windows.mode_switch_shortcuts);
         assert!(windows.floating_toolbar && windows.floating_toolbar_appearance);
+        assert!(windows.candidate_font_controls);
+        assert!(windows.candidate_selection_appearance);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
         assert!(macos.floating_toolbar && macos.floating_toolbar_appearance);
+        assert!(macos.candidate_font_controls);
+        assert!(macos.candidate_selection_appearance);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
         assert!(!android.floating_toolbar && !android.floating_toolbar_appearance);
+        assert!(!android.candidate_font_controls);
+        assert!(!android.candidate_selection_appearance);
         assert!(!windows.panel_shortcuts);
         assert!(windows.system_fonts);
 

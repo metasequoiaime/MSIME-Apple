@@ -26,6 +26,8 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     voice_capture_devices: false,
+    candidate_font_controls: true,
+    candidate_selection_appearance: true,
     ...overrides,
   };
 }
@@ -125,4 +127,29 @@ test("toolbar scale and components are hidden on a host that cannot apply them",
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("工具栏缩放")).toBeTruthy();
   expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
+});
+
+test("candidate appearance follows host capabilities", async () => {
+  mount({ host: capabilities({ platform: "linux", candidate_font_controls: false, candidate_selection_appearance: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
+  expect(screen.queryByLabelText("候选字号")).toBeNull();
+  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
+  expect(screen.queryByLabelText("候选强调色")).toBeNull();
+  expect(screen.queryByLabelText("候选选中色")).toBeNull();
+  expect(screen.queryByLabelText("候选悬停色")).toBeNull();
+  expect(screen.queryByLabelText("候选边框色")).toBeNull();
+  expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
+  expect(screen.getByLabelText("候选表面色")).toBeTruthy();
+  expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
+  expect(screen.getByText("当前宿主的 IBus 候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的 IBus 候选面板不支持强调、选中、悬停或边框颜色。")).toBeTruthy();
+});
+
+test("Windows candidate appearance keeps native controls", async () => {
+  mount({ host: capabilities({ platform: "windows", candidate_font_controls: true, candidate_selection_appearance: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("候选字号")).toBeTruthy();
+  expect(screen.getByLabelText("候选强调色")).toBeTruthy();
+  expect(screen.getByLabelText("候选边框色")).toBeTruthy();
 });
