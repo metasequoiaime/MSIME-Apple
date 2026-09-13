@@ -376,6 +376,10 @@ pub struct Preferences {
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
     pub scheme: InputScheme,
+    /// Show the Wubi code suffix that remains after the typed prefix.
+    /// `None` preserves the default-on behavior without rewriting legacy documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wubi_code_hint: Option<bool>,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
@@ -1002,6 +1006,7 @@ impl Default for Preferences {
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
+            wubi_code_hint: None,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
             custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
@@ -1194,6 +1199,10 @@ pub const ASR_PROVIDERS: [&str; 4] = ["doubao", "siliconflow", "openai", "groq"]
 pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
 
 impl Preferences {
+    pub fn wubi_code_hint_enabled(&self) -> bool {
+        self.wubi_code_hint.unwrap_or(true)
+    }
+
     pub fn quanpin_autocorrect_transposition(&self) -> bool {
         self.quanpin
             .autocorrect_transposition
@@ -1750,6 +1759,29 @@ mod tests {
             serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
                 .unwrap()
                 .candidate_english_gloss
+        );
+    }
+
+    #[test]
+    fn wubi_code_hint_defaults_on_and_legacy_documents_stay_implicit() {
+        let defaults = Preferences::default();
+        assert!(defaults.wubi_code_hint_enabled());
+        let legacy = serde_json::to_value(&defaults).unwrap();
+        assert!(!legacy.as_object().unwrap().contains_key("wubi_code_hint"));
+        assert!(
+            serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .wubi_code_hint_enabled()
+        );
+
+        let disabled = Preferences {
+            wubi_code_hint: Some(false),
+            ..defaults
+        };
+        assert!(
+            !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+                .unwrap()
+                .wubi_code_hint_enabled()
         );
     }
 

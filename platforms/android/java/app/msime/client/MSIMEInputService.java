@@ -114,6 +114,7 @@ public final class MSIMEInputService extends InputMethodService {
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
+    private boolean wubiCodeHint = true;
     private String candidateGlossResources = "";
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
@@ -442,6 +443,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyClipboardPreference(preferences);
                 applyChineseOutputPreference(preferences);
                 applyCandidateGlossPreference(preferences);
+                applyWubiCodeHintPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -508,6 +510,7 @@ public final class MSIMEInputService extends InputMethodService {
         emojiResources = "";
         candidateGlossResources = "";
         candidateEnglishGloss = false;
+        wubiCodeHint = true;
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
@@ -613,6 +616,11 @@ public final class MSIMEInputService extends InputMethodService {
         candidateEnglishGloss = next;
     }
 
+    private void applyWubiCodeHintPreference(JSONObject preferences) {
+        wubiCodeHint = preferences == null
+            || preferences.optBoolean("wubi_code_hint", true);
+    }
+
     private void invalidateCandidateGlosses() {
         candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
         candidateGlossRequestedSession = 0;
@@ -653,6 +661,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
+        boolean previousWubiCodeHint = wubiCodeHint;
         KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
@@ -671,6 +680,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
+                || previousWubiCodeHint != wubiCodeHint
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
@@ -701,6 +711,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
+        boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -729,6 +740,7 @@ public final class MSIMEInputService extends InputMethodService {
         traditionalChineseOutput = nextTraditional;
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
+        wubiCodeHint = nextWubiCodeHint;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();
@@ -3120,8 +3132,8 @@ public final class MSIMEInputService extends InputMethodService {
                                         boolean highlighted) {
         if (annotation.isEmpty()) return prefix + text;
         String primary = prefix + text;
-        SpannableString label = new SpannableString(primary + "  " + annotation);
-        int annotationStart = primary.length() + 2;
+        SpannableString label = new SpannableString(primary + " " + annotation);
+        int annotationStart = primary.length() + 1;
         label.setSpan(new RelativeSizeSpan(0.72f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         int foreground = Color.parseColor(
@@ -3139,10 +3151,27 @@ public final class MSIMEInputService extends InputMethodService {
             candidateEnglishGloss);
     }
 
+    private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
+        return WubiCodeHintPolicy.hint(candidate.optString("code", ""), typed, wubiCodeHint,
+            context == null ? -1 : context.optInt("scheme", -1),
+            context == null ? "none" : context.optString("local_mode", "none"),
+            context != null && context.optBoolean("answered_by_pinyin_fallback", false));
+    }
+
+    private String candidateAnnotation(JSONObject candidate, String typed) {
+        String hint = wubiCodeHint(candidate, view, typed);
+        return hint.isEmpty() ? candidateAnnotation(candidate) : hint;
+    }
+
     private String candidateAccessibilitySuffix(JSONObject candidate) {
         return CandidateGlossPolicy.accessibilitySuffix(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
             candidateEnglishGloss);
+    }
+
+    private String candidateAccessibilitySuffix(JSONObject candidate, String typed) {
+        String hint = wubiCodeHint(candidate, view, typed);
+        return hint.isEmpty() ? candidateAccessibilitySuffix(candidate) : "，还需输入 " + hint;
     }
 
     private Button candidateButton(JSONObject candidate, int slot) {
@@ -3150,13 +3179,14 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = new Button(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
-        String annotation = candidateAnnotation(candidate);
+        String typed = view == null ? "" : view.optString("preedit", "");
+        String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
         button.setText(candidateLabel((slot + 1) + ". ", text, annotation, highlighted));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         styleButton(button, false);
         String description = "候选 " + (slot + 1) + "：" + text
-            + candidateAccessibilitySuffix(candidate);
+            + candidateAccessibilitySuffix(candidate, typed);
         button.setContentDescription(description);
         button.setSelected(highlighted);
         if (Build.VERSION.SDK_INT >= 30)
@@ -3187,7 +3217,9 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = new Button(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
-        String annotation = candidateAnnotation(candidate);
+        String typed = candidatePanelSnapshot == null ? ""
+            : candidatePanelSnapshot.optString("preedit", "");
+        String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
         button.setText(candidateLabel("", text, annotation, highlighted));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
@@ -3195,7 +3227,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setSelected(highlighted);
         long index = id == null ? -1 : id.optLong("index", -1);
         button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "："
-            + text + candidateAccessibilitySuffix(candidate));
+            + text + candidateAccessibilitySuffix(candidate, typed));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {

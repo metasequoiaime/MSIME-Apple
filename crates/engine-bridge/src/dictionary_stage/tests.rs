@@ -114,6 +114,37 @@ fn hiding_helpcode_restores_correction_annotations() {
 }
 
 #[test]
+fn wubi_candidate_codes_stay_aligned_with_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let options = resources(root.path());
+    Connection::open(Path::new(&options.dictionaries).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             INSERT INTO wubi86 VALUES('a','工',100),('ab','干',90),('abce','平',80);",
+        )
+        .unwrap();
+    let mut options = options;
+    options.scheme = 2;
+    let mut session = Session::new(&options).unwrap();
+    session.character(b'a', false).unwrap();
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidate_codes.len(), view.candidates.len());
+    let work = view
+        .candidates
+        .iter()
+        .position(|word| word == "工")
+        .unwrap();
+    assert_eq!(view.candidate_codes[work], "a");
+    let dry = view
+        .candidates
+        .iter()
+        .position(|word| word == "干")
+        .unwrap();
+    assert_eq!(view.candidate_codes[dry], "ab");
+}
+
+#[test]
 fn correction_types_are_independent_for_real_candidates() {
     let root = tempfile::tempdir().unwrap();
     let mut options = resources(root.path());

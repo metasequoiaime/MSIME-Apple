@@ -229,6 +229,9 @@ pub struct NineKeySpellingId {
 pub struct Candidate {
     pub id: CandidateId,
     pub text: String,
+    /// Engine input code that produced this candidate, aligned with `text`.
+    /// Presentation layers may use it for scheme-specific hints without changing selection.
+    pub code: String,
     /// Engine-derived display suffix, never part of selection or committed text.
     pub annotation: String,
     /// Engine candidate source, stable for the lifetime of this view.
@@ -1464,6 +1467,12 @@ impl<E: InputEngine> Runtime<E> {
                 index,
             },
             text: text.to_owned(),
+            code: self
+                .cached
+                .candidate_codes
+                .get(index)
+                .cloned()
+                .unwrap_or_default(),
             annotation: self
                 .cached
                 .candidate_annotations
@@ -1591,6 +1600,7 @@ impl<E: InputEngine> Runtime<E> {
                 nine_key: false,
                 nine_key_spellings: Vec::new(),
                 candidate_annotations: Vec::new(),
+                candidate_codes: Vec::new(),
                 candidate_sources: Vec::new(),
                 candidate_positions: Vec::new(),
                 candidate_corrected: Vec::new(),
@@ -1614,6 +1624,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.local_mode == previous.local_mode
             && self.cached.dedicated_english == previous.dedicated_english
             && self.cached.candidates == previous.candidates
+            && self.cached.candidate_codes == previous.candidate_codes
             && self.cached.candidate_annotations == previous.candidate_annotations
             && self.cached.candidate_sources == previous.candidate_sources
             && self.cached.candidate_positions == previous.candidate_positions
@@ -1850,6 +1861,7 @@ mod tests {
         nine_key_spellings: Vec<String>,
         local_mode: String,
         words: Vec<String>,
+        codes: Vec<String>,
         text: String,
         snapshot_fails: bool,
     }
@@ -1924,6 +1936,7 @@ mod tests {
                 scheme: self.scheme,
                 nine_key: self.nine_key,
                 nine_key_spellings: self.nine_key_spellings.clone(),
+                candidate_codes: self.codes.clone(),
                 candidate_annotations: self
                     .words
                     .iter()
@@ -1998,6 +2011,7 @@ mod tests {
                 nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: (0..12).map(|n| format!("candidate-{n}")).collect(),
+                codes: Vec::new(),
                 text: String::new(),
                 snapshot_fails: false,
             },
@@ -2012,6 +2026,34 @@ mod tests {
                 shift: false,
             })
             .unwrap()
+    }
+
+    #[test]
+    fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 2,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: vec!["甲".into(), "乙".into()],
+                codes: vec!["ab".into(), "ac".into()],
+                text: String::new(),
+                snapshot_fails: false,
+            },
+            2,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view;
+        assert_eq!(page.candidates[0].code, "ab");
+        assert_eq!(page.candidates[1].code, "ac");
+        let snapshot = runtime.all_candidates();
+        assert_eq!(snapshot.candidates[0].code, "ab");
+        assert_eq!(snapshot.candidates[1].code, "ac");
+        let serialized = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(serialized["candidates"][1]["code"], "ac");
     }
 
     #[test]

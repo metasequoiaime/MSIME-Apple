@@ -506,6 +506,7 @@ EngineSnapshot EngineSession::snapshot() const {
     for (std::size_t index = 0; index < value.candidates.size(); ++index) {
         const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_codes.push_back(rust::String(candidate.pinyin));
         auto annotation = index < value.candidate_annotations.size()
                               ? value.candidate_annotations[index]
                               : candidate.corrected_from;

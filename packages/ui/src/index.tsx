@@ -208,6 +208,7 @@ export type Preferences = {
   navigation?: NavigationPreferences;
   keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  wubi_code_hint?: boolean;
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_keyboard_skin?: TouchKeyboardSkin;
   custom_touch_keyboard_skin?: TouchKeyboardSkinDesign;
@@ -1108,6 +1109,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <option value="shoudao">首道双拼</option><option value="microsoft">微软双拼</option>
         </select></label></div>
         <div className="section" hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
+        {((client.touchKeyboardSchemes && touchKeyboardSchemes.enabled.includes("wubi")) || draft.scheme === "wubi") && <div className="section" role="group" aria-label="五笔"><label className="section-header"><span className="section-title">候选显示剩余编码<small>在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。</small></span><input aria-label="候选显示剩余编码" className="toggle" type="checkbox" checked={draft.wubi_code_hint ?? true} onChange={event => setDraft({ ...draft, wubi_code_hint: event.target.checked })} /></label></div>}
         <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={client.touchKeyboardSchemes || draft.scheme !== "japanese"}>
           <div className="section-title" id="japanese-scheme-title">日语方案</div>
           <div className="input-option-content"><label className="radio-option"><input type="radio" name="japanese-scheme" checked readOnly /><span>罗马字</span></label></div>
