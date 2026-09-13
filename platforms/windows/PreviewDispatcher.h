@@ -1,4 +1,5 @@
 #pragma once
+#include "KeyEvent.h"
 #include "PreviewConfig.h"
 #include "SessionPump.h"
 
@@ -17,7 +18,8 @@ preview_key_handler(const PreviewConfig &config) {
         return state.configured_key(focus, packet, style,
                                     explicit_keys ? navigation
                                                   : state.navigation_bindings(),
-                                    std::nullopt, explicit_keys ? word : state.word_character_binding());
+                                    local_commit_observation(packet),
+                                    explicit_keys ? word : state.word_character_binding());
       };
 }
 } // namespace msime::windows

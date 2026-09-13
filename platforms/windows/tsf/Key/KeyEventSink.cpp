@@ -2146,7 +2146,34 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         Global::ModifiersDown = capturedModifiers;
 
         PerfTimer writeShmTimer;
-        WriteDataToSharedMemory(Global::Keycode, wch, Global::ModifiersDown, nullptr, 0, L"", 0b000111);
+        // Enter is finalized by the in-process TSF path. Reuse the legacy
+        // pinyin payload to carry the exact bounded text that path is about
+        // to commit, allowing the Server session to validate and clear its
+        // matching raw composition instead of rejecting an unobserved commit.
+        std::wstring localCommitObservation;
+        const bool hasLocalCommitObservation =
+            code == VK_RETURN && _IsComposing() && _pCompositionProcessorEngine;
+        if (hasLocalCommitObservation)
+        {
+            localCommitObservation = GlobalIme::word_for_creating_word;
+            const CStringRange &raw = _pCompositionProcessorEngine->GetKeystrokeBuffer();
+            if (raw.Get() != nullptr)
+            {
+                localCommitObservation.append(raw.Get(), raw.GetLength());
+            }
+            if (localCommitObservation.size() >= 128)
+            {
+                // A truncated observation is worse than an explicit fail
+                // closed response: the Server must not acknowledge text that
+                // differs from what TSF committed.
+                localCommitObservation.clear();
+            }
+        }
+        WriteDataToSharedMemory(Global::Keycode, wch, Global::ModifiersDown, nullptr, 0,
+                                localCommitObservation,
+                                hasLocalCommitObservation && !localCommitObservation.empty()
+                                    ? 0b110111
+                                    : 0b000111);
 
         PerfTimer sendKeyEventTimer;
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);

@@ -1,6 +1,8 @@
 #pragma once
 #include "msime_client.h"
 #include "windows_ipc.h"
+#include <optional>
+#include <string>
 
 namespace msime::windows {
 enum class KeyKind { Ignore, LocalReset, CancelAndForward, Character, Command };
@@ -67,5 +69,55 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   if (text >= 0x21 && text <= 0x7E)
     return {KeyKind::Character, text, (modifiers & 1u) != 0};
   return {KeyKind::CancelAndForward, MSIME_CANCEL};
+}
+
+// Enter is completed in-process by the legacy TSF. Carry its bounded local
+// observation through the historical pinyin_string field so the out-of-process
+// session can clear the same raw composition without inventing a commit.
+inline std::optional<std::string>
+local_commit_observation(const FanyImeNamedpipeData &packet) {
+  if (packet.keycode != 0x0D || packet.pinyin_length < 0 ||
+      packet.pinyin_length >= 128)
+    return std::nullopt;
+  const auto length = static_cast<size_t>(packet.pinyin_length);
+  for (size_t index = 0; index < length; ++index)
+    if (packet.pinyin_string[index] == 0)
+      return std::nullopt;
+  if (packet.pinyin_string[length] != 0)
+    return std::nullopt;
+
+  std::string result;
+  result.reserve(length);
+  for (size_t index = 0; index < length; ++index) {
+    const uint32_t first = static_cast<uint16_t>(packet.pinyin_string[index]);
+    uint32_t scalar = first;
+    if (first >= 0xD800 && first <= 0xDBFF) {
+      if (index + 1 >= length)
+        return std::nullopt;
+      const uint32_t second =
+          static_cast<uint16_t>(packet.pinyin_string[++index]);
+      if (second < 0xDC00 || second > 0xDFFF)
+        return std::nullopt;
+      scalar = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+    } else if (first >= 0xDC00 && first <= 0xDFFF) {
+      return std::nullopt;
+    }
+    if (scalar <= 0x7F) {
+      result.push_back(static_cast<char>(scalar));
+    } else if (scalar <= 0x7FF) {
+      result.push_back(static_cast<char>(0xC0 | (scalar >> 6)));
+      result.push_back(static_cast<char>(0x80 | (scalar & 0x3F)));
+    } else if (scalar <= 0xFFFF) {
+      result.push_back(static_cast<char>(0xE0 | (scalar >> 12)));
+      result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | (scalar & 0x3F)));
+    } else {
+      result.push_back(static_cast<char>(0xF0 | (scalar >> 18)));
+      result.push_back(static_cast<char>(0x80 | ((scalar >> 12) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | (scalar & 0x3F)));
+    }
+  }
+  return result;
 }
 } // namespace msime::windows

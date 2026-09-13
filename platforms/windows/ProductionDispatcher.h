@@ -1,5 +1,6 @@
 #pragma once
 
+#include "KeyEvent.h"
 #include "SessionPump.h"
 
 namespace msime::windows {
@@ -12,7 +13,7 @@ inline SessionPump::KeyHandler production_key_handler() {
             const FanyImeNamedpipeData &packet) {
     return state.configured_key(
         focus, packet, state.tsf_preedit_style(), state.navigation_bindings(),
-        std::nullopt, state.word_character_binding());
+        local_commit_observation(packet), state.word_character_binding());
   };
 }
 } // namespace msime::windows
