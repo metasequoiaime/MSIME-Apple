@@ -865,3 +865,9 @@ Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win
 候选字体设置在 Windows 现在通过 host-api 的 GDI `EnumFontFamiliesExW` 枚举已安装字体族，仅向 Tauri/UI 返回去重、排序后的族名称，不暴露字体文件路径。枚举使用默认字符集覆盖系统字体，名称和总量均有界；Win32 句柄在所有路径释放，回调异常、无效 UTF-16、获取 DC 失败或枚举失败都返回安全的字体目录错误。`supports_font_catalog` 与 `host_capabilities` 因此在 Windows 与 macOS/Linux 一样报告可用，保留手动输入和失败重试降级。
 
 本地验证：Windows x86_64 GNU 的隔离 `windows-sys` 字体模块检查通过；宿主 crate 交叉检查随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题。Linux host-api 检查同样受缺失 Engine 子模块阻塞；未执行 Windows 原生字体枚举、Tauri 设置、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri 输入模式快捷键能力
+
+Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切换快捷键，`HostCapabilities` 同步将 `mode_switch_shortcuts` 对 Windows 置为可用。Tauri 设置页因此显示并保存与 TIP 实际消费一致的快捷键选项；macOS 原生输入源快捷键和 Linux IBus 行为保持各自平台边界。
+
+本地验证：`msime-client-core` 的 host-surface 能力回归测试通过，覆盖 Windows 能力声明、序列化和各平台差异；GitNexus staged 变更检测已执行。未执行 Windows 原生 TSF、编辑器或安装验收，CI 保持禁用。
