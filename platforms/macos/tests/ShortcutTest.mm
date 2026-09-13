@@ -1375,6 +1375,9 @@ static void TestInputModePolicy() {
 }
 
 static void TestControlOptionSpace() {
+    NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
+    id previousHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
     NSString *suite = [@"msime.control-option-space." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -1439,6 +1442,8 @@ static void TestControlOptionSpace() {
     prefs.controlOptionSpaceShortcut = NO;
     assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] controlOptionSpaceShortcut]);
     [defaults removePersistentDomainForName:suite];
+    if (previousHoldSpace) [standardDefaults setObject:previousHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
 }
 
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
