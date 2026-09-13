@@ -3,6 +3,7 @@ import SwiftUI
 struct FuzzyPinyinSettingsView: View {
   @AppStorage(FuzzyPinyinPreference.enabledKey, store: FuzzyPinyinPreference.defaults) private var enabled = false
   @AppStorage(FuzzyPinyinPreference.rulesKey, store: FuzzyPinyinPreference.defaults) private var storedRules = ""
+  @AppStorage(FuzzyPinyinPreference.seededKey, store: FuzzyPinyinPreference.defaults) private var seeded = false
   @State private var confirmingReset = false
 
   private let groups: [(String, [(String, String)])] = [
@@ -44,6 +45,11 @@ struct FuzzyPinyinSettingsView: View {
         Button("重置模糊音配置", role: .destructive) { confirmingReset = true }
       }
     }.navigationTitle("模糊音").navigationBarTitleDisplayMode(.inline)
+      .onChange(of: enabled) { value in
+        guard value, !seeded else { return }
+        storedRules = FuzzyPinyinPreference.seededSelection(enabled: true, seeded: false, current: storedRules)
+        seeded = true
+      }
       .confirmationDialog("关闭模糊音并清空所有规则？", isPresented: $confirmingReset, titleVisibility: .visible) {
         Button("重置", role: .destructive) { enabled = false; storedRules = "" }
       }
