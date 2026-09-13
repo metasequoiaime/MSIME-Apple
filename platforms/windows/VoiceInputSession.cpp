@@ -6,7 +6,6 @@
 #include <msime/voice/audio_capture.h>
 #include <msime/voice/cloud_stt_worker.h>
 #include <msime/voice/provider_protocol.h>
-#include <msime/voice/text_polisher.h>
 
 #include <algorithm>
 #include <chrono>
@@ -35,9 +34,14 @@ std::wstring wide(std::string_view text) {
 }
 
 bool should_polish(const VoiceInputConfig &config, std::string_view text) {
+  const auto endpoint = config.polish_endpoint.empty()
+                            ? default_polish_endpoint(config.polish_provider)
+                            : config.polish_endpoint;
+  const auto model = config.polish_model.empty()
+                         ? default_polish_model(config.polish_provider)
+                         : config.polish_model;
   return (config.polish_enabled || config.polish_text) && !text.empty() &&
-         !config.polish_token.empty() && !config.polish_endpoint.empty() &&
-         !config.polish_model.empty();
+         !config.polish_token.empty() && !endpoint.empty() && !model.empty();
 }
 
 std::string polish_prompt(const VoiceInputConfig &config) {
@@ -432,12 +436,15 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     overlay_.set_compact_status(WaveOverlay::CompactStatus::Processing);
     overlay_.set_actions_visible(true);
     overlay_.show();
-    metasequoia::voice::TextPolisher polisher(
-        metasequoia::voice::RequestOptions{config.polish_endpoint,
-                                           config.polish_model,
-                                           config.polish_token, 3000, {}},
-        polish_prompt(config));
-    final_text = polisher.polish(text);
+    const auto endpoint = config.polish_endpoint.empty()
+                              ? default_polish_endpoint(config.polish_provider)
+                              : config.polish_endpoint;
+    const auto model = config.polish_model.empty()
+                           ? default_polish_model(config.polish_provider)
+                           : config.polish_model;
+    final_text = polish_cloud_text(text, config.polish_provider, endpoint, model,
+                                   config.polish_token, polish_prompt(config),
+                                   cancelled);
   }
   if (session_.load() != session || cancel_requested_.load() || final_text.empty()) {
     cancel_inline();

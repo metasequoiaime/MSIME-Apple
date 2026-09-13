@@ -4,6 +4,7 @@
 #include <msime/voice/stt_service.h>
 #include <msime/voice/wav_writer.h>
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -50,6 +51,28 @@ std::string default_asr_model(std::string_view provider) {
   if (id == "siliconflow")
     return "FunAudioLLM/SenseVoiceSmall";
   return {};
+}
+
+std::string default_polish_endpoint(std::string_view provider) {
+  const auto id = normalize_voice_provider(provider);
+  if (id == "openai")
+    return "https://api.openai.com/v1/chat/completions";
+  if (id == "deepseek")
+    return "https://api.deepseek.com/chat/completions";
+  if (id == "groq")
+    return "https://api.groq.com/openai/v1/chat/completions";
+  return "https://api.siliconflow.cn/v1/chat/completions";
+}
+
+std::string default_polish_model(std::string_view provider) {
+  const auto id = normalize_voice_provider(provider);
+  if (id == "openai")
+    return "gpt-4o-mini";
+  if (id == "deepseek")
+    return "deepseek-v4-flash";
+  if (id == "groq")
+    return "llama-3.3-70b-versatile";
+  return "Qwen/Qwen3-8B";
 }
 
 bool is_doubao_asr_provider(std::string_view provider,
@@ -193,5 +216,86 @@ std::string recognize_cloud_asr(
     throw metasequoia::voice::VoiceError("Voice HTTP status " +
                                          std::to_string(status));
   return metasequoia::voice::parse_transcription(response);
+}
+
+std::string polish_cloud_text(
+    std::string_view text, std::string_view provider, std::string_view endpoint,
+    std::string_view model, std::string_view token, std::string_view prompt,
+    const std::shared_ptr<std::atomic_bool> &cancelled) {
+  if (text.empty())
+    return {};
+  if (endpoint.empty() || model.empty() || token.empty() || prompt.empty())
+    throw metasequoia::voice::VoiceError(
+        "Voice polish endpoint, model, token and prompt are required");
+  if (cancelled && cancelled->load())
+    throw metasequoia::voice::VoiceError("Voice request cancelled");
+  const auto id = normalize_voice_provider(provider);
+  nlohmann::json body = {
+      {"model", std::string(model)},
+      {"stream", false},
+      {"messages", {{{"role", "system"}, {"content", std::string(prompt)}},
+                     {{"role", "user"},
+                      {"content", "<asr_text>\n" + std::string(text) +
+                                      "\n</asr_text>"}}}}};
+  if (id == "siliconflow")
+    body["enable_thinking"] = false;
+  else if (id == "deepseek")
+    body["thinking"] = {{"type", "disabled"}};
+  const std::string payload = body.dump();
+  initialize_curl();
+  const std::string endpoint_value(endpoint);
+  std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(
+      curl_easy_init(), curl_easy_cleanup);
+  if (!curl)
+    throw metasequoia::voice::VoiceError("Cannot create HTTP request");
+  const std::string authorization = "Authorization: Bearer " + std::string(token);
+  std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
+      curl_slist_append(nullptr, authorization.c_str()), curl_slist_free_all);
+  if (!headers)
+    throw metasequoia::voice::VoiceError("Cannot create HTTP headers");
+  auto *next = curl_slist_append(headers.get(), "Content-Type: application/json");
+  if (!next)
+    throw metasequoia::voice::VoiceError("Cannot create HTTP headers");
+  headers.release();
+  headers.reset(next);
+  Response response;
+  char error[CURL_ERROR_SIZE] = {};
+  curl_easy_setopt(curl.get(), CURLOPT_URL, endpoint_value.c_str());
+  curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
+  curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+  curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, payload.data());
+  curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE_LARGE,
+                   static_cast<curl_off_t>(payload.size()));
+  curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
+  curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, error);
+  curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
+  curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, cancelled.get());
+  curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 15000L);
+  curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 30000L);
+  curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
+  const auto result = curl_easy_perform(curl.get());
+  if (result != CURLE_OK)
+    throw metasequoia::voice::VoiceError(
+        std::string("Voice polish request failed: ") +
+        (error[0] ? error : curl_easy_strerror(result)));
+  long status = 0;
+  curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status);
+  if (status < 200 || status >= 300)
+    throw metasequoia::voice::VoiceError("Voice polish HTTP status " +
+                                         std::to_string(status));
+  try {
+    const auto result_json = nlohmann::json::parse(response.body);
+    const auto polished = result_json.at("choices")
+                              .at(0)
+                              .at("message")
+                              .at("content")
+                              .get<std::string>();
+    if (!polished.empty())
+      return polished;
+  } catch (const nlohmann::json::exception &) {
+  }
+  throw metasequoia::voice::VoiceError("Missing polished text");
 }
 } // namespace msime::windows
