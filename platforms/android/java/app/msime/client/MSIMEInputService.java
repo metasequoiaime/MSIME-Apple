@@ -1301,6 +1301,21 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button brandButton(LinearLayout row, Runnable action) {
+        KeyboardBrandButton button = new KeyboardBrandButton(this,
+            () -> Color.parseColor(skin.accent()));
+        button.setAllCaps(false);
+        button.setText("更多");
+        styleButton(button, true);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
     private Button keyboardKey(String label, String description, Runnable action) {
         Button button = new Button(this);
         button.setAllCaps(false);
@@ -4455,7 +4470,7 @@ public final class MSIMEInputService extends InputMethodService {
         skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = button(controls, "设置", this::showLayoutSettings);
         layoutSettingsButton.setContentDescription("键盘设置");
-        moreButton = button(controls, "更多", this::showFeedbackMenu);
+        moreButton = brandButton(controls, this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
         Button dismissButton = button(controls, "收起", () -> requestHideSelf(0));
         dismissButton.setContentDescription("收起键盘");
