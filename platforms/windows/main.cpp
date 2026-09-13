@@ -5,6 +5,8 @@
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
+#include "FloatingToolbarVisibilityPolicy.h"
+#include "FullscreenForeground.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
 #include "ShellLauncher.h"
@@ -792,7 +794,14 @@ int wmain(int argc, wchar_t **argv) {
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
-      toolbar.refresh(toolbar_visible);
+      // The toolbar is topmost, so without this it floats over full-screen
+      // video and presentations. ShouldShowFloatingToolbar was ported long ago
+      // but nothing ever supplied its fullscreen argument, leaving the whole
+      // predicate dead outside its unit test.
+      const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
+      const bool show_toolbar = ShouldShowFloatingToolbar(
+          toolbar_visible, fullscreen, server.mode_view().has_value());
+      toolbar.refresh(show_toolbar);
       // The listener thread owns no window; the anchor is applied here, on the
       // thread that created the tray card.
       const uint64_t now = GetTickCount64();
