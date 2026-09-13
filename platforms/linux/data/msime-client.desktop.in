@@ -9,7 +9,7 @@ Icon=input-keyboard
 Terminal=false
 Categories=Settings;Utility;
 StartupNotify=true
-Actions=Handwriting;Keyboard;Emoji;Clipboard;Voice;CloudDictionary;CloudClipboard;About;
+Actions=Handwriting;Keyboard;Emoji;Clipboard;Dictionary;Voice;CloudDictionary;CloudClipboard;About;
 
 [Desktop Action Handwriting]
 Name=Handwriting
@@ -50,3 +50,8 @@ Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel about
 Name=Local Clipboard History
 Name[zh_CN]=本地剪贴板
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel clipboard
+
+[Desktop Action Dictionary]
+Name=Local Dictionary
+Name[zh_CN]=本地词典
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel dictionary
