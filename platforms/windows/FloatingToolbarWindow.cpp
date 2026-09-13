@@ -21,6 +21,16 @@ int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
 }
+std::optional<POINT> clamp_position(POINT position, int width, int height) {
+  const HMONITOR monitor = MonitorFromPoint(position, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
+  if (!GetMonitorInfoW(monitor, &info)) return std::nullopt;
+  const int right = std::max(info.rcWork.left, info.rcWork.right - width);
+  const int bottom = std::max(info.rcWork.top, info.rcWork.bottom - height);
+  return POINT{std::clamp(position.x, info.rcWork.left, right),
+               std::clamp(position.y, info.rcWork.top, bottom)};
+}
 bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
          same_ticket(a.transport, b.transport);
@@ -409,16 +419,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         // refresh, so the window follows the clamp.
         RECT rect{};
         if (GetWindowRect(window, &rect)) {
-          const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
-          MONITORINFO info{};
-          info.cbSize = sizeof(info);
-          if (GetMonitorInfoW(monitor, &info)) {
-            const int width = rect.right - rect.left;
-            const int height = rect.bottom - rect.top;
-            self->dragged_position_->x = std::clamp(rect.left, info.rcWork.left,
-                                                     info.rcWork.right - width);
-            self->dragged_position_->y = std::clamp(rect.top, info.rcWork.top,
-                                                     info.rcWork.bottom - height);
+          const auto clamped = clamp_position(
+              POINT{rect.left, rect.top}, rect.right - rect.left, rect.bottom - rect.top);
+          if (clamped) {
+            self->dragged_position_ = *clamped;
             if (self->dragged_position_->x != rect.left || self->dragged_position_->y != rect.top)
               SetWindowPos(window, nullptr, self->dragged_position_->x,
                            self->dragged_position_->y, 0, 0,
