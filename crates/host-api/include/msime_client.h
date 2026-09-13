@@ -363,6 +363,18 @@ char *msime_client_voice_provider_request(const uint8_t *query,
  * for a UTF-8 JSON response or {error_code} for a type-0xF error frame. */
 char *msime_client_doubao_decode_frame(const uint8_t *frame,
                                        size_t frame_length);
+/* Build caller-owned Doubao v1 start and PCM/final frames. If capacity is too
+ * small, output_length receives the required size and no bytes are written. */
+bool msime_client_doubao_start_frame(bool enable_itn, bool enable_punc,
+                                     bool enable_ddc,
+                                     const uint8_t *boosting_table_id,
+                                     size_t boosting_table_id_length,
+                                     uint8_t *output, size_t output_capacity,
+                                     size_t *output_length);
+bool msime_client_doubao_audio_frame(int32_t sequence, const uint8_t *pcm,
+                                     size_t pcm_length, bool final_chunk,
+                                     uint8_t *output, size_t output_capacity,
+                                     size_t *output_length);
 typedef void (*msime_client_voice_update_callback)(const uint8_t *text,
                                                    size_t text_length,
                                                    bool final,

@@ -76,6 +76,15 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (BOOL)voiceProviderStopSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error;
 /// Decode a binary Doubao response frame without retaining frame bytes.
 + (nullable NSDictionary<NSString *, id> *)doubaoDecodeFrame:(NSData *)frame error:(NSError **)error;
++ (nullable NSData *)doubaoStartFrameEnableITN:(BOOL)enableITN
+                                  punctuation:(BOOL)enablePunctuation
+                                          DDC:(BOOL)enableDDC
+                               boostingTable:(NSString *)boostingTable
+                                       error:(NSError **)error;
++ (nullable NSData *)doubaoAudioFrameWithSequence:(int32_t)sequence
+                                              PCM:(NSData *)pcm
+                                            final:(BOOL)finalChunk
+                                            error:(NSError **)error;
 /// Management is separate from live sessions; call only after all sessions are closed.
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
 + (nullable NSDictionary<NSString *, id> *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;

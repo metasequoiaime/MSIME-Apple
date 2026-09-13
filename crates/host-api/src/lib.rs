@@ -6,7 +6,9 @@ use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRou
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
 pub mod system_fonts;
-use msime_client_core::doubao_frame::{decode_error_code, decode_json_frame};
+use msime_client_core::doubao_frame::{
+    audio_frame, decode_error_code, decode_json_frame, start_frame,
+};
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
     TouchKeyboardLayout,
@@ -2435,6 +2437,84 @@ pub unsafe extern "C" fn msime_client_doubao_decode_frame(
     })
 }
 
+unsafe fn write_doubao_frame(
+    frame: Vec<u8>,
+    output: *mut u8,
+    output_capacity: usize,
+    output_length: *mut usize,
+) -> bool {
+    if output.is_null() || output_length.is_null() {
+        return false;
+    }
+    *output_length = frame.len();
+    if frame.len() > output_capacity {
+        return false;
+    }
+    std::ptr::copy_nonoverlapping(frame.as_ptr(), output, frame.len());
+    true
+}
+
+/// Build a Doubao start request into caller-owned storage.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_doubao_start_frame(
+    enable_itn: bool,
+    enable_punc: bool,
+    enable_ddc: bool,
+    boosting_table_id: *const u8,
+    boosting_table_id_length: usize,
+    output: *mut u8,
+    output_capacity: usize,
+    output_length: *mut usize,
+) -> bool {
+    if boosting_table_id_length > 4096
+        || (boosting_table_id.is_null() && boosting_table_id_length != 0)
+    {
+        return false;
+    }
+    let boosting = if boosting_table_id_length == 0 {
+        ""
+    } else {
+        let bytes = unsafe { std::slice::from_raw_parts(boosting_table_id, boosting_table_id_length) };
+        match std::str::from_utf8(bytes) {
+            Ok(value) => value,
+            Err(_) => return false,
+        }
+    };
+    unsafe {
+        write_doubao_frame(
+            start_frame(enable_itn, enable_punc, enable_ddc, boosting),
+            output,
+            output_capacity,
+            output_length,
+        )
+    }
+}
+
+/// Build a Doubao PCM or final audio frame into caller-owned storage.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_doubao_audio_frame(
+    sequence: i32,
+    pcm: *const u8,
+    pcm_length: usize,
+    final_chunk: bool,
+    output: *mut u8,
+    output_capacity: usize,
+    output_length: *mut usize,
+) -> bool {
+    if pcm_length > 1_048_576 || (pcm.is_null() && pcm_length != 0) {
+        return false;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(pcm, pcm_length) };
+    unsafe {
+        write_doubao_frame(
+            audio_frame(sequence, bytes, final_chunk),
+            output,
+            output_capacity,
+            output_length,
+        )
+    }
+}
+
 /// Run one bounded voice capture/ASR request through a user-owned Unix socket.
 /// The socket service owns microphone access, credentials and network policy.
 /// The query is a bounded JSON object containing `language`, `generation`,
@@ -2865,6 +2945,38 @@ mod tests {
         let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
         let decoded_error = read(unsafe { msime_client_doubao_decode_frame(error.as_ptr(), error.len()) });
         assert_eq!(decoded_error["value"]["error_code"], 7);
+
+        let mut start = vec![0u8; 4096];
+        let mut written = 0usize;
+        assert!(unsafe {
+            msime_client_doubao_start_frame(
+                true,
+                false,
+                true,
+                b"table".as_ptr(),
+                5,
+                start.as_mut_ptr(),
+                start.len(),
+                &mut written,
+            )
+        });
+        assert_eq!(&start[..4], &[0x11, 0x11, 0x11, 0]);
+        assert!(written > 12);
+
+        let mut audio = vec![0u8; 1024];
+        let mut audio_written = 0usize;
+        assert!(unsafe {
+            msime_client_doubao_audio_frame(
+                2,
+                [0u8, 1, 2, 3].as_ptr(),
+                4,
+                true,
+                audio.as_mut_ptr(),
+                audio.len(),
+                &mut audio_written,
+            )
+        });
+        assert_eq!(&audio[..4], &[0x11, 0x23, 0x11, 0]);
     }
 
     #[test]

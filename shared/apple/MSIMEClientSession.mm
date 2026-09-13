@@ -80,6 +80,21 @@ static NSDictionary *decode(char *response, NSError **error) {
     }
     return decode(msime_client_doubao_decode_frame((const uint8_t *)frame.bytes, frame.length), error);
 }
++ (NSData *)doubaoStartFrameEnableITN:(BOOL)enableITN punctuation:(BOOL)enablePunctuation DDC:(BOOL)enableDDC boostingTable:(NSString *)boostingTable error:(NSError **)error {
+    if (![boostingTable isKindOfClass:NSString.class] || boostingTable.length > 4096) { setError(error, @"Doubao boosting table 无效"); return nil; }
+    NSData *table = [boostingTable dataUsingEncoding:NSUTF8StringEncoding];
+    NSMutableData *output = [NSMutableData dataWithLength:1048576]; size_t written = 0;
+    BOOL ok = msime_client_doubao_start_frame(enableITN, enablePunctuation, enableDDC, (const uint8_t *)table.bytes, table.length, (uint8_t *)output.mutableBytes, output.length, &written);
+    if (!ok) { setError(error, @"Doubao 开始帧生成失败"); return nil; }
+    output.length = written; return output;
+}
++ (NSData *)doubaoAudioFrameWithSequence:(int32_t)sequence PCM:(NSData *)pcm final:(BOOL)finalChunk error:(NSError **)error {
+    if (![pcm isKindOfClass:NSData.class] || pcm.length > 1048576) { setError(error, @"Doubao 音频帧无效"); return nil; }
+    NSMutableData *output = [NSMutableData dataWithLength:pcm.length + 65536]; size_t written = 0;
+    BOOL ok = msime_client_doubao_audio_frame(sequence, (const uint8_t *)pcm.bytes, pcm.length, finalChunk, (uint8_t *)output.mutableBytes, output.length, &written);
+    if (!ok) { setError(error, @"Doubao 音频帧生成失败"); return nil; }
+    output.length = written; return output;
+}
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
