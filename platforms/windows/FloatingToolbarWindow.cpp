@@ -350,6 +350,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         break;
       [[fallthrough]];
     case WM_DISPLAYCHANGE:
+    case WM_SETTINGCHANGE:
     case WM_DWMCOMPOSITIONCHANGED:
     case WM_DPICHANGED: {
       const bool visible = IsWindowVisible(window) != FALSE;
