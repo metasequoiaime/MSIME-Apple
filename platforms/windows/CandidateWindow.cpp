@@ -456,6 +456,24 @@ void CandidateWindow::paint() {
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       rect, brush(text_color));
+    // The insertion point. Without it, moving left or right inside a long
+    // pinyin string gave no indication of where the next key would land - and
+    // the settings preview drew a caret the real window never did.
+    if (value->preedit_caret != std::string::npos &&
+        value->preedit_caret <= value->preedit.size()) {
+      const auto before =
+          wide(value->preedit.substr(0, value->preedit_caret));
+      const auto offset = measured_width(
+          device_, before, font_family_,
+          static_cast<float>(preedit_font_size_));
+      const float x = rect.left + static_cast<float>(offset);
+      // A hairline rather than a filled block, so it does not obscure the
+      // character it sits before.
+      const float inset_y = static_cast<float>(metrics.preedit_row) * 0.15f;
+      target->FillRectangle(
+          D2D1_RECT_F{x, rect.top + inset_y, x + 1.5f, rect.bottom - inset_y},
+          brush(palette_.accent));
+    }
   }
   // The selection number keeps its own column so candidates start on one
   // vertical line, as the shipped card does.
