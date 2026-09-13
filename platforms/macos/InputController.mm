@@ -198,6 +198,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
     MSIMEVoiceAudioMuter *_voiceAudioMuter;
+    id _globalVoiceHotkeyMonitor;
     uint64_t _voiceGeneration;
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
@@ -584,6 +585,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceProviderSettingsChanged:) name:MSIMEVoiceProviderSettingsDidChangeNotification object:nil];
+    __weak MSIMEInputController *weakSelf = self;
+    _globalVoiceHotkeyMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^(NSEvent *event) {
+        if (event.keyCode != 101 || event.isARepeat || (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand)) != NSEventModifierFlagControl) return;
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] != nil && ![NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) return;
+        dispatch_async(dispatch_get_main_queue(), ^{ [controller toggleVoiceInput:nil]; });
+    }];
 }
 - (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
@@ -1137,6 +1145,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    if (_globalVoiceHotkeyMonitor) { [NSEvent removeMonitor:_globalVoiceHotkeyMonitor]; _globalVoiceHotkeyMonitor = nil; }
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
