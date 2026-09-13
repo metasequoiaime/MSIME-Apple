@@ -1156,6 +1156,51 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "R",
             "Shift+R did not enter temporary Japanese mode");
     require(key(IBUS_Escape), "Temporary Japanese mode could not be canceled");
+
+    // R mode owns the visible prefix but never forwards it to the Japanese
+    // Engine. A candidate commit must therefore restore the Chinese session,
+    // and the next letter must start a normal Chinese composition again.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK), "Temporary Japanese mode could not restart");
+    require(key('k') && key('a'), "Temporary Japanese Romaji input was not consumed");
+    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
+                        [](const std::string &candidate) { return candidate.find("か") != std::string::npos; }),
+            "Temporary Japanese Romaji candidates were not exposed");
+    require(key(IBUS_space), "Temporary Japanese candidate was not committed");
+    require(seen.committed.find("か") != std::string::npos,
+            "Temporary Japanese candidate commit did not reach IBus");
+    require(key('n') && seen.preedit == "n",
+            "Temporary Japanese candidate commit did not restore Chinese input");
+
+    // Enter commits the raw Romaji spelling, without the display-only R
+    // prefix, and also returns to the original Chinese session.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK) && key('k') && key('a') && key(IBUS_Return),
+            "Temporary Japanese raw Enter path was not consumed");
+    require(seen.committed == "ka",
+            "Temporary Japanese raw Enter committed the display-only prefix");
+    require(key('n') && seen.preedit == "n",
+            "Temporary Japanese raw Enter did not restore Chinese input");
+
+    // Backspace on the bare display prefix cancels R mode without emitting R.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK) && seen.preedit == "R" && key(IBUS_BackSpace),
+            "Backspace did not cancel a bare temporary Japanese prefix");
+    require(seen.committed.empty() && !seen.preedit_visible,
+            "Bare temporary Japanese prefix escaped after Backspace");
+
+    // The Linux local-mode preference is the shared equivalent of Windows'
+    // r_mode switch. Disabled modes must leave Shift+R to the application.
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_UNCHECKED));
+    seen.committed.clear();
+    require(!key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
+            "Disabled temporary Japanese mode swallowed Shift+R");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
