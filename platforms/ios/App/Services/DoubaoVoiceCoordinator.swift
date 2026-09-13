@@ -105,3 +105,34 @@ final class DoubaoVoiceCoordinator {
     }
   }
 }
+
+/// Host-injected Doubao transport and frame codec. The wire layout remains in
+/// client-core; the app only supplies the platform transport and codec bridge.
+final class DoubaoVoiceClient: @unchecked Sendable {
+  enum Failure: Error { case emptyTranscript }
+
+  private let transport: DoubaoVoiceTransport
+  private let codec: DoubaoVoiceCoordinator.FrameCodec
+
+  init(transport: DoubaoVoiceTransport, codec: DoubaoVoiceCoordinator.FrameCodec) {
+    self.transport = transport
+    self.codec = codec
+  }
+
+  func transcribe(endpoint: URL, handshake: DoubaoHandshake, generation: UInt64,
+                  pcm: Data) async throws -> String {
+    var result = ""
+    let coordinator = DoubaoVoiceCoordinator(
+      transport: transport,
+      applyText: { text, appliedGeneration in
+        guard appliedGeneration == generation else { return }
+        result = text
+      },
+      decodeFrame: codec.decodeFrame
+    )
+    try await coordinator.run(endpoint: endpoint, handshake: handshake,
+                              generation: generation, pcm: pcm, codec: codec)
+    guard !result.isEmpty else { throw Failure.emptyTranscript }
+    return result
+  }
+}

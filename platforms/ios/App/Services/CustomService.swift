@@ -17,7 +17,6 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
   var title: String {
     switch self {
     case .everyAPI: "EveryAPI"
-    case .doubao: "豆包 · WebSocket"
     case .openAI: "OpenAI"
     case .anthropic: "Anthropic · Claude"
     case .gemini: "Google · Gemini"
@@ -64,7 +63,6 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     let address: String
     switch self {
     case .everyAPI: address = "https://everyapi.ai/models"
-    case .doubao: return nil
     case .openAI: address = "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
     case .anthropic: address = "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"
     case .gemini: address = "https://ai.google.dev/gemini-api/docs/openai"
@@ -88,6 +86,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   var title: String {
     switch self {
     case .everyAPI: "EveryAPI"
+    case .doubao: "豆包 · WebSocket"
     case .openAI: "OpenAI"
     case .siliconFlow: "硅基流动 · SenseVoice"
     case .groq: "Groq · Whisper"
@@ -121,6 +120,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
     let address: String
     switch self {
     case .everyAPI: address = "https://everyapi.ai/models"
+    case .doubao: return nil
     case .openAI: address = "https://developers.openai.com/api/docs/guides/speech-to-text"
     case .siliconFlow: address = "https://siliconflow.readme.io/reference/createaudiotranscriptions"
     case .groq: address = "https://console.groq.com/docs/speech-to-text"
@@ -306,8 +306,21 @@ final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 
 enum CustomServiceClient {
   static func request(kind: CustomServiceKind, configuration: CustomServiceConfiguration,
-                      text: String = "", wav: Data? = nil, token: String,
+                      text: String = "", wav: Data? = nil, pcm: Data? = nil, token: String,
+                      generation: UInt64 = 1, doubaoClient: DoubaoVoiceClient? = nil,
                       sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws -> String {
+    if kind == .voice && configuration.voiceProvider == .doubao {
+      guard let doubaoClient else { throw ServiceFailure(message: "豆包语音需要原生 host codec。") }
+      guard let pcm, !pcm.isEmpty else { throw ServiceFailure(message: "请先录音。") }
+      let url = try configuration.validatedURL(requiresModel: false, allowWebSocket: true)
+      let handshake = try configuration.doubaoHandshake(accessKey: token)
+      do {
+        return try await doubaoClient.transcribe(endpoint: url, handshake: handshake,
+                                                  generation: generation, pcm: pcm)
+      } catch DoubaoVoiceClient.Failure.emptyTranscript {
+        throw ServiceFailure(message: "豆包未返回可用的语音文本。")
+      }
+    }
     let url = try configuration.validatedURL()
     var request = URLRequest(url: url)
     request.httpMethod = "POST"

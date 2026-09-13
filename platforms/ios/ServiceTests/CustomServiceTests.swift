@@ -17,6 +17,46 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class CustomServiceTests: XCTestCase {
+  func testDoubaoRequestUsesPCMCoordinatorAndHandshake() async throws {
+    let transport = DoubaoRequestFixtureTransport()
+    var packets: [(Int32, Int, Bool)] = []
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { sequence, pcm, final in
+        packets.append((sequence, pcm.count, final))
+        return Data([UInt8(truncatingIfNeeded: sequence)])
+      },
+      decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
+    )
+    let client = DoubaoVoiceClient(transport: transport, codec: codec)
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    let result = try await CustomServiceClient.request(
+      kind: .voice, configuration: configuration, pcm: Data(repeating: 0x2A, count: 6_401),
+      token: "fixture-access", generation: 19, doubaoClient: client)
+
+    XCTAssertEqual(result, "fixture transcript")
+    XCTAssertEqual(transport.handshake?.appKey, "fixture-app")
+    XCTAssertEqual(transport.handshake?.accessKey, "fixture-access")
+    XCTAssertEqual(transport.handshake?.resourceID, "fixture-resource")
+    XCTAssertEqual(transport.sent, [Data([0x01]), Data([2]), Data([0xFD])])
+    XCTAssertEqual(packets.map(\.0), [2, -3])
+    XCTAssertEqual(packets.map(\.1), [6_400, 1])
+    XCTAssertEqual(packets.map(\.2), [false, true])
+  }
+
+  func testDoubaoRequestDoesNotFallBackToMultipartWithoutHostCodec() async throws {
+    let configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    do {
+      _ = try await CustomServiceClient.request(
+        kind: .voice, configuration: configuration, pcm: Data([0x01]), token: "fixture-access")
+      XCTFail("Doubao accepted a request without a host codec")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("原生 host codec"))
+    }
+  }
+
   func testPresetsAreUsableAndKeepSeparateSavedConfigurations() throws {
     let suite = "msime-provider-tests-\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -118,6 +158,17 @@ final class CustomServiceTests: XCTestCase {
       XCTAssertFalse(error.localizedDescription.contains("private server detail"))
     }
   }
+}
+
+private final class DoubaoRequestFixtureTransport: DoubaoVoiceTransport {
+  var handshake: DoubaoHandshake?
+  var sent: [Data] = []
+
+  func start(endpoint: URL) async throws {}
+  func start(endpoint: URL, handshake: DoubaoHandshake) async throws { self.handshake = handshake }
+  func send(binary frame: Data) async throws { sent.append(frame) }
+  func receive() async throws -> Data { Data([0xFF]) }
+  func finish() {}
 }
 
 final class CatalogFixtureProtocol: URLProtocol, @unchecked Sendable {

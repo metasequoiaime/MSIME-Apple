@@ -67,6 +67,26 @@ final class DoubaoVoiceCoordinatorTests: XCTestCase {
     XCTAssertEqual(packets.frames.map(\.2), [true])
   }
 
+  func testClientReturnsLatestTextThroughInjectedCodec() async throws {
+    let transport = FakeTransport(incoming: [Data([0xFF])])
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { _, _, _ in Data([0x02]) },
+      decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
+    )
+    let client = DoubaoVoiceClient(transport: transport, codec: codec)
+    let result = try await client.transcribe(
+      endpoint: URL(string: "wss://example.invalid/asr")!,
+      handshake: try DoubaoHandshake(appKey: "fixture-app", accessKey: "fixture-access", resourceID: "fixture-resource"),
+      generation: 9,
+      pcm: Data([0x2A])
+    )
+
+    XCTAssertEqual(result, "fixture transcript")
+    XCTAssertEqual(transport.sent, [Data([0x01]), Data([0x02])])
+    XCTAssertTrue(transport.didFinish)
+  }
+
   private final class PacketRecorder {
     var frames: [(Int32, Data, Bool)] = []
     var applied: [(String, UInt64)] = []

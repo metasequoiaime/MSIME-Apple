@@ -432,7 +432,9 @@ struct ServiceSettingsView: View {
             Spacer()
             if fetchingModels { ProgressView() }
           }
-        }.accessibilityIdentifier("fetchServiceModels")
+        }
+        .disabled(kind == .voice && configuration.voiceProvider == .doubao)
+        .accessibilityIdentifier("fetchServiceModels")
         if !modelStatus.isEmpty {
           Text(modelStatus).font(.footnote).foregroundStyle(.secondary)
             .accessibilityIdentifier("serviceModelsStatus")
@@ -450,7 +452,8 @@ struct ServiceSettingsView: View {
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {
           do {
-            let url = try configuration.validatedURL()
+            let url = try configuration.validatedURL(
+              allowWebSocket: kind == .voice && configuration.voiceProvider == .doubao)
             try ServiceTokenStore.write("", kind: kind, url: url)
             if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false }
             token = ""
@@ -494,6 +497,10 @@ struct ServiceSettingsView: View {
   }
 
   private func fetchModels() {
+    if kind == .voice && configuration.voiceProvider == .doubao {
+      modelStatus = "豆包语音模型由当前接口固定提供。"
+      return
+    }
     let config = configuration
     do {
       let url = try config.validatedURL(requiresModel: false)
@@ -542,13 +549,16 @@ struct ServiceSettingsView: View {
     let config = configuration
     let text = input
     let audio = recorder.audio
+    let pcm = recorder.pcmAudio
     requestID = UUID()
     let id = requestID
     operation = Task {
       do {
-        let savedToken = try ServiceTokenStore.read(kind, url: config.validatedURL())
+        let tokenURL = try config.validatedURL(
+          allowWebSocket: kind == .voice && config.voiceProvider == .doubao)
+        let savedToken = try ServiceTokenStore.read(kind, url: tokenURL)
         let result = try await CustomServiceClient.request(kind: kind, configuration: config,
-          text: text, wav: audio, token: savedToken)
+          text: text, wav: audio, pcm: pcm, token: savedToken)
         try Task.checkCancellation()
         guard requestID == id else { return }
         output = result
