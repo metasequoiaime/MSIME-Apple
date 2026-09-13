@@ -65,6 +65,16 @@ fn main() {
             .define("CMAKE_PREFIX_PATH", &prefix)
             .define("CMAKE_FIND_ROOT_PATH", &prefix);
     }
+    // Rust links the release CRT on MSVC even for debug profiles, while CMake
+    // selects the debug CRT for a Debug build. Mixing them makes the Engine
+    // objects unlinkable into any Rust test binary ("RuntimeLibrary mismatch:
+    // MDd_DynamicDebug vs MD_DynamicRelease"), which is why host-api tests could
+    // not run on Windows. Exceptions must also stay enabled or Boost compiles
+    // against BOOST_NO_EXCEPTIONS and leaves boost::throw_exception undefined.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
+        config.cxxflag("/EHsc");
+    }
     if let Ok(triplet) = std::env::var("VCPKG_TARGET_TRIPLET") {
         config.define("VCPKG_TARGET_TRIPLET", triplet);
     }
