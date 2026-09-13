@@ -190,6 +190,8 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 ## Windows parity gaps
 
+Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开关首次从关闭切换为开启时，偏好存储会一次性选中 11 条规则；用户之后删减规则、暂时关闭再恢复时保留删减结果，并用内部播种标记避免空规则集被再次填充。规则计算仍由 Engine 完成。
+
 本地词典管理可从桌面启动器的“本地词典”动作或执行 `msime-client-settings --panel dictionary` 打开，与 Windows 桌面工具使用同一设置宿主和词典状态。
 
 The Windows mode panel exposes fullwidth/halfwidth character output. Linux carries a session-scoped `CharacterWidth` through `input-runtime` and `msime-host-api`; the IBus panel exposes `CharacterWidth` and commit text applies fullwidth conversion for printable ASCII. When a shared preferences directory is available, Linux persists the mode as `character_width` and restores it for new sessions; direct preview configurations without that directory remain session-scoped. The IBus smoke fixture covers fullwidth and halfwidth ASCII commits; native GTK/Qt editor validation remains environment-specific.

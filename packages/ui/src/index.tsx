@@ -52,7 +52,7 @@ const defaultKeybindings: KeybindingPreferences = {
   switch_language_ctrl_alt_space: true,
   toggle_character_set_ctrl_shift_f: true,
 };
-export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[] };
+export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 const defaultFuzzyPinyin: FuzzyPinyinPreferences = { enabled: false, rules: [] };
 const fuzzyPinyinGroups: [string, [string, string][]][] = [
   ["平翘舌", [["z-zh", "z ↔ zh"], ["c-ch", "c ↔ ch"], ["s-sh", "s ↔ sh"]]],

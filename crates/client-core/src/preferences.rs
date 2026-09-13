@@ -1102,6 +1102,10 @@ impl FuzzyPinyinRule {
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FuzzyPinyinPreferences {
@@ -1109,6 +1113,10 @@ pub struct FuzzyPinyinPreferences {
     pub enabled: bool,
     #[serde(default)]
     pub rules: BTreeSet<FuzzyPinyinRule>,
+    /// Internal marker used to distinguish first enable from an intentionally
+    /// empty rule selection. It is persisted but never rendered by the UI.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub seeded: bool,
 }
 
 impl FuzzyPinyinPreferences {
@@ -1591,14 +1599,42 @@ impl PreferencesStore {
     pub fn save(
         &self,
         expected_revision: u64,
-        preferences: Preferences,
+        mut preferences: Preferences,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
-        preferences.validate()?;
         let _lock = self.lock()?;
         let current = self.read_locked()?;
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
         }
+        // Match the Windows baseline: the first transition from disabled to
+        // enabled opts every fuzzy rule in once. The marker is separate from
+        // the rule set so intentionally clearing every rule does not reseed
+        // on a later disable/enable cycle.
+        if preferences.fuzzy_pinyin.enabled && !current.preferences.fuzzy_pinyin.enabled
+            && !current.preferences.fuzzy_pinyin.seeded
+        {
+            preferences.fuzzy_pinyin.rules = [
+                FuzzyPinyinRule::ZZh,
+                FuzzyPinyinRule::CCh,
+                FuzzyPinyinRule::SSh,
+                FuzzyPinyinRule::NL,
+                FuzzyPinyinRule::FH,
+                FuzzyPinyinRule::RL,
+                FuzzyPinyinRule::AnAng,
+                FuzzyPinyinRule::EnEng,
+                FuzzyPinyinRule::InIng,
+                FuzzyPinyinRule::IanIang,
+                FuzzyPinyinRule::UanUang,
+            ]
+            .into_iter()
+            .collect();
+            preferences.fuzzy_pinyin.seeded = true;
+        } else if current.preferences.fuzzy_pinyin.seeded {
+            // Keep the internal marker monotonic even if an older client sends
+            // a snapshot that predates the field.
+            preferences.fuzzy_pinyin.seeded = true;
+        }
+        preferences.validate()?;
         let snapshot = PreferencesSnapshot {
             format_version: 1,
             revision: current
@@ -1829,6 +1865,7 @@ mod tests {
         let fuzzy_pinyin = FuzzyPinyinPreferences {
             enabled: false,
             rules,
+            seeded: false,
         };
         assert_eq!(fuzzy_pinyin.active_rules(), 0);
         let disabled = store
@@ -1855,6 +1892,42 @@ mod tests {
         let mut invalid = serde_json::to_value(enabled.preferences).unwrap();
         invalid["fuzzy_pinyin"]["rules"] = serde_json::json!(["z-zh", "unsupported"]);
         assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn fuzzy_pinyin_first_enable_seeds_once_and_preserves_pruned_rules() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let disabled = store.save(0, Preferences::default()).unwrap();
+
+        let mut first = disabled.preferences.clone();
+        first.fuzzy_pinyin.enabled = true;
+        let first = store.save(disabled.revision, first).unwrap();
+        assert!(first.preferences.fuzzy_pinyin.seeded);
+        assert_eq!(first.preferences.fuzzy_pinyin.rules.len(), 11);
+
+        let mut pruned = first.preferences.clone();
+        pruned.fuzzy_pinyin.rules = [FuzzyPinyinRule::ZZh].into_iter().collect();
+        let pruned = store.save(first.revision, pruned).unwrap();
+        let mut disabled = pruned.preferences.clone();
+        disabled.fuzzy_pinyin.enabled = false;
+        let disabled = store.save(pruned.revision, disabled).unwrap();
+        let mut restored = disabled.preferences.clone();
+        restored.fuzzy_pinyin.enabled = true;
+        let restored = store.save(disabled.revision, restored).unwrap();
+        assert_eq!(
+            restored.preferences.fuzzy_pinyin.rules,
+            [FuzzyPinyinRule::ZZh].into_iter().collect()
+        );
+
+        let mut empty = restored.preferences;
+        empty.fuzzy_pinyin.enabled = false;
+        empty.fuzzy_pinyin.rules.clear();
+        let empty = store.save(restored.revision, empty).unwrap();
+        let mut empty_enabled = empty.preferences;
+        empty_enabled.fuzzy_pinyin.enabled = true;
+        let empty_enabled = store.save(empty.revision, empty_enabled).unwrap();
+        assert!(empty_enabled.preferences.fuzzy_pinyin.rules.is_empty());
     }
 
     #[test]

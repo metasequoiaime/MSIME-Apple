@@ -3200,6 +3200,7 @@ mod tests {
             fuzzy_pinyin: FuzzyPinyinPreferences {
                 enabled: true,
                 rules: [FuzzyPinyinRule::ZZh].into_iter().collect(),
+                seeded: false,
             },
             ..Preferences::default()
         };
