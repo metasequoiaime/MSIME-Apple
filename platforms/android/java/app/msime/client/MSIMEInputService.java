@@ -3659,6 +3659,15 @@ public final class MSIMEInputService extends InputMethodService {
     private void showHandwritingStatus(String text) {
         if (handwritingStatus == null) return;
         handwritingStatus.setText(text);
+        handwritingStatus.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
+        if (handwritingStatus.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
+            boolean downloadVisible = handwritingDownload != null
+                && handwritingDownload.getVisibility() == View.VISIBLE;
+            params.gravity = downloadVisible
+                ? Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL : Gravity.CENTER;
+            params.bottomMargin = downloadVisible ? pixels(8) : 0;
+            handwritingStatus.setLayoutParams(params);
+        }
         if (candidates != null) render();
     }
 
@@ -3865,14 +3874,32 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildHandwritingRows() {
         handwritingStatus = new TextView(this);
         handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        handwritingStatus.setGravity(Gravity.CENTER);
+        handwritingStatus.setText("在此手写，停笔后选字");
+        handwritingStatus.setContentDescription("手写状态");
+        handwritingStatus.setClickable(false);
+        handwritingStatus.setFocusable(false);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        FrameLayout canvasFrame = new FrameLayout(this);
+        FrameLayout row = new FrameLayout(this);
         handwritingCanvas = new HandwritingCanvas(this);
         handwritingCanvas.applySkin(skin);
-        canvasFrame.addView(handwritingCanvas, new FrameLayout.LayoutParams(
+        row.addView(handwritingCanvas, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        FrameLayout cardFrame = new FrameLayout(this);
+        cardFrame.setClickable(false);
+        cardFrame.setFocusable(false);
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        cardParams.rightMargin = pixels(64);
+        row.addView(cardFrame, cardParams);
+        cardFrame.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> handwritingCanvas.setCardRect(
+                    left, top, right, bottom));
+        cardFrame.addView(handwritingStatus, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER));
+
         handwritingDownload = new Button(this);
         handwritingDownload.setAllCaps(false);
         handwritingDownload.setOnClickListener(ignored -> {
@@ -3884,9 +3911,7 @@ public final class MSIMEInputService extends InputMethodService {
         downloadParams.gravity = Gravity.CENTER;
         downloadParams.leftMargin = pixels(16);
         downloadParams.rightMargin = pixels(16);
-        canvasFrame.addView(handwritingDownload, downloadParams);
-        row.addView(canvasFrame, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        cardFrame.addView(handwritingDownload, downloadParams);
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
@@ -3895,8 +3920,8 @@ public final class MSIMEInputService extends InputMethodService {
         }));
         addNineKey(tools, keyboardKey("清空", "清空手写", this::clearHandwriting));
         addNineKey(tools, keyboardKey("⌫", "删除", this::deleteFromHandwriting));
-        row.addView(tools, new LinearLayout.LayoutParams(pixels(64),
-            LinearLayout.LayoutParams.MATCH_PARENT));
+        row.addView(tools, new FrameLayout.LayoutParams(pixels(64),
+            FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END));
         adjustFixedHeight(row, KeyboardGeometry.HANDWRITING_BODY_HEIGHT_DP);
         keyRows.addView(row);
 
@@ -4925,12 +4950,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
         if (handwritingStatus == null) return;
         if (handwritingResults.isEmpty() || handwritingCandidateToken == null) {
-            if (handwritingStatus.getParent() instanceof android.view.ViewGroup parent)
-                parent.removeView(handwritingStatus);
-            activeCandidates.addView(handwritingStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            handwritingStatus.setVisibility(View.VISIBLE);
             return;
         }
+        handwritingStatus.setVisibility(View.GONE);
         for (int index = 0; index < handwritingResults.size(); index++) {
             String candidate = handwritingResults.get(index);
             HandwritingRequestTracker.Token token = handwritingCandidateToken;
