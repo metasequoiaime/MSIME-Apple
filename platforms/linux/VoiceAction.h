@@ -1,6 +1,12 @@
 #pragma once
 #include <functional>
 #include <string>
+#include <string_view>
+
+inline bool msime_voice_stream_inline_enabled(bool configured,
+                                              std::string_view provider) {
+  return configured && provider == "doubao";
+}
 
 inline std::string msime_voice_bound_result(std::string value,
                                             std::size_t limit = 4096) {

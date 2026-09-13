@@ -1,6 +1,7 @@
 #include "../WaveOverlayModel.h"
 #include "../WaveOverlayIbusSurface.h"
 #include "../WaveOverlaySurfaceFactory.h"
+#include "../VoiceAction.h"
 #include <cassert>
 #include <cstdlib>
 
@@ -33,4 +34,7 @@ int main() {
   unsetenv("DISPLAY");
   unsetenv("WAYLAND_DISPLAY");
   assert(msime::linux_host::create_wave_overlay_surface(nullptr));
+  assert(msime_voice_stream_inline_enabled(true, "doubao"));
+  assert(!msime_voice_stream_inline_enabled(true, "openai"));
+  assert(!msime_voice_stream_inline_enabled(false, "doubao"));
 }
