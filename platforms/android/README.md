@@ -12,6 +12,8 @@
 
 中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。
 
+微软双拼在字母第二行额外提供“微软双拼 ing”分词键，只有中文微软双拼普通输入时显示；它把 `;` 原样交给 Engine，由 Engine 根据当前组合决定 ing 韵母或标点语义。英文、日语、五笔和本地输入模式不显示该键。
+
 顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，并按固定 Apple 来源只在 Android 展示与插入边界使用系统 ICU `Simplified-Traditional` 转换：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。Android `Transliterator` 从 API 29 提供，API 28 保留原文并禁用快捷键，不伪装已转换。
 
 回车键按当前 Android `EditorInfo` 显示并执行前往、搜索、发送、下一项、完成或上一项动作；无明确动作、未知动作或编辑器设置 `IME_FLAG_NO_ENTER_ACTION` 时显示“换行”并提交换行符。执行前仍先通过共享 Engine 完成当前组合，标题和 dispatch 条件由同一个纯 Java 契约提供，避免展示与行为不一致。

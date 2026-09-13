@@ -144,6 +144,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button voiceShortcutButton;
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
+    private Button microsoftFinalKey;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null);
@@ -3802,6 +3803,7 @@ public final class MSIMEInputService extends InputMethodService {
         deactivateHandwriting();
         symbolKeyButtons.clear();
         symbolKeyInputs.clear();
+        microsoftFinalKey = null;
         keyRows.removeAllViews();
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
             if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
@@ -3839,6 +3841,11 @@ public final class MSIMEInputService extends InputMethodService {
                     symbolKeyInputs.add(input);
                 }
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
+            }
+            if (keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1) {
+                microsoftFinalKey = keyboardKey(";", "微软双拼 ing", () -> type(';'));
+                row.addView(microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
         }
@@ -4550,6 +4557,14 @@ public final class MSIMEInputService extends InputMethodService {
             replyShortcutButton.setVisibility(selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY
                 ? View.VISIBLE : View.GONE);
             replyShortcutButton.setEnabled(replyReady());
+        }
+        if (microsoftFinalKey != null) {
+            String currentLocalMode = view == null ? "none" : view.optString("local_mode", "none");
+            boolean visible = MicrosoftShuangpinKeyPolicy.visible(
+                dedicatedEnglish, selectedScheme, currentLocalMode);
+            microsoftFinalKey.setVisibility(visible ? View.VISIBLE : View.GONE);
+            microsoftFinalKey.setEnabled(visible && session != 0);
+            microsoftFinalKey.setContentDescription("微软双拼 ing");
         }
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
