@@ -77,6 +77,16 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
+@property(nonatomic) BOOL floatingToolbarPunctuation;
+@property(nonatomic) BOOL floatingToolbarFullWidth;
+@property(nonatomic) BOOL floatingToolbarCharacterSet;
+@property(nonatomic) BOOL floatingToolbarEmoji;
+@property(nonatomic) BOOL floatingToolbarScreenKeyboard;
+@property(nonatomic) BOOL floatingToolbarSettings;
+@property(nonatomic) NSInteger floatingToolbarScalePercent;
+@property(nonatomic) NSInteger floatingToolbarFontSize;
+/// Refresh shared toolbar options without persisting them locally.
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences;
 /// Cache shared visibility without emitting a local-save notification.
 - (void)applySharedToolbarVisibility:(BOOL)enabled;
 - (BOOL)localModeEnabled:(NSString *)mode;

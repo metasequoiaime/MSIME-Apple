@@ -718,6 +718,8 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
 
+macOS 设置窗口现在暴露浮动工具栏组件选择、缩放和字号。组件字段使用共享 `preferences.floating_toolbar` 对象中的 `punctuation`、`fullwidth`、`character_set`、`emoji`、`screen_keyboard`、`settings`，缩放限制为 75/100/125/150%，字号限制为 16–28pt；缺省组件保持 Windows 基线（屏幕键盘关闭，其余开启）。共享字段只更新当前宿主展示状态，不写回本地偏好。
+
 macOS 原生完整构建及 CTest 24/24 通过，新增测试覆盖默认/恢复几何、非激活窗口、按钮状态、委托动作、工具菜单和代理生命周期；此前发现的 AppKit 外观通知初始化重入已由初始化保护修复。未执行系统输入源安装、真实编辑器、逐像素、多显示器拖动和无障碍实机验收；缩放、组件细分、屏幕键盘等 Windows 工具栏细节尚未接入 macOS，CI 保持禁用。
 
 ### macOS 候选学习与拼音调频

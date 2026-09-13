@@ -122,6 +122,18 @@ static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
+static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
+static NSArray<NSString *> *FloatingToolbarComponentKeys() {
+    return @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+}
+static BOOL ValidToolbarScale(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [@[@75, @100, @125, @150] containsObject:value];
+}
+static BOOL ValidToolbarFontSize(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 16 && [value integerValue] <= 28;
+}
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
@@ -134,6 +146,15 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSPopUpButton *_defaultImeModeButton;
     NSPopUpButton *_imeModeScopeButton;
     NSNumber *_sharedToolbarEnabled;
+    NSMutableDictionary *_sharedToolbarOptions;
+    NSButton *_toolbarPunctuationButton;
+    NSButton *_toolbarFullWidthButton;
+    NSButton *_toolbarCharacterSetButton;
+    NSButton *_toolbarEmojiButton;
+    NSButton *_toolbarScreenKeyboardButton;
+    NSButton *_toolbarSettingsButton;
+    NSPopUpButton *_toolbarScaleButton;
+    NSPopUpButton *_toolbarFontSizeButton;
     NSNumber *_sharedShiftTapShortcut;
     NSNumber *_sharedControlTapShortcut;
     NSButton *_shiftTapShortcutButton;
@@ -383,6 +404,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
+    toolbar[@"punctuation"] = @(self.floatingToolbarPunctuation);
+    toolbar[@"fullwidth"] = @(self.floatingToolbarFullWidth);
+    toolbar[@"character_set"] = @(self.floatingToolbarCharacterSet);
+    toolbar[@"emoji"] = @(self.floatingToolbarEmoji);
+    toolbar[@"screen_keyboard"] = @(self.floatingToolbarScreenKeyboard);
+    toolbar[@"settings"] = @(self.floatingToolbarSettings);
+    toolbar[@"scale_percent"] = @(self.floatingToolbarScalePercent);
+    toolbar[@"font_size"] = @(self.floatingToolbarFontSize);
     merged[@"floating_toolbar"] = toolbar;
     NSDictionary *stored = [_defaults dictionaryForKey:LocalModesKey];
     NSMutableDictionary *modes = [merged[@"local_modes"] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -756,6 +785,68 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
 - (void)setFloatingToolbarEnabled:(BOOL)value { _sharedToolbarEnabled = nil; [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
 - (void)applySharedToolbarVisibility:(BOOL)enabled { _sharedToolbarEnabled = @(enabled); [self refreshControls]; }
+- (NSDictionary *)floatingToolbarValues {
+    NSDictionary *values = _sharedToolbarOptions ?: [_defaults dictionaryForKey:FloatingToolbarOptionsKey];
+    return [values isKindOfClass:NSDictionary.class] ? values : @{};
+}
+- (BOOL)floatingToolbarBoolean:(NSString *)key defaultValue:(BOOL)defaultValue {
+    id value = [self floatingToolbarValues][key];
+    return LocalModeBoolean(value) ? [value boolValue] : defaultValue;
+}
+- (void)setFloatingToolbarBoolean:(NSString *)key value:(BOOL)value {
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:FloatingToolbarOptionsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[key] = @(value);
+    _sharedToolbarOptions = nil;
+    [_defaults setObject:values forKey:FloatingToolbarOptionsKey];
+    [self preferencesChanged];
+}
+- (BOOL)floatingToolbarPunctuation { return [self floatingToolbarBoolean:@"punctuation" defaultValue:YES]; }
+- (void)setFloatingToolbarPunctuation:(BOOL)value { [self setFloatingToolbarBoolean:@"punctuation" value:value]; }
+- (BOOL)floatingToolbarFullWidth { return [self floatingToolbarBoolean:@"fullwidth" defaultValue:YES]; }
+- (void)setFloatingToolbarFullWidth:(BOOL)value { [self setFloatingToolbarBoolean:@"fullwidth" value:value]; }
+- (BOOL)floatingToolbarCharacterSet { return [self floatingToolbarBoolean:@"character_set" defaultValue:YES]; }
+- (void)setFloatingToolbarCharacterSet:(BOOL)value { [self setFloatingToolbarBoolean:@"character_set" value:value]; }
+- (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:YES]; }
+- (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
+- (BOOL)floatingToolbarScreenKeyboard { return [self floatingToolbarBoolean:@"screen_keyboard" defaultValue:NO]; }
+- (void)setFloatingToolbarScreenKeyboard:(BOOL)value { [self setFloatingToolbarBoolean:@"screen_keyboard" value:value]; }
+- (BOOL)floatingToolbarSettings { return [self floatingToolbarBoolean:@"settings" defaultValue:YES]; }
+- (void)setFloatingToolbarSettings:(BOOL)value { [self setFloatingToolbarBoolean:@"settings" value:value]; }
+- (NSInteger)floatingToolbarScalePercent {
+    id value = [self floatingToolbarValues][@"scale_percent"];
+    return ValidToolbarScale(value) ? [value integerValue] : 100;
+}
+- (void)setFloatingToolbarScalePercent:(NSInteger)value {
+    if (!ValidToolbarScale(@(value))) value = 100;
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:FloatingToolbarOptionsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"scale_percent"] = @(value); _sharedToolbarOptions = nil;
+    [_defaults setObject:values forKey:FloatingToolbarOptionsKey]; [self preferencesChanged];
+}
+- (NSInteger)floatingToolbarFontSize {
+    id value = [self floatingToolbarValues][@"font_size"];
+    return ValidToolbarFontSize(value) ? [value integerValue] : 24;
+}
+- (void)setFloatingToolbarFontSize:(NSInteger)value {
+    if (!ValidToolbarFontSize(@(value))) value = 24;
+    NSMutableDictionary *values = [[_defaults dictionaryForKey:FloatingToolbarOptionsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    values[@"font_size"] = @(value); _sharedToolbarOptions = nil;
+    [_defaults setObject:values forKey:FloatingToolbarOptionsKey]; [self preferencesChanged];
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    NSDictionary *toolbar = preferences[@"floating_toolbar"];
+    if (![toolbar isKindOfClass:NSDictionary.class]) return;
+    if (!_sharedToolbarOptions) _sharedToolbarOptions = [NSMutableDictionary dictionary];
+    for (NSString *key in FloatingToolbarComponentKeys()) {
+        id value = toolbar[key];
+        if (LocalModeBoolean(value)) _sharedToolbarOptions[key] = value;
+    }
+    id scale = toolbar[@"scale_percent"];
+    if (ValidToolbarScale(scale)) _sharedToolbarOptions[@"scale_percent"] = scale;
+    id font = toolbar[@"font_size"];
+    if (ValidToolbarFontSize(font)) _sharedToolbarOptions[@"font_size"] = font;
+    [self refreshControls];
+}
 - (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
 - (void)setShuangpinKeymap:(BOOL)value {
     [_defaults setBool:value forKey:KeymapKey];
@@ -1094,6 +1185,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _mixedEmojiButton.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedKaomojiButton.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarPunctuationButton.state = self.floatingToolbarPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarFullWidthButton.state = self.floatingToolbarFullWidth ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarCharacterSetButton.state = self.floatingToolbarCharacterSet ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarEmojiButton.state = self.floatingToolbarEmoji ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarScreenKeyboardButton.state = self.floatingToolbarScreenKeyboard ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarSettingsButton.state = self.floatingToolbarSettings ? NSControlStateValueOn : NSControlStateValueOff;
+    [_toolbarScaleButton selectItemAtIndex:[@[@75, @100, @125, @150] indexOfObject:@(self.floatingToolbarScalePercent)]];
+    [_toolbarFontSizeButton selectItemAtIndex:self.floatingToolbarFontSize - 16];
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateFollowCursorButton.state = self.candidateFollowCursor ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1312,6 +1411,21 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _mixedKaomojiButton = [NSButton checkboxWithTitle:@"颜文字混输" target:self action:@selector(mixedKaomojiChanged:)];
     _mixedKaomojiButton.toolTip = @"在中文组词中提供颜文字候选";
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
+    _toolbarPunctuationButton = [NSButton checkboxWithTitle:@"标点按钮" target:self action:@selector(toolbarPunctuationChanged:)];
+    _toolbarFullWidthButton = [NSButton checkboxWithTitle:@"全半角按钮" target:self action:@selector(toolbarFullWidthChanged:)];
+    _toolbarCharacterSetButton = [NSButton checkboxWithTitle:@"简繁按钮" target:self action:@selector(toolbarCharacterSetChanged:)];
+    _toolbarEmojiButton = [NSButton checkboxWithTitle:@"Emoji 按钮" target:self action:@selector(toolbarEmojiChanged:)];
+    _toolbarScreenKeyboardButton = [NSButton checkboxWithTitle:@"屏幕键盘按钮" target:self action:@selector(toolbarScreenKeyboardChanged:)];
+    _toolbarSettingsButton = [NSButton checkboxWithTitle:@"设置按钮" target:self action:@selector(toolbarSettingsChanged:)];
+    _toolbarScaleButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_toolbarScaleButton addItemsWithTitles:@[@"75%", @"100%", @"125%", @"150%"]];
+    _toolbarScaleButton.accessibilityLabel = @"工具栏缩放";
+    _toolbarScaleButton.target = self; _toolbarScaleButton.action = @selector(toolbarScaleChanged:);
+    _toolbarFontSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    for (NSInteger size = 16; size <= 28; size += 2)
+        [_toolbarFontSizeButton addItemWithTitle:[NSString stringWithFormat:@"%ld pt", (long)size]];
+    _toolbarFontSizeButton.accessibilityLabel = @"工具栏字号";
+    _toolbarFontSizeButton.target = self; _toolbarFontSizeButton.action = @selector(toolbarFontSizeChanged:);
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
     _candidateLearningButton = [NSButton checkboxWithTitle:@"学习候选词频" target:self action:@selector(candidateLearningChanged:)];
@@ -1374,6 +1488,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"混合输入"], _mixedEmojiButton],
         @[[NSTextField labelWithString:@"混合输入"], _mixedKaomojiButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarPunctuationButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarFullWidthButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarCharacterSetButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarEmojiButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarScreenKeyboardButton],
+        @[[NSTextField labelWithString:@"工具栏组件"], _toolbarSettingsButton],
+        @[[NSTextField labelWithString:@"工具栏缩放"], _toolbarScaleButton],
+        @[[NSTextField labelWithString:@"工具栏字号"], _toolbarFontSizeButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
         @[[NSTextField labelWithString:@"AI 联想"], [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)]],
@@ -1501,6 +1623,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)mixedEmojiChanged:(NSButton *)sender { self.mixedEmojiInput = sender.state == NSControlStateValueOn; }
 - (void)mixedKaomojiChanged:(NSButton *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
 - (void)toolbarChanged:(NSButton *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
+- (void)toolbarPunctuationChanged:(NSButton *)sender { self.floatingToolbarPunctuation = sender.state == NSControlStateValueOn; }
+- (void)toolbarFullWidthChanged:(NSButton *)sender { self.floatingToolbarFullWidth = sender.state == NSControlStateValueOn; }
+- (void)toolbarCharacterSetChanged:(NSButton *)sender { self.floatingToolbarCharacterSet = sender.state == NSControlStateValueOn; }
+- (void)toolbarEmojiChanged:(NSButton *)sender { self.floatingToolbarEmoji = sender.state == NSControlStateValueOn; }
+- (void)toolbarScreenKeyboardChanged:(NSButton *)sender { self.floatingToolbarScreenKeyboard = sender.state == NSControlStateValueOn; }
+- (void)toolbarSettingsChanged:(NSButton *)sender { self.floatingToolbarSettings = sender.state == NSControlStateValueOn; }
+- (void)toolbarScaleChanged:(NSPopUpButton *)sender { self.floatingToolbarScalePercent = [@[@75, @100, @125, @150][sender.indexOfSelectedItem] integerValue]; }
+- (void)toolbarFontSizeChanged:(NSPopUpButton *)sender { self.floatingToolbarFontSize = 16 + sender.indexOfSelectedItem * 2; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
