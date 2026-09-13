@@ -1,9 +1,63 @@
 import AppKit
 import SwiftUI
+import Vision
 
 enum MacHandwritingProvider {
+  private static func localImage(for strokes: [MacInkStroke], size: Int = 420) -> CGImage? {
+    guard !strokes.isEmpty,
+          let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.setFillColor(NSColor.white.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+    context.setStrokeColor(NSColor.black.cgColor)
+    context.setLineWidth(7)
+    context.setLineCap(.round)
+    context.setLineJoin(.round)
+    let coordinateScale = CGFloat(size) / 250
+    for stroke in strokes where stroke.points.count > 1 {
+      context.beginPath()
+      let first = stroke.points[0]
+      context.move(to: CGPoint(x: first.x * coordinateScale, y: CGFloat(size) - first.y * coordinateScale))
+      for point in stroke.points.dropFirst() {
+        context.addLine(to: CGPoint(x: point.x * coordinateScale, y: CGFloat(size) - point.y * coordinateScale))
+      }
+      context.strokePath()
+    }
+    return context.makeImage()
+  }
+
+  private static func isCJK(_ value: String) -> Bool {
+    value.unicodeScalars.contains { scalar in
+      (0x3400...0x4DBF).contains(scalar.value) || (0x4E00...0x9FFF).contains(scalar.value) ||
+        (0xF900...0xFAFF).contains(scalar.value)
+    }
+  }
+
+  static func recognizeLocal(_ strokes: [MacInkStroke]) throws -> [String] {
+    guard let image = localImage(for: strokes) else { throw NSError(domain: "MSIMEHandwriting", code: 400) }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = false
+    request.recognitionLanguages = ["zh-Hans", "en-US"]
+    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    try handler.perform([request])
+    let values = (request.results ?? []).flatMap { observation in
+      observation.topCandidates(5).map(\.string)
+    }
+    var candidates: [String] = []
+    for value in values where !value.isEmpty && !candidates.contains(value) {
+      if candidates.count < 12 { candidates.append(value) }
+    }
+    let chinese = candidates.filter(isCJK)
+    let others = candidates.filter { !isCJK($0) }
+    return chinese + others
+  }
+
   static func recognize(_ strokes: [MacInkStroke], language: String = "zh-CN", socketPath: String) throws -> [String] {
-    let payload: [[String: Any]] = strokes.map { ["points": $0.points.map { ["x": Float($0.x), "y": Float($0.y)] }] }
+    if socketPath.isEmpty { return try recognizeLocal(strokes) }
+    let payload = strokes.map { $0.points.map { ["x": Float($0.x), "y": Float($0.y)] } }
     let request: NSDictionary = ["language": language, "strokes": payload, "socket_path": socketPath]
     guard let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           let result = type.perform(NSSelectorFromString("handwritingProviderRequest:"), with: request)?.takeUnretainedValue() as? NSDictionary else { throw NSError(domain: "MSIMEHandwriting", code: 503) }
@@ -86,7 +140,7 @@ struct MacHandwritingToolView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("水杉手写识别板").font(.headline)
-      TextField("provider socket 路径", text: $socketPath).disabled(busy)
+      TextField("provider socket 路径（可选，留空使用 Apple Vision）", text: $socketPath).disabled(busy)
       MacHandwritingCanvasView(strokes: $strokes, onSubmit: recognize, candidates: candidates)
         .disabled(busy)
       if busy { ProgressView("正在识别…") }

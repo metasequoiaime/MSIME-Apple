@@ -201,6 +201,16 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test
 add_custom_target(emoji-catalog-cursor-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test")
 add_test(NAME emoji-catalog-cursor COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test")
 set_tests_properties(emoji-catalog-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 30)
+set(MSIME_HANDWRITING_TEST_SOURCES BackendHandwritingView.swift tests/HandwritingProviderTest.swift)
+list(TRANSFORM MSIME_HANDWRITING_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/handwriting-provider-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_HANDWRITING_TEST_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/handwriting-provider-test"
+  DEPENDS ${MSIME_HANDWRITING_TEST_SOURCES} VERBATIM)
+add_custom_target(handwriting-provider-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/handwriting-provider-test")
+add_test(NAME handwriting-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/handwriting-provider-test")
+set_tests_properties(handwriting-provider PROPERTIES LABELS "handwriting-local" TIMEOUT 30)
 add_executable(screen-keyboard-panel-test tests/ScreenKeyboardPanelTest.mm ScreenKeyboardPanel.mm)
 target_compile_options(screen-keyboard-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(screen-keyboard-panel-test PRIVATE "-framework AppKit" "-framework CoreGraphics" "-framework Carbon")
