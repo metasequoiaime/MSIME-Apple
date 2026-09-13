@@ -6,11 +6,13 @@
 namespace msime::linux_host {
 
 struct WaveOverlayModel {
+  enum class CompactStatus { None, Recognizing, Processing };
   static constexpr std::size_t kLevelCount = 12;
   std::array<float, kLevelCount> levels{};
   bool listening = false;
   bool show_transcript = true;
   bool actions_visible = false;
+  CompactStatus compact_status = CompactStatus::None;
 
   void set_input_level(float value) {
     value = std::clamp(value, 0.0f, 1.0f);
