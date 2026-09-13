@@ -29,6 +29,12 @@ fn activation_case(nested_dictionaries: bool) {
         fs::write(active.join(name).join("marker"), b"old").unwrap();
         fs::write(staged.join(name).join("marker"), b"new").unwrap();
     }
+    let activation_id = "00112233-4455-6677-8899-aabbccddeeff";
+    fs::write(
+        staged.join("user").join(super::ACTIVATION_RECEIPT_NAME),
+        activation_id,
+    )
+    .unwrap();
     let make = |base: &Path| EngineOptions {
         resources: base.join("resources").to_str().unwrap().into(),
         user_data: base.join("user").to_str().unwrap().into(),
@@ -71,7 +77,7 @@ fn activation_case(nested_dictionaries: bool) {
         123,
         Prepared {
             directory,
-            active_options,
+            active_options: active_options.clone(),
             options: staged_options,
             source_version: expected.clone(),
         },
@@ -95,6 +101,12 @@ fn activation_case(nested_dictionaries: bool) {
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"new");
     }
+    assert_eq!(
+        super::activation_receipt(&active_options)
+            .unwrap()
+            .as_deref(),
+        Some(activation_id)
+    );
     assert!(!registry().lock().unwrap().contains_key(&123));
     assert!(activate(123, &expected).is_err());
 }

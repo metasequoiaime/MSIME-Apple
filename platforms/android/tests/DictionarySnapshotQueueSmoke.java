@@ -25,6 +25,9 @@ public final class DictionarySnapshotQueueSmoke {
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root.resolve("queue"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
+            UUID receipt = UUID.randomUUID();
+            String receiptVersion = "local-v1:" + receipt + ":" + "b".repeat(64);
+            check(DictionarySnapshotQueue.validVersion(receiptVersion));
             check(!DictionarySnapshotQueue.validVersion("local-v1:legacy:" + "A".repeat(64)));
             Path source = root.resolve("download.ndjson");
             Files.writeString(source, "record-one\nrecord-two\n");
@@ -46,17 +49,25 @@ public final class DictionarySnapshotQueueSmoke {
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
             check(!Files.exists(queue.filePath(id)));
+            String appliedVersion = "local-v1:" + id + ":" + "b".repeat(64);
+            UUID recovered = queue.enqueue(source, account, 43, appliedVersion, digest);
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                check(queue.claim(lease).status() == DictionarySnapshotQueue.Status.PREPARING);
+                queue.publishLocalVersion("local-v1:" + recovered + ":" + "c".repeat(64));
+            }
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
+            check(!Files.exists(queue.filePath(recovered)));
             fails(DictionarySnapshotQueue.Reason.CONFLICT,
                 () -> queue.enqueue(source, account, 43, "local-v1:legacy:" + "c".repeat(64), digest));
-            String appliedVersion = "local-v1:" + id + ":" + "b".repeat(64);
-            UUID failed = queue.enqueue(source, account, 43, appliedVersion, digest);
+            String recoveredVersion = "local-v1:" + recovered + ":" + "c".repeat(64);
+            UUID failed = queue.enqueue(source, account, 43, recoveredVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
                 queue.claim(lease);
                 queue.fail(failed, lease);
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.FAILED);
             check(!Files.exists(queue.filePath(failed)));
-            UUID second = queue.enqueue(source, account, 43, appliedVersion, digest);
+            UUID second = queue.enqueue(source, account, 43, recoveredVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
                 queue.claim(lease);
                 check(!queue.complete(second, lease, "local-v1:legacy:" + "d".repeat(64), false,
@@ -75,4 +86,5 @@ public final class DictionarySnapshotQueueSmoke {
             }
         }
     }
+
 }

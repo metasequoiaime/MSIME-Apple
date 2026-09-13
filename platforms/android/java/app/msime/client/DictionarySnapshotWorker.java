@@ -23,6 +23,7 @@ public final class DictionarySnapshotWorker {
                     .put("options", new JSONObject(options))
                     .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
                     .put("expected_version", request.expectedLocalVersion())
+                    .put("activation_id", request.id().toString())
                     .put("records", 0)
                     .toString();
                 JSONObject prepared = new JSONObject(NativeClient.snapshotPrepare(
@@ -57,8 +58,12 @@ public final class DictionarySnapshotWorker {
     private static String version(String options) throws Exception {
         JSONObject result = new JSONObject(NativeClient.snapshotVersion(options));
         if (!result.optBoolean("ok", false)) throw new IllegalStateException("snapshot version unavailable");
-        String value = result.getJSONObject("value").getString("version");
-        if (!DictionarySnapshotQueue.validDigest(value)) throw new IllegalStateException("snapshot version invalid");
-        return "local-v1:legacy:" + value;
+        JSONObject value = result.getJSONObject("value");
+        String digest = value.getString("version");
+        String generation = value.optString("generation", "legacy");
+        String version = "local-v1:" + generation + ":" + digest;
+        if (!DictionarySnapshotQueue.validVersion(version))
+            throw new IllegalStateException("snapshot version invalid");
+        return version;
     }
 }

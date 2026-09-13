@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void},
+    io::Write,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -22,6 +23,7 @@ mod record;
 
 const BUFFER_LIMIT: usize = 65536;
 const HANDLE_LIMIT: usize = 8;
+const ACTIVATION_RECEIPT_NAME: &str = ".msime-snapshot-activation";
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static PREPARED: OnceLock<Mutex<HashMap<u64, Prepared>>> = OnceLock::new();
 fn registry() -> &'static Mutex<HashMap<u64, Prepared>> {
@@ -42,6 +44,8 @@ struct PrepareRequest {
     staging_root: String,
     expected_version: String,
     records: usize,
+    #[serde(default)]
+    activation_id: Option<String>,
 }
 
 /// Called synchronously: positive UTF-8 JSON length, zero only at verified EOF,
@@ -92,6 +96,49 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
+fn valid_activation_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && [8, 13, 18, 23].iter().all(|&index| bytes[index] == b'-')
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| [8, 13, 18, 23].contains(&index) || byte.is_ascii_hexdigit())
+}
+
+fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
+    let path = Path::new(&options.user_data).join(ACTIVATION_RECEIPT_NAME);
+    let value = match std::fs::read(path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("snapshot activation receipt unavailable"),
+    };
+    let value = std::str::from_utf8(&value).map_err(|_| "invalid snapshot activation receipt")?;
+    if !valid_activation_id(value) {
+        return Err("invalid snapshot activation receipt");
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn write_activation_receipt(
+    options: &EngineOptions,
+    activation_id: &str,
+) -> Result<(), &'static str> {
+    let directory = Path::new(&options.user_data);
+    let temporary = directory.join(format!("{ACTIVATION_RECEIPT_NAME}.tmp"));
+    let path = directory.join(ACTIVATION_RECEIPT_NAME);
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(|_| "snapshot activation receipt unavailable")?;
+    file.write_all(activation_id.as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "snapshot activation receipt unavailable")?;
+    std::fs::rename(temporary, path).map_err(|_| "snapshot activation receipt unavailable")
+}
+
 fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
@@ -100,6 +147,13 @@ fn prepare(
 ) -> Result<Prepared, &'static str> {
     if request.records > 500_000 || request.expected_version.len() != 64 {
         return Err("invalid snapshot bounds");
+    }
+    if request
+        .activation_id
+        .as_deref()
+        .is_some_and(|value| !valid_activation_id(value))
+    {
+        return Err("invalid snapshot activation id");
     }
     let options = validate_options(request.options)?;
     let current = version(&options)?;
@@ -157,6 +211,9 @@ fn prepare(
         checked,
     )
     .map_err(|_| "snapshot preparation rejected")?;
+    if let Some(activation_id) = request.activation_id.as_deref() {
+        write_activation_receipt(&staged, activation_id)?;
+    }
     // Learning may continue during expensive preparation. Reject a changed preview.
     if version(&options)? != current {
         return Err("snapshot source changed");
@@ -290,7 +347,9 @@ pub unsafe extern "C" fn msime_client_snapshot_version(
             return Err("invalid snapshot buffer".into());
         }
         let options = parse_options(unsafe { std::slice::from_raw_parts(options, length) })?;
-        Ok(json!({"version": version(&options)?}))
+        let version = version(&options)?;
+        let generation = activation_receipt(&options)?.unwrap_or_else(|| "legacy".to_owned());
+        Ok(json!({"version": version, "generation": generation}))
     })
 }
 
