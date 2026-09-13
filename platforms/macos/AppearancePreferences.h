@@ -21,6 +21,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
+@property(nonatomic) BOOL candidateFollowCursor;
 @property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;

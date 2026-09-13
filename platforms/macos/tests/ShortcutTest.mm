@@ -2541,6 +2541,7 @@ int main() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         assert(!appearance.vertical && appearance.fontSize == 18);
+        assert(appearance.candidateFollowCursor);
         assert(appearance.pageShortcut == 0);
         assert(appearance.pageSize == 9);
         assert([appearance.skinID isEqual:@"fluent"]);
@@ -2557,6 +2558,16 @@ int main() {
         NSPopUpButton *shortcutControl = (id)PreferenceControl(appearance, @selector(pageShortcutChanged:));
         NSPopUpButton *sizeControl = (id)PreferenceControl(appearance, @selector(pageSizeChanged:));
         NSPopUpButton *skinControl = (id)PreferenceControl(appearance, @selector(skinChanged:));
+        NSButton *followCursorControl = (id)PreferenceControl(appearance, @selector(candidateFollowCursorChanged:));
+        assert(followCursorControl.state == NSControlStateValueOn);
+        [followCursorControl setState:NSControlStateValueOff];
+        [NSApp sendAction:followCursorControl.action to:followCursorControl.target from:followCursorControl];
+        assert(!appearance.candidateFollowCursor);
+        MSIMEAppearancePreferences *followCursorLoaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        assert(!followCursorLoaded.candidateFollowCursor);
+        assert([[[appearance sharedPreferencesByMerging:@{}] objectForKey:@"candidate_follow_cursor"] isEqual:@NO]);
+        [appearance applySharedCandidatePreferences:@{@"candidate_follow_cursor": @YES}];
+        assert(appearance.candidateFollowCursor);
         assert(([skinControl.itemTitles isEqual:@[@"Fluent", @"微信绿", @"石墨 Graphite", @"杨柳青"]]));
         NSArray<NSString *> *skinIDs = @[@"fluent", @"wechat", @"graphite", @"willow_green"];
         for (NSInteger option = 0; option < 4; ++option) {
@@ -2665,9 +2676,18 @@ int main() {
         }
         [controller setValue:layoutPanel forKey:@"panel"];
         client.caret = NSMakeRect(NSMidX(NSScreen.mainScreen.visibleFrame), NSMidY(NSScreen.mainScreen.visibleFrame), 1, 20);
+        appearance.candidateFollowCursor = NO;
         [controller setValue:@{@"candidates": @[@{@"text": @"测试", @"highlighted": @YES}]} forKey:@"view"];
         [controller renderCandidates];
         assert(layoutPanel.requestedVisible);
+        NSPoint anchoredCandidateOrigin = layoutPanel.frame.origin;
+        NSRect visibleFrame = NSScreen.mainScreen.visibleFrame;
+        client.caret = NSMakeRect(NSMaxX(visibleFrame) - 120, NSMinY(visibleFrame) + 120, 1, 20);
+        [controller renderCandidates];
+        assert(NSEqualPoints(layoutPanel.frame.origin, anchoredCandidateOrigin));
+        appearance.candidateFollowCursor = YES;
+        [controller renderCandidates];
+        assert(!NSEqualPoints(layoutPanel.frame.origin, anchoredCandidateOrigin));
         CGFloat shortWidth = layoutPanel.frame.size.width;
         [controller setValue:@{@"candidates": @[@{@"text": @"合成候选布局测试文本", @"highlighted": @YES}]} forKey:@"view"];
         [controller renderCandidates];

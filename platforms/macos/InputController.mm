@@ -206,6 +206,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_view;
     NSObject *_candidateMenuToken;
     NSPanel *_panel;
+    NSRect _candidateAnchorCaret;
+    BOOL _candidateAnchorValid;
+    BOOL _candidateFollowCursorMode;
+    BOOL _candidateFollowCursorModeKnown;
     MSIMEShuangpinKeymapPanel *_keymapPanel;
     MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
@@ -594,6 +598,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         dispatch_async(dispatch_get_main_queue(), ^{ [controller toggleVoiceInput:nil]; });
     }];
 }
+- (void)resetCandidateAnchor {
+    _candidateAnchorCaret = NSZeroRect;
+    _candidateAnchorValid = NO;
+}
+- (NSRect)candidateCaretForRendering:(NSRect)reported {
+    const BOOL followCursor = _appearance == nil || _appearance.candidateFollowCursor;
+    if (!_candidateFollowCursorModeKnown || _candidateFollowCursorMode != followCursor) {
+        [self resetCandidateAnchor];
+        _candidateFollowCursorMode = followCursor;
+        _candidateFollowCursorModeKnown = YES;
+    }
+    if (followCursor) return reported;
+    if (!_candidateAnchorValid && MSIMEValidCaret(reported)) {
+        _candidateAnchorCaret = reported;
+        _candidateAnchorValid = YES;
+    }
+    return _candidateAnchorValid ? _candidateAnchorCaret : reported;
+}
 - (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
     _preferenceLoadState.reset();
@@ -821,6 +843,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self apply:finished];
     }
     _appearance.englishMode = enabled;
+    [self resetCandidateAnchor];
     [_panel orderOut:nil];
     [_keymapPanel orderOut:nil];
 }
@@ -965,6 +988,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)activateServer:(id)sender {
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
+    [self resetCandidateAnchor];
     _modifierTap.reset();
     [super activateServer:sender];
     [self ensureAppearance];
@@ -1008,6 +1032,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    [self resetCandidateAnchor];
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
@@ -1171,6 +1196,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];
+    [self resetCandidateAnchor];
     [_panel orderOut:nil];
     _activeClient = nil;
     [super deactivateServer:sender];
@@ -1222,6 +1248,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (sender != _activeClient) {
         [self cancelCandidateTranslations];
         [self cancelCloudCandidates];
+        [self resetCandidateAnchor];
         _modifierTap.reset();
         _preferenceLoadState.reset();
         // Clear the previous client's marked text before accepting the new focus.
@@ -1469,11 +1496,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)renderCandidates {
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
-    if (_appearance.englishMode) { [_panel orderOut:nil]; return; }
+    if (_appearance.englishMode) { [self resetCandidateAnchor]; [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
-    if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) { [_panel orderOut:nil]; return; }
-    NSRect cursor = NSZeroRect;
-    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&cursor];
+    if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
+        [self resetCandidateAnchor];
+        [_panel orderOut:nil];
+        return;
+    }
+    NSRect reportedCursor = NSZeroRect;
+    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
+    NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) { [_panel orderOut:nil]; return; }
     NSScreen *screen = nil;
     for (NSScreen *candidate in NSScreen.screens) {

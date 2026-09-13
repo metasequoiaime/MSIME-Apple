@@ -9,6 +9,7 @@
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
+static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
@@ -149,6 +150,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedQuanpinHelpcode;
     NSNumber *_sharedShuangpinHelpcode;
     NSNumber *_sharedVertical;
+    NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
     NSArray<NSString *> *_sharedFallbackFonts;
@@ -200,6 +202,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_toolbarButton;
     NSButton *_transpositionButton;
     NSButton *_neighborButton;
+    NSButton *_candidateFollowCursorButton;
     NSButton *_candidateLearningButton;
     NSPopUpButton *_frequencyModeButton;
     NSPopUpButton *_frequencyTriggerButton;
@@ -290,6 +293,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         merged[@"keybindings"] = keys;
     }
     merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
+    merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
@@ -449,6 +453,15 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)candidateFollowCursor {
+    if (_sharedCandidateFollowCursor) return _sharedCandidateFollowCursor.boolValue;
+    return [_defaults objectForKey:CandidateFollowCursorKey] == nil ? YES : [_defaults boolForKey:CandidateFollowCursorKey];
+}
+- (void)setCandidateFollowCursor:(BOOL)value {
+    _sharedCandidateFollowCursor = nil;
+    [_defaults setBool:value forKey:CandidateFollowCursorKey];
+    [self preferencesChanged];
+}
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
 - (BOOL)candidateLearningEnabled {
     if (_sharedCandidateLearning) return _sharedCandidateLearning.boolValue;
@@ -935,6 +948,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
+    id followCursor = preferences[@"candidate_follow_cursor"];
+    if (LocalModeBoolean(followCursor)) _sharedCandidateFollowCursor = followCursor;
     id font = preferences[@"candidate_font_size"];
     id textColor = preferences[@"candidate_text_color"];
     // This optional shared field is omitted when None; omission also clears a
@@ -992,6 +1007,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateFollowCursorButton.state = self.candidateFollowCursor ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateLearningButton.state = self.candidateLearningEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     [_frequencyModeButton selectItemAtIndex:[FrequencyModes() indexOfObject:self.frequencyAdjustmentMode]];
     [_frequencyTriggerButton selectItemAtIndex:self.frequencyTriggerCount - 1];
@@ -1060,6 +1076,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _layoutButton.accessibilityLabel = @"候选排列";
     _layoutButton.target = self;
     _layoutButton.action = @selector(layoutChanged:);
+    _candidateFollowCursorButton = [NSButton checkboxWithTitle:@"候选窗口跟随光标" target:self action:@selector(candidateFollowCursorChanged:)];
+    _candidateFollowCursorButton.accessibilityLabel = @"候选窗口跟随光标";
     _schemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔"]];
     _schemeButton.target = self;
@@ -1214,6 +1232,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼键盘"], _profileButton],
         @[[NSTextField labelWithString:@"双拼预编辑"], _preeditButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
+        @[[NSTextField labelWithString:@"候选位置"], _candidateFollowCursorButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
         @[[NSTextField labelWithString:@"候选文字颜色"], textColorControls],
@@ -1334,6 +1353,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)candidateFollowCursorChanged:(NSButton *)sender { self.candidateFollowCursor = sender.state == NSControlStateValueOn; }
 - (void)transpositionChanged:(NSButton *)sender { self.autocorrectTransposition = sender.state == NSControlStateValueOn; }
 - (void)neighborChanged:(NSButton *)sender { self.autocorrectNeighbor = sender.state == NSControlStateValueOn; }
 - (void)candidateLearningChanged:(NSButton *)sender { self.candidateLearningEnabled = sender.state == NSControlStateValueOn; }
