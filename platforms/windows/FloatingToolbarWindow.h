@@ -67,6 +67,9 @@ private:
   std::optional<bool> shown_character_set_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
+  // True once the toolbar has been positioned. The default corner is only for
+  // the first placement; afterwards the user's own position is preserved.
+  bool placed_ = false;
   double scale_ = 1.0;
   int font_size_ = 24;
   std::array<bool, 6> items_{true, true, true, true, false, true};

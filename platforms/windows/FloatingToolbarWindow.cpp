@@ -1,4 +1,5 @@
 #include "FloatingToolbarWindow.h"
+#include "FloatingToolbarPlacement.h"
 #include <stdexcept>
 #include <windowsx.h>
 #include <vector>
@@ -75,7 +76,13 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     shown_ = value;
     shown_character_set_ = character_set;
     RECT work{};
-    const HMONITOR monitor = MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+    // Before the first placement the toolbar has no position of its own, so it
+    // follows the focused window's monitor. After that it stays on whichever
+    // screen the user dragged it to - clamping a dragged toolbar against the
+    // foreground window's monitor would drag it back across the desktop.
+    const HMONITOR monitor =
+        placed_ ? MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST)
+                : MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO info{};
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
@@ -83,10 +90,29 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     const int width = dpi_scale(window_, static_cast<int>((16 + 72 * slots(items_).size()) * scale_));
     const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
     const int margin = dpi_scale(window_, 20);
-    if (!SetWindowPos(window_, HWND_TOPMOST, work.right - width - margin,
-                      work.bottom - height - margin, width, height,
+    FloatingToolbarPlacementInput placement;
+    placement.width = width;
+    placement.height = height;
+    placement.margin = margin;
+    placement.work_left = work.left;
+    placement.work_top = work.top;
+    placement.work_right = work.right;
+    placement.work_bottom = work.bottom;
+    placement.placed = placed_;
+    RECT current{};
+    if (placed_ && GetWindowRect(window_, &current)) {
+      placement.current_x = current.left;
+      placement.current_y = current.top;
+    } else {
+      placement.placed = false;
+    }
+    const auto placed = floating_toolbar_placement(placement);
+    if (!SetWindowPos(window_, HWND_TOPMOST, placed.x, placed.y, width, height,
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Toolbar positioning failed");
+    // Only after the move succeeded, so a failed first placement retries the
+    // corner rather than preserving a position the window never took.
+    placed_ = true;
     InvalidateRect(window_, nullptr, FALSE);
   } catch (...) { failed_ = true; hide(); }
 }
