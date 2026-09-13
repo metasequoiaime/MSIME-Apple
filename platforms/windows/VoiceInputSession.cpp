@@ -1,6 +1,7 @@
 #include "VoiceInputSession.h"
 
 #include "ReplyCodec.h"
+#include "SystemAudioMuter.h"
 #include <msime/voice/audio_capture.h>
 #include <msime/voice/cloud_stt_worker.h>
 #include <msime/voice/provider_protocol.h>
@@ -80,6 +81,11 @@ VoiceInputSession::~VoiceInputSession() {
   for (auto &task : tasks_)
     if (task.valid())
       task.wait();
+}
+
+bool VoiceInputSession::init_cues(const std::wstring &start_path,
+                                  const std::wstring &end_path) {
+  return cue_player_.init(start_path, end_path);
 }
 
 bool VoiceInputSession::toggle() {
@@ -199,19 +205,29 @@ bool VoiceInputSession::start() {
   overlay_.set_actions_visible(false);
   overlay_.set_transcript(L"");
   overlay_.show();
-  (void)config.start_sound;
+  if (config.mute_system_audio) {
+    mute_other_system_audio();
+    muted_system_audio_.store(true);
+  }
+  if (config.sound_enabled && config.start_sound)
+    cue_player_.play_start();
   (void)session;
   return true;
 }
 
 void VoiceInputSession::stop() {
-  if (!recording_.exchange(false))
+  if (!recording_.load())
     return;
   if (capture_)
     capture_->stop();
+  recording_.store(false);
   overlay_.set_listening(false);
   overlay_.set_input_level(0.0f);
   const auto config = config_provider_();
+  if (muted_system_audio_.exchange(false))
+    restore_other_system_audio();
+  if (config.sound_enabled && config.end_sound)
+    cue_player_.play_end();
   const auto lease = lease_;
   lease_.reset();
   std::shared_ptr<DoubaoAsrClient> doubao;
@@ -331,6 +347,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
 void VoiceInputSession::cancel() {
   cancel_requested_.store(true);
   session_.fetch_add(1);
+  const auto config = config_provider_();
   lease_.reset();
   if (recording_.exchange(false) && capture_)
     capture_->stop();
@@ -341,6 +358,10 @@ void VoiceInputSession::cancel() {
   }
   if (doubao)
     doubao->Cancel();
+  if (muted_system_audio_.exchange(false))
+    restore_other_system_audio();
+  if (config.sound_enabled && config.end_sound)
+    cue_player_.play_end();
   clear_overlay();
 }
 

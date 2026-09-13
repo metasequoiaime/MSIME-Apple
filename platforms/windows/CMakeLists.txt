@@ -187,11 +187,13 @@ if(WIN32)
   add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
-                 DoubaoAsrClient.cpp)
+                 DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp)
+  target_include_directories(msime-windows-server PRIVATE
+                             ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
                          msimeui user32 gdi32 d2d1 dwrite dwmapi shell32
                          MetasequoiaIme::VoiceCapture MetasequoiaIme::Voice
-                         CURL::libcurl winhttp ZLIB::ZLIB)
+                         CURL::libcurl winhttp ole32 uuid ZLIB::ZLIB)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-watchdog WIN32 Watchdog.cpp)
   target_include_directories(msime-client-watchdog PRIVATE .)

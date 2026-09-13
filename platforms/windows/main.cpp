@@ -27,6 +27,21 @@ std::filesystem::path executable_directory() {
     return {};
   return std::filesystem::path(std::wstring(path.data(), length)).parent_path();
 }
+std::wstring voice_audio_path(const PreviewConfig &config,
+                              const wchar_t *filename) {
+  const auto executable = executable_directory();
+  const std::array<std::filesystem::path, 5> candidates = {
+      config.state_root / "audios" / filename,
+      config.resources / "audios" / filename,
+      config.resources / "assets" / "audios" / filename,
+      executable / "assets" / "audios" / filename,
+      executable.parent_path() / "share" / "msime" / "audios" / filename};
+  std::error_code error;
+  for (const auto &candidate : candidates)
+    if (std::filesystem::is_regular_file(candidate, error))
+      return candidate.wstring();
+  return {};
+}
 std::wstring configured_shell_command() {
   std::vector<wchar_t> value(32768);
   const DWORD length = GetEnvironmentVariableW(
@@ -156,6 +171,8 @@ int wmain(int argc, wchar_t **argv) {
           next.enabled = input.value("enabled", true);
           next.start_sound = input.value("start_sound", true);
           next.end_sound = input.value("end_sound", true);
+          next.sound_enabled = input.value("sound_enabled", true);
+          next.mute_system_audio = input.value("mute_system_audio", false);
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           next.token = input.value("asr_token", std::string{});
@@ -200,6 +217,10 @@ int wmain(int argc, wchar_t **argv) {
           std::lock_guard lock(*voice_config_mutex);
           return *voice_config;
         });
+    configure_audio_mute_state_path(
+        (config.state_root / "voice_system_audio_mute_state.txt").wstring());
+    (void)voice->init_cues(voice_audio_path(config, L"start.mp3"),
+                           voice_audio_path(config, L"end.mp3"));
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
     if (!clipboard_monitor.start())

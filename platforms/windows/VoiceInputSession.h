@@ -4,6 +4,7 @@
 #include "SessionController.h"
 #include "WaveOverlay.h"
 #include "DoubaoAsrClient.h"
+#include "CuePlayer.h"
 #include <atomic>
 #include <functional>
 #include <future>
@@ -23,6 +24,8 @@ struct VoiceInputConfig {
   bool enabled = true;
   bool start_sound = true;
   bool end_sound = true;
+  bool sound_enabled = true;
+  bool mute_system_audio = false;
   std::string endpoint;
   std::string model;
   std::string token;
@@ -64,6 +67,7 @@ public:
 
   bool toggle();
   void cancel();
+  bool init_cues(const std::wstring &start_path, const std::wstring &end_path);
   bool recording() const { return recording_.load(); }
 
 private:
@@ -80,6 +84,7 @@ private:
   ConfigProvider config_provider_;
   metasequoia::voice::AudioCapture *capture_ = nullptr;
   std::unique_ptr<metasequoia::voice::AudioCapture> capture_owner_;
+  CuePlayer cue_player_;
   std::atomic<bool> recording_{false};
   std::atomic<bool> starting_{false};
   std::atomic<bool> cancel_requested_{false};
@@ -91,6 +96,7 @@ private:
   std::optional<FocusLease> lease_;
   std::mutex doubao_mutex_;
   std::shared_ptr<DoubaoAsrClient> doubao_;
+  std::atomic<bool> muted_system_audio_{false};
   std::mutex tasks_mutex_;
   std::vector<std::future<void>> tasks_;
 };

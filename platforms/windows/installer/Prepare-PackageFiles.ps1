@@ -69,6 +69,7 @@ $webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
+$audioSource = Join-Path $PSScriptRoot 'assets\audios'
 $pinyinTable = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\tables\pinyin.txt')
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
 $appIcon = Join-Path $RepoRoot (Join-Path $ServerDirectory 'src\resource\MetasequoiaIME.ico')
@@ -187,7 +188,9 @@ else {
 
 $targetHtml = Join-Path $targetAppData 'html'
 $targetIcons = Join-Path $targetAppData 'icons'
+$targetAudios = Join-Path $targetAppData 'audios'
 Copy-DirectoryContents -Source $iconSource -Destination $targetIcons
+Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
 if (Test-Path -LiteralPath $targetHtml) {
     Remove-Item -LiteralPath $targetHtml -Recurse -Force
 }
