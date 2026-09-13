@@ -151,6 +151,8 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
+    private final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>();
     private HandwritingCanvas handwritingCanvas;
     private LinearLayout handwritingCandidates;
     private TextView handwritingStatus;
@@ -902,6 +904,21 @@ public final class MSIMEInputService extends InputMethodService {
 
     private int displayedTouchLayout(JSONObject value) {
         return dedicatedEnglish ? STANDARD_TOUCH_LAYOUT : touchLayout(value);
+    }
+
+    private boolean sendsChinesePunctuation() {
+        return view != null && ChineseSymbolFaces.shouldUseChineseFaces(dedicatedEnglish,
+            view.optInt("scheme", -1), view.optString("local_mode", "none"));
+    }
+
+    private void updateSymbolKeyFaces() {
+        boolean chineseMode = sendsChinesePunctuation();
+        for (int index = 0; index < symbolKeyButtons.size(); index++) {
+            String face = ChineseSymbolFaces.face(symbolKeyInputs.get(index), chineseMode);
+            Button button = symbolKeyButtons.get(index);
+            button.setText(face);
+            button.setContentDescription("按键 " + face);
+        }
     }
 
     private void updateAutomaticCapitalization() {
@@ -3640,6 +3657,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildKeyRows() {
         if (keyRows == null) return;
         deactivateHandwriting();
+        symbolKeyButtons.clear();
+        symbolKeyInputs.clear();
         keyRows.removeAllViews();
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
             if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
@@ -3669,7 +3688,13 @@ public final class MSIMEInputService extends InputMethodService {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             for (String key : keys) {
                 final String input = key;
-                Button keyButton = keyboardKey(key, key, () -> type(input.charAt(0)));
+                String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+                    ? ChineseSymbolFaces.face(key, sendsChinesePunctuation()) : key;
+                Button keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+                    symbolKeyButtons.add(keyButton);
+                    symbolKeyInputs.add(input);
+                }
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
@@ -4268,6 +4293,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void render() {
+        updateSymbolKeyFaces();
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
