@@ -49,6 +49,13 @@ public final class DictionarySnapshotQueueSmoke {
             fails(DictionarySnapshotQueue.Reason.CONFLICT,
                 () -> queue.enqueue(source, account, 43, "local-v1:legacy:" + "c".repeat(64), digest));
             String appliedVersion = "local-v1:" + id + ":" + "b".repeat(64);
+            UUID failed = queue.enqueue(source, account, 43, appliedVersion, digest);
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                queue.claim(lease);
+                queue.fail(failed, lease);
+            }
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.FAILED);
+            check(!Files.exists(queue.filePath(failed)));
             UUID second = queue.enqueue(source, account, 43, appliedVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
                 queue.claim(lease);
