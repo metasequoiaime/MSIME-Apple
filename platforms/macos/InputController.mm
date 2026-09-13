@@ -1230,6 +1230,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self setEnglishInputMode:!_appearance.englishMode];
         return YES;
     }
+    BOOL ctrlCommand = [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]; BOOL ctrlOption = [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]; NSEventModifierFlags voiceFlags = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift); if (!event.isARepeat && event.keyCode == 49 && ((ctrlCommand && voiceFlags == (NSEventModifierFlagControl | NSEventModifierFlagCommand)) || (ctrlOption && voiceFlags == (NSEventModifierFlagControl | NSEventModifierFlagOption)))) { [self toggleVoiceInput:nil]; return YES; }
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (!event.isARepeat && event.keyCode == 101 &&
