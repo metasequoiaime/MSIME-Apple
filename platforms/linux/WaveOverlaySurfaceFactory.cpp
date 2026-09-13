@@ -5,6 +5,9 @@
 #ifdef MSIME_LINUX_HAS_X11_SURFACE
 #include "WaveOverlayX11Surface.h"
 #endif
+#ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
+#include "WaveOverlayWaylandSurface.h"
+#endif
 
 #include <glib.h>
 
@@ -56,18 +59,28 @@ class FallbackSurface final : public WaveOverlaySurface {
 
 std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(IBusEngine *engine) {
   const auto *requested = g_getenv("MSIME_WAVE_OVERLAY_BACKEND");
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
-  const bool x11_requested = requested && g_strcmp0(requested, "x11") == 0;
   const bool force_ibus = requested && g_strcmp0(requested, "ibus") == 0;
-  const bool wayland_session = g_getenv("WAYLAND_DISPLAY") != nullptr;
+  const bool wayland_requested = requested && g_strcmp0(requested, "wayland") == 0;
+  const bool x11_requested = requested && g_strcmp0(requested, "x11") == 0;
+#ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
   if (!force_ibus &&
-      (x11_requested || (!wayland_session && g_getenv("DISPLAY")))) {
+      (wayland_requested || (!x11_requested && g_getenv("WAYLAND_DISPLAY")))) {
+    return std::make_unique<FallbackSurface>(
+        std::make_unique<WaveOverlayWaylandSurface>(),
+        std::make_unique<WaveOverlayIbusSurface>(engine));
+  }
+#else
+  (void)wayland_requested;
+#endif
+#ifdef MSIME_LINUX_HAS_X11_SURFACE
+  if (!force_ibus &&
+      (x11_requested || g_getenv("DISPLAY"))) {
     return std::make_unique<FallbackSurface>(
         std::make_unique<WaveOverlayX11Surface>(),
         std::make_unique<WaveOverlayIbusSurface>(engine));
   }
 #else
-  (void)requested;
+  (void)x11_requested;
 #endif
   return std::make_unique<WaveOverlayIbusSurface>(engine);
 }

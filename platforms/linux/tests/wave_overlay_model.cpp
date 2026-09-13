@@ -31,5 +31,6 @@ int main() {
   assert(locked.find("麦克风 [") == std::string::npos);
   unsetenv("MSIME_WAVE_OVERLAY_BACKEND");
   unsetenv("DISPLAY");
+  unsetenv("WAYLAND_DISPLAY");
   assert(msime::linux_host::create_wave_overlay_surface(nullptr));
 }

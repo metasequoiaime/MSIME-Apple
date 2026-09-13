@@ -16,6 +16,47 @@ find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
 pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes)
+pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
+find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
+if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
+  enable_language(C)
+  set(MSIME_WAYLAND_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/wayland-protocols")
+  set(MSIME_LAYER_SHELL_HEADER
+      "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h")
+  set(MSIME_LAYER_SHELL_CODE
+      "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c")
+  find_path(MSIME_XDG_SHELL_DIR NAMES xdg-shell.xml
+            PATHS /usr/share/wayland-protocols/stable/xdg-shell
+                  /usr/local/share/wayland-protocols/stable/xdg-shell)
+  set(MSIME_XDG_SHELL_XML "${MSIME_XDG_SHELL_DIR}/xdg-shell.xml")
+  set(MSIME_XDG_SHELL_HEADER
+      "${MSIME_WAYLAND_PROTOCOL_DIR}/xdg-shell-client-protocol.h")
+  set(MSIME_XDG_SHELL_CODE
+      "${MSIME_WAYLAND_PROTOCOL_DIR}/xdg-shell-protocol.c")
+  if(NOT EXISTS "${MSIME_XDG_SHELL_XML}")
+    unset(MSIME_XDG_SHELL_XML)
+  endif()
+  add_custom_command(
+    OUTPUT "${MSIME_LAYER_SHELL_HEADER}" "${MSIME_LAYER_SHELL_CODE}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${MSIME_WAYLAND_PROTOCOL_DIR}"
+    COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" client-header
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/wayland/wlr-layer-shell-unstable-v1.xml"
+            "${MSIME_LAYER_SHELL_HEADER}"
+    COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" private-code
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/wayland/wlr-layer-shell-unstable-v1.xml"
+            "${MSIME_LAYER_SHELL_CODE}"
+    DEPENDS data/wayland/wlr-layer-shell-unstable-v1.xml)
+  if(MSIME_XDG_SHELL_XML)
+    add_custom_command(
+      OUTPUT "${MSIME_XDG_SHELL_HEADER}" "${MSIME_XDG_SHELL_CODE}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${MSIME_WAYLAND_PROTOCOL_DIR}"
+      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" client-header
+              "${MSIME_XDG_SHELL_XML}" "${MSIME_XDG_SHELL_HEADER}"
+      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" private-code
+              "${MSIME_XDG_SHELL_XML}" "${MSIME_XDG_SHELL_CODE}"
+      DEPENDS "${MSIME_XDG_SHELL_XML}")
+  endif()
+endif()
 if(X11_CLIPBOARD_FOUND)
   add_executable(msime-client-clipboard-watch-x11 clipboard_watch_x11.cpp)
   target_compile_options(msime-client-clipboard-watch-x11 PRIVATE -Wall -Wextra -Werror)
@@ -46,6 +87,13 @@ if(X11_SURFACE_FOUND)
   target_sources(msime-ibus-host PRIVATE WaveOverlayX11Surface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(msime-ibus-host PUBLIC PkgConfig::X11_SURFACE)
+endif()
+if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
+  target_sources(msime-ibus-host PRIVATE WaveOverlayWaylandSurface.cpp
+                 "${MSIME_LAYER_SHELL_CODE}" ${MSIME_XDG_SHELL_CODE})
+  target_include_directories(msime-ibus-host PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
+  target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
+  target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_CLIENT)
 endif()
 add_executable(msime-client-ibus main.cpp SystemTheme.cpp)
 target_compile_options(msime-client-ibus PRIVATE -Wall -Wextra -Werror)
@@ -176,6 +224,17 @@ if(X11_SURFACE_FOUND)
   target_sources(linux-wave-overlay-model-test PRIVATE WaveOverlayX11Surface.cpp)
   target_compile_definitions(linux-wave-overlay-model-test PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(linux-wave-overlay-model-test PRIVATE PkgConfig::X11_SURFACE)
+endif()
+if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
+  target_sources(linux-wave-overlay-model-test PRIVATE
+                 WaveOverlayWaylandSurface.cpp "${MSIME_LAYER_SHELL_CODE}"
+                 ${MSIME_XDG_SHELL_CODE})
+  target_include_directories(linux-wave-overlay-model-test PRIVATE
+                             "${MSIME_WAYLAND_PROTOCOL_DIR}")
+  target_compile_definitions(linux-wave-overlay-model-test PRIVATE
+                             MSIME_LINUX_HAS_WAYLAND_SURFACE)
+  target_link_libraries(linux-wave-overlay-model-test PRIVATE
+                        PkgConfig::WAYLAND_CLIENT)
 endif()
 add_test(NAME linux-wave-overlay-model COMMAND linux-wave-overlay-model-test)
 target_compile_options(linux-native-compose-test PRIVATE -Wall -Wextra -Werror)
