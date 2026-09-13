@@ -1316,6 +1316,20 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button borderlessButton(LinearLayout row, String label, Runnable action) {
+        Button button = new KeyboardBorderlessButton(this);
+        button.setAllCaps(false);
+        button.setText(label);
+        styleButton(button, true);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
     private Button keyboardKey(String label, String description, Runnable action) {
         Button button = new Button(this);
         button.setAllCaps(false);
@@ -4464,7 +4478,7 @@ public final class MSIMEInputService extends InputMethodService {
         enterButton = button(controls, "换行", this::enter);
         enterButton.setContentDescription("换行");
         button(controls, "切换", () -> switchToNextInputMethod(false));
-        schemeButton = button(controls, "方案", this::showSchemePicker);
+        schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
         skinButton = button(controls, "皮肤", () -> showSkinMenu(skinButton));
         skinButton.setContentDescription("切换键盘皮肤");
