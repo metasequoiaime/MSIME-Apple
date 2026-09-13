@@ -157,4 +157,29 @@ int main() {
   // fluent names no selected colour, so rows keep their normal one.
   require(fluent_dark.selected_text.a == 0.0f &&
           fluent_dark.selected_number.a == 0.0f);
+
+  // The toolbar follows the same skin but resolves light/dark from its own
+  // preference, and the shipped default skin uses a lighter accent than the
+  // card - the drag handle and hover tint are drawn from it.
+  require(same(toolbar_palette("fluent", true).accent, 0x8E / 255.0f,
+               0x8C / 255.0f, 0xD8 / 255.0f, 1.0f));
+  require(toolbar_palette("fluent", true).accent != defaults.accent);
+  require(same(toolbar_palette("", true).accent, 0x8E / 255.0f, 0x8C / 255.0f,
+               0xD8 / 255.0f, 1.0f));
+  // An external skin id is not a built-in, so it keeps the default accent too.
+  require(toolbar_palette("nord", true).accent ==
+          toolbar_palette("fluent", true).accent);
+  // Every shipped skin keeps its own accent, which is what makes the toolbar
+  // look like the card the user chose.
+  for (const bool dark : {false, true}) {
+    require(toolbar_palette("wechat", dark).accent ==
+            candidate_builtin_palette("wechat", dark).accent);
+    require(toolbar_palette("graphite", dark).accent ==
+            candidate_builtin_palette("graphite", dark).accent);
+    require(toolbar_palette("willow_green", dark).accent ==
+            candidate_builtin_palette("willow_green", dark).accent);
+  }
+  // Light and dark remain distinct surfaces.
+  require(toolbar_palette("wechat", true).surface !=
+          toolbar_palette("wechat", false).surface);
 }

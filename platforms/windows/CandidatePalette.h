@@ -214,6 +214,18 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
   }
   return palette;
 }
+// The floating toolbar's own palette.
+//
+// It follows the same skin as the candidate card but resolves its light/dark
+// choice from its own preference, and the shipped toolbar uses a lighter
+// accent than the card for the default skin. Every other skin shares the card's
+// accent, which is what the drag handle and hover tint are drawn from.
+inline CandidatePalette toolbar_palette(const std::string &skin, bool dark) {
+  auto palette = candidate_builtin_palette(skin, dark);
+  if (!candidate_builtin_skin(skin) || skin == "fluent" || skin.empty())
+    palette.accent = candidate_rgb(0x8E8CD8);
+  return palette;
+}
 inline CandidatePalette
 candidate_palette(const CandidatePaletteOverrides &overrides,
                   CandidatePalette palette = {}) {

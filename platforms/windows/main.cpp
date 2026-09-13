@@ -425,6 +425,22 @@ int wmain(int argc, wchar_t **argv) {
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
     auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
+    // The toolbar resolves light/dark from its own preference, independently
+    // of the candidate card: toolbar_theme is honoured on macOS and in the
+    // settings preview but was ignored by the Windows surface, which simply
+    // took the card's palette.
+    auto toolbar_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("toolbar_theme", std::string("follow"));
+      if (theme == "light")
+        return true;
+      if (theme == "dark")
+        return false;
+      // "follow" defers to the global theme, and that in turn to Windows.
+      const auto global = stored.value("theme", std::string("dark"));
+      return global == "light" ||
+             (global == "system" && !system_prefers_dark());
+    }());
     auto voice_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("voice_theme", std::string("follow"));
@@ -453,7 +469,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light, tsf_config, tsf_config_mutex,
+         toolbar_enabled, voice_light, toolbar_light, tsf_config, tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -462,6 +478,17 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          {
+            const auto theme =
+                preferences.value("toolbar_theme", std::string("follow"));
+            const auto global = preferences.value("theme", std::string("dark"));
+            toolbar_light->store(
+                theme == "light" ||
+                    (theme != "dark" &&
+                     (global == "light" ||
+                      (global == "system" && !system_prefers_dark()))),
+                std::memory_order_release);
+          }
           // 语音面板主题: follow / dark / light. The overlay has had the setter
           // all along, but nothing read the preference, so it was always dark.
           // The overlay is built later, so publish through a flag the loop
@@ -666,7 +693,10 @@ int wmain(int argc, wchar_t **argv) {
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    toolbar.set_palette(resolved_palette);
+    // The toolbar draws from the skin's own accent, not the card's overrides.
+    bool toolbar_dark_applied = !toolbar_light->load(std::memory_order_acquire);
+    toolbar.set_palette(
+        toolbar_palette(config.skin_id, toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -866,6 +896,11 @@ int wmain(int argc, wchar_t **argv) {
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+      if (const bool dark = !toolbar_light->load(std::memory_order_acquire);
+          dark != toolbar_dark_applied) {
+        toolbar_dark_applied = dark;
+        toolbar.set_palette(toolbar_palette(config.skin_id, dark));
+      }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
       // but nothing ever supplied its fullscreen argument, leaving the whole
