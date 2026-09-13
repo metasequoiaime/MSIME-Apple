@@ -266,7 +266,7 @@ struct PreviewConfig {
       const int coordinate = value.at(key).get<int>();
       if (coordinate < -32768 || coordinate > 32767)
         throw std::invalid_argument("Invalid floating toolbar position");
-      if (key[19] == 'x') result.floating_toolbar_x = coordinate;
+      if (std::string_view(key).back() == 'x') result.floating_toolbar_x = coordinate;
       else result.floating_toolbar_y = coordinate;
     }
     if (value.contains("floating_toolbar_items")) {
