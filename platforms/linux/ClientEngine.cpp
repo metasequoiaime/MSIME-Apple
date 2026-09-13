@@ -253,6 +253,7 @@ struct State {
   bool voice_stopping = false;
   bool voice_requires_control = false;
   uint64_t voice_generation = 0;
+  uint64_t voice_failure_generation = 0;
   std::string voice_preedit;
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
@@ -2628,6 +2629,11 @@ struct VoiceResult {
   bool provider_failed = false;
   bool inline_preedit = false;
 };
+struct VoiceFailureNotice {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t generation;
+};
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
   std::function<void(uint8_t)> status;
@@ -2713,6 +2719,7 @@ void voice_cancel(IBusEngine *engine) {
     s.wave_overlay_surface->hide();
   s.wave_overlay_visible = false;
   s.voice_generation = 0;
+  s.voice_failure_generation = 0;
   s.voice_preedit.clear();
   s.voice_transcript.clear();
   s.wave_overlay.transcript.clear();
@@ -2721,6 +2728,45 @@ void voice_cancel(IBusEngine *engine) {
   if (s.session)
     render(engine, s.view);
   publish_mode(engine);
+}
+void show_voice_failure(IBusEngine *engine, uint64_t generation,
+                        const char *message) {
+  auto &s = state(engine);
+  s.voice_failure_generation = generation;
+  s.wave_overlay = {};
+  s.wave_overlay.status = message;
+  s.wave_overlay.show_transcript = false;
+  s.wave_overlay.actions_visible = false;
+  s.wave_overlay.listening = false;
+  if (s.wave_overlay_surface) {
+    if (s.wave_overlay_visible)
+      s.wave_overlay_surface->update(s.wave_overlay);
+    else
+      s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
+  }
+  ibus_engine_update_auxiliary_text(
+      engine, ibus_text_new_from_static_string(message), TRUE);
+  auto *notice = new VoiceFailureNotice{engine, s.alive, generation};
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 1200,
+      +[](gpointer data) -> gboolean {
+        std::unique_ptr<VoiceFailureNotice> notice(
+            static_cast<VoiceFailureNotice *>(data));
+        if (!notice->alive->load())
+          return G_SOURCE_REMOVE;
+        auto &s = state(notice->engine);
+        if (!s.voice_active &&
+            s.voice_failure_generation == notice->generation) {
+          if (s.wave_overlay_visible && s.wave_overlay_surface) {
+            s.wave_overlay_surface->hide();
+            s.wave_overlay_visible = false;
+            s.wave_overlay = {};
+          }
+          s.voice_failure_generation = 0;
+        }
+        return G_SOURCE_REMOVE;
+      },
+      notice, nullptr);
 }
 void voice_stop(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2741,10 +2787,10 @@ void voice_stop(IBusEngine *engine) {
     }
   }
   if (!stopped) {
+    const auto generation = s.voice_generation;
     voice_cancel(engine);
-    ibus_engine_update_auxiliary_text(engine,
-        ibus_text_new_from_static_string(
-            "结束录音失败，本次语音已取消，请检查语音服务后重试"), TRUE);
+    show_voice_failure(engine, generation,
+                       "结束录音失败，本次语音已取消，请检查语音服务后重试");
   } else {
     s.voice_stopping = true;
     s.voice_phase = "正在识别…";
@@ -2778,6 +2824,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.wave_overlay_visible = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
+  s.voice_failure_generation = 0;
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
@@ -2915,6 +2962,7 @@ void voice_start_impl(IBusEngine *engine) {
               }
               try {
                 if (result->text.empty()) {
+                  const auto generation = result->generation;
                   msime_client_string_free(msime_client_voice_cancel(s.session));
                   s.voice_active = false;
                   s.voice_generation = 0;
@@ -2924,10 +2972,10 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
-                  ibus_engine_update_auxiliary_text(result->engine,
-                      ibus_text_new_from_static_string(result->provider_failed
-                          ? "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"
-                          : "未识别到文字，请重新录音"), TRUE);
+                  show_voice_failure(result->engine, generation,
+                                     result->provider_failed
+                                         ? "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"
+                                         : "未识别到文字，请重新录音");
                   return G_SOURCE_REMOVE;
                 }
                 auto applied = response(msime_client_voice_apply(
@@ -2952,6 +3000,7 @@ void voice_start_impl(IBusEngine *engine) {
                 render(result->engine, s.view);
                 publish_mode(result->engine);
               } catch (...) {
+                const auto generation = result->generation;
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
@@ -2961,8 +3010,8 @@ void voice_start_impl(IBusEngine *engine) {
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 render(result->engine, s.view);
                 publish_mode(result->engine);
-                ibus_engine_update_auxiliary_text(result->engine,
-                    ibus_text_new_from_static_string("语音结果处理失败，请重新录音"), TRUE);
+                show_voice_failure(result->engine, generation,
+                                   "语音结果处理失败，请重新录音");
               }
               return G_SOURCE_REMOVE;
             },
@@ -2978,9 +3027,8 @@ void voice_start(IBusEngine *engine) {
     // Configuration and Host API errors may contain private values. Only
     // show a fixed message after dropping any partially started generation.
     voice_cancel(engine);
-    ibus_engine_update_auxiliary_text(engine,
-        ibus_text_new_from_static_string(
-            "无法启动语音输入，请检查语音设置后重试"), TRUE);
+    show_voice_failure(engine, 0,
+                       "无法启动语音输入，请检查语音设置后重试");
   }
 }
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
