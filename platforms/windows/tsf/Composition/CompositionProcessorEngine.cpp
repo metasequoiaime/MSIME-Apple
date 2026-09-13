@@ -753,6 +753,23 @@ std::wstring CCompositionProcessorEngine::ResolvePunctuation(WCHAR wch, WCHAR pr
     return punctuation ? std::wstring(punctuation) : std::wstring();
 }
 
+void CCompositionProcessorEngine::BalanceNestPairAfterAutoClose(WCHAR openingCode)
+{
+    for (UINT k = 0; k < _PunctuationNestPair.Count(); k++)
+    {
+        CPunctuationNestPair *pPuncNestPair = _PunctuationNestPair.GetAt(k);
+
+        if (pPuncNestPair->_punctuation_begin._Code == openingCode)
+        {
+            if (pPuncNestPair->_nestCount > 0)
+            {
+                --pPuncNestPair->_nestCount;
+            }
+            return;
+        }
+    }
+}
+
 //+---------------------------------------------------------------------------
 //
 // IsDoubleSingleByte
