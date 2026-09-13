@@ -13,7 +13,9 @@ constexpr DWORD aux_backoff_ms = 20;
 
 std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
                                                  Sink sink, DWORD &error,
-                                                 MessageSink message_sink) {
+                                                 MessageSink message_sink,
+                                                 ActivationSink activation,
+                                                 TerminalSink terminal) {
   error = ERROR_SUCCESS;
   if (!sink) {
     error = ERROR_INVALID_PARAMETER;
@@ -31,6 +33,8 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
   aux->listener_ = std::move(listener);
   aux->sink_ = std::move(sink);
   aux->message_sink_ = std::move(message_sink);
+  aux->activation_ = std::move(activation);
+  aux->terminal_ = std::move(terminal);
   aux->worker_ = std::thread([raw = aux.get()] { raw->run(); });
   return aux;
 }
@@ -103,6 +107,34 @@ void AuxListener::run() {
     }
     if (message_sink_)
       message_sink_(*text);
+    if (const auto activation = parse_aux_activation(*text)) {
+      if (activation_)
+        activation_(*activation);
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      ++stats_.dispatched;
+      continue;
+    }
+    if (const auto terminal = parse_aux_terminal_deactivation(*text)) {
+      // The DLL polls this pipe for a literal "OK" and blocks its TSF thread
+      // for 150 ms without one. Answer only once the client really is gone:
+      // an unconditional "OK" would tell the DLL a teardown happened that did
+      // not, which is worse than the wait.
+      const bool done = terminal_ && terminal_(*terminal);
+      if (done) {
+        static constexpr wchar_t ok[] = L"OK";
+        const std::vector<uint8_t> reply(
+            reinterpret_cast<const uint8_t *>(ok),
+            reinterpret_cast<const uint8_t *>(ok) + sizeof(wchar_t) * 2);
+        (void)write_frame(accepted.connection->handle(), reply,
+                          aux_read_timeout_ms, cancel_);
+      }
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      if (done)
+        ++stats_.dispatched;
+      else
+        ++stats_.unknown_verb;
+      continue;
+    }
     const auto click = parse_aux_langbar_right_click(*text);
     if (!click) {
       // The other Aux verbs are not this listener's business; drop them without

@@ -709,6 +709,10 @@ int wmain(int argc, wchar_t **argv) {
         },
         [&] { return toolbar_visible; });
     tray.set_palette(resolved_palette);
+    // Starts true: the Server is launched by the TIP, so the IME is active by
+    // the time this runs, and waiting for the first edge would hide the toolbar
+    // until the user switched focus once.
+    std::atomic<bool> ime_active{true};
     // The language bar sends a right click over the Aux pipe; without a
     // listener the tray menu - and with it every shared-shell entry - is
     // unreachable. A failure here costs the menu, never the IME.
@@ -727,7 +731,17 @@ int wmain(int argc, wchar_t **argv) {
             restart_requested.store(true);
             stopping.store(true);
           }
+        },
+        [&ime_active](AuxActivation activation) {
+          ime_active.store(activation == AuxActivation::Activated,
+                           std::memory_order_release);
         });
+    // TerminalDeactivation is parsed and routed, but deliberately left
+    // unacknowledged: there is no path in this Server that can deactivate a
+    // client by focus token yet, and replying "OK" would tell the DLL a
+    // teardown happened that did not. The 150 ms wait it then takes is the
+    // lesser problem, and the listener now has the hook ready for when the
+    // registry grows that operation.
     if (!aux)
       std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
     // The four shortcuts the shared settings page documents. They must work
@@ -799,8 +813,12 @@ int wmain(int argc, wchar_t **argv) {
       // but nothing ever supplied its fullscreen argument, leaving the whole
       // predicate dead outside its unit test.
       const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
+      // The DLL's activation edges, not the mode view: a temporary focus
+      // suspension (Win+. for instance) empties the view without deactivating
+      // anything, and gating on the view made the toolbar blink away each time.
       const bool show_toolbar = ShouldShowFloatingToolbar(
-          toolbar_visible, fullscreen, server.mode_view().has_value());
+          toolbar_visible, fullscreen,
+          ime_active.load(std::memory_order_acquire));
       toolbar.refresh(show_toolbar);
       // The listener thread owns no window; the anchor is applied here, on the
       // thread that created the tray card.

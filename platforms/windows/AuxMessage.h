@@ -114,6 +114,53 @@ parse_aux_langbar_right_click(const std::wstring &text) {
   return click;
 }
 
+// The activation edges the TSF DLL reports.
+//
+// These matter because "the mode view is empty" is not the same thing as "the
+// IME is off": a temporary thread-focus suspension - Win+. opening the emoji
+// panel, for instance - empties the view without deactivating anything. Gating
+// the floating toolbar on the view alone made it blink away on every such
+// suspension. The reference warns about exactly this and tracks the edges.
+enum class AuxActivation { Activated, Deactivated };
+inline std::optional<AuxActivation> parse_aux_activation(const std::wstring &text) {
+  if (text == L"IMEActivation")
+    return AuxActivation::Activated;
+  if (text == L"IMEDeactivation")
+    return AuxActivation::Deactivated;
+  return std::nullopt;
+}
+
+// TerminalDeactivation|<clientId>|<focusToken>
+//
+// The DLL falls back to this when its Main-pipe deactivate write fails, and
+// then polls the Aux pipe for a literal "OK" for up to 150 ms. Leaving it
+// unanswered blocks the sending TSF thread for that whole window.
+struct AuxTerminalDeactivation {
+  int32_t client_id = 0;
+  int32_t focus_token = 0;
+};
+inline std::optional<AuxTerminalDeactivation>
+parse_aux_terminal_deactivation(const std::wstring &text) {
+  static constexpr std::wstring_view verb = L"TerminalDeactivation";
+  if (text.size() <= verb.size() || text.compare(0, verb.size(), verb) != 0 ||
+      text[verb.size()] != L'|')
+    return std::nullopt;
+  std::wstring_view rest(text);
+  rest.remove_prefix(verb.size() + 1);
+  const auto separator = rest.find(L'|');
+  if (separator == std::wstring_view::npos)
+    return std::nullopt;
+  const auto client = detail::aux_field(rest.substr(0, separator));
+  const auto token = detail::aux_field(rest.substr(separator + 1));
+  if (!client || !token)
+    return std::nullopt;
+  // Both identifiers are positive on the wire; zero or negative means the DLL
+  // never had a real client, so there is nothing to deactivate.
+  if (*client <= 0 || *token <= 0)
+    return std::nullopt;
+  return AuxTerminalDeactivation{*client, *token};
+}
+
 // Anchor the card on the button. The centre is computed as left + width / 2
 // rather than (left + right) / 2 so a rectangle far from the origin cannot
 // overflow on the way.

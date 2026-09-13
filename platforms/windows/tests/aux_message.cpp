@@ -91,7 +91,32 @@ int main() {
     const auto newline = wire(L"LangbarRightClick|1|2|3|4\n");
     require(!aux_text_from_bytes(newline.data(), newline.size()));
 
-    std::cout << "Aux message: langbar rectangle parsed, malformed rejected\n";
+    // The activation edges. "Mode view is empty" is not "the IME is off": a
+  // temporary focus suspension empties the view without deactivating anything,
+  // and gating the toolbar on the view alone made it blink away every time.
+  require(parse_aux_activation(L"IMEActivation") == AuxActivation::Activated);
+  require(parse_aux_activation(L"IMEDeactivation") == AuxActivation::Deactivated);
+  require(!parse_aux_activation(L"IMEActivation|1"));
+  require(!parse_aux_activation(L"imeactivation"));
+  require(!parse_aux_activation(L""));
+  require(!parse_aux_activation(L"LangbarRightClick|1|2|3|4"));
+
+  // TerminalDeactivation carries a client id and a focus token, both positive.
+  const auto terminal = parse_aux_terminal_deactivation(L"TerminalDeactivation|7|42");
+  require(terminal && terminal->client_id == 7 && terminal->focus_token == 42);
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7|42|9"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|0|42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7|0"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|-1|42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|a|42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation"));
+  require(!parse_aux_terminal_deactivation(L"IMEActivation"));
+  // The verbs never claim each other's messages.
+  require(!parse_aux_langbar_right_click(L"TerminalDeactivation|7|42"));
+  require(!parse_aux_terminal_deactivation(L"LangbarRightClick|1|2|3|4"));
+
+  std::cout << "Aux message: langbar rectangle parsed, malformed rejected\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << "\n";

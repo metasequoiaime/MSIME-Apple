@@ -91,8 +91,16 @@ int main() {
       const auto name = isolated_name(1);
       Collected collected;
       DWORD error = ERROR_SUCCESS;
+      std::atomic<int> activations{0};
+      std::atomic<int> deactivations{0};
       auto listener = AuxListener::create(
-          name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error);
+          name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
+          [&](AuxActivation activation) {
+            if (activation == AuxActivation::Activated)
+              ++activations;
+            else
+              ++deactivations;
+          });
       require(listener != nullptr);
       const auto dispatched = [&] { return listener->stats().dispatched; };
       require(deliver(name, L"LangbarRightClick|100|200|140|240", dispatched, 1));
@@ -108,11 +116,27 @@ int main() {
       require(collected.wait_for(6));
       require(listener->stats().dispatched == 6);
 
-      // An unknown verb is counted and dropped, and the endpoint keeps working.
-      require(deliver(name, L"IMEActivation",
+      // The activation edges reach their own sink rather than being dropped.
+      // Gating the toolbar on the mode view instead made it blink away on any
+      // temporary focus suspension.
+      // The sink runs before the dispatch counter advances, so once deliver
+      // observes the count the callback has already been seen.
+      require(deliver(name, L"IMEDeactivation", dispatched, 7));
+      require(deactivations.load() == 1 && activations.load() == 0);
+      require(deliver(name, L"IMEActivation", dispatched, 8));
+      require(activations.load() == 1);
+      require(listener->stats().unknown_verb == 0);
+
+      // A genuinely unknown verb is still counted and dropped, and the
+      // endpoint keeps working afterwards.
+      require(deliver(name, L"SomethingElse|1",
                       [&] { return listener->stats().unknown_verb; }, 1));
       require(listener->stats().unknown_verb == 1);
-      require(deliver(name, L"LangbarRightClick|10|10|50|50", dispatched, 7));
+      // TerminalDeactivation parses but is deliberately not acknowledged while
+      // no deactivation path exists, so it counts as unhandled.
+      require(deliver(name, L"TerminalDeactivation|7|42",
+                      [&] { return listener->stats().unknown_verb; }, 2));
+      require(deliver(name, L"LangbarRightClick|10|10|50|50", dispatched, 9));
       require(collected.wait_for(7));
 
       // A client that connects and never writes must not wedge the endpoint.

@@ -28,9 +28,16 @@ class AuxListener final {
 public:
   using Sink = std::function<void(const TrayMenuAnchor &)>;
   using MessageSink = std::function<void(const std::wstring &)>;
+  // The IME activation edges reported by the TSF DLL.
+  using ActivationSink = std::function<void(AuxActivation)>;
+  // Return true once the client really has been deactivated; only then is the
+  // "OK" the DLL is waiting on written back.
+  using TerminalSink = std::function<bool(const AuxTerminalDeactivation &)>;
   static std::unique_ptr<AuxListener> create(const std::wstring &name,
                                              Sink sink, DWORD &error,
-                                             MessageSink message_sink = {});
+                                             MessageSink message_sink = {},
+                                             ActivationSink activation = {},
+                                             TerminalSink terminal = {});
   ~AuxListener();
   AuxListener(const AuxListener &) = delete;
   AuxListener &operator=(const AuxListener &) = delete;
@@ -46,6 +53,8 @@ private:
   std::unique_ptr<PipeListener> listener_;
   Sink sink_;
   MessageSink message_sink_;
+  ActivationSink activation_;
+  TerminalSink terminal_;
   HANDLE cancel_ = nullptr;
   std::thread worker_;
   std::mutex stop_mutex_;
