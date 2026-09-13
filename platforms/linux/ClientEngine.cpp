@@ -2886,7 +2886,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.wave_overlay.transcript.clear();
               } else {
                 s.voice_transcript = std::move(text);
-                s.wave_overlay.transcript = s.voice_transcript;
+                s.wave_overlay.set_transcript(s.voice_transcript);
                 s.voice_preedit.clear();
               }
               render(result->engine, s.view);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <utility>
 
 namespace msime::linux_host {
 
@@ -15,6 +16,19 @@ struct WaveOverlayModel {
   bool show_transcript = true;
   bool actions_visible = false;
   std::string transcript;
+
+  void set_transcript(std::string value) {
+    constexpr std::size_t kVisibleCharacters = 160;
+    std::size_t count = 0;
+    for (auto it = value.rbegin(); it != value.rend(); ++it) {
+      if ((static_cast<unsigned char>(*it) & 0xc0) != 0x80) ++count;
+      if (count == kVisibleCharacters) {
+        value.erase(0, static_cast<std::size_t>(it.base() - value.begin() - 1));
+        break;
+      }
+    }
+    transcript = std::move(value);
+  }
   Action pressed_action = Action::Confirm;
   CompactStatus compact_status = CompactStatus::None;
 
