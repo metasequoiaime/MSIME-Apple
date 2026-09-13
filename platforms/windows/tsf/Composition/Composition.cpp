@@ -79,6 +79,44 @@ HRESULT SafeRangeShiftStart(_In_ ITfRange *range, TfEditCookie ec, LONG count, _
     }
 #endif
 }
+
+HRESULT SafeRangeShiftEnd(_In_ ITfRange *range, TfEditCookie ec, LONG count, _Out_ LONG *shifted)
+{
+    if (range == nullptr || shifted == nullptr)
+    {
+        return E_INVALIDARG;
+    }
+
+#ifdef __MINGW32__
+    return range->ShiftEnd(ec, count, shifted, nullptr);
+#else
+    __try
+    {
+        return range->ShiftEnd(ec, count, shifted, nullptr);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        *shifted = 0;
+        return E_FAIL;
+    }
+#endif
+}
+
+bool AreCaretModifiersPhysicallyDown()
+{
+    // VK_LWIN/VK_RWIN matter as much as Shift here: Win+Left is the window snap
+    // shortcut, so an arrow released into a held Win chord rearranges the
+    // desktop instead of moving the caret.
+    static const int keys[] = {VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN};
+    for (int key : keys)
+    {
+        if ((GetAsyncKeyState(key) & 0x8000) != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
 } // namespace
 
 WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
@@ -145,6 +183,51 @@ WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContex
     return preceding;
 }
 
+WCHAR CMetasequoiaIME::_GetFollowingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    if (pContext == nullptr)
+    {
+        return 0;
+    }
+
+    TF_SELECTION tfSelection = {};
+    ULONG fetched = 0;
+    if (FAILED(pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &tfSelection, &fetched)) || fetched != 1 ||
+        tfSelection.range == nullptr)
+    {
+        return 0;
+    }
+
+    ITfRange *pClone = nullptr;
+    WCHAR following = 0;
+    HRESULT hr = tfSelection.range->Clone(&pClone);
+    if (SUCCEEDED(hr) && pClone != nullptr)
+    {
+        hr = pClone->Collapse(ec, TF_ANCHOR_END);
+        if (SUCCEEDED(hr))
+        {
+            LONG shifted = 0;
+            hr = SafeRangeShiftEnd(pClone, ec, 1, &shifted);
+            if (SUCCEEDED(hr) && shifted == 1)
+            {
+                // Terminals and other shallow text stores accept the shift but
+                // expose no text, leaving following at 0.
+                WCHAR buffer[2] = {};
+                ULONG got = 0;
+                hr = SafeRangeGetText(pClone, ec, 0, buffer, 1, &got);
+                if (SUCCEEDED(hr) && got == 1)
+                {
+                    following = buffer[0];
+                }
+            }
+        }
+        pClone->Release();
+    }
+
+    tfSelection.range->Release();
+    return following;
+}
+
 WCHAR CMetasequoiaIME::_GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     if (_smartPunctuationShadowValid)
@@ -152,6 +235,230 @@ WCHAR CMetasequoiaIME::_GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In
         return _smartPunctuationShadowChar;
     }
     return _GetPrecedingDocumentChar(ec, pContext);
+}
+
+WCHAR CMetasequoiaIME::_GetPairedPunctuationClosingFor(WCHAR opening)
+{
+    switch (opening)
+    {
+    case L'“':
+        return L'”';
+    case L'‘':
+        return L'’';
+    case L'【':
+        return L'】';
+    case L'{':
+        return L'}';
+    case L'《':
+        return L'》';
+    case L'〈':
+        return L'〉';
+    case L'（':
+        return L'）';
+    default:
+        return 0;
+    }
+}
+
+void CMetasequoiaIME::_PushPairedPunctuation(WCHAR opening, WCHAR closing)
+{
+    if (opening == 0 || closing == 0)
+    {
+        return;
+    }
+
+    if (_pairedPunctuationStack.size() >= PAIRED_PUNCTUATION_MAX_DEPTH)
+    {
+        _pairedPunctuationStack.erase(_pairedPunctuationStack.begin());
+    }
+
+    PairedPunctuationEntry entry;
+    entry.opening = opening;
+    entry.closing = closing;
+    entry.focusToken = _CaptureFocusSessionToken();
+    _pairedPunctuationStack.push_back(entry);
+}
+
+void CMetasequoiaIME::_ClearPairedPunctuationStack()
+{
+    _pairedPunctuationStack.clear();
+}
+
+bool CMetasequoiaIME::_TryStepOverPairedPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR closing)
+{
+    if (closing == 0 || _pairedPunctuationStack.empty())
+    {
+        return false;
+    }
+
+    const PairedPunctuationEntry top = _pairedPunctuationStack.back();
+    if (top.closing != closing || !_IsFocusSessionCurrent(top.focusToken, pContext))
+    {
+        _ClearPairedPunctuationStack();
+        return false;
+    }
+
+    // Mouse clicks and host-side edits can move the caret without a key event,
+    // so verify the closing half when the text store exposes it.
+    const WCHAR following = _GetFollowingDocumentChar(ec, pContext);
+    if (following != 0 && following != closing)
+    {
+        _ClearPairedPunctuationStack();
+        return false;
+    }
+
+    _pairedPunctuationStack.pop_back();
+    _ResetSmartPunctuationHistory();
+    _InvalidateSmartPunctuationShadow();
+    _QueuePairedPunctuationCaretMove(1);
+    return true;
+}
+
+void CMetasequoiaIME::_NoteKeyForPairedPunctuation(UINT code)
+{
+    if (_pairedPunctuationStack.empty() && _pendingPairedCaretDelta == 0)
+    {
+        return;
+    }
+
+    switch (code)
+    {
+    case VK_SHIFT:
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_CONTROL:
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_MENU:
+    case VK_LMENU:
+    case VK_RMENU:
+    case VK_CAPITAL:
+        return;
+    case VK_BACK:
+    case VK_DELETE:
+    case VK_INSERT:
+    case VK_RETURN:
+    case VK_TAB:
+    case VK_ESCAPE:
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_UP:
+    case VK_DOWN:
+    case VK_HOME:
+    case VK_END:
+    case VK_PRIOR:
+    case VK_NEXT:
+        _ClearPairedPunctuationStack();
+        _CancelPairedPunctuationCaretMove();
+        return;
+    default:
+        break;
+    }
+
+    if (!_pairedPunctuationStack.empty() && !_IsFocusSessionCurrent(_pairedPunctuationStack.back().focusToken))
+    {
+        _ClearPairedPunctuationStack();
+    }
+}
+
+void CMetasequoiaIME::_CancelPairedPunctuationCaretMove()
+{
+    if (_pairedCaretRetryTimerActive && _msgWndHandle != nullptr)
+    {
+        KillTimer(_msgWndHandle, TIMER_PAIRED_PUNCTUATION_CARET);
+    }
+    _pairedCaretRetryTimerActive = false;
+    _pendingPairedCaretDelta = 0;
+    _pendingPairedCaretFocusToken = 0;
+    _pendingPairedCaretDeadline = 0;
+}
+
+void CMetasequoiaIME::_QueuePairedPunctuationCaretMove(int delta)
+{
+    if (delta == 0 || _msgWndHandle == nullptr)
+    {
+        return;
+    }
+
+    const uint64_t focusToken = _CaptureFocusSessionToken();
+    if (focusToken == 0)
+    {
+        return;
+    }
+
+    if (_pendingPairedCaretDelta != 0 && _pendingPairedCaretFocusToken == focusToken)
+    {
+        delta += _pendingPairedCaretDelta;
+    }
+
+    delta = max(-PAIRED_PUNCTUATION_CARET_MAX_STEPS, min(PAIRED_PUNCTUATION_CARET_MAX_STEPS, delta));
+    if (delta == 0)
+    {
+        _CancelPairedPunctuationCaretMove();
+        return;
+    }
+
+    _pendingPairedCaretDelta = delta;
+    _pendingPairedCaretFocusToken = focusToken;
+    _pendingPairedCaretDeadline = GetTickCount64() + PAIRED_PUNCTUATION_CARET_TIMEOUT_MS;
+
+    if (!PostMessage(_msgWndHandle, WM_PairedPunctuationCaretMove, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
+                     static_cast<LPARAM>((focusToken >> 32) & 0xFFFFFFFFULL)))
+    {
+        _CancelPairedPunctuationCaretMove();
+    }
+}
+
+void CMetasequoiaIME::_RunPairedPunctuationCaretMove()
+{
+    if (_pendingPairedCaretDelta == 0)
+    {
+        _CancelPairedPunctuationCaretMove();
+        return;
+    }
+
+    if (!_IsFocusSessionCurrent(_pendingPairedCaretFocusToken) || GetTickCount64() > _pendingPairedCaretDeadline)
+    {
+        _ClearPairedPunctuationStack();
+        _CancelPairedPunctuationCaretMove();
+        return;
+    }
+
+    if (AreCaretModifiersPhysicallyDown())
+    {
+        if (!_pairedCaretRetryTimerActive && _msgWndHandle != nullptr)
+        {
+            _pairedCaretRetryTimerActive = SetTimer(_msgWndHandle, TIMER_PAIRED_PUNCTUATION_CARET,
+                                                    PAIRED_PUNCTUATION_CARET_RETRY_MS, nullptr) != 0;
+            if (!_pairedCaretRetryTimerActive)
+            {
+                _ClearPairedPunctuationStack();
+                _CancelPairedPunctuationCaretMove();
+            }
+        }
+        return;
+    }
+
+    const int delta = _pendingPairedCaretDelta;
+    const WORD vk = delta < 0 ? VK_LEFT : VK_RIGHT;
+    const int steps = delta < 0 ? -delta : delta;
+
+    INPUT inputs[PAIRED_PUNCTUATION_CARET_MAX_STEPS * 2] = {};
+    for (int i = 0; i < steps; ++i)
+    {
+        inputs[i * 2].type = INPUT_KEYBOARD;
+        inputs[i * 2].ki.wVk = vk;
+        inputs[i * 2].ki.dwExtraInfo = PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO;
+        inputs[i * 2 + 1] = inputs[i * 2];
+        inputs[i * 2 + 1].ki.dwFlags = KEYEVENTF_KEYUP;
+    }
+
+    _CancelPairedPunctuationCaretMove();
+    if (SendInput(static_cast<UINT>(steps * 2), inputs, sizeof(INPUT)) != static_cast<UINT>(steps * 2))
+    {
+        _ClearPairedPunctuationStack();
+    }
+    _InvalidateSmartPunctuationShadow();
 }
 
 void CMetasequoiaIME::_ResetSmartPunctuationHistory()
@@ -288,6 +595,9 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
     }
 
     _UpdateSmartPunctuationShadow(code, wch, isEaten);
+    // Self-generated caret moves are filtered by the key sinks before they can
+    // reach this bookkeeping path.
+    _NoteKeyForPairedPunctuation(code);
 
     if (_smartPunctuationKey == 0)
     {
