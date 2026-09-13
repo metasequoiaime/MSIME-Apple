@@ -315,6 +315,17 @@ pub enum TranslationTargetLanguage {
     Ko,
 }
 
+/// The character width used by desktop hosts for printable ASCII output.
+/// This is separate from `floating_toolbar.fullwidth`, which controls whether
+/// the toolbar exposes the width switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CharacterWidthPreference {
+    #[default]
+    Halfwidth,
+    Fullwidth,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -332,6 +343,8 @@ pub struct Preferences {
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
+    #[serde(default)]
+    pub character_width: CharacterWidthPreference,
     #[serde(default)]
     pub theme: ThemeMode,
     #[serde(default)]
@@ -968,6 +981,7 @@ impl Default for Preferences {
             tencent_tmt: TencentTmtPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
+            character_width: CharacterWidthPreference::default(),
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
@@ -1804,6 +1818,42 @@ mod tests {
         };
         let saved = store.save(0, preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
+    }
+
+    #[test]
+    fn character_width_defaults_for_legacy_files_and_roundtrips() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("character_width");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.character_width,
+            CharacterWidthPreference::Halfwidth
+        );
+
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    character_width: CharacterWidthPreference::Fullwidth,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.character_width,
+            CharacterWidthPreference::Fullwidth
+        );
+        let document = serde_json::to_value(saved).unwrap();
+        assert_eq!(document["preferences"]["character_width"], "fullwidth");
+
+        let mut invalid = document["preferences"].clone();
+        invalid["character_width"] = "invalid".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 
     #[test]

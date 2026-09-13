@@ -382,6 +382,7 @@ struct State {
     if (scheme_override) preferences["scheme"] = *scheme_override;
     if (shuangpin_profile_override) preferences["shuangpin_profile"] = *shuangpin_profile_override;
     if (candidate_page_size_override) preferences["candidate_page_size"] = *candidate_page_size_override;
+    fullwidth = preferences.value("character_width", "halfwidth") == "fullwidth";
     if (layout_override) preferences["candidate_layout"] = *layout_override;
     if (preedit_override) preferences["tsf_preedit_style"] = *preedit_override;
     if (theme_override) preferences["candidate_theme"] = *theme_override;
@@ -523,6 +524,7 @@ struct State {
         preferences.value("punctuation_lock", "follow"));
     chinese_punctuation = punctuation_override.value_or(
         preferences.value("chinese_punctuation", true));
+    fullwidth = preferences.value("character_width", "halfwidth") == "fullwidth";
     if (punctuation_lock == "chinese")
       chinese_punctuation = true;
     else if (punctuation_lock == "english")

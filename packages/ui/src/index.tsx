@@ -182,6 +182,7 @@ export type Preferences = {
   candidate_translations?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
+  character_width?: "halfwidth" | "fullwidth";
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
