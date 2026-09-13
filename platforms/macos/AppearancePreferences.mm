@@ -774,6 +774,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         if (!_sharedNavigation) _sharedNavigation = [NSMutableDictionary dictionary];
         for (NSArray *entry in NavigationControls())
             if (LocalModeBoolean(navigation[entry[0]])) _sharedNavigation[entry[0]] = navigation[entry[0]];
+        // Windows names this shared switch candidate_arrow_navigation; accept
+        // it at the Apple boundary while retaining navigation.arrows locally.
+        if (navigation[@"candidate_arrow_navigation"] != nil)
+            _sharedNavigation[@"arrows"] = @([navigation[@"candidate_arrow_navigation"] boolValue]);
     }
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
