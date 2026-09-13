@@ -156,13 +156,13 @@ msime-client-ibus-launcher
 
 两个参数必须是绝对路径，状态目录必须尚不存在且父目录已存在。命令通过 Host API 按固定的 `desktop-dictionary.lock.json` 校验资源目录及其资源，再准备 Engine 用户数据、缓存和偏好配置；以 0700 创建状态目录，以 0600 原子发布 `runtime-options.json`，成功时输出配置路径。失败时保留已准备的数据，不覆盖已有目录或配置；重试需另选全新目录。若希望启动器自动发现配置，可将新状态目录选为 `$XDG_CONFIG_HOME/msime-client`（未设置时为 `$HOME/.config/msime-client`），并事先准备其父目录。自定义位置的 `MSIME_IBUS_OPTIONS` 需传入实际启动 IBus 的会话环境。
 
-若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。这样可以直接使用已安装资源准备状态：
+若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。这样可以直接使用已安装资源准备状态：
 
 ```sh
 msime-client-prepare --installed /absolute/new-state
 ```
 
-`--installed` 通过 `/proc/self/exe` 的实际路径定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
+`--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 
 Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写入 `preferences.json`，随后以原子替换同步同一 HostOptions 的 `preferences` 到 `MSIME_IBUS_OPTIONS`，或 `MSIME_CLIENT_HOST_OPTIONS` 指向的 `runtime-options.json`；未设置前者时，桌面应用也可直接用 `MSIME_IBUS_OPTIONS` 作为 HostOptions 来源。这样正在运行的 IBus 预览宿主可以通过已有文件监听接收新设置；同步失败会把保存命令报告为存储错误，避免界面误报已同步。
 

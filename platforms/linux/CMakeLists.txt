@@ -108,6 +108,11 @@ add_executable(msime-client-dictionary dictionary_request.cpp)
 add_executable(msime-client-prepare prepare_host.cpp)
 target_compile_options(msime-client-prepare PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-prepare PRIVATE msime-ibus-host)
+file(RELATIVE_PATH MSIME_INSTALLED_RESOURCE_RELATIVE_DIR
+     "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/resources")
+target_compile_definitions(msime-client-prepare PRIVATE
+  MSIME_INSTALLED_RESOURCE_RELATIVE_DIR="${MSIME_INSTALLED_RESOURCE_RELATIVE_DIR}")
 target_compile_options(msime-client-dictionary PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-dictionary PRIVATE msime-ibus-host)
 add_executable(msime-client-cloud-dictionary cloud_dictionary_request.cpp)
@@ -216,8 +221,20 @@ if(MSIME_ENGINE_RESOURCES)
            artifacts ${MSIME_ENGINE_RESOURCE_INDEX} name)
     set(MSIME_ENGINE_RESOURCE_FILE "${MSIME_ENGINE_RESOURCES}/${MSIME_ENGINE_RESOURCE_NAME}")
     if(NOT EXISTS "${MSIME_ENGINE_RESOURCE_FILE}" OR
-       IS_DIRECTORY "${MSIME_ENGINE_RESOURCE_FILE}")
+       IS_DIRECTORY "${MSIME_ENGINE_RESOURCE_FILE}" OR
+       IS_SYMLINK "${MSIME_ENGINE_RESOURCE_FILE}")
       message(FATAL_ERROR "Missing Engine resource ${MSIME_ENGINE_RESOURCE_NAME} in ${MSIME_ENGINE_RESOURCES}")
+    endif()
+    string(JSON MSIME_ENGINE_RESOURCE_SIZE GET "${MSIME_ENGINE_RESOURCE_LOCK}"
+           artifacts ${MSIME_ENGINE_RESOURCE_INDEX} size)
+    string(JSON MSIME_ENGINE_RESOURCE_SHA256 GET "${MSIME_ENGINE_RESOURCE_LOCK}"
+           artifacts ${MSIME_ENGINE_RESOURCE_INDEX} sha256)
+    file(SIZE "${MSIME_ENGINE_RESOURCE_FILE}" MSIME_ENGINE_RESOURCE_ACTUAL_SIZE)
+    file(SHA256 "${MSIME_ENGINE_RESOURCE_FILE}" MSIME_ENGINE_RESOURCE_ACTUAL_SHA256)
+    if(NOT MSIME_ENGINE_RESOURCE_ACTUAL_SIZE STREQUAL MSIME_ENGINE_RESOURCE_SIZE OR
+       NOT MSIME_ENGINE_RESOURCE_ACTUAL_SHA256 STREQUAL MSIME_ENGINE_RESOURCE_SHA256)
+      message(FATAL_ERROR
+        "Engine resource ${MSIME_ENGINE_RESOURCE_NAME} does not match the reviewed lock")
     endif()
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/resources")
