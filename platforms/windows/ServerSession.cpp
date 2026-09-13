@@ -180,6 +180,43 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
     throw std::logic_error("Candidate selection while input disabled");
   return response(msime_client_select(session_, generation, index));
 }
+std::optional<std::string> ServerSession::online_query(uint64_t epoch) {
+  check_active(epoch);
+  try {
+    const auto value = response(msime_client_online_query(session_));
+    if (value.is_null() || !value.is_object())
+      return std::nullopt;
+    auto serialized = value.dump();
+    if (serialized.empty() || serialized.size() > 16384)
+      return std::nullopt;
+    return serialized;
+  } catch (...) {
+    // Cloud candidates are optional. A provider/query serialization failure
+    // must not fail the input queue after Engine input has already advanced.
+    return std::nullopt;
+  }
+}
+std::optional<nlohmann::json>
+ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
+                                     const std::string &body) {
+  check_active(epoch);
+  if (query.empty() || query.size() > 16384 || body.empty() ||
+      body.size() > 256 * 1024)
+    return std::nullopt;
+  try {
+    const auto value = response(msime_client_apply_cloud_response(
+        session_, reinterpret_cast<const uint8_t *>(query.data()),
+        query.size(), reinterpret_cast<const uint8_t *>(body.data()),
+        body.size()));
+    if (!value.is_object() || !value.value("applied", false) ||
+        !value.contains("view") || !value.at("view").is_object())
+      return std::nullopt;
+    return value.at("view");
+  } catch (...) {
+    // Malformed/stale provider data is a no-op, never a reason to stop input.
+    return std::nullopt;
+  }
+}
 nlohmann::json ServerSession::update_preferences(uint64_t epoch,
                                                  const std::string &snapshot) {
   check_active(epoch);

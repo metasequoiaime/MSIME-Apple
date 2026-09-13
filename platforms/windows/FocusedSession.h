@@ -34,6 +34,9 @@ public:
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
+  std::optional<nlohmann::json>
+  apply_cloud_response(const FocusLease &lease, const std::string &query,
+                       const std::string &body);
   // Recover the staged result without rerunning Engine. This does NOT permit
   // blindly resending a frame whose previous delivery is uncertain.
   std::optional<PendingReply> pending(const FocusLease &lease);
@@ -56,6 +59,8 @@ public:
 private:
   void check_thread() const;
   bool prepared(const FocusLease &lease) const;
+  void attach_online_query(const FocusLease &lease,
+                           std::optional<PendingReply> &reply);
   FocusGate &gate_;
   uint64_t client_;
   const std::thread::id thread_ = std::this_thread::get_id();

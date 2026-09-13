@@ -17,6 +17,21 @@ SessionController::SessionController(
       stop_service_(std::move(stop_service)), interval_(interval),
       presentation_(std::move(presentation)), event_(std::move(event)),
       input_(focus_, clients, input_capacity, std::move(options)),
+      cloud_([this](CloudCandidateWorker::Result result) {
+        try {
+          (void)input_.submit(
+              [this, result = std::move(result)](InputState &state) mutable {
+                if (stopping_ || !transport_.current(result.lease.transport))
+                  return;
+                auto view = state.apply_cloud_response(
+                    result.lease, result.query, result.body);
+                if (view)
+                  candidates_.online(result.lease, *view);
+              });
+        } catch (...) {
+          // Optional provider delivery must never stop the input queue.
+        }
+      }),
       workers_(
           transport, input_, focus_, clients, std::move(key),
           [this](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
@@ -37,6 +52,10 @@ SessionController::SessionController(
              modes_.disconnected(ticket);
              if (presentation_.disconnected)
                presentation_.disconnected(ticket);
+           },
+           [this](const FocusLease &lease, const PendingReply &reply) {
+             if (reply.online_query)
+               (void)cloud_.submit(lease, *reply.online_query);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
@@ -224,6 +243,7 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
 }
 void SessionController::request_stop() {
   stopping_ = true;
+  cloud_.request_stop();
   candidates_.stop();
   modes_.stop();
   inbox_.close();
@@ -276,6 +296,7 @@ void SessionController::run() {
   } catch (...) {
     failure_ = ControllerFailure::Control;
   }
+  cloud_.stop();
   workers_.stop();
   input_.stop();
   if (preferences_)

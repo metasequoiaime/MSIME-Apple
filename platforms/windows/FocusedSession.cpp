@@ -11,6 +11,11 @@ bool FocusedSession::prepared(const FocusLease &lease) const {
          lease_->token == lease.token &&
          same_ticket(lease_->transport, lease.transport);
 }
+void FocusedSession::attach_online_query(
+    const FocusLease &lease, std::optional<PendingReply> &reply) {
+  if (reply)
+    reply->online_query = session_.online_query(lease.epoch);
+}
 bool FocusedSession::prepare(const FocusLease &lease) {
   check_thread();
   if (lease.transport.client != client_)
@@ -44,6 +49,7 @@ FocusedSession::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   gate_.with_active(lease, [&] {
     result = composer_->dispatch(session_, packet, lease.epoch, path, uiless,
                                  std::move(local_text));
+    attach_online_query(lease, result);
   });
   return result;
 }
@@ -52,7 +58,10 @@ std::optional<PendingReply> FocusedSession::edit(const FocusLease &lease,
   check_thread();
   if (!prepared(lease)) return std::nullopt;
   std::optional<PendingReply> result;
-  gate_.with_active(lease, [&] { result = composer_->edit(session_, packet, lease.epoch, style); });
+  gate_.with_active(lease, [&] {
+    result = composer_->edit(session_, packet, lease.epoch, style);
+    attach_online_query(lease, result);
+  });
   return result;
 }
 std::optional<PendingReply> FocusedSession::basic_key(
@@ -65,6 +74,7 @@ std::optional<PendingReply> FocusedSession::basic_key(
   gate_.with_active(lease, [&] {
     result = composer_->basic_key(session_, packet, lease.epoch, style,
                                   std::move(local_text));
+    attach_online_query(lease, result);
   });
   return result;
 }
@@ -78,6 +88,7 @@ FocusedSession::navigate(const FocusLease &lease,
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
     result = composer_->navigate(session_, packet, lease.epoch, bindings);
+    attach_online_query(lease, result);
   });
   return result;
 }
@@ -102,6 +113,7 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
     result = composer_->select_candidate(session_, session, generation, index);
+    attach_online_query(lease, result);
   });
   return result;
 }
@@ -175,6 +187,19 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   return true;
 }
 std::optional<nlohmann::json>
+FocusedSession::apply_cloud_response(const FocusLease &lease,
+                                     const std::string &query,
+                                     const std::string &body) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    result = session_.apply_cloud_response(lease.epoch, query, body);
+  });
+  return result;
+}
+std::optional<nlohmann::json>
 FocusedSession::update_preferences(const FocusLease &lease,
                                    const std::string &snapshot) {
   check_thread();
@@ -233,6 +258,7 @@ std::optional<PendingReply> FocusedSession::configured_key(
     result = composer_->configured_key(session_, packet, lease.epoch, style,
                                        bindings, std::move(local_text),
                                        word_binding);
+    attach_online_query(lease, result);
   });
   return result;
 }

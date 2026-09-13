@@ -177,11 +177,15 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (!enqueue([&, lease = *route.route,
                     request = reply->source.request_id](InputState &state) {
             delivered = state.delivered(lease, request);
-            if (delivered && presentation_.delivered)
-              focus_.with_active(lease, [&] {
-                if (transport_.current(ticket))
+            if (delivered) {
+              if (presentation_.delivered)
+                focus_.with_active(lease, [&] {
+                  if (transport_.current(ticket))
                   presentation_.delivered(lease, *reply, *packet);
-              });
+                });
+              if (reply->online_query && presentation_.online)
+                presentation_.online(lease, *reply);
+            }
           }))
         return PumpResult::QueueUnavailable;
       if (!delivered && focus_.with_active(*route.route, [] {}))

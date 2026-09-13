@@ -16,6 +16,31 @@ public:
       suppressed_ = false;
     }
   }
+  // Replace Engine-owned candidate data after an asynchronous cloud result.
+  // Coordinates and the selected prefix belong to the existing presentation.
+  void online(const FocusLease &lease, const nlohmann::json &view) {
+    std::lock_guard lock(mutex_);
+    try {
+      if (stopped_ || !latest_ || latest_->lease.epoch != lease.epoch ||
+          latest_->lease.token != lease.token ||
+          !same_ticket(latest_->lease.transport, lease.transport))
+        return;
+      if (view.at("session").get<uint64_t>() != latest_->session ||
+          view.at("generation").get<uint64_t>() <= latest_->generation)
+        return;
+      const auto text = view.at("preedit").get<std::string>();
+      if (latest_->preedit.size() < text.size() ||
+          latest_->preedit.compare(latest_->preedit.size() - text.size(),
+                                   text.size(), text) != 0)
+        return;
+      const auto prefix = latest_->preedit.substr(
+          0, latest_->preedit.size() - text.size());
+      latest_ = candidate_presentation_from_view(lease, view, latest_->x,
+                                                 latest_->y, prefix);
+    } catch (...) {
+      // Provider data is optional; malformed/stale projections are ignored.
+    }
+  }
   // Input queue under the active focus gate, like delivered(). Hide follows
   // successful Engine cancellation; show/move never manufacture composition.
   void event(const FocusLease &lease, const FanyImeNamedpipeData &packet) {

@@ -26,6 +26,9 @@ struct PendingReply {
   std::optional<EncodedReply> encoded;
   std::string next_prefix;
   std::optional<UiSelectionFrames> ui_selection = std::nullopt;
+  // A copied, bounded query for the optional asynchronous cloud provider.
+  // It is submitted only after this reply has been delivered and confirmed.
+  std::optional<std::string> online_query = std::nullopt;
 };
 // One instance per authenticated client activation, on the Server input queue.
 // prefix is transport presentation state: text already selected by Engine but

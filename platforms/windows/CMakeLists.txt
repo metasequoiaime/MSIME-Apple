@@ -184,7 +184,7 @@ if(WIN32)
   else()
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
-  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
+  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp CloudCandidateWorker.cpp)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
                  DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp

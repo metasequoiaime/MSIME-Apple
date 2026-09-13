@@ -51,6 +51,10 @@ public:
                                            uint64_t epoch,
                                            const NavigationBindings &bindings);
   nlohmann::json select(uint64_t epoch, uint64_t generation, size_t index);
+  std::optional<std::string> online_query(uint64_t epoch);
+  std::optional<nlohmann::json>
+  apply_cloud_response(uint64_t epoch, const std::string &query,
+                       const std::string &body);
   nlohmann::json update_preferences(uint64_t epoch,
                                     const std::string &snapshot);
   nlohmann::json view() const;

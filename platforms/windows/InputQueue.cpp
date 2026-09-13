@@ -185,6 +185,15 @@ bool InputState::cancel_composition(const FocusLease &lease) {
   return owner && owner->cancel_composition(lease);
 }
 std::optional<nlohmann::json>
+InputState::apply_cloud_response(const FocusLease &lease,
+                                 const std::string &query,
+                                 const std::string &body) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->apply_cloud_response(lease, query, body)
+               : std::nullopt;
+}
+std::optional<nlohmann::json>
 InputState::update_preferences(const FocusLease &lease,
                                const std::string &snapshot) {
   check_thread();

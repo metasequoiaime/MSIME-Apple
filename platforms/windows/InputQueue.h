@@ -31,6 +31,9 @@ public:
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
   bool cancel_composition(const FocusLease &lease);
+  std::optional<nlohmann::json>
+  apply_cloud_response(const FocusLease &lease, const std::string &query,
+                       const std::string &body);
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index);
   bool ui_delivered(const FocusLease &lease, uint64_t generation);

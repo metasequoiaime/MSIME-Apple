@@ -30,6 +30,9 @@ public:
     // Not guaranteed on queue failure: consumers must also clear on server stop
     // and revalidate the lease when rendering.
     std::function<void(const PipeTicket &)> disconnected;
+    // Input queue after the original reply is confirmed. The callback may
+    // submit bounded work to an external provider, but must not perform I/O.
+    std::function<void(const FocusLease &, const PendingReply &)> online;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},

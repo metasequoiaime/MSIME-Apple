@@ -20,6 +20,44 @@ struct CandidatePresentation {
   std::string preedit;
   std::vector<PresentationCandidate> candidates;
 };
+inline CandidatePresentation
+candidate_presentation_from_view(const FocusLease &lease,
+                                 const nlohmann::json &view, int x, int y,
+                                 const std::string &prefix) {
+  CandidatePresentation output{lease,
+                               view.at("session").get<uint64_t>(),
+                               view.at("generation").get<uint64_t>(),
+                               false,
+                               x,
+                               y,
+                               {},
+                               {}};
+  if (!view.at("focused").get<bool>() ||
+      view.at("editing_text").get<std::string>().empty())
+    return output;
+  const auto text = view.at("preedit").get<std::string>();
+  if (prefix.size() > 4096 ||
+      text.size() > 4096 - prefix.size() || view.at("candidates").size() > 9)
+    throw std::invalid_argument("Oversized candidate presentation");
+  output.preedit = prefix + text;
+  size_t highlighted = 0;
+  for (const auto &candidate : view.at("candidates")) {
+    const auto &id = candidate.at("id");
+    PresentationCandidate item{
+        id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
+        id.at("index").get<size_t>(), candidate.at("text").get<std::string>(),
+        candidate.at("highlighted").get<bool>()};
+    if (item.session != output.session ||
+        item.generation != output.generation || item.text.size() > 4096)
+      throw std::invalid_argument("Invalid presented candidate");
+    highlighted += item.highlighted;
+    output.candidates.push_back(std::move(item));
+  }
+  if (!output.candidates.empty() && highlighted != 1)
+    throw std::invalid_argument("Invalid candidate highlight");
+  output.visible = true;
+  return output;
+}
 // Value-only projection. Call only from the confirmed-delivery callback.
 // A future UI consumer must revalidate focus before displaying or clicking.
 inline CandidatePresentation
