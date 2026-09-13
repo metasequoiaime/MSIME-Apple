@@ -2516,6 +2516,9 @@ int main() {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
+        id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         TestCloudCandidateScheduling();
         TestCloudCandidateEngineDelivery();
         TestAiCandidateEngineDelivery();
@@ -3337,6 +3340,8 @@ int main() {
         method_setImplementation(fontMethod, originalMonospacedFont);
         assert(missingKeyFontCalls > 0);
         [defaults removePersistentDomainForName:suite];
+        if (previousVoiceHoldSpace) [standardDefaults setObject:previousVoiceHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
     }
     return 0;
 }
