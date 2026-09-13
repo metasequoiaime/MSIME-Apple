@@ -1434,6 +1434,22 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   panel.unmount();
 });
 
+test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const downloadToLocal = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
+  const panel = render(<CloudDictionaryPanel client={{ close, request, downloadToLocal }} />);
+  expect(await screen.findByText("你")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "下载到本机 你" }));
+  expect(confirm).toHaveBeenCalledWith("确认将云词条“你”加入本机个人词典？");
+  await waitFor(() => expect(downloadToLocal).toHaveBeenCalledWith(entry));
+  expect(screen.getByRole("status").textContent).toContain("云词条已加入本机词典队列");
+  confirm.mockRestore();
+  panel.unmount();
+});
+
 test("cloud dictionary snapshot requires preview and explicit confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

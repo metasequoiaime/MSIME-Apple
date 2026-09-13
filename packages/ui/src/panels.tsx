@@ -91,6 +91,7 @@ export type CloudDictionaryResponse = { previewToken?: string; snapshot?: CloudD
 export interface CloudDictionaryPanelClient extends PanelClient {
   request(action: CloudDictionaryAction): Promise<CloudDictionaryResponse>;
   snapshot?: boolean;
+  downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;
   openCandidates?(): Promise<void>;
   back?(): Promise<void>;
@@ -1206,6 +1207,15 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }, "云词条删除失败，请刷新后重试");
   }
 
+  function downloadToLocal(entry: CloudDictionaryEntry) {
+    if (busyRef.current || !client.downloadToLocal || !window.confirm(`确认将云词条“${entry.word}”加入本机个人词典？`)) return;
+    const download = client.downloadToLocal;
+    return run(async revision => {
+      await download(entry);
+      if (revision === refreshRevision.current) setNotice("云词条已加入本机词典队列");
+    }, "加入本机词典失败，请重试");
+  }
+
   function importFile(file: File) {
     if (busyRef.current) return;
     if (file.size > 65536) { setNotice("导入文件不能超过 64 KiB"); return; }
@@ -1257,7 +1267,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       {client.snapshot && snapshotStatus?.request && <div className="cloud-dictionary-notice" role="status">快照状态：{snapshotStatus.request.status} · 云端 revision {snapshotStatus.request.cloudRevision}{(snapshotStatus.request.status === "queued" || snapshotStatus.request.status === "preparing") && <button type="button" className="secondary" onClick={() => void cancelSnapshot()} disabled={snapshotBusy}>取消待应用</button>}</div>}
       {client.snapshot && restorePreview && <div className="cloud-dictionary-notice" role="status"><p>待恢复快照：云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</p><p>词条 {restorePreview.snapshot.entries} · 覆盖 {restorePreview.snapshot.overlays} · 固定 {restorePreview.snapshot.positions} · 选择 {restorePreview.snapshot.selections}</p><small>当前云端 revision：{restorePreview.expectedRevision} · SHA-256：{restorePreview.snapshot.sha256}</small><div><button type="button" onClick={() => void restoreSnapshot()} disabled={snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={snapshotBusy}>放弃恢复</button></div></div>}
       {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
-      <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
+      <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span>{client.downloadToLocal && <button type="button" className="secondary" aria-label={`下载到本机 ${entry.word}`} onClick={() => void downloadToLocal(entry)} disabled={busy}>下载到本机</button>}<button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
       <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
     </div>

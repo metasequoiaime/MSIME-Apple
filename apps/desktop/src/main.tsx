@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -158,6 +158,17 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   cloudDictionary: {
     close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
     request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
+    ...(/\bAndroid\b/i.test(navigator.userAgent) ? {
+      downloadToLocal: async (entry: CloudDictionaryEntry) => {
+        if (!dictionary.importPersonal) throw new Error("personal dictionary import is unavailable");
+        const text = JSON.stringify({
+          format: "msime-personal-dictionary",
+          version: 1,
+          entries: [{ kind: entry.kind === "quick" ? "quickPhrase" : entry.kind, key: entry.code, value: entry.word, weight: entry.weight }],
+        });
+        await dictionary.importPersonal(text, `ui-cloud-download-${Date.now()}`);
+      },
+    } : {}),
     snapshot: /\bAndroid\b/i.test(navigator.userAgent),
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[]; unavailable?: ("emoji" | "kaomoji" | "symbols")[] }>("load_emoji_catalog"), clipboard: {
