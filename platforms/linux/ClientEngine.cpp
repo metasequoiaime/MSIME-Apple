@@ -9,6 +9,7 @@
 #include "VoiceWorker.h"
 #include "WaveOverlayModel.h"
 #include "WaveOverlayIbusSurface.h"
+#include "WaveOverlaySurfaceFactory.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -5351,8 +5352,7 @@ void destroy(IBusObject *object) {
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
   engine->state->wave_overlay_surface =
-      std::make_unique<msime::linux_host::WaveOverlayIbusSurface>(
-          IBUS_ENGINE(engine));
+      msime::linux_host::create_wave_overlay_surface(IBUS_ENGINE(engine));
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.
   if (configured.is_object())

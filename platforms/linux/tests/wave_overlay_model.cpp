@@ -1,6 +1,8 @@
 #include "../WaveOverlayModel.h"
 #include "../WaveOverlayIbusSurface.h"
+#include "../WaveOverlaySurfaceFactory.h"
 #include <cassert>
+#include <cstdlib>
 
 int main() {
   msime::linux_host::WaveOverlayModel model;
@@ -27,4 +29,7 @@ int main() {
   const auto locked = msime::linux_host::wave_overlay_feedback_text(model);
   assert(locked.find("录音已锁定") == 0);
   assert(locked.find("麦克风 [") == std::string::npos);
+  unsetenv("MSIME_WAVE_OVERLAY_BACKEND");
+  unsetenv("DISPLAY");
+  assert(msime::linux_host::create_wave_overlay_surface(nullptr));
 }
