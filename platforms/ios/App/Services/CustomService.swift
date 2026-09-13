@@ -139,6 +139,8 @@ struct ServiceFailure: LocalizedError {
 struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   var provider: AIProviderPreset = .custom
   var voiceProvider: VoiceProviderPreset = .custom
+  var voiceAppKey = ""
+  var voiceResourceID = ""
   var endpoint = ""
   var model = ""
   var prompt = "请润色以下文字，保持原意，只返回修改后的文字。"
@@ -150,6 +152,8 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
     }
     if kind == .voice {
       result.voiceProvider = VoiceProviderPreset(rawValue: defaults.string(forKey: "service.voice.provider") ?? "") ?? .custom
+      result.voiceAppKey = defaults.string(forKey: "service.voice.app_key") ?? ""
+      result.voiceResourceID = defaults.string(forKey: "service.voice.resource_id") ?? ""
     }
     result.endpoint = defaults.string(forKey: "service.\(kind.rawValue).endpoint") ?? ""
     result.model = defaults.string(forKey: "service.\(kind.rawValue).model") ?? ""
@@ -221,6 +225,8 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
       if !previous.endpoint.isEmpty { previous.storeVoicePreset(in: defaults) }
       storeVoicePreset(in: defaults)
       defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
+      defaults.set(voiceAppKey, forKey: "service.voice.app_key")
+      defaults.set(voiceResourceID, forKey: "service.voice.resource_id")
     }
     defaults.set(url.absoluteString, forKey: "service.\(kind.rawValue).endpoint")
     defaults.set(model.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "service.\(kind.rawValue).model")
