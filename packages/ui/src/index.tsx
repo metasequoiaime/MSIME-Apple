@@ -12,6 +12,7 @@ import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
 import { SecretInput } from "./secret-input";
 import { asrProviderUpdate, polishProviderUpdate } from "./voice-providers";
+import { POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt } from "./polish-presets";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
@@ -32,6 +33,7 @@ import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
 export type { SkinFont, SkinFontReader } from "./skin-font";
+export { POLISH_CUSTOM_IDS, POLISH_PRESETS, POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt, type PolishPresetId } from "./polish-presets";
 export { ASR_PROVIDER_DEFAULTS, POLISH_PROVIDER_DEFAULTS, asrProviderUpdate, polishProviderUpdate, type ProviderDefaults } from "./voice-providers";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
@@ -1004,6 +1006,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   };
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const tencentTmt = draft?.tencent_tmt ?? defaultTencentTmt;
+  // Which prompt slot the 润色方案 select is on, and the text that slot means.
+  // A preset resolves to its shipped prompt; a custom slot to whatever the user
+  // stored in it. Selecting a preset used to change an id with nothing behind
+  // it, leaving the textarea showing something unrelated.
+  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
+  const polishSlotField = (slot: string): string | undefined =>
+    isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
+  const polishPromptFor = (slot: string, current: VoiceInputPreferences): string => {
+    const field = polishSlotField(slot);
+    if (!field) return polishPresetPrompt(slot);
+    return (current as Record<string, unknown>)[field] as string ?? "";
+  };
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
@@ -1608,11 +1622,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <label className="section-header"><span className="section-title">润色接口地址<small>留空使用当前 provider 默认地址</small></span><input aria-label="润色接口地址" type="url" value={voiceInput.polish_endpoint ?? ""} onChange={event => updateVoice({ polish_endpoint: event.target.value })} /></label>
             <label className="section-header"><span className="section-title">润色 API Token<small>仅保存在本机设置中</small></span><SecretInput label="润色 API Token" value={voiceInput.polish_token ?? ""} onChange={value => updateVoice({ polish_token: value })} /></label>
           </>}
-          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={voiceInput.polish_prompt_id === "custom" ? "custom_1" : voiceInput.polish_prompt_id ?? "cleanup"} onChange={event => updateVoice({ polish_prompt_id: event.target.value })}><option value="cleanup">清理口语</option><option value="faithful">忠实原文</option><option value="zh2en">中译英</option><option value="casual">自然口语</option><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
-          <label className="section-header"><span className="section-title">润色提示词</span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词一</span><textarea aria-label="自定义提示词一" value={voiceInput.polish_prompt_custom_1 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_1: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词二</span><textarea aria-label="自定义提示词二" value={voiceInput.polish_prompt_custom_2 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_2: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词三</span><textarea aria-label="自定义提示词三" value={voiceInput.polish_prompt_custom_3 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_3: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={polishSlot} onChange={event => updateVoice({ polish_prompt_id: event.target.value, polish_prompt: polishPromptFor(event.target.value, voiceInput) })}>{POLISH_PRESET_IDS.map(id => <option key={id} value={id}>{POLISH_PRESET_NAMES[id]}</option>)}<option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
+          <label className="section-header polish-prompt-row"><span className="section-title">润色提示词<small>{isPolishCustomSlot(polishSlot) ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}</small></span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value, ...(polishSlotField(polishSlot) ? { [polishSlotField(polishSlot) as string]: event.target.value } : {}) })} /></label>
+          <button type="button" className="secondary" disabled={(voiceInput.polish_prompt ?? "") === polishPromptFor(polishSlot, voiceInput)} onClick={() => updateVoice({ polish_prompt: polishPromptFor(polishSlot, voiceInput) })}>恢复默认</button>
         </div>
         <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
           {([[
@@ -1635,8 +1647,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Math.max(1, Math.min(10, Number(event.target.value) || 3)) })} /></label></div>
-        {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>}
-        <div className="section"><label className="section-title">{linuxPlatform ? "兼容提示词" : "AI 润色提示词"}<small>{linuxPlatform ? "旧版提示词，所选自定义槽位留空时使用" : "Android 只发送选中文字，并要求服务仅返回修改结果"}</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
+        <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>
+        <div className="section"><label className="section-title">兼容提示词<small>旧版提示词，所选自定义槽位留空时使用</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={ai.prompt_custom_1} onChange={event => updateAi({ prompt_custom_1: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={ai.prompt_custom_2} onChange={event => updateAi({ prompt_custom_2: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={ai.prompt_custom_3} onChange={event => updateAi({ prompt_custom_3: event.target.value })} /></div>

@@ -355,7 +355,11 @@ test("voice settings persist under the shared voice_input contract", async () =>
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration" },
+    // Picking a provider now also writes that provider's endpoint and model.
+    // That is the point of the change: the shipped endpoint default is Doubao's
+    // websocket URL, and leaving it behind routed other providers' tokens to
+    // ByteDance.
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "" },
   });
 });
 
