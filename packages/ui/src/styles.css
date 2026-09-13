@@ -429,8 +429,8 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .voice-panel-body h1 { margin: 0; font-size: 22px; text-align: center; }
 .voice-panel-description, .voice-panel-notice { margin: 0; color: #aeb0b7; font-size: 13px; text-align: center; }
 .voice-panel-language { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #d7d7dc; font-size: 13px; }
-.voice-panel-language select, .voice-panel-body textarea { border: 1px solid #45454f; border-radius: 7px; background: #2b2b33; color: #f5f5f7; }
-.voice-panel-language select { min-width: 190px; padding: 8px; }
+.voice-panel-language input, .voice-panel-body textarea { border: 1px solid #45454f; border-radius: 7px; background: #2b2b33; color: #f5f5f7; }
+.voice-panel-language input { min-width: 190px; padding: 8px; }
 .voice-panel-record, .voice-panel-submit { min-height: 42px; border: 0; border-radius: 8px; font-weight: 600; }
 .voice-panel-record { background: #d88bde; color: #241c26; }
 .voice-panel-submit { background: #3a3945; color: #f5f5f7; }
