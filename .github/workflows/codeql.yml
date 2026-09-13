@@ -71,3 +71,9 @@ jobs:
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           category: '/language:swift'
+      - name: Show what the Swift extractor reported
+        # The analyze step only says that no Swift was extracted; the reason sits in the extractor's diagnostics and the tracer log, which the failed-run SARIF does not expose.
+        if: ${{ failure() }}
+        run: |
+          find "$RUNNER_TEMP/codeql_databases" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
+          tail -n 100 "$RUNNER_TEMP/codeql_databases/log/build-tracer.log" 2>/dev/null || true
