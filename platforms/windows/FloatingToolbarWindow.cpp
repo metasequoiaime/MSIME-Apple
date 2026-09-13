@@ -343,6 +343,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
   if (!self) return DefWindowProcW(window, message, w, l);
   try { switch (message) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_ACTIVATE:
+      if (self->shown_) self->refresh(true);
+      return 0;
     case WM_ERASEBKGND: return 1;
     case WM_POWERBROADCAST:
       if (w != PBT_APMRESUMEAUTOMATIC && w != PBT_APMRESUMECRITICAL &&
