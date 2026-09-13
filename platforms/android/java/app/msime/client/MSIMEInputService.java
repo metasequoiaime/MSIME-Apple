@@ -3154,8 +3154,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void installShortcutBar(Button dismissButton) {
         shortcutBar.removeAllViews();
-        Button[] buttons = {moreButton, schemeButton, replyShortcutButton, emojiShortcutButton,
-            voiceShortcutButton, skinButton, layoutSettingsButton, dismissButton};
+        // Keep the Apple shortcut order: more/brand, keyboard settings, reply, emoji, skin,
+        // scheme and dismiss. Android keeps its optional voice-result entry as a platform-specific
+        // extra beside the content tools rather than moving the deliberate scheme switch forward.
+        Button[] buttons = {moreButton, layoutSettingsButton, replyShortcutButton,
+            emojiShortcutButton, voiceShortcutButton, skinButton, schemeButton, dismissButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             shortcutBar.addView(button, new LinearLayout.LayoutParams(
