@@ -216,7 +216,7 @@ function DesktopSettings() {
       if (!active) return;
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
-        ? { ...client, host, ...(host.typing_statistics ? { typingStatistics } : {}) }
+        ? { ...client, host, ...(host.typing_statistics ? { typingStatistics } : {}), ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}) }
         : client;
       setSettingsClient(reader ? { ...hosted, listFontFamilies: reader } : hosted);
     });

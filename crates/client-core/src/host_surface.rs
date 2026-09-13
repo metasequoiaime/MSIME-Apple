@@ -82,6 +82,8 @@ pub struct HostCapabilities {
     pub ime_mode_scope: bool,
     /// The host records typing statistics.
     pub typing_statistics: bool,
+    /// The host exposes the shared fuzzy-pinyin settings.
+    pub fuzzy_pinyin: bool,
     /// The host can enumerate installed font families.
     pub system_fonts: bool,
     /// The shared UI draws its own titlebar and resize handles.
@@ -114,6 +116,10 @@ impl HostCapabilities {
             // IBus keeps a session-wide mode; the other hosts track it per application.
             ime_mode_scope: platform == HostPlatform::Linux,
             typing_statistics: true,
+            // Linux and Android already apply the shared fuzzy-pinyin options;
+            // the remaining desktop hosts will opt in when their settings
+            // surfaces consume the contract.
+            fuzzy_pinyin: matches!(platform, HostPlatform::Linux | HostPlatform::Android),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
             floating_toolbar: platform.is_desktop(),
@@ -522,6 +528,9 @@ mod tests {
         // Typing statistics were previously gated on a user-agent match.
         assert!(android.typing_statistics);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).typing_statistics);
+        assert!(linux.fuzzy_pinyin);
+        assert!(android.fuzzy_pinyin);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Windows).fuzzy_pinyin);
     }
 
     #[test]

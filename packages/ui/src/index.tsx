@@ -155,6 +155,7 @@ export interface HostCapabilities {
   panel_windows: boolean;
   ime_mode_scope: boolean;
   typing_statistics: boolean;
+  fuzzy_pinyin: boolean;
   system_fonts: boolean;
   window_chrome: boolean;
   floating_toolbar: boolean;
@@ -445,7 +446,7 @@ export interface SettingsClient {
     copy?(text: string): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
-  /** Android exposes the Apple-parity fuzzy-pinyin settings; desktop hosts keep this absent. */
+  /** The host exposes the shared fuzzy-pinyin settings. */
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
   touchKeyboardSchemes?: boolean;
