@@ -306,8 +306,10 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSArray *endpoints = @[ @"", @"https://api.openai.com/v1/audio/transcriptions", @"https://api.siliconflow.cn/v1/audio/transcriptions", @"https://api.groq.com/openai/v1/audio/transcriptions", @"" ];
     NSArray *models = @[ @"", @"whisper-1", @"FunAudioLLM/SenseVoiceSmall", @"whisper-large-v3-turbo", @"" ];
     NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, endpoints.count - 1);
-    if (endpoints[index].length > 0) _endpoint.stringValue = endpoints[index];
-    if (models[index].length > 0) _model.stringValue = models[index];
+    NSString *endpoint = endpoints[index];
+    NSString *model = models[index];
+    if (endpoint.length > 0) _endpoint.stringValue = endpoint;
+    if (model.length > 0) _model.stringValue = model;
     _token.stringValue = @"";
     [self updateEnabled:nil];
 }
