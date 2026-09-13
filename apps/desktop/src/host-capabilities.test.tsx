@@ -14,7 +14,7 @@ const initial: Snapshot = {
 function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabilities {
   return {
     platform: "windows",
-    restart_input_method: false,
+    restart_input_method: true,
     panel_windows: true,
     ime_mode_scope: false,
     typing_statistics: true,

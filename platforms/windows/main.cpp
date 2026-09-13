@@ -8,6 +8,7 @@
 #include "ProductionDispatcher.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
+#include "WatchdogPolicy.h"
 #include "WindowsServer.h"
 #include "VoiceInputSession.h"
 #include "VoiceHotkey.h"
@@ -90,6 +91,7 @@ resolve_palette(const msime::windows::PreviewConfig &config) {
   }
 }
 std::atomic<bool> stopping{false};
+std::atomic<bool> restart_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
@@ -287,6 +289,17 @@ int wmain(int argc, wchar_t **argv) {
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);
         };
+    options.aux_pipe_name = production ? FANY_IME_AUX_NAMED_PIPE : L"";
+    options.aux_message = [&](const std::vector<uint8_t> &frame) {
+      if (frame.empty() || frame.size() % sizeof(wchar_t) != 0)
+        return;
+      const auto *message = reinterpret_cast<const wchar_t *>(frame.data());
+      const size_t length = frame.size() / sizeof(wchar_t);
+      if (std::wstring_view(message, length) == L"RestartServer") {
+        restart_requested.store(true);
+        stopping.store(true);
+      }
+    };
     WindowsServer server(
         options, prepared.at("value").dump(),
         production ? production_key_handler() : preview_key_handler(config),
@@ -570,6 +583,8 @@ int wmain(int argc, wchar_t **argv) {
     server.stop();
     clicks.stop();
     mode_clicks.stop();
+    if (restart_requested.load())
+      return msime::windows::watchdog::restart_exit_code;
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
                    !modes.failed() && !mode_clicks.failed()

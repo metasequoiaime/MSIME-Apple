@@ -29,7 +29,7 @@ use serde_json::Value;
 #[cfg(unix)]
 use std::collections::HashMap;
 use std::fs;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -933,7 +933,31 @@ struct HostActionError {
 
 #[tauri::command]
 fn restart_input_method() -> Result<(), HostActionError> {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        const pipe_name: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+        let payload: Vec<u8> = "RestartServer"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        for attempt in 0..5 {
+            match fs::OpenOptions::new().write(true).open(pipe_name) {
+                Ok(mut pipe) => {
+                    return pipe.write_all(&payload).map_err(|_| HostActionError {
+                        code: "unavailable",
+                    });
+                }
+                Err(_) if attempt < 4 => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         Err(HostActionError {
             code: "unavailable",

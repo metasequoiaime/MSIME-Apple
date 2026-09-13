@@ -114,8 +114,9 @@ impl HostCapabilities {
     pub fn for_platform(platform: HostPlatform) -> Self {
         HostCapabilities {
             platform,
-            // Only the IBus host exposes a restart entry point so far.
-            restart_input_method: platform == HostPlatform::Linux,
+            // Linux restarts IBus; Windows sends a request to the supervised
+            // native Server over its session-less auxiliary pipe.
+            restart_input_method: matches!(platform, HostPlatform::Windows | HostPlatform::Linux),
             panel_windows: platform.is_desktop(),
             // IBus keeps a session-wide mode; the other hosts track it per application.
             ime_mode_scope: platform == HostPlatform::Linux,
@@ -530,7 +531,7 @@ mod tests {
         assert!(!linux.candidate_selection_appearance);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
-        assert!(!windows.restart_input_method);
+        assert!(windows.restart_input_method);
         assert!(!windows.ime_mode_scope);
         assert!(windows.panel_windows);
         // These stay false until the Windows host actually consumes them;

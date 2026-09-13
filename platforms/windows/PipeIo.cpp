@@ -117,6 +117,21 @@ IoResult read_frame(HANDLE pipe, DWORD expected, DWORD timeout, HANDLE cancel) {
     result.frame = std::move(buffer);
   return result;
 }
+IoResult read_message(HANDLE pipe, DWORD max_bytes, DWORD timeout,
+                      HANDLE cancel) {
+  if (!max_bytes || max_bytes > MaxFrameBytes || !timeout || timeout == INFINITE)
+    return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};
+  std::vector<uint8_t> buffer(max_bytes);
+  auto result = transfer(pipe, buffer, false, timeout, cancel);
+  if (result.complete()) {
+    if (!result.transferred)
+      return {IoStatus::MalformedFrame, ERROR_BAD_LENGTH, 0, false, {}};
+    buffer.resize(result.transferred);
+    result.frame = std::move(buffer);
+  }
+  return result;
+}
+
 IoResult read_frame_until_cancel(HANDLE pipe, DWORD expected, HANDLE cancel) {
   if (!expected || expected > MaxFrameBytes || !cancel)
     return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};

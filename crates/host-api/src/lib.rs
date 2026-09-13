@@ -3041,7 +3041,7 @@ mod tests {
         assert_eq!(linux["value"]["ime_mode_scope"], true);
 
         let windows = capabilities("windows");
-        assert_eq!(windows["value"]["restart_input_method"], false);
+        assert_eq!(windows["value"]["restart_input_method"], true);
         assert_eq!(windows["value"]["panel_windows"], true);
         // Typing statistics used to be gated on an Android user-agent match.
         assert_eq!(windows["value"]["typing_statistics"], true);

@@ -9,7 +9,7 @@ for arch in x86_64 i686; do
   output="$repo_root/target/windows-cross/$arch"
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
-  for source in InputQueue.cpp SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp WindowsServer.cpp tests/server_smoke.cpp tests/input_queue.cpp tests/session_pump.cpp tests/session_workers.cpp tests/preference_monitor.cpp; do
+  for source in InputQueue.cpp SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp WindowsServer.cpp AuxPipeService.cpp tests/server_smoke.cpp tests/input_queue.cpp tests/session_pump.cpp tests/session_workers.cpp tests/preference_monitor.cpp; do
     "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include -Icrates/host-api/include \
       -Ivendor/MSIME-Engine/contracts -I"$json_include" -c "platforms/windows/$source" -o "$output/$(basename "$source").o"
   done

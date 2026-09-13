@@ -31,6 +31,24 @@ WindowsServer::WindowsServer(WindowsServerOptions options,
       [this] { service_->stop(); }, std::chrono::milliseconds(100),
       std::move(options.preferences_directory), std::move(presentation),
       std::move(options.preferences_published));
+  if (!options.aux_pipe_name.empty()) {
+    aux_ = std::make_unique<AuxPipeService>(
+        std::move(options.aux_pipe_name), std::move(options.aux_message));
+  }
 }
 WindowsServer::~WindowsServer() { stop(); }
+
+void WindowsServer::request_stop() {
+  if (aux_)
+    aux_->request_stop();
+  if (controller_)
+    controller_->request_stop();
+}
+
+void WindowsServer::stop() {
+  if (aux_)
+    aux_->stop();
+  if (controller_)
+    controller_->stop();
+}
 } // namespace msime::windows

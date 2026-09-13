@@ -1,4 +1,5 @@
 #pragma once
+#include "AuxPipeService.h"
 #include "PipeMainTransport.h"
 #include "PipeService.h"
 #include "SessionController.h"
@@ -12,6 +13,8 @@ struct WindowsServerOptions {
   std::string
       preferences_directory; // Explicit shared store; empty disables polling.
   PreferenceMonitor::Published preferences_published;
+  std::wstring aux_pipe_name; // Empty disables the session-less host-action pipe.
+  AuxPipeService::Message aux_message;
 };
 // Starts an actual native service when constructed. The caller must explicitly
 // choose names and implement native key/UI behavior; this never registers TSF.
@@ -25,8 +28,8 @@ public:
   ~WindowsServer();
   WindowsServer(const WindowsServer &) = delete;
   WindowsServer &operator=(const WindowsServer &) = delete;
-  void request_stop() { controller_->request_stop(); }
-  void stop() { controller_->stop(); }
+  void request_stop();
+  void stop();
   ControllerFailure failure() const { return controller_->failure(); }
   std::optional<CandidatePresentation> candidate_view() {
     return controller_->candidate_view();
@@ -62,5 +65,6 @@ private:
   std::unique_ptr<PipeService> service_;
   std::unique_ptr<PipeMainTransport> transport_;
   std::unique_ptr<SessionController> controller_;
+  std::unique_ptr<AuxPipeService> aux_;
 };
 } // namespace msime::windows
