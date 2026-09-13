@@ -276,6 +276,35 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
     return false;
   }
 }
+// Map the shared preferences onto the settings the TIP keeps in its own
+// globals. The TIP consumes every one of these, but nothing ever sent them, so
+// they sat at their compiled defaults: turning smart or paired punctuation off
+// did nothing, the Microsoft shuangpin ';' key was never enabled, and the
+// inline preedit style stayed "raw" whatever the user picked.
+msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
+  msime::windows::TsfLocalConfig config;
+  const auto keys = preferences.value("key_bindings", nlohmann::json::object());
+  config.paging_comma_period = keys.value("comma_period", false);
+  config.preedit_style = msime::windows::tsf_preedit_style(preferences);
+  // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
+  if (config.preedit_style == "local")
+    config.preedit_style = "raw";
+  config.smart_punctuation = preferences.value("smart_punctuation", true);
+  config.smart_punctuation_repeat_to_chinese =
+      preferences.value("smart_punctuation_repeat", true);
+  config.paired_punctuation = preferences.value("paired_punctuation", true);
+  config.microsoft_shuangpin =
+      preferences.value("scheme", std::string("quanpin")) == "shuangpin" &&
+      preferences.value("shuangpin_profile", std::string("xiaohe")) == "microsoft";
+  config.japanese_input_mode =
+      preferences.value("scheme", std::string("quanpin")) == "japanese";
+  config.tsf_diagnostic_log =
+      preferences.value("diagnostic_log", nlohmann::json::object())
+          .value("tsf", false);
+  const auto lock = preferences.value("punctuation_lock", std::string("follow"));
+  config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
+  return config;
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -390,6 +419,12 @@ int wmain(int argc, wchar_t **argv) {
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
+    auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
+        tsf_local_config(prepared.at("value").at("preferences")));
+    auto tsf_config_mutex = std::make_shared<std::mutex>();
+    // Set on every publication and on each focus session, so a TIP that
+    // registers later is not left holding compiled defaults.
+    auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
     auto voice_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("voice_theme", std::string("follow"));
@@ -418,7 +453,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light](const PreferenceSnapshot &snapshot) {
+         toolbar_enabled, voice_light, tsf_config, tsf_config_mutex,
+         tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           traditional_output->store(
@@ -432,6 +468,13 @@ int wmain(int argc, wchar_t **argv) {
           // applies.
           const auto voice_theme =
               preferences.value("voice_theme", std::string("follow"));
+          // Publish the TSF-local settings; the loop pushes them to the
+          // focused TIP, since the server is constructed after this handler.
+          {
+            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+            *tsf_config = tsf_local_config(preferences);
+            tsf_config_dirty->store(true, std::memory_order_release);
+          }
           voice_light->store(voice_theme == "light" ||
                                  (voice_theme == "follow" &&
                                   !system_prefers_dark()),
@@ -812,6 +855,19 @@ int wmain(int argc, wchar_t **argv) {
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
       // but nothing ever supplied its fullscreen argument, leaving the whole
       // predicate dead outside its unit test.
+      // Push the TSF-local settings whenever they changed, so turning smart
+      // punctuation off takes effect on the text being typed now.
+      if (tsf_config_dirty->load(std::memory_order_acquire)) {
+        if (const auto view = server.mode_view()) {
+          msime::windows::TsfLocalConfig pending;
+          {
+            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+            pending = *tsf_config;
+          }
+          if (server.send_tsf_config(view->lease, pending))
+            tsf_config_dirty->store(false, std::memory_order_release);
+        }
+      }
       const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
       // The DLL's activation edges, not the mode view: a temporary focus
       // suspension (Win+. for instance) empties the view without deactivating

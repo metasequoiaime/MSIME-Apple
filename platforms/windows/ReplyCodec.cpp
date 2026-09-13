@@ -197,6 +197,62 @@ std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode) {
     bytes[i] = static_cast<uint8_t>(type >> (8 * i));
   return bytes;
 }
+namespace {
+// A worker frame whose payload is a short wide string, NUL terminated inside
+// the fixed-size data array.
+std::vector<uint8_t> worker_text_frame(uint32_t type, std::wstring_view text) {
+  std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+  for (size_t i = 0; i < sizeof(type); ++i)
+    bytes[i] = static_cast<uint8_t>(type >> (8 * i));
+  const size_t offset = offsetof(FanyImeNamedpipeDataToTsfWorkerThread, data);
+  const size_t capacity = FanyImePipeLimits::CandidateTextCapacity;
+  // Leave room for the terminator; the TIP reads the payload as a C string.
+  const size_t count = (std::min)(text.size(), capacity - 1);
+  for (size_t i = 0; i < count; ++i) {
+    const auto unit = static_cast<uint16_t>(text[i]);
+    bytes[offset + i * 2] = static_cast<uint8_t>(unit & 0xFF);
+    bytes[offset + i * 2 + 1] = static_cast<uint8_t>(unit >> 8);
+  }
+  return bytes;
+}
+std::vector<uint8_t> worker_flag_frame(uint32_t type, bool value) {
+  return worker_text_frame(type, value ? L"1" : L"0");
+}
+} // namespace
+
+std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
+  std::vector<std::vector<uint8_t>> frames;
+  // The paging frame carries the preedit style after a '|', which is how the
+  // TIP receives it - there is no separate message type for it.
+  std::wstring paging = config.paging_comma_period ? L"1" : L"0";
+  const auto &style = config.preedit_style;
+  if (style == "pinyin" || style == "empty" || style == "raw") {
+    paging.push_back(L'|');
+    for (char ch : style)
+      paging.push_back(static_cast<wchar_t>(ch));
+  }
+  frames.push_back(worker_text_frame(
+      FanyImeWorkerReplyType::PagingCommaPeriodChanged, paging));
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::SmartPunctuationChanged, config.smart_punctuation));
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::SmartPunctuationRepeatToChineseChanged,
+      config.smart_punctuation_repeat_to_chinese));
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::PairedPunctuationChanged, config.paired_punctuation));
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::MicrosoftShuangpinChanged, config.microsoft_shuangpin));
+  frames.push_back(worker_flag_frame(FanyImeWorkerReplyType::InputModeChanged,
+                                     config.japanese_input_mode));
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::TsfDiagnosticLogChanged, config.tsf_diagnostic_log));
+  const wchar_t lock[] = {static_cast<wchar_t>(L'0' + (config.punctuation_lock % 3)),
+                          L'\0'};
+  frames.push_back(
+      worker_text_frame(FanyImeWorkerReplyType::PunctuationLockChanged, lock));
+  return frames;
+}
+
 std::optional<std::vector<std::vector<uint8_t>>>
 voice_composition_bytes(uint32_t message, std::wstring_view text,
                          wchar_t generation) {

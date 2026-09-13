@@ -50,6 +50,9 @@ public:
   // External thread only; finite transport write may block. Sent means bytes
   // delivered, not that TSF applied the mode. Never call from input/event callbacks.
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode);
+  // Push the TSF-local settings to the focused TIP. Returns true only when
+  // every frame was accepted.
+  bool send_tsf_config(const FocusLease &lease, const TsfLocalConfig &config);
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();

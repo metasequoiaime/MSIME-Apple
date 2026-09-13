@@ -48,6 +48,9 @@ public:
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }
+  bool send_tsf_config(const FocusLease &lease, const TsfLocalConfig &config) {
+    return controller_->send_tsf_config(lease, config);
+  }
   VoiceCompositionResult send_voice_composition(
       const FocusLease &lease, uint32_t message, std::wstring_view text,
       wchar_t generation) {

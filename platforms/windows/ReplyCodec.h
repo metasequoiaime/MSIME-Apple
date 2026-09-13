@@ -58,6 +58,28 @@ enum class WorkerMode {
 };
 // Only six mode commands, never arbitrary opcodes or unsolicited text.
 std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
+
+// The TSF-local settings the TIP keeps in its own globals.
+//
+// The TIP consumes all of these, but the Server never encoded them, so they sat
+// at their compiled defaults forever: turning smart or paired punctuation off
+// did nothing, the Microsoft shuangpin ';' key was never enabled, and the
+// inline preedit style stayed "raw" whatever the user chose.
+struct TsfLocalConfig {
+  bool paging_comma_period = false;
+  // "raw" | "pinyin" | "empty" - rides along with the paging frame.
+  std::string preedit_style = "raw";
+  bool smart_punctuation = true;
+  bool smart_punctuation_repeat_to_chinese = true;
+  bool paired_punctuation = true;
+  bool microsoft_shuangpin = false;
+  bool japanese_input_mode = false;
+  bool tsf_diagnostic_log = false;
+  // 0 follow, 1 always Chinese, 2 always English.
+  uint8_t punctuation_lock = 0;
+};
+// One frame per setting, in the order the reference pushes them.
+std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config);
 // Encode a bounded voice composition snapshot for the TSF worker pipe. The
 // returned frames are ordered and each one has the fixed worker-packet size.
 // Generation is a voice session generation and must be non-zero.
