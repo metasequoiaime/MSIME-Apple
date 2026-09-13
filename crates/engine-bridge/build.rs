@@ -8,7 +8,31 @@ fn main() {
     let mut config = cmake::Config::new("native");
     let mut android_include = None;
     let mut windows_include = None;
+    println!("cargo:rerun-if-env-changed=MSIME_BOOST_DIR");
+    if let Some(boost_dir) = std::env::var_os("MSIME_BOOST_DIR") {
+        let boost_dir = PathBuf::from(boost_dir);
+        assert!(
+            boost_dir.is_absolute(),
+            "MSIME_BOOST_DIR must be an absolute path"
+        );
+        config.define("Boost_DIR", &boost_dir);
+    }
+    println!("cargo:rerun-if-env-changed=MSIME_BOOST_HEADERS_DIR");
+    if let Some(boost_headers_dir) = std::env::var_os("MSIME_BOOST_HEADERS_DIR") {
+        let boost_headers_dir = PathBuf::from(boost_headers_dir);
+        assert!(
+            boost_headers_dir.is_absolute(),
+            "MSIME_BOOST_HEADERS_DIR must be an absolute path"
+        );
+        config.define("boost_headers_DIR", &boost_headers_dir);
+    }
     let android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
+    let ios = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios");
+    if ios {
+        // CMake's iOS platform defaults package lookup to the SDK root, which
+        // hides the host-side config packages used for header-only dependencies.
+        config.define("CMAKE_FIND_ROOT_PATH_MODE_PACKAGE", "BOTH");
+    }
     let windows_gnu = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
     println!("cargo:rerun-if-env-changed=MSIME_WINDOWS_DEPS");
