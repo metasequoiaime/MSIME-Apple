@@ -13,21 +13,41 @@ struct SnapshotReader {
 static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) noexcept {
     auto *reader = static_cast<SnapshotReader *>(context);
     if (!reader || !buffer || capacity == 0) return -1;
-    size_t length = 0;
-    while (length < capacity) {
-        const int value = reader->input.get();
-        if (value == EOF) {
-            if (!reader->input.eof()) return -1;
-            return length == 0 ? 0 : static_cast<intptr_t>(length);
+    for (;;) {
+        size_t length = 0;
+        bool ended = false;
+        while (length < capacity) {
+            const int value = reader->input.get();
+            if (value == EOF) {
+                if (!reader->input.eof()) return -1;
+                ended = true;
+                break;
+            }
+            if (value == '\n') {
+                ended = true;
+                break;
+            }
+            if (value == '\r' && reader->input.peek() == '\n') {
+                reader->input.get();
+                ended = true;
+                break;
+            }
+            buffer[length++] = static_cast<uint8_t>(value);
         }
-        if (value == '\n') return length == 0 ? -1 : static_cast<intptr_t>(length);
-        if (value == '\r' && reader->input.peek() == '\n') {
-            reader->input.get();
-            return length == 0 ? -1 : static_cast<intptr_t>(length);
-        }
-        buffer[length++] = static_cast<uint8_t>(value);
+        if (!ended || length == 0) return ended && length == 0 ? 0 : -1;
+        buffer[length] = 0;
+        const char *type = std::strstr(reinterpret_cast<const char *>(buffer), "\"type\":\"");
+        if (!type) return -1;
+        type += 8;
+        const bool engine_record = std::strncmp(type, "overlay\"", 8) == 0
+            || std::strncmp(type, "position\"", 9) == 0
+            || std::strncmp(type, "selection\"", 10) == 0;
+        if (engine_record) return static_cast<intptr_t>(length);
+        if (std::strncmp(type, "header\"", 7) == 0
+                || std::strncmp(type, "entry\"", 6) == 0
+                || std::strncmp(type, "footer\"", 7) == 0) continue;
+        return -1;
     }
-    return -1;
 }
 
 // Use UTF-8 byte arrays, not JNI modified UTF-8: supplementary characters in
