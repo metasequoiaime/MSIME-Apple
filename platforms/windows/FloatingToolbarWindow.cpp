@@ -202,6 +202,24 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     case WM_MOVE:
       self->dragged_position_ = POINT{static_cast<LONG>(static_cast<short>(LOWORD(l))),
                                       static_cast<LONG>(static_cast<short>(HIWORD(l)))};
+      {
+        RECT rect{};
+        if (GetWindowRect(window, &rect)) {
+          const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+          MONITORINFO info{};
+          info.cbSize = sizeof(info);
+          if (GetMonitorInfoW(monitor, &info)) {
+            const int width = rect.right - rect.left;
+            const int height = rect.bottom - rect.top;
+            self->dragged_position_->x = std::clamp(self->dragged_position_->x,
+                                                     info.rcWork.left,
+                                                     info.rcWork.right - width);
+            self->dragged_position_->y = std::clamp(self->dragged_position_->y,
+                                                     info.rcWork.top,
+                                                     info.rcWork.bottom - height);
+          }
+        }
+      }
       return 0;
     case WM_NCHITTEST: {
       POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
