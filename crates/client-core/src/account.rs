@@ -18,6 +18,7 @@ const MAX_ACCOUNT_PREFERENCE_KEY_BYTES: usize = 128;
 const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
 const MAX_DICTIONARY_PAGE_ENTRIES: usize = 100;
 const MAX_DICTIONARY_EXPORT_BYTES: usize = 384 * 1024 * 1024;
+const MAX_DICTIONARY_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -169,6 +170,13 @@ pub struct AccountDictionaryChange {
     pub revision: i64,
     pub previous: Option<AccountDictionaryEntry>,
     pub replacement: Option<AccountDictionaryEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryChangePage {
+    pub changes: Vec<AccountDictionaryChange>,
+    pub next: i64,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -491,6 +499,19 @@ pub trait AccountApi: Send + Sync + 'static {
     ) -> Result<AccountDictionaryExport, AccountError> {
         Err(AccountError::Unavailable)
     }
+
+    fn dictionary_changes(
+        &self,
+        _after: i64,
+        _limit: usize,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn dictionary_snapshot(&self, _access_token: &str) -> Result<Vec<u8>, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {
@@ -807,6 +828,58 @@ impl BackendAccountClient {
         )?;
         validate_dictionary_catalog_page(&page, kind)?;
         Ok(page)
+    }
+
+    pub fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        if after < 0 || !(1..=100).contains(&limit) {
+            return Err(AccountError::Invalid);
+        }
+        let page = self.json::<AccountDictionaryChangePage, ()>(
+            Method::GET,
+            &format!("/v1/users/me/dictionary/changes?after={after}&limit={limit}"),
+            Some(access_token),
+            None,
+        )?;
+        if page.changes.len() > limit {
+            return Err(AccountError::Unavailable);
+        }
+        let mut cursor = after;
+        for change in &page.changes {
+            if change.revision <= cursor {
+                return Err(AccountError::Unavailable);
+            }
+            if change.previous.as_ref().is_some_and(|entry| {
+                validate_dictionary_entry(entry, entry.kind).is_err()
+                    || entry.revision > change.revision
+            }) || change.replacement.as_ref().is_some_and(|entry| {
+                validate_dictionary_entry(entry, entry.kind).is_err()
+                    || entry.revision > change.revision
+            }) {
+                return Err(AccountError::Unavailable);
+            }
+            cursor = change.revision;
+        }
+        if page.next != cursor || (page.has_more && page.changes.is_empty()) {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(page)
+    }
+
+    pub fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
+        self.request_with_limit_timeout_accept(
+            Method::GET,
+            "/v1/users/me/dictionary/snapshot",
+            Some(access_token),
+            None,
+            MAX_DICTIONARY_SNAPSHOT_BYTES,
+            Duration::from_secs(120),
+            "application/x-ndjson",
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2002,6 +2075,19 @@ impl AccountApi for BackendAccountClient {
     ) -> Result<AccountDictionaryExport, AccountError> {
         self.export_dictionary(kind, format, access_token)
     }
+
+    fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        self.dictionary_changes(after, limit, access_token)
+    }
+
+    fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
+        self.dictionary_snapshot(access_token)
+    }
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {
@@ -2545,6 +2631,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated(|api, token| {
             api.dictionary_catalog(kind, code, offset, scheme, profile, token)
         })
+    }
+
+    pub fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        self.authenticated(|api, token| api.dictionary_changes(after, limit, token))
+    }
+
+    pub fn dictionary_snapshot(&self) -> Result<Vec<u8>, AccountError> {
+        self.authenticated(|api, token| api.dictionary_snapshot(token))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3414,6 +3512,62 @@ mod tests {
             )
             .unwrap();
         assert_eq!(change.revision, 43);
+
+        let changes_body = serde_json::json!({
+            "changes": [{
+                "revision": 44,
+                "previous": null,
+                "replacement": null
+            }],
+            "next": 44,
+            "has_more": false
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            changes_body.len(),
+            changes_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let changes = client.dictionary_changes(43, 1, &token(b'a')).unwrap();
+        assert_eq!(changes.next, 44);
+        assert!(!changes.has_more);
+
+        let snapshot = b"{\"type\":\"header\"}\n".to_vec();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-ndjson\r\n\r\n",
+            snapshot.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(snapshot)
+        .collect();
+        let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+        assert_eq!(
+            client.dictionary_snapshot(&token(b'a')).unwrap(),
+            b"{\"type\":\"header\"}\n"
+        );
+
+        let invalid_changes = serde_json::json!({
+            "changes": [{"revision": 44, "previous": null, "replacement": null}],
+            "next": 43,
+            "has_more": false
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            invalid_changes.len(),
+            invalid_changes
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        assert_eq!(
+            client.dictionary_changes(43, 1, &token(b'a')),
+            Err(AccountError::Unavailable)
+        );
+        assert_eq!(
+            client.dictionary_changes(-1, 1, &token(b'a')),
+            Err(AccountError::Invalid)
+        );
     }
 
     #[test]

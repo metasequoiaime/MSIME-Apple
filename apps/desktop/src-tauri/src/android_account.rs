@@ -1103,9 +1103,14 @@ pub async fn cloud_dictionary_request(
             })
             .await
         }
-        CloudDictionaryRequest::Changes { .. } => Err(super::CommandError {
-            code: "cloud_dictionary_unavailable",
-        }),
+        CloudDictionaryRequest::Changes { after, limit } => {
+            call(state, move |session| {
+                session.dictionary_changes(after, limit).and_then(|page| {
+                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
     }
 }
 
