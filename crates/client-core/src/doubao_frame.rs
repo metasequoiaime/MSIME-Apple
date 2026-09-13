@@ -9,6 +9,7 @@ pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[
     frame.extend_from_slice(&[0x11, (message_type << 4) | (flags & 0x0f), 0x11, 0]);
     frame.extend_from_slice(&sequence.to_be_bytes());
     frame.extend_from_slice(&(compressed.len() as i32).to_be_bytes());
+    frame.extend_from_slice(&(compressed.len() as i32).to_be_bytes());
     frame.extend_from_slice(&compressed);
     frame
 }
@@ -25,8 +26,6 @@ mod tests {
         assert!(!last && sequence == 1 && payload == b"{}");
         let mut invalid = frame.clone(); invalid[2] = 0x10;
         assert!(decode_json_frame(&invalid).is_none());
-        let mut invalid = frame.clone(); invalid[2] = 0x10;
-        assert!(decode_json_frame(&invalid).is_none());
     }
 }
 
@@ -35,8 +34,10 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
     let flags = frame[1] & 0x0f;
     let sequence = i32::from_be_bytes(frame[4..8].try_into().ok()?);
     let size = i32::from_be_bytes(frame[8..12].try_into().ok()?) as usize;
-    if frame.len() < 12 + size { return None; }
-    let mut decoder = flate2::read::GzDecoder::new(&frame[12..12 + size]);
+    if frame.len() < 16 { return None; }
+    let payload_size = i32::from_be_bytes(frame[12..16].try_into().ok()?) as usize;
+    if frame.len() < 16 + payload_size || payload_size != size { return None; }
+    let mut decoder = flate2::read::GzDecoder::new(&frame[16..16 + payload_size]);
     let mut payload = Vec::new();
     std::io::Read::read_to_end(&mut decoder, &mut payload).ok()?;
     Some(((flags & 0x02) != 0, sequence, payload))
