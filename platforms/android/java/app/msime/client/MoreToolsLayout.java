@@ -8,10 +8,10 @@ public final class MoreToolsLayout {
     public static final int CARD_SPACING_DP = 8;
 
     public enum Section {
-        TOOLS("", 1),
-        FEEDBACK("按键反馈", 2),
-        HAPTIC_STRENGTH("振动强度", 3),
-        LOCAL_INPUT("本地输入", 2);
+        TOOLS("", 2),
+        SETTINGS("设置", 2),
+        LOCAL_INPUT("本地输入", 2),
+        LOCAL_INPUT_BACK("", 1);
 
         private final String title;
         private final int columns;
@@ -34,9 +34,8 @@ public final class MoreToolsLayout {
 
     public static String state(Section section, boolean active) {
         return switch (section) {
-            case FEEDBACK -> active ? "已开启" : "已关闭";
-            case HAPTIC_STRENGTH -> active ? "已选中" : "点击选择";
-            case TOOLS, LOCAL_INPUT -> "点击打开";
+            case SETTINGS -> active ? "已开启" : "已关闭";
+            case TOOLS, LOCAL_INPUT, LOCAL_INPUT_BACK -> "点击打开";
         };
     }
 }

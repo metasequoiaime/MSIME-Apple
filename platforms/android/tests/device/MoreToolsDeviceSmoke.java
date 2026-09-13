@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 /** Device-only acceptance for the full-surface Apple-style tools panel. */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "full-surface tools grouping, feedback state and keyboard return";
+        return "two-column tools and settings, local-input subpanel and keyboard return";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -23,38 +23,76 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         stage = "more tools primary cards";
         Rect panelBounds = new Rect();
         panel.getBoundsInScreen(panelBounds);
-        for (String title : new String[] {"表情", "剪贴板历史", "AI 润色", "语音结果"}) {
+        AccessibilityNodeInfo[] primaryCards = new AccessibilityNodeInfo[5];
+        String[] primaryTitles = {"表情", "剪贴板历史", "AI 润色", "本地输入", "语音结果"};
+        for (int index = 0; index < primaryTitles.length; index++) {
+            String title = primaryTitles[index];
             AccessibilityNodeInfo card = await(tool(title));
+            primaryCards[index] = card;
             Rect cardBounds = new Rect();
             card.getBoundsInScreen(cardBounds);
-            if (cardBounds.width() <= panelBounds.width() / 2)
-                throw new AssertionError("Primary tool is not a full-width card");
+            if (cardBounds.width() <= panelBounds.width() / 3
+                    || cardBounds.width() >= panelBounds.width() * 3 / 4)
+                throw new AssertionError("Primary tool is not a two-column card");
             int expectedHeight = Math.round(48 * getTargetContext()
                 .getResources().getDisplayMetrics().density);
             if (Math.abs(cardBounds.height() - expectedHeight) > 2)
                 throw new AssertionError("Primary card height mismatch");
         }
-        stage = "more tools feedback cards";
+        assertSameRow(primaryCards[0], primaryCards[1], "first primary row");
+        assertSameRow(primaryCards[2], primaryCards[3], "second primary row");
+        stage = "more tools settings cards";
+        AccessibilityNodeInfo traditional = await(tool("繁体输出"));
         AccessibilityNodeInfo sound = await(tool("按键音"));
         AccessibilityNodeInfo haptics = await(tool("按键振动"));
-        if (!validFeedbackState(sound) || !validFeedbackState(haptics))
-            throw new AssertionError("Feedback state was not exposed");
+        AccessibilityNodeInfo strength = await(tool("振动强度"));
+        if (!validSettingState(traditional) || !validFeedbackState(sound)
+                || !validFeedbackState(haptics) || !validStrengthCard(strength))
+            throw new AssertionError("Settings state was not exposed");
         String originalSound = sound.getStateDescription().toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
-        stage = "more tools feedback update";
+        stage = "more tools sound update";
         tap(tool("按键音"));
         await(toolWithState("按键音", changedSound));
         tap(tool("按键音"));
         await(toolWithState("按键音", originalSound));
+        stage = "more tools local input subpanel";
+        tap(tool("本地输入"));
+        await(tool("返回工具"));
+        await(tool("Unicode 码点"));
+        tap(tool("返回工具"));
+        await(tool("表情"));
         stage = "more tools return";
         tap(tool("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+    }
+
+    private void assertSameRow(AccessibilityNodeInfo first, AccessibilityNodeInfo second,
+                               String description) {
+        Rect firstBounds = new Rect();
+        Rect secondBounds = new Rect();
+        first.getBoundsInScreen(firstBounds);
+        second.getBoundsInScreen(secondBounds);
+        if (Math.abs(firstBounds.top - secondBounds.top) > 2)
+            throw new AssertionError(description + " is not horizontal");
     }
 
     private boolean validFeedbackState(AccessibilityNodeInfo node) {
         CharSequence state = node.getStateDescription();
         return state != null && (equalsText("已开启", state) || equalsText("已关闭", state))
             && node.isSelected() == equalsText("已开启", state);
+    }
+
+    private boolean validSettingState(AccessibilityNodeInfo node) {
+        CharSequence state = node.getStateDescription();
+        return state != null && (equalsText("已开启", state) || equalsText("已关闭", state)
+            || equalsText("不可用", state));
+    }
+
+    private boolean validStrengthCard(AccessibilityNodeInfo node) {
+        CharSequence text = node.getText();
+        return text != null && (text.toString().contains("轻")
+            || text.toString().contains("中") || text.toString().contains("强"));
     }
 
     private Predicate<AccessibilityNodeInfo> toolPanel() {

@@ -2,24 +2,20 @@ import app.msime.client.MoreToolsLayout;
 
 public final class MoreToolsLayoutSmoke {
     public static void main(String[] args) {
-        check(MoreToolsLayout.Section.TOOLS.columns() == 1, "tools use full-width cards");
-        check(MoreToolsLayout.Section.FEEDBACK.columns() == 2, "feedback uses two columns");
-        check(MoreToolsLayout.Section.HAPTIC_STRENGTH.columns() == 3,
-            "strength uses three columns");
+        check(MoreToolsLayout.Section.TOOLS.columns() == 2, "tools use two columns");
+        check(MoreToolsLayout.Section.SETTINGS.columns() == 2, "settings use two columns");
         check(MoreToolsLayout.Section.LOCAL_INPUT.columns() == 2,
             "local input uses two columns");
-        check(MoreToolsLayout.rowCount(3, MoreToolsLayout.Section.TOOLS) == 3,
-            "three Apple tools occupy three full-width rows");
+        check(MoreToolsLayout.Section.LOCAL_INPUT_BACK.columns() == 1,
+            "local input navigation uses one full-width column");
+        check(MoreToolsLayout.rowCount(4, MoreToolsLayout.Section.TOOLS) == 2,
+            "four Apple tools occupy two rows");
         check(MoreToolsLayout.rowCount(8, MoreToolsLayout.Section.LOCAL_INPUT) == 4,
             "eight local tools occupy four rows");
-        check("已开启".equals(MoreToolsLayout.state(MoreToolsLayout.Section.FEEDBACK, true)),
-            "enabled feedback state");
-        check("已关闭".equals(MoreToolsLayout.state(MoreToolsLayout.Section.FEEDBACK, false)),
-            "disabled feedback state");
-        check("已选中".equals(MoreToolsLayout.state(
-            MoreToolsLayout.Section.HAPTIC_STRENGTH, true)), "selected strength state");
-        check("点击选择".equals(MoreToolsLayout.state(
-            MoreToolsLayout.Section.HAPTIC_STRENGTH, false)), "unselected strength state");
+        check("已开启".equals(MoreToolsLayout.state(MoreToolsLayout.Section.SETTINGS, true)),
+            "enabled setting state");
+        check("已关闭".equals(MoreToolsLayout.state(MoreToolsLayout.Section.SETTINGS, false)),
+            "disabled setting state");
         check(MoreToolsLayout.CARD_HEIGHT_DP == 48 && MoreToolsLayout.HEADER_HEIGHT_DP == 44,
             "Apple card and header dimensions");
         boolean rejected = false;

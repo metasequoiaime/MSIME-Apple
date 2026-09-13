@@ -97,6 +97,7 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout layoutSettingsPanel;
     private ScrollView moreToolsScroll;
     private LinearLayout moreToolsPanel;
+    private boolean localInputToolsOpen;
     private LinearLayout emojiPanel;
     private HorizontalScrollView emojiTabsScroll;
     private LinearLayout emojiTabs;
@@ -1435,6 +1436,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void closeMoreTools() {
+        localInputToolsOpen = false;
         if (moreToolsScroll != null) moreToolsScroll.setVisibility(View.GONE);
     }
 
@@ -2976,6 +2978,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
+        localInputToolsOpen = false;
         renderMoreTools();
         moreToolsScroll.setVisibility(View.VISIBLE);
         moreToolsScroll.requestFocus();
@@ -2983,14 +2986,24 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
                                  boolean enabled, boolean playBeforeAction, Runnable action) {
+        return moreToolsCard(title, section, active, enabled, playBeforeAction, null, action);
+    }
+
+    private Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
+                                 boolean enabled, boolean playBeforeAction, String caption,
+                                 Runnable action) {
         Button card = new Button(this);
         card.setAllCaps(false);
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
-        if (section == MoreToolsLayout.Section.TOOLS) card.setText(title + "  ›");
-        else if (section == MoreToolsLayout.Section.FEEDBACK) card.setText(title + "\n" + state);
+        boolean navigates = section == MoreToolsLayout.Section.TOOLS
+            || section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
+        if (navigates) card.setText(title + "  ›");
+        else if (section == MoreToolsLayout.Section.SETTINGS) {
+            card.setText(title + "\n" + (caption == null ? state : caption));
+        }
         else card.setText(title);
         card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        card.setGravity(section == MoreToolsLayout.Section.TOOLS
+        card.setGravity(navigates
             ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
         card.setPadding(pixels(12), pixels(5), pixels(12), pixels(5));
         card.setContentDescription(title);
@@ -3054,6 +3067,27 @@ public final class MSIMEInputService extends InputMethodService {
         renderMoreTools();
     }
 
+    private String hapticStrengthTitle() {
+        return switch (hapticStrength) {
+            case LIGHT -> "轻";
+            case MEDIUM -> "中";
+            case STRONG -> "强";
+        };
+    }
+
+    private void cycleHapticStrength() {
+        KeyboardFeedbackPreferences.HapticStrength[] values =
+            KeyboardFeedbackPreferences.HapticStrength.values();
+        int next = (hapticStrength.ordinal() + 1) % values.length;
+        selectHapticStrength(values[next]);
+    }
+
+    private boolean traditionalOutputToolAvailable() {
+        int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        return AndroidChineseTextConversion.available() && scheme != 3
+            && canSaveChineseOutput();
+    }
+
     private void renderMoreTools() {
         if (moreToolsPanel == null) return;
         moreToolsPanel.removeAllViews();
@@ -3074,6 +3108,28 @@ public final class MSIMEInputService extends InputMethodService {
             pixels(84), pixels(MoreToolsLayout.HEADER_HEIGHT_DP)));
         moreToolsPanel.addView(header);
 
+        if (localInputToolsOpen) {
+            appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT_BACK,
+                moreToolsCard("返回工具", MoreToolsLayout.Section.LOCAL_INPUT_BACK,
+                    false, true, true, () -> {
+                        localInputToolsOpen = false;
+                        renderMoreTools();
+                    }));
+            LocalInputMode[] modes = LocalInputMode.values();
+            Button[] localCards = new Button[modes.length];
+            for (int index = 0; index < modes.length; index++) {
+                LocalInputMode mode = modes[index];
+                localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
+                    false, supportsLocalTools() && localModeEnabled(mode), false, () -> {
+                        closeMoreTools();
+                        openLocalInputMode(mode);
+                    });
+            }
+            appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT, localCards);
+            applySkin();
+            return;
+        }
+
         appendMoreToolsSection(MoreToolsLayout.Section.TOOLS,
             moreToolsCard("表情", MoreToolsLayout.Section.TOOLS, false,
                 session != 0 && !emojiResources.isEmpty(), true, () -> {
@@ -3090,40 +3146,25 @@ public final class MSIMEInputService extends InputMethodService {
                     closeMoreTools();
                     showAiPolish();
                 }),
+            moreToolsCard("本地输入", MoreToolsLayout.Section.TOOLS, false,
+                supportsLocalTools(), true, () -> {
+                    localInputToolsOpen = true;
+                    renderMoreTools();
+                }),
             moreToolsCard("语音结果", MoreToolsLayout.Section.TOOLS, false,
                 true, true, () -> {
                     closeMoreTools();
                     showVoiceResult();
                 }));
-        appendMoreToolsSection(MoreToolsLayout.Section.FEEDBACK,
-            moreToolsCard("按键音", MoreToolsLayout.Section.FEEDBACK, soundEnabled,
+        appendMoreToolsSection(MoreToolsLayout.Section.SETTINGS,
+            moreToolsCard("繁体输出", MoreToolsLayout.Section.SETTINGS, traditionalChineseOutput,
+                traditionalOutputToolAvailable(), true, null, this::toggleChineseOutput),
+            moreToolsCard("按键音", MoreToolsLayout.Section.SETTINGS, soundEnabled,
                 true, false, this::toggleSoundFromMoreTools),
-            moreToolsCard("按键振动", MoreToolsLayout.Section.FEEDBACK, hapticsEnabled,
-                true, false, this::toggleHapticsFromMoreTools));
-        appendMoreToolsSection(MoreToolsLayout.Section.HAPTIC_STRENGTH,
-            moreToolsCard("轻", MoreToolsLayout.Section.HAPTIC_STRENGTH,
-                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.LIGHT,
-                true, false, () -> selectHapticStrength(
-                    KeyboardFeedbackPreferences.HapticStrength.LIGHT)),
-            moreToolsCard("中", MoreToolsLayout.Section.HAPTIC_STRENGTH,
-                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.MEDIUM,
-                true, false, () -> selectHapticStrength(
-                    KeyboardFeedbackPreferences.HapticStrength.MEDIUM)),
-            moreToolsCard("强", MoreToolsLayout.Section.HAPTIC_STRENGTH,
-                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.STRONG,
-                true, false, () -> selectHapticStrength(
-                    KeyboardFeedbackPreferences.HapticStrength.STRONG)));
-        LocalInputMode[] modes = LocalInputMode.values();
-        Button[] localCards = new Button[modes.length];
-        for (int index = 0; index < modes.length; index++) {
-            LocalInputMode mode = modes[index];
-            localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
-                false, supportsLocalTools() && localModeEnabled(mode), false, () -> {
-                    closeMoreTools();
-                    openLocalInputMode(mode);
-                });
-        }
-        appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT, localCards);
+            moreToolsCard("按键振动", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
+                true, false, this::toggleHapticsFromMoreTools),
+            moreToolsCard("振动强度", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
+                hapticsEnabled, false, hapticStrengthTitle(), this::cycleHapticStrength));
         applySkin();
     }
 
