@@ -2,11 +2,14 @@
 #include "ModeWindow.h"
 #include <functional>
 #include <array>
+#include <optional>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
+struct CharacterSetClick {};
+using CharacterSetClickWorker = SingleClickWorker<CharacterSetClick>;
 class FloatingToolbarWindow final {
 public:
   using Reader = std::function<std::optional<ModePresentation>()>;
@@ -19,7 +22,11 @@ public:
   void set_scale(double scale) { scale_ = scale; }
   void set_font_size(int size) { font_size_ = size; }
   void set_items(std::array<bool, 6> items) { items_ = items; }
+  void set_character_set_reader(std::function<std::optional<bool>()> reader) {
+    character_set_reader_ = std::move(reader);
+  }
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
+  void set_character_set_action(Action action) { character_set_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
   void set_handwriting_action(Action action) { handwriting_action_ = std::move(action); }
   void set_keyboard_action(Action action) { keyboard_action_ = std::move(action); }
@@ -48,6 +55,7 @@ private:
   Reader reader_;
   Click click_;
   Action settings_action_;
+  Action character_set_action_;
   Action emoji_action_;
   Action handwriting_action_;
   Action keyboard_action_;
@@ -56,6 +64,8 @@ private:
   Action hide_action_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
+  std::optional<bool> shown_character_set_;
+  std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
   double scale_ = 1.0;
   int font_size_ = 24;

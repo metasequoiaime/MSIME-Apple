@@ -16,16 +16,21 @@ bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
          same_ticket(a.transport, b.transport);
 }
+// The preference array is ordered as character_set, punctuation, fullwidth,
+// emoji, screen_keyboard, settings. Language is always present; the other
+// buttons follow the shared shell order.
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
-  for (int i = 0; i < 3; ++i) if (items[i]) result.push_back(i);
-  if (items[5]) result.push_back(3);
-  if (items[3]) result.push_back(4);
-  result.push_back(5);
-  if (items[4]) result.push_back(6);
-  result.push_back(7);
-  result.push_back(8);
-  result.push_back(9);
+  result.push_back(0); // language
+  if (items[2]) result.push_back(1); // fullwidth
+  if (items[1]) result.push_back(2); // punctuation
+  if (items[0]) result.push_back(3); // character set
+  if (items[3]) result.push_back(4); // emoji
+  if (items[4]) result.push_back(5); // screen keyboard
+  if (items[5]) result.push_back(6); // settings
+  result.push_back(7); // voice
+  result.push_back(8); // about
+  result.push_back(9); // hide
   return result;
 }
 } // namespace
@@ -48,19 +53,27 @@ FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
   if (!window_) throw std::runtime_error("Toolbar window unavailable");
 }
 FloatingToolbarWindow::~FloatingToolbarWindow() { hide(); if (window_) DestroyWindow(window_); }
-void FloatingToolbarWindow::hide() { shown_.reset(); if (window_) ShowWindow(window_, SW_HIDE); }
+void FloatingToolbarWindow::hide() {
+  shown_.reset();
+  shown_character_set_.reset();
+  if (window_) ShowWindow(window_, SW_HIDE);
+}
 void FloatingToolbarWindow::refresh(bool enabled) {
   if (failed_) return;
   try {
     if (!enabled) { hide(); return; }
     const auto value = reader_();
     if (!value) { hide(); return; }
+    const auto character_set = character_set_reader_ ? character_set_reader_()
+                                                     : std::nullopt;
     const bool changed = !shown_ || !same(shown_->lease, value->lease) ||
                          shown_->chinese != value->chinese ||
                          shown_->chinese_punctuation != value->chinese_punctuation ||
-                         shown_->fullwidth != value->fullwidth;
+                         shown_->fullwidth != value->fullwidth ||
+                         shown_character_set_ != character_set;
     if (!changed && IsWindowVisible(window_)) return;
     shown_ = value;
+    shown_character_set_ = character_set;
     RECT work{};
     const HMONITOR monitor = MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO info{};
@@ -138,11 +151,13 @@ void FloatingToolbarWindow::paint() {
                     const wchar_t *off) {
       return !state ? L"?" : (*state ? on : off);
     };
-    const wchar_t *labels[] = {label(value->chinese, L"\u4e2d", L"\u82f1"),
-                               label(value->chinese_punctuation, L"\u3002", L"."),
-                               label(value->fullwidth, L"\u5168", L"\u534a"),
-                               items_[5] ? L"\u8bbe" : L"", items_[3] ? L"😀" : L"",
-                               L"\u624b", items_[4] ? L"⌨" : L"", L"🎙", L"?", L"×"};
+    const wchar_t *labels[] = {
+        label(value->chinese, L"\u4e2d", L"\u82f1"),
+        label(value->fullwidth, L"\u5168", L"\u534a"),
+        label(value->chinese_punctuation, L"\u3002", L"."),
+        !shown_character_set_ ? L"?" : (*shown_character_set_ ? L"\u7e41" : L"\u7b80"),
+        items_[3] ? L"😀" : L"", items_[4] ? L"⌨" : L"",
+        items_[5] ? L"\u8bbe" : L"", L"🎙", L"?", L"×"};
     const auto active = slots(items_);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
@@ -186,17 +201,29 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         const size_t position = static_cast<size_t>((x - 8 * unit) / (72 * unit));
         if (position >= active.size()) return 0;
         const int slot = active[position];
-        const WorkerMode modes[] = {WorkerMode::Chinese,
-                                    WorkerMode::ChinesePunctuation,
-                                    WorkerMode::Fullwidth};
-        if (slot < 3 && self->items_[slot]) self->click_(ModeClick{value->lease, modes[slot]});
-        else if (slot == 3 && self->items_[5] && self->settings_action_) self->settings_action_();
-        else if (slot == 4 && self->items_[3] && self->emoji_action_) self->emoji_action_();
-        else if (slot == 5 && self->handwriting_action_) self->handwriting_action_();
-        else if (slot == 6 && self->items_[4] && self->keyboard_action_) self->keyboard_action_();
-        else if (slot == 7 && self->voice_action_) self->voice_action_();
-        else if (slot == 8 && self->about_action_) self->about_action_();
-        else if (slot == 9 && self->hide_action_) self->hide_action_();
+        if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
+        else if (slot == 1) self->click_(ModeClick{
+            value->lease, value->fullwidth && *value->fullwidth
+                                     ? WorkerMode::Halfwidth
+                                     : WorkerMode::Fullwidth});
+        else if (slot == 2) self->click_(ModeClick{
+            value->lease, value->chinese_punctuation && *value->chinese_punctuation
+                                     ? WorkerMode::AsciiPunctuation
+                                     : WorkerMode::ChinesePunctuation});
+        else if (slot == 3 && self->character_set_action_)
+          self->character_set_action_();
+        else if (slot == 4 && self->emoji_action_)
+          self->emoji_action_();
+        else if (slot == 5 && self->keyboard_action_)
+          self->keyboard_action_();
+        else if (slot == 6 && self->settings_action_)
+          self->settings_action_();
+        else if (slot == 7 && self->voice_action_)
+          self->voice_action_();
+        else if (slot == 8 && self->about_action_)
+          self->about_action_();
+        else if (slot == 9 && self->hide_action_)
+          self->hide_action_();
       }
       return 0;
     }

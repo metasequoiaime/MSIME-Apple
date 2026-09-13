@@ -140,6 +140,47 @@ std::string read_document(const std::filesystem::path &path) {
   document.resize(static_cast<size_t>(input.gcount()));
   return document;
 }
+// The native toolbar's character-set button uses the same revisioned store as
+// the settings shell. Read and write on its single action worker so the UI
+// thread never waits on the preferences lock.
+bool toggle_traditional_output(const std::filesystem::path &directory,
+                               std::atomic<bool> &state) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return false;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return false;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    auto &preferences = snapshot.at("preferences");
+    const bool enabled = preferences.value("traditional_chinese_output", false);
+    preferences["traditional_chinese_output"] = !enabled;
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision,
+            reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+    if (!saved)
+      return false;
+    const auto saved_response = nlohmann::json::parse(saved.get());
+    if (!saved_response.value("ok", false) ||
+        !saved_response.at("value").is_object())
+      return false;
+    state.store(!enabled, std::memory_order_release);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -228,6 +269,9 @@ int wmain(int argc, wchar_t **argv) {
       throw std::runtime_error("Host preparation failed");
     if (stopping.load())
       return 0;
+    auto traditional_output = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("traditional_chinese_output", false));
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -245,9 +289,13 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&, voice_config, voice_config_mutex](const PreferenceSnapshot &snapshot) {
+        [&, voice_config, voice_config_mutex, traditional_output](
+            const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
+          traditional_output->store(
+              preferences.value("traditional_chinese_output", false),
+              std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
           const auto input = preferences.value("voice_input", nlohmann::json::object());
@@ -357,21 +405,29 @@ int wmain(int argc, wchar_t **argv) {
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
         throw std::runtime_error("Mode request failed");
     });
+    CharacterSetClickWorker character_set_clicks(
+        [traditional_output, directory = config.state_root](
+            const CharacterSetClick &) {
+          (void)toggle_traditional_output(directory, *traditional_output);
+        });
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
       CandidatePageWorker &pages;
       ModeClickWorker &modes;
+      CharacterSetClickWorker &character_sets;
       ~ClickShutdown() {
         clicks.request_stop();
         pages.request_stop();
         modes.request_stop();
+        character_sets.request_stop();
         server.request_stop();
         clicks.stop();
         pages.stop();
         modes.stop();
+        character_sets.stop();
       }
-    } click_shutdown{server, clicks, pages, mode_clicks};
+    } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks};
     std::optional<COLORREF> candidate_text_color;
     if (!config.candidate_text_color.empty() && config.candidate_text_color != "auto" &&
         config.candidate_text_color != "none") {
@@ -422,6 +478,10 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
+    toolbar.set_character_set_reader([traditional_output] {
+      return std::optional<bool>(
+          traditional_output->load(std::memory_order_acquire));
+    });
     // The Server owns the floating toolbar. Every other row opens a surface in
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather
@@ -433,6 +493,9 @@ int wmain(int argc, wchar_t **argv) {
     const auto launch_shell = [&](const ShellSurfaceRequest &request) {
       return shell && launch_shell_surface(*shell, request, shell_context);
     };
+    toolbar.set_character_set_action([&] {
+      (void)character_set_clicks.submit(CharacterSetClick{});
+    });
     toolbar.set_settings_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
       if (request) (void)launch_shell(*request);
@@ -512,7 +575,8 @@ int wmain(int argc, wchar_t **argv) {
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
-           !modes.failed() && !mode_clicks.failed() && !toolbar.failed()) {
+           !modes.failed() && !mode_clicks.failed() &&
+           !character_set_clicks.failed() && !toolbar.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -574,15 +638,18 @@ int wmain(int argc, wchar_t **argv) {
     tray_mailbox.stop();
     tray.hide();
     clicks.request_stop();
+    character_set_clicks.request_stop();
     mode_clicks.request_stop();
     server.stop();
     clicks.stop();
+    character_set_clicks.stop();
     mode_clicks.stop();
     if (restart_requested.load())
       return msime::windows::watchdog::restart_exit_code;
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
-                   !modes.failed() && !mode_clicks.failed()
+                   !modes.failed() && !mode_clicks.failed() &&
+                   !character_set_clicks.failed()
                ? 0
                : 1;
   } catch (...) {
