@@ -16,6 +16,8 @@ namespace {
 constexpr unsigned kWidth = 420;
 constexpr unsigned kHeight = 132;
 constexpr unsigned kBarCount = 12;
+constexpr int kActionCenterInset = 24;
+constexpr int kActionRadius = 14;
 
 unsigned long color(Display *display, int screen, const char *value,
                     unsigned long fallback) {
@@ -94,17 +96,85 @@ bool WaveOverlayX11Surface::ensure_window() {
       &missing_count, &default_string);
   if (missing)
     XFreeStringList(missing);
-  XSelectInput(display_, window_, ExposureMask);
-  const auto input_region = XFixesCreateRegion(display_, nullptr, 0);
-  XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0,
-                             input_region);
-  XFixesDestroyRegion(display_, input_region);
+  XSelectInput(display_, window_, ExposureMask | ButtonPressMask |
+                                       ButtonReleaseMask);
+  set_input_region(false);
   return true;
+}
+
+void WaveOverlayX11Surface::set_input_region(bool actions_visible) {
+  if (!display_ || !window_)
+    return;
+  XRectangle buttons[2] = {
+      {static_cast<short>(kActionCenterInset - kActionRadius),
+       static_cast<short>(66 - kActionRadius),
+       static_cast<unsigned short>(2 * kActionRadius),
+       static_cast<unsigned short>(2 * kActionRadius)},
+      {static_cast<short>(kWidth - kActionCenterInset - kActionRadius),
+       static_cast<short>(66 - kActionRadius),
+       static_cast<unsigned short>(2 * kActionRadius),
+       static_cast<unsigned short>(2 * kActionRadius)}};
+  XserverRegion region = XFixesCreateRegion(
+      display_, actions_visible ? buttons : nullptr, actions_visible ? 2 : 0);
+  if (region) {
+    XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0, region);
+    XFixesDestroyRegion(display_, region);
+  }
+}
+
+bool WaveOverlayX11Surface::hit_test_action(
+    int x, int y, WaveOverlayModel::Action &action) const {
+  if (!actions_visible_)
+    return false;
+  const auto inside = [y](int center_x, int point_x) {
+    const int dx = point_x - center_x;
+    const int dy = y - 66;
+    return dx * dx + dy * dy <= kActionRadius * kActionRadius;
+  };
+  if (inside(kActionCenterInset, x)) {
+    action = WaveOverlayModel::Action::Cancel;
+    return true;
+  }
+  if (inside(kWidth - kActionCenterInset, x)) {
+    action = WaveOverlayModel::Action::Confirm;
+    return true;
+  }
+  return false;
+}
+
+void WaveOverlayX11Surface::pump_events() {
+  if (!display_ || !visible_)
+    return;
+  while (XPending(display_)) {
+    XEvent event{};
+    XNextEvent(display_, &event);
+    if (event.type == ButtonPress && event.xbutton.button == Button1) {
+      WaveOverlayModel::Action action;
+      if (hit_test_action(event.xbutton.x, event.xbutton.y, action)) {
+        pressed_action_ = action;
+        action_pressed_ = true;
+        XGrabPointer(display_, window_, False, ButtonReleaseMask,
+                     GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+      }
+    } else if (event.type == ButtonRelease && event.xbutton.button == Button1 &&
+               action_pressed_) {
+      WaveOverlayModel::Action action;
+      const bool activated = hit_test_action(event.xbutton.x, event.xbutton.y,
+                                             action) &&
+                             action == pressed_action_;
+      action_pressed_ = false;
+      XUngrabPointer(display_, CurrentTime);
+      if (activated && action_handler_)
+        action_handler_(action);
+    }
+  }
 }
 
 void WaveOverlayX11Surface::destroy_window() {
   if (!display_)
     return;
+  if (action_pressed_)
+    XUngrabPointer(display_, CurrentTime);
   if (font_set_)
     XFreeFontSet(display_, font_set_);
   if (gc_)
@@ -122,6 +192,9 @@ void WaveOverlayX11Surface::destroy_window() {
 void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   if (!display_ || !window_ || !gc_)
     return;
+  set_input_region(model.actions_visible);
+  if (!model.actions_visible)
+    action_pressed_ = false;
   const auto screen = DefaultScreen(display_);
   const auto x = std::max(0, DisplayWidth(display_, screen) - static_cast<int>(kWidth) - 24);
   const auto y = 48;
@@ -153,6 +226,24 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
                       transcript.c_str(), static_cast<int>(transcript.size()));
     }
   }
+  if (model.actions_visible) {
+    XSetForeground(display_, gc_, accent_);
+    XFillArc(display_, window_, gc_, kActionCenterInset - kActionRadius,
+             66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
+             360 * 64);
+    XFillArc(display_, window_, gc_, kWidth - kActionCenterInset - kActionRadius,
+             66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
+             360 * 64);
+    XSetForeground(display_, gc_, background_);
+    XDrawLine(display_, window_, gc_, kActionCenterInset - 5, 61,
+              kActionCenterInset + 5, 71);
+    XDrawLine(display_, window_, gc_, kActionCenterInset + 5, 61,
+              kActionCenterInset - 5, 71);
+    XDrawLine(display_, window_, gc_, kWidth - kActionCenterInset - 5, 66,
+              kWidth - kActionCenterInset - 1, 70);
+    XDrawLine(display_, window_, gc_, kWidth - kActionCenterInset - 1, 70,
+              kWidth - kActionCenterInset + 6, 61);
+  }
   XFlush(display_);
 }
 
@@ -160,14 +251,19 @@ bool WaveOverlayX11Surface::show(const WaveOverlayModel &model) {
   if (!ensure_window())
     return false;
   visible_ = true;
+  actions_visible_ = model.actions_visible;
   XMapRaised(display_, window_);
   draw(model);
+  pump_events();
   return true;
 }
 
 void WaveOverlayX11Surface::update(const WaveOverlayModel &model) {
-  if (visible_)
+  if (visible_) {
+    actions_visible_ = model.actions_visible;
+    pump_events();
     draw(model);
+  }
 }
 
 void WaveOverlayX11Surface::hide() {
@@ -175,7 +271,10 @@ void WaveOverlayX11Surface::hide() {
     XUnmapWindow(display_, window_);
     XFlush(display_);
   }
+  if (display_ && action_pressed_)
+    XUngrabPointer(display_, CurrentTime);
   visible_ = false;
+  action_pressed_ = false;
 }
 
 }  // namespace msime::linux_host

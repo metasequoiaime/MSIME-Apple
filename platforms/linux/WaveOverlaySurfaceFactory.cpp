@@ -57,11 +57,14 @@ class FallbackSurface final : public WaveOverlaySurface {
 
 }  // namespace
 
-std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(IBusEngine *engine) {
+std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(
+    IBusEngine *engine, WaveOverlaySurface::ActionHandler action_handler) {
   const auto *requested = g_getenv("MSIME_WAVE_OVERLAY_BACKEND");
   const bool force_ibus = requested && g_strcmp0(requested, "ibus") == 0;
   const bool wayland_requested = requested && g_strcmp0(requested, "wayland") == 0;
   const bool x11_requested = requested && g_strcmp0(requested, "x11") == 0;
+  (void)force_ibus;
+  (void)action_handler;
 #ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
   if (!force_ibus &&
       (wayland_requested || (!x11_requested && g_getenv("WAYLAND_DISPLAY")))) {
@@ -76,7 +79,7 @@ std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(IBusEngine *engi
   if (!force_ibus &&
       (x11_requested || g_getenv("DISPLAY"))) {
     return std::make_unique<FallbackSurface>(
-        std::make_unique<WaveOverlayX11Surface>(),
+        std::make_unique<WaveOverlayX11Surface>(std::move(action_handler)),
         std::make_unique<WaveOverlayIbusSurface>(engine));
   }
 #else

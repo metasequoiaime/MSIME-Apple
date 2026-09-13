@@ -107,6 +107,7 @@ struct FailedMenuSave {
 std::optional<FailedMenuSave> failed_menu_save;
 
 void voice_cancel(IBusEngine *engine);
+void voice_stop(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
   const auto explicit_path = options.value("clipboard_history_path", std::string{});
   if (!explicit_path.empty())
@@ -5354,7 +5355,13 @@ void destroy(IBusObject *object) {
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
   engine->state->wave_overlay_surface =
-      msime::linux_host::create_wave_overlay_surface(IBUS_ENGINE(engine));
+      msime::linux_host::create_wave_overlay_surface(
+          IBUS_ENGINE(engine), [engine](msime::linux_host::WaveOverlayModel::Action action) {
+            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
+              voice_cancel(IBUS_ENGINE(engine));
+            else
+              voice_stop(IBUS_ENGINE(engine));
+          });
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.
   if (configured.is_object())
