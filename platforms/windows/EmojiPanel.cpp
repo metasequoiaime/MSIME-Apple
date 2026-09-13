@@ -235,39 +235,6 @@ std::wstring Lower(std::wstring value)
     return value;
 }
 
-bool CopyToClipboard(HWND hwnd, const std::wstring &text)
-{
-    if (!OpenClipboard(hwnd))
-    {
-        return false;
-    }
-    EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory)
-    {
-        CloseClipboard();
-        return false;
-    }
-    void *destination = GlobalLock(memory);
-    if (!destination)
-    {
-        GlobalFree(memory);
-        CloseClipboard();
-        return false;
-    }
-    memcpy(destination, text.c_str(), bytes);
-    GlobalUnlock(memory);
-    if (!SetClipboardData(CF_UNICODETEXT, memory))
-    {
-        GlobalFree(memory);
-        CloseClipboard();
-        return false;
-    }
-    CloseClipboard();
-    return true;
-}
-
 std::wstring Utf8ToWide(const char *text)
 {
     if (!text || !*text)
@@ -2274,13 +2241,13 @@ void EmojiPanel::ActivateItem(size_t index)
         return;
     }
     const Item selected = *item;
-    const bool copied = CopyToClipboard(window_->GetHandle(), selected.text);
+    const bool inserted = inputTarget_.Insert(selected.text, window_->GetHandle());
     std::wstring preview = selected.text;
     preview.erase(std::remove(preview.begin(), preview.end(), L'\r'), preview.end());
     preview.erase(std::remove(preview.begin(), preview.end(), L'\n'), preview.end());
     if (preview.size() > 24)
         preview = preview.substr(0, 24) + L"...";
-    ShowToast(copied ? (L"Copied  " + preview) : L"Could not access the clipboard");
+    ShowToast(inserted ? (L"Inserted  " + preview) : (L"Could not insert  " + preview));
     if (page_ != Page::Clipboard)
     {
         recentItems_.erase(std::remove_if(recentItems_.begin(), recentItems_.end(),

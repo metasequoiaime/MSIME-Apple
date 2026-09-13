@@ -1,6 +1,7 @@
 #pragma once
 
 #include "msimeui/Layout.h"
+#include "NativeTextInput.h"
 
 #include <string>
 #include <vector>
@@ -10,7 +11,8 @@ namespace msimeui
 class HandwritingPanel final : public Visual
 {
   public:
-    explicit HandwritingPanel(bool lightTheme = false) : lightTheme_(lightTheme)
+    explicit HandwritingPanel(bool lightTheme = false)
+        : lightTheme_(lightTheme), inputTarget_(NativeTextInputTarget::Capture())
     {
     }
 
@@ -47,5 +49,6 @@ class HandwritingPanel final : public Visual
     size_t hoveredCandidate_ = static_cast<size_t>(-1);
     size_t pressedCandidate_ = static_cast<size_t>(-1);
     bool lightTheme_ = false;
+    NativeTextInputTarget inputTarget_;
 };
 } // namespace msimeui

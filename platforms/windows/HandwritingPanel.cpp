@@ -424,26 +424,13 @@ void HandwritingPanel::Recognize()
 }
 void HandwritingPanel::CopyCandidate(size_t index)
 {
-    if (index >= candidates_.size() || !window_ || !OpenClipboard(window_->GetHandle()))
-        return;
-    EmptyClipboard();
-    const SIZE_T bytes = (candidates_[index].size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (memory)
+    if (index >= candidates_.size() || !window_ ||
+        !inputTarget_.Insert(candidates_[index], window_->GetHandle()))
     {
-        void *destination = GlobalLock(memory);
-        if (destination)
-        {
-            memcpy(destination, candidates_[index].c_str(), bytes);
-            GlobalUnlock(memory);
-            if (SetClipboardData(CF_UNICODETEXT, memory))
-                memory = nullptr;
-        }
-        if (memory)
-            GlobalFree(memory);
+        hint_ = L"无法输入到原应用，请先恢复原编辑器焦点";
+        return;
     }
-    CloseClipboard();
-    hint_ = L"\u5df2\u590d\u5236\uff1a" + candidates_[index];
+    hint_ = L"\u5df2\u8f93\u5165\uff1a" + candidates_[index];
 }
 
 void HandwritingPanel::Clear()

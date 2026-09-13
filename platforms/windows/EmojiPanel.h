@@ -2,6 +2,7 @@
 
 #include "emoji_panel_icons.h"
 #include "ClipboardHistory.h"
+#include "NativeTextInput.h"
 #include "msimeui/Controls.h"
 
 #include <filesystem>
@@ -190,6 +191,7 @@ class EmojiPanel final : public Visual
     bool enableClipboardHovered_ = false;
     bool enableClipboardPressed_ = false;
     bool clipboardEnabled_ = false;
+    NativeTextInputTarget inputTarget_ = NativeTextInputTarget::Capture();
     bool scrollbarDragging_ = false;
     float scrollbarDragOffsetY_ = 0.0f;
     bool lightTheme_ = false;
@@ -206,4 +208,3 @@ class EmojiPanel final : public Visual
     mutable bool idleKaomojiLayoutValid_ = false;
 };
 } // namespace msimeui
-

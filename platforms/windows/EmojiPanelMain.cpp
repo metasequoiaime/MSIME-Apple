@@ -98,7 +98,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     msimeui::ThemeManager::SetCurrent(std::move(theme));
 
     msimeui::Window window(kWindowClassName, L"Emoji and more", 550, 610);
-    window.SetWindowStyle(WS_POPUP, WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+    window.SetWindowStyle(WS_POPUP, WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST);
     window.SetDragRegionHeight(56.0f * 2.0f / 3.0f);
     window.SetRoundedCorners(true);
     window.SetInitialPlacement(msimeui::WindowInitialPlacement::BottomCenter, 12);
@@ -118,4 +118,3 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     CloseHandle(mutex);
     return result;
 }
-
