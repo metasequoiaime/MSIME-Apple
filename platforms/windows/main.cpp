@@ -141,6 +141,8 @@ std::string read_document(const std::filesystem::path &path) {
   return document;
 }
 void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
+  if (document.size() > 16384)
+    throw std::runtime_error("Configuration document oversized");
   const auto temporary = path.wstring() + L".tmp";
   {
     std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
