@@ -34,6 +34,10 @@
     (void)event;
     return YES;
 }
+- (void)resetCursorRects
+{
+    [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
