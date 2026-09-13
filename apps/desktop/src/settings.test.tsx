@@ -655,9 +655,9 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   const host: HostCapabilities = {
     platform: "linux", restart_input_method: true, panel_windows: true, ime_mode_scope: true,
     typing_statistics: false, fuzzy_pinyin: true, system_fonts: true, window_chrome: true,
-    floating_toolbar: true, floating_toolbar_appearance: false, floating_toolbar_components: true,
+    floating_toolbar: true, floating_toolbar_appearance: false,
     mode_switch_shortcuts: true, panel_shortcuts: true, voice_capture_devices: true,
-    candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false,
+    candidate_font_controls: false, candidate_selection_appearance: false,
   };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />);
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
