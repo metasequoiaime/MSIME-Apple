@@ -2804,6 +2804,12 @@ void voice_start_impl(IBusEngine *engine) {
               return G_SOURCE_REMOVE;
             if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
             s.voice_phase = std::move(result->text);
+            if (s.voice_phase == "正在录音…")
+              s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
+            else if (s.voice_phase.find("识别") != std::string::npos)
+              s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
+            else
+              s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Processing;
             if (s.voice_phase != "正在录音…") s.voice_stopping = true;
             render(result->engine, s.view);
             publish_mode(result->engine);
