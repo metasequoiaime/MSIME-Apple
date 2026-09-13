@@ -286,7 +286,7 @@ key_bindings 可选对象示例：
 
 #### 托盘菜单与共享界面
 
-托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；表情/符号面板、手写识别板、屏幕键盘、语音输入、设置和关于都在共享桌面外壳（Tauri）里打开，与 Linux 的 IBus 属性菜单走同一套契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。
+托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；表情/符号面板、手写识别板、屏幕键盘、设置和关于都在共享桌面外壳（Tauri）里打开，与 Linux 的 IBus 属性菜单走同一套契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
 
 外壳可执行文件按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe`、同目录的 `MSIME Client Preview.exe` 顺序查找。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。外壳用 `CreateProcessW` 启动并继承本进程令牌，因此打包时外壳与 Server 的完整性级别一致。
 
