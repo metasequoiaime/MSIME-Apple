@@ -21,6 +21,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     system_fonts: true,
     window_chrome: true,
     floating_toolbar: true,
+    floating_toolbar_appearance: true,
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     voice_capture_devices: false,
@@ -97,4 +98,23 @@ test("the restart action needs both the capability and an injected handler", asy
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
+});
+
+test("toolbar scale and components are hidden on a host that cannot apply them", async () => {
+  // The Linux host stands the toolbar up as an IBus property menu: the enable
+  // switch works, but scale, icon size and component visibility have no surface.
+  const menuOnly = mount({ host: capabilities({ platform: "linux", floating_toolbar_appearance: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
+  expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
+  expect(screen.queryByLabelText("图标尺寸")).toBeNull();
+  menuOnly.unmount();
+
+  // A host that draws its own toolbar keeps the full set.
+  mount({ host: capabilities({ platform: "macos", floating_toolbar_appearance: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  expect(screen.getByLabelText("工具栏缩放")).toBeTruthy();
+  expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
 });
