@@ -32,9 +32,10 @@ public final class JapaneseNineKeyLayout {
         key("な", "に", "ぬ", "ね", "の", "na", "ni", "nu", "ne", "no"),
         key("は", "ひ", "ふ", "へ", "ほ", "ha", "hi", "fu", "he", "ho"),
         key("ま", "み", "む", "め", "も", "ma", "mi", "mu", "me", "mo"),
-        key("や", "（", "ゆ", "）", "よ", "ya", "", "yu", "", "yo"),
+        key("や", "「", "ゆ", "」", "よ", "ya", "", "yu", "", "yo"),
         key("ら", "り", "る", "れ", "ろ", "ra", "ri", "ru", "re", "ro"),
-        key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "-", ""));
+        key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "-", ""),
+        key("、", "。", "？", "！", "…", "", "", "", "", ""));
 
     /** Symbols printed on the Japanese nine-key digit layer. All choices commit directly. */
     private static final List<Key> DIGIT_KEYS = List.of(
@@ -47,7 +48,8 @@ public final class JapaneseNineKeyLayout {
         key("7", "「", "」", "：", "", "", "", "", "", ""),
         key("8", "〒", "※", "♂", "", "", "", "", "", ""),
         key("9", "（", "）", "／", "", "", "", "", "", ""),
-        key("0", "〜", "…", "ー", "", "", "", "", "", ""));
+        key("0", "〜", "…", "ー", "", "", "", "", "", ""),
+        key("、", "。", "？", "！", "…", "", "", "", "", ""));
 
     private static final List<String> DIGIT_BRACKETS = List.of(
         "（", "）", "「", "」", "『", "』", "【", "】");

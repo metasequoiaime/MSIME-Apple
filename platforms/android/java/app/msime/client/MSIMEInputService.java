@@ -4529,7 +4529,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
-        return key.kana().get(0) + "\n" + String.join(" ", key.kana().subList(1, 5));
+        return key.kana().get(0) + "\n" + key.kana().subList(1, 5).stream()
+            .filter(label -> !label.isEmpty()).collect(java.util.stream.Collectors.joining(" "));
     }
 
     private void inputJapaneseStroke(String input) {
@@ -4629,7 +4630,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button japaneseKey(JapaneseNineKeyLayout.Key key) {
-        Button button = keyboardKey(japaneseKeyLabel(key), String.join("、", key.kana()),
+        String description = key.kana().stream().filter(label -> !label.isEmpty())
+            .collect(java.util.stream.Collectors.joining("、"));
+        Button button = keyboardKey(japaneseKeyLabel(key), description,
             () -> selectJapaneseKey(key, 0));
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "；左、上、右、下滑动选择其他假名；长按显示全部选项");
@@ -4689,10 +4692,16 @@ public final class MSIMEInputService extends InputMethodService {
         grid.setOrientation(LinearLayout.VERTICAL);
         java.util.List<JapaneseNineKeyLayout.Key> keys = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
             ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
-        for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
+        for (int rowIndex = 0; rowIndex < 4; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
-            for (int column = 0; column < 3; column++) {
-                addNineKey(row, japaneseKey(keys.get(rowIndex * 3 + column)));
+            if (rowIndex < 3) {
+                for (int column = 0; column < 3; column++) {
+                    addNineKey(row, japaneseKey(keys.get(rowIndex * 3 + column)));
+                }
+            } else {
+                addNineKey(row, japaneseVariantsKey());
+                addNineKey(row, japaneseKey(keys.get(9)));
+                addNineKey(row, japaneseKey(keys.get(10)));
             }
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
@@ -4707,8 +4716,6 @@ public final class MSIMEInputService extends InputMethodService {
         };
         Button delete = keyboardKey("⌫", "删除", deleteAction);
         bindBackspaceRepeat(delete, deleteAction);
-        addNineKey(side, japaneseKey(keys.get(9)));
-        addNineKey(side, japaneseVariantsKey());
         addNineKey(side, delete);
         container.addView(side, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.19f));
