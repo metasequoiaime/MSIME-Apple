@@ -773,6 +773,7 @@ bool launch_desktop_panel(const char *panel) {
   gchar **environment = g_get_environ();
   const bool about = std::string(panel) == "about";
   environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", about ? "settings" : panel, TRUE);
+  environment = g_environ_setenv(environment, "MSIME_CLIENT_ROUTE", about ? "settings" : panel, TRUE);
   if (about)
     environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", "about", TRUE);
   GError *error = nullptr;
