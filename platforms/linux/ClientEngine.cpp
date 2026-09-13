@@ -1307,15 +1307,39 @@ std::optional<std::string> surrounding_following_character(const State &s) {
   const auto *end = g_utf8_next_char(start);
   return std::string(start, static_cast<std::size_t>(end - start));
 }
-bool try_skip_paired_closing(IBusEngine *engine, guint key) {
+bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
   if (key > 0x7f) return false;
+  std::uint32_t paired_modifiers = 0;
+  if (flags & IBUS_CONTROL_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Control);
+  if (flags & IBUS_MOD1_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Alt);
+  if (flags & IBUS_MOD4_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Super);
+  if (flags & IBUS_SUPER_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Super);
+  if (flags & IBUS_META_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Meta);
+  if (flags & IBUS_HYPER_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Hyper);
+  if (flags & IBUS_MOD5_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Mod5);
   const auto closing = msime::linux_host::paired_closing_for_key(
       static_cast<char>(key), s.fullwidth);
   if (!closing) return false;
   const auto following = surrounding_following_character(s);
+  const bool modifiers_allowed =
+      msime::linux_host::paired_closing_modifiers_allowed(paired_modifiers);
   if (!s.paired_tracker.consume(*closing, following.value_or(""),
-                                    following.has_value()))
+                                following.has_value(), modifiers_allowed))
     return false;
   s.last_smart_punctuation = 0;
   s.last_smart_punctuation_time = 0;
@@ -4865,7 +4889,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
-    if (try_skip_paired_closing(engine, key)) {
+    if (try_skip_paired_closing(engine, key, flags)) {
       handled = true;
       return;
     }
