@@ -2171,7 +2171,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Finish the Engine composition before handing the input connection to another IME. */
     private void switchToNextInputMethodAfterCommit() {
-        if (session != 0) command(9);
+        if (session != 0) command(2);
         switchToNextInputMethod(false);
     }
 
