@@ -1,6 +1,42 @@
 use flate2::{write::GzEncoder, Compression};
 use std::io::Write;
 
+/// Build the initial Doubao ASR request used by the Windows client.
+pub fn start_frame(
+    enable_itn: bool,
+    enable_punc: bool,
+    enable_ddc: bool,
+    boosting_table_id: &str,
+) -> Vec<u8> {
+    let mut request = serde_json::json!({
+        "user": {"uid": "metasequoia-ime"},
+        "audio": {"format": "pcm", "codec": "raw", "rate": 16000, "bits": 16, "channel": 1},
+        "request": {
+            "model_name": "bigmodel",
+            "enable_itn": enable_itn,
+            "enable_punc": enable_punc,
+            "enable_ddc": enable_ddc,
+            "show_utterances": false,
+            "result_type": "full"
+        }
+    });
+    if !boosting_table_id.is_empty() {
+        request["request"]["corpus"] = serde_json::json!({"boosting_table_id": boosting_table_id});
+    }
+    encode_json_frame(0x01, 0x01, 1, request.to_string().as_bytes())
+}
+
+/// Build one PCM audio packet. The final packet uses the negative sequence
+/// and final flag required by the Doubao protocol.
+pub fn audio_frame(sequence: i32, pcm: &[u8], final_chunk: bool) -> Vec<u8> {
+    let sequence = if final_chunk {
+        -sequence.abs()
+    } else {
+        sequence.abs()
+    };
+    encode_json_frame(0x02, if final_chunk { 0x03 } else { 0x01 }, sequence, pcm)
+}
+
 pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[u8]) -> Vec<u8> {
     let mut gzip = GzEncoder::new(Vec::new(), Compression::default());
     gzip.write_all(payload).expect("gzip write to memory");
@@ -16,6 +52,18 @@ pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builds_windows_compatible_start_and_final_audio_frames() {
+        let start = start_frame(true, false, true, "table");
+        assert_eq!(&start[..4], &[0x11, 0x11, 0x11, 0]);
+        assert_eq!(&start[4..8], &[0, 0, 0, 1]);
+
+        let audio = audio_frame(2, &[0, 1, 2, 3], true);
+        assert_eq!(&audio[..4], &[0x11, 0x23, 0x11, 0]);
+        assert_eq!(&audio[4..8], &(-2i32).to_be_bytes());
+    }
+
     #[test]
     fn encodes_protocol_header_and_gzip_payload() {
         let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
