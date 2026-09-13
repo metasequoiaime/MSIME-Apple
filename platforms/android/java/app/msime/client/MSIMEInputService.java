@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
@@ -32,6 +33,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
+import android.widget.PopupWindow;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
@@ -99,6 +101,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private JSONObject candidatePanelSnapshot;
+    private PopupWindow nineKeyHoldPopup;
     private ScrollView clipboardScroll;
     private LinearLayout clipboardPanel;
     private ScrollView schemeScroll;
@@ -964,7 +967,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
-        if (session != 0) command(9);
+        if (session != 0) command(2);
         if (connection != null) commitText(String.valueOf((char) value));
     }
 
@@ -1079,7 +1082,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void toggleInputLanguage() {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
-        if (dedicatedEnglish) command(3); else command(9);
+        if (dedicatedEnglish) command(3); else command(2);
         if (session == 0) return;
         int previousLayout = displayedTouchLayout(view);
         boolean previousUppercase = letterCase.usesUppercase();
@@ -1112,7 +1115,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
-        if (command(9)) return;
+        if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
@@ -1199,7 +1202,7 @@ public final class MSIMEInputService extends InputMethodService {
                             button.setPressed(false);
                             return true;
                         }
-                        command(9);
+                        command(2);
                         cursorMovement.begin(origin[0], connection);
                         dragging[0] = cursorMovement.isActive();
                         cancelled[0] = !dragging[0];
@@ -1868,7 +1871,7 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "表情目录尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
-        command(9);
+        command(2);
         if (session == 0 || connection == null) return;
         closeCandidatePanel();
         closeClipboardHistory();
@@ -3101,7 +3104,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void insertClipboardText(String text) {
         if (connection == null || !ClipboardHistoryPolicy.acceptable(text)) return;
-        command(9);
+        command(2);
         commitText(text);
         closeClipboardHistory();
     }
@@ -3939,7 +3942,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!acceptsHandwriting(token) || !handwritingResults.contains(candidate)
                 || connection == null) return false;
         long targetSession = session;
-        command(9);
+        command(2);
         if (targetSession != session || !acceptsHandwriting(token) || connection == null) return false;
         if (!commitText(chineseOutput(candidate, view), TypingSource.HANDWRITING)) return false;
         clearHandwriting();
@@ -4092,6 +4095,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void rebuildNineKeyRows() {
+        dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
         adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
@@ -4113,8 +4117,17 @@ public final class MSIMEInputService extends InputMethodService {
         for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
             LinearLayout row = new LinearLayout(this);
             for (NineKeyLayout.Key key : keys) {
-                addNineKey(row, keyboardKey(key.label(), key.description(),
-                    () -> character(key.input())));
+                Button keyButton = keyboardKey(key.label(), key.description(),
+                    () -> character(key.input()));
+                if (Character.isDigit(key.input()) && key.label().length() > 1) {
+                    keyButton.setContentDescription("按键 " + key.description()
+                        + "；长按输入数字或字母");
+                    keyButton.setOnLongClickListener(ignored -> {
+                        showNineKeyHoldOptions(keyButton, key);
+                        return true;
+                    });
+                }
+                addNineKey(row, keyButton);
             }
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
@@ -4134,6 +4147,70 @@ public final class MSIMEInputService extends InputMethodService {
         addNineKey(actions, keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")));
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+    }
+
+    /** Show the digit and literal letters printed on a nine-key key, like Apple's hold popup. */
+    private void showNineKeyHoldOptions(Button anchor, NineKeyLayout.Key key) {
+        dismissNineKeyHoldOptions();
+        if (keyboardRoot == null) return;
+        playFeedback(anchor);
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.HORIZONTAL);
+        int padding = pixels(5);
+        options.setPadding(padding, padding, padding, padding);
+        GradientDrawable surface = new GradientDrawable();
+        surface.setColor(Color.parseColor(skin.background()));
+        surface.setCornerRadius(pixels(10));
+        surface.setStroke(Math.max(1, pixels(1)), Color.parseColor(skin.accent()));
+        options.setBackground(surface);
+
+        String letters = key.label().toLowerCase(java.util.Locale.ROOT);
+        String[] choices = new String[letters.length() + 1];
+        choices[0] = String.valueOf(key.input());
+        for (int index = 0; index < letters.length(); index++)
+            choices[index + 1] = String.valueOf(letters.charAt(index));
+        for (String choice : choices) {
+            Button option = keyboardKey(choice, "输入 " + choice,
+                () -> commitNineKeyHoldOption(choice));
+            option.setContentDescription("输入 " + choice);
+            option.setPadding(0, 0, 0, 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                pixels(36), pixels(38));
+            if (options.getChildCount() > 0) params.setMarginStart(pixels(2));
+            options.addView(option, params);
+        }
+
+        options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final PopupWindow[] holder = new PopupWindow[1];
+        PopupWindow popup = new PopupWindow(options, options.getMeasuredWidth(),
+            options.getMeasuredHeight(), true);
+        holder[0] = popup;
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setClippingEnabled(true);
+        popup.setElevation(pixels(4));
+        popup.setOnDismissListener(() -> {
+            if (nineKeyHoldPopup == holder[0]) nineKeyHoldPopup = null;
+        });
+        nineKeyHoldPopup = popup;
+        int xOffset = (anchor.getWidth() - options.getMeasuredWidth()) / 2;
+        int yOffset = -anchor.getHeight() - options.getMeasuredHeight() - pixels(6);
+        popup.showAsDropDown(anchor, xOffset, yOffset);
+    }
+
+    private void commitNineKeyHoldOption(String text) {
+        dismissNineKeyHoldOptions();
+        if (connection == null) return;
+        command(2);
+        commitText(text);
+    }
+
+    private void dismissNineKeyHoldOptions() {
+        if (nineKeyHoldPopup != null) {
+            nineKeyHoldPopup.dismiss();
+            nineKeyHoldPopup = null;
+        }
     }
 
     private static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
@@ -4378,7 +4455,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void commitNineKeyLiteral(String text) {
         if (connection == null) return;
-        command(9);
+        command(2);
         commitText(text);
     }
 
