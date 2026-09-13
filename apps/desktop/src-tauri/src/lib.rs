@@ -625,6 +625,23 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
         .map_err(|error| error.error)
 }
 
+/// Keep the host's reason instead of flattening every failure to "storage".
+///
+/// The host distinguishes three things the user can actually act on - the
+/// dictionary is locked by another process, the edit itself was refused, and
+/// the store could not be opened - and the page used to print one identical
+/// sentence for all of them.
+fn dictionary_error_code(reason: &str) -> &'static str {
+    match reason {
+        "dictionary maintenance busy" => "dictionary_busy",
+        "dictionary import rejected" => "dictionary_import_rejected",
+        "dictionary read rejected" => "dictionary_read_rejected",
+        "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
+        "dictionary access unavailable" => "dictionary_unavailable",
+        _ => "storage",
+    }
+}
+
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
@@ -637,12 +654,14 @@ async fn dictionary_request(
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
-            return msime_host_api::personal_dictionary_request_json(&bytes)
-                .map_err(|_| CommandError { code: "storage" });
+            return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
+                CommandError { code: dictionary_error_code(&reason) }
+            });
         }
         #[cfg(not(target_os = "android"))]
-        msime_host_api::dictionary_request_json(&bytes)
-            .map_err(|_| CommandError { code: "storage" })
+        msime_host_api::dictionary_request_json(&bytes).map_err(|reason| CommandError {
+            code: dictionary_error_code(&reason),
+        })
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?

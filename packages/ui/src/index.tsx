@@ -391,11 +391,41 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
 
 /** The user-facing name of a local dictionary, for messages about it. */
 /** Prefer the host's reason; fall back to the generic format hint. */
+/**
+ * Turn a dictionary command failure into something the user can act on.
+ *
+ * The host distinguishes several reasons and the desktop bridge now forwards
+ * them as codes. Printing one fixed "请稍后重试" for all of them told a user
+ * whose IME was simply locked by another process to retry forever.
+ */
+export function dictionaryErrorMessage(error: unknown, fallback: string): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code: unknown }).code)
+    : "";
+  switch (code) {
+    case "dictionary_busy":
+      return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
+    case "dictionary_import_rejected":
+      return "词库拒绝了这次写入，请检查编码与词是否匹配。";
+    case "dictionary_read_rejected":
+      return "词库拒绝了这次读取，请稍后重试。";
+    case "dictionary_pinyin_unavailable":
+      return "拼音表不可用，无法校验这条词的读音。";
+    case "dictionary_unavailable":
+      return "无法打开用户词库，请检查输入法是否正在运行。";
+    default:
+      return fallback;
+  }
+}
+
 function importFailureMessage(kind: string, error: unknown): string {
   const reason = error instanceof Error ? error.message
     : typeof error === "string" ? error
     : typeof error === "object" && error !== null && "error" in error ? String((error as { error: unknown }).error)
     : "";
+  // A host code is more specific than a free-text reason, so try it first.
+  const coded = dictionaryErrorMessage(error, "");
+  if (coded) return `${kind}导入失败：${coded}`;
   return reason
     ? `${kind}导入失败：${reason}`
     : `${kind}导入失败，请检查文本格式。`;
@@ -912,7 +942,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         : phrasePage.offset;
       await loadPhrases(dictionaryKind, offset);
     }
-    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`); }
+    catch (error) { setPhraseError(dictionaryErrorMessage(error, `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`)); }
     finally { setPhraseBusy(false); }
   }
   async function savePhrase() {
@@ -927,7 +957,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       // the first page, where the shared runtime lists it.
       await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
     }
-    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`); }
+    catch (error) { setPhraseError(dictionaryErrorMessage(error, `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`)); }
     finally { setPhraseBusy(false); }
   }
   async function importPhrases(file: File) {
@@ -1000,7 +1030,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       const url = URL.createObjectURL(new Blob([payload.body], { type: "text/plain;charset=utf-8" }));
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = dictionaryExportName(dictionaryKind); anchor.click(); URL.revokeObjectURL(url);
       setPhraseNotice(`已导出 ${payload.rows} 条用户词条。`);
-    } catch { setPhraseError("词库导出失败，请稍后重试。"); }
+    } catch (error) { setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。")); }
     finally { setPhraseBusy(false); }
   }
 
