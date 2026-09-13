@@ -285,6 +285,7 @@ export type VoiceInputPreferences = {
   asr_provider?: string;
   asr_endpoint?: string;
   asr_token?: string;
+  asr_tokens?: Record<string, string>;
   asr_app_key?: string;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
@@ -303,6 +304,7 @@ export type VoiceInputPreferences = {
   polish_provider?: string;
   polish_endpoint?: string;
   polish_token?: string;
+  polish_tokens?: Record<string, string>;
   polish_model?: string;
   polish_prompt_id?: string;
   polish_prompt?: string;

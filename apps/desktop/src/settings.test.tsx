@@ -359,7 +359,10 @@ test("voice settings persist under the shared voice_input contract", async () =>
     // That is the point of the change: the shipped endpoint default is Doubao's
     // websocket URL, and leaving it behind routed other providers' tokens to
     // ByteDance.
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "" },
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
+      // Tokens are kept per provider, so switching also moves the credential
+      // into the slot being left rather than carrying it to the new endpoint.
+      asr_token: "", asr_tokens: {} },
   });
 });
 

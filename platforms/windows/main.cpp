@@ -281,6 +281,23 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
 // they sat at their compiled defaults: turning smart or paired punctuation off
 // did nothing, the Microsoft shuangpin ';' key was never enabled, and the
 // inline preedit style stayed "raw" whatever the user picked.
+// The token for the provider actually in use.
+//
+// Tokens are kept one per provider so switching provider restores the matching
+// key instead of sending the previous provider's key to the new endpoint. The
+// flat field remains the value the box currently holds, so it is the right
+// fallback for a store written before the slots existed.
+std::string provider_token(const nlohmann::json &input, const char *slots_key,
+                           const char *flat_key, const std::string &provider) {
+  const auto slots = input.value(slots_key, nlohmann::json::object());
+  if (slots.is_object() && !provider.empty() && slots.contains(provider) &&
+      slots.at(provider).is_string()) {
+    auto token = slots.at(provider).get<std::string>();
+    if (!token.empty())
+      return token;
+  }
+  return input.value(flat_key, std::string{});
+}
 msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
   msime::windows::TsfLocalConfig config;
   const auto keys = preferences.value("key_bindings", nlohmann::json::object());
@@ -526,10 +543,13 @@ int wmain(int argc, wchar_t **argv) {
           next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
-          next.asr_provider = input.value("asr_provider", std::string{"doubao"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
-          next.token = input.value("asr_token", std::string{});
+          // Read before the tokens: the slot lookup is keyed on them.
+          next.asr_provider = input.value("asr_provider", std::string{"doubao"});
+          next.polish_provider = input.value("polish_provider", std::string{});
+          next.token = provider_token(input, "asr_tokens", "asr_token",
+                                      next.asr_provider);
           next.app_key = input.value("asr_app_key", std::string{});
           next.resource_id = input.value("asr_resource_id", std::string{});
           next.enable_itn = input.value("doubao_enable_itn", true);
@@ -539,8 +559,9 @@ int wmain(int argc, wchar_t **argv) {
           next.language = input.value("language", std::string{"zh-cn"});
           next.polish_enabled = input.value("polish_enabled", false);
           next.polish_text = input.value("polish_text", false);
-          next.polish_provider = input.value("polish_provider", std::string{});
-          next.polish_token = input.value("polish_token", std::string{});
+          next.polish_token = provider_token(input, "polish_tokens",
+                                             "polish_token",
+                                             next.polish_provider);
           next.polish_endpoint = input.value("polish_endpoint", std::string{});
           next.polish_model = input.value("polish_model", std::string{});
           next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});
