@@ -1,3 +1,4 @@
+#include "CandidateAppearance.h"
 #include "PreviewConfig.h"
 #include "TrayMenuWindow.h"
 #include "CandidateSkin.h"
@@ -181,6 +182,44 @@ bool toggle_traditional_output(const std::filesystem::path &directory,
     return false;
   }
 }
+// Read the stored preferences block, or nothing if it cannot be read. The
+// shipped card has usable built-in defaults, so an unreadable store degrades
+// to those rather than stopping the IME from starting.
+std::optional<nlohmann::json>
+load_preference_block(const std::filesystem::path &directory) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return std::nullopt;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return std::nullopt;
+    const auto &snapshot = response.at("value");
+    if (!snapshot.contains("preferences") ||
+        !snapshot.at("preferences").is_object())
+      return std::nullopt;
+    return snapshot.at("preferences");
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+// "system" follows Windows. Absent or unreadable, keep the shipped dark card
+// rather than guessing light and flashing a white panel over a dark desktop.
+bool system_prefers_dark() {
+  DWORD light = 0;
+  DWORD size = sizeof(light);
+  if (RegGetValueW(HKEY_CURRENT_USER,
+                   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\"
+                   L"Personalize",
+                   L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light,
+                   &size) != ERROR_SUCCESS)
+    return true;
+  return light == 0;
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -189,13 +228,31 @@ std::string production_preview_document(const std::string &runtime_document,
   const auto state = host.value("preferences_directory", fallback.u8string());
   if (state.empty())
     throw std::invalid_argument("Production state directory unavailable");
-  return nlohmann::json{
+  nlohmann::json document{
       {"format_version", 1},
       {"resources", host.at("resources")},
       {"state_root", state},
       {"pipe_namespace", "production"},
       {"preedit_style", "local"},
-  }.dump();
+  };
+  const auto preferences = load_preference_block(std::filesystem::u8path(state));
+  if (!preferences)
+    return document.dump();
+  document["preedit_style"] =
+      msime::windows::tsf_preedit_style(*preferences);
+  document["appearance"] = msime::windows::candidate_appearance(
+      std::filesystem::u8path(state), *preferences, system_prefers_dark());
+  // Last line of defence. The field filtering above is deliberately
+  // conservative, but a preference shape nobody anticipated must still not
+  // cost the user their IME: if the assembled document would not load, drop
+  // the appearance and start with the built-in card.
+  try {
+    msime::windows::PreviewConfig::parse(document.dump());
+  } catch (...) {
+    document.erase("appearance");
+    document["preedit_style"] = "local";
+  }
+  return document.dump();
 }
 class ProductionInstance final {
 public:
