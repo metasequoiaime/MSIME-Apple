@@ -408,6 +408,18 @@ struct ServiceSettingsView: View {
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("serviceToken")
         }.padding(.vertical, 4)
+        if kind == .voice && configuration.voiceProvider == .doubao {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Doubao App Key").font(.caption).foregroundStyle(.secondary)
+            SecureField("可选", text: $configuration.voiceAppKey)
+              .textInputAutocapitalization(.never).autocorrectionDisabled()
+              .accessibilityIdentifier("doubaoAppKey")
+            Text("Doubao Resource ID").font(.caption).foregroundStyle(.secondary)
+            TextField("可选", text: $configuration.voiceResourceID)
+              .textInputAutocapitalization(.never).autocorrectionDisabled()
+              .accessibilityIdentifier("doubaoResourceID")
+          }.padding(.vertical, 4)
+        }
         Button { fetchModels() } label: {
           HStack {
             Label(fetchingModels ? "正在获取模型…" : "获取模型列表", systemImage: "arrow.clockwise")
