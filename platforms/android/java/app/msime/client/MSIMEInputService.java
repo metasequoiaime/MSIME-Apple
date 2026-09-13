@@ -3003,15 +3003,22 @@ public final class MSIMEInputService extends InputMethodService {
                     continue;
                 }
                 KeyboardScheme scheme = schemes.get(index);
-                Button card = button(row, scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title(),
-                    () -> selectKeyboardScheme(scheme));
+                // Apple renders scheme cards with the same press-feedback surface as keys. Keep
+                // the Android-specific scheme persistence and selection guards in the callback.
+                Button card = new KeyboardPressButton(this);
+                card.setAllCaps(false);
+                card.setText(scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title());
+                card.setOnClickListener(ignored -> {
+                    playFeedback(card);
+                    selectKeyboardScheme(scheme);
+                });
+                row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
                 card.setSelected(scheme == selectedScheme);
                 card.setEnabled(!schemeSaving);
                 card.setContentDescription("输入方案卡片 " + scheme.title());
                 if (Build.VERSION.SDK_INT >= 30)
                     card.setStateDescription(scheme == selectedScheme ? "已选中" : "未选中");
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) card.getLayoutParams();
-                params.height = pixels(72);
                 card.setLayoutParams(params);
                 styleButton(card, true);
             }
