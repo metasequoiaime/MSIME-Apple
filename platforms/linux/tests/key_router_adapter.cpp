@@ -7,6 +7,12 @@ int main() {
   adapter.set_lease(event.lease);
   assert(adapter.check(event) == MSIME_CLIENT_KEY_SENT);
   assert(adapter.accepts(event));
+  event.virtual_key = 0x100;
+  assert(adapter.check(event) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
+  event.virtual_key = 0x41;
+  event.modifiers = 0x10;
+  assert(adapter.check(event) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
+  event.modifiers = 0;
   event.lease.epoch++;
   assert(adapter.check(event) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
   assert(!adapter.accepts(event));
