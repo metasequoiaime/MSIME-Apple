@@ -7,7 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -512,6 +513,14 @@ pub trait AccountApi: Send + Sync + 'static {
     fn dictionary_snapshot(&self, _access_token: &str) -> Result<Vec<u8>, AccountError> {
         Err(AccountError::Unavailable)
     }
+
+    fn dictionary_snapshot_to_file(
+        &self,
+        _destination: &Path,
+        _access_token: &str,
+    ) -> Result<u64, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {
@@ -880,6 +889,64 @@ impl BackendAccountClient {
             Duration::from_secs(120),
             "application/x-ndjson",
         )
+    }
+
+    pub fn dictionary_snapshot_to_file(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountError> {
+        if !destination.is_absolute() || !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let url = self
+            .origin
+            .join("/v1/users/me/dictionary/snapshot")
+            .map_err(|_| AccountError::Invalid)?;
+        let mut response = self
+            .client
+            .get(url)
+            .header(reqwest::header::ACCEPT, "application/x-ndjson")
+            .bearer_auth(access_token)
+            .timeout(Duration::from_secs(120))
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        if !response.status().is_success() {
+            return Err(AccountError::from_status(response.status()));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_DICTIONARY_SNAPSHOT_BYTES as u64)
+        {
+            return Err(AccountError::Unavailable);
+        }
+        let parent = destination.parent().ok_or(AccountError::Invalid)?;
+        if !parent.is_absolute() {
+            return Err(AccountError::Invalid);
+        }
+        let mut temporary = tempfile::Builder::new()
+            .prefix("msime-snapshot-")
+            .tempfile_in(parent)
+            .map_err(|_| AccountError::Unavailable)?;
+        let bytes = std::io::copy(
+            &mut response
+                .by_ref()
+                .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
+            temporary.as_file_mut(),
+        )
+            .map_err(|_| AccountError::Unavailable)?;
+        if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
+            return Err(AccountError::Unavailable);
+        }
+        temporary
+            .as_file_mut()
+            .flush()
+            .and_then(|_| temporary.as_file().sync_all())
+            .map_err(|_| AccountError::Unavailable)?;
+        temporary
+            .persist(destination)
+            .map_err(|_| AccountError::Unavailable)?;
+        Ok(bytes)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2088,6 +2155,14 @@ impl AccountApi for BackendAccountClient {
     fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
         self.dictionary_snapshot(access_token)
     }
+
+    fn dictionary_snapshot_to_file(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountError> {
+        self.dictionary_snapshot_to_file(destination, access_token)
+    }
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {
@@ -2643,6 +2718,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn dictionary_snapshot(&self) -> Result<Vec<u8>, AccountError> {
         self.authenticated(|api, token| api.dictionary_snapshot(token))
+    }
+
+    pub fn dictionary_snapshot_to_file(&self, destination: &Path) -> Result<u64, AccountError> {
+        self.authenticated(|api, token| api.dictionary_snapshot_to_file(destination, token))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3547,6 +3626,24 @@ mod tests {
             client.dictionary_snapshot(&token(b'a')).unwrap(),
             b"{\"type\":\"header\"}\n"
         );
+
+        let snapshot = b"streamed snapshot\n".to_vec();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-ndjson\r\n\r\n",
+            snapshot.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(snapshot.clone())
+        .collect();
+        let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("snapshot.ndjson");
+        let size = client
+            .dictionary_snapshot_to_file(&destination, &token(b'a'))
+            .unwrap();
+        assert_eq!(size, snapshot.len() as u64);
+        assert_eq!(std::fs::read(destination).unwrap(), snapshot);
 
         let invalid_changes = serde_json::json!({
             "changes": [{"revision": 44, "previous": null, "replacement": null}],
