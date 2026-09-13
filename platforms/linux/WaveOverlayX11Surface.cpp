@@ -61,6 +61,13 @@ bool WaveOverlayX11Surface::ensure_window() {
   if (!display_)
     return false;
   const auto screen = DefaultScreen(display_);
+  int fixes_event = 0;
+  int fixes_error = 0;
+  if (!XFixesQueryExtension(display_, &fixes_event, &fixes_error)) {
+    XCloseDisplay(display_);
+    display_ = nullptr;
+    return false;
+  }
   const auto root = RootWindow(display_, screen);
   XSetWindowAttributes attributes{};
   attributes.override_redirect = True;
@@ -88,14 +95,10 @@ bool WaveOverlayX11Surface::ensure_window() {
   if (missing)
     XFreeStringList(missing);
   XSelectInput(display_, window_, ExposureMask);
-  int fixes_event = 0;
-  int fixes_error = 0;
-  if (XFixesQueryExtension(display_, &fixes_event, &fixes_error)) {
-    const auto input_region = XFixesCreateRegion(display_, nullptr, 0);
-    XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0,
-                               input_region);
-    XFixesDestroyRegion(display_, input_region);
-  }
+  const auto input_region = XFixesCreateRegion(display_, nullptr, 0);
+  XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0,
+                             input_region);
+  XFixesDestroyRegion(display_, input_region);
   return true;
 }
 
