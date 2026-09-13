@@ -73,9 +73,10 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
+          # Start above the legacy iOS commit-count builds (491 at migration) and the 1002.x builds already on TestFlight and Sparkle; #405 dropped this offset from a stale checkout and shipped 3.64.1.
           # Three numeric components; retries receive a distinct build, up to 99 attempts.
           test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          build="$((1000 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
