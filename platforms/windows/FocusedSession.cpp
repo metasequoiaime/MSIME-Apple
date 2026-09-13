@@ -119,6 +119,38 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
   });
   return result;
 }
+std::optional<nlohmann::json>
+FocusedSession::candidate_action(const FocusLease &lease, uint64_t session,
+                                 uint64_t generation, size_t index,
+                                 CandidateAction action, uint8_t position) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      return;
+    const auto current = session_.view();
+    if (current.at("session").get<uint64_t>() != session ||
+        current.at("generation").get<uint64_t>() != generation ||
+        !current.at("focused").get<bool>())
+      return;
+    bool found = false;
+    for (const auto &candidate : current.at("candidates")) {
+      const auto &id = candidate.at("id");
+      if (id.at("session").get<uint64_t>() == session &&
+          id.at("generation").get<uint64_t>() == generation &&
+          id.at("index").get<size_t>() == index) {
+        found = true;
+        break;
+      }
+    }
+    if (found)
+      result = session_.candidate_action(lease.epoch, generation, index,
+                                         action, position);
+  });
+  return result;
+}
 bool FocusedSession::confirm_ui(const FocusLease &lease, uint64_t generation) {
   check_thread();
   if (!prepared(lease))

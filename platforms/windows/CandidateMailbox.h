@@ -26,6 +26,11 @@ public:
   void translations(const FocusLease &lease, const nlohmann::json &view) {
     refresh_view(lease, view, false);
   }
+  // Candidate menu actions advance Engine's generation without sending text
+  // through TSF. Publish the resulting view immediately on the input queue.
+  void action(const FocusLease &lease, const nlohmann::json &view) {
+    refresh_view(lease, view, true);
+  }
 
 private:
   void refresh_view(const FocusLease &lease, const nlohmann::json &view,

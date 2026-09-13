@@ -166,6 +166,57 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
     return fail();
   }
 }
+CandidateActionRequestResult SessionController::request_candidate_action(
+    const FocusLease &lease, uint64_t session, uint64_t generation,
+    size_t index, CandidateAction action, uint8_t position) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error(
+        "Candidate action cannot reenter controller callbacks");
+  if (action == CandidateAction::Select ||
+      (action == CandidateAction::FixPosition &&
+       (position < 1 || position > 5)) ||
+      (action != CandidateAction::FixPosition && position != 0))
+    return CandidateActionRequestResult::Rejected;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return CandidateActionRequestResult::Busy;
+  const auto fail = [&] {
+    focus_.invalidate(lease.transport);
+    transport_.close(lease.transport);
+    failure_ = ControllerFailure::Control;
+    request_stop();
+    return CandidateActionRequestResult::Failed;
+  };
+  try {
+    const auto shown = candidate_view();
+    if (!shown || !shown->visible || shown->session != session ||
+        shown->generation != generation || shown->lease.epoch != lease.epoch ||
+        shown->lease.token != lease.token ||
+        !same_ticket(shown->lease.transport, lease.transport))
+      return CandidateActionRequestResult::Rejected;
+    bool found = false;
+    for (const auto &candidate : shown->candidates)
+      if (candidate.index == index && candidate.session == session &&
+          candidate.generation == generation)
+        found = true;
+    if (!found)
+      return CandidateActionRequestResult::Rejected;
+    std::optional<nlohmann::json> transition;
+    auto prepared = input_.submit([&](InputState &state) {
+      if (!stopping_ && transport_.current(lease.transport))
+        transition = state.candidate_action(lease, session, generation, index,
+                                            action, position);
+      if (transition)
+        candidates_.action(lease, transition->at("view"));
+    });
+    if (!prepared || prepared->get() != InputTaskStatus::Completed)
+      return fail();
+    return transition ? CandidateActionRequestResult::Sent
+                      : CandidateActionRequestResult::Rejected;
+  } catch (...) {
+    return fail();
+  }
+}
 VoiceCompositionResult SessionController::send_voice_composition(
     const FocusLease &lease, uint32_t message, std::wstring_view text,
     wchar_t generation) {

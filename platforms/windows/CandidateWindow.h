@@ -42,6 +42,7 @@ private:
                               const RECT &work, unsigned dpi);
   void paint();
   std::optional<CandidateClick> hit(int x, int y);
+  void show_context_menu(const CandidateClick &click, POINT client_point);
   Reader reader_;
   Click click_;
   HWND window_ = nullptr;

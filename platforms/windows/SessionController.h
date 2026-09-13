@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateAction.h"
 #include "ModeMailbox.h"
 #include "CandidateMailbox.h"
 #include "CloudCandidateWorker.h"
@@ -12,6 +13,7 @@
 namespace msime::windows {
 enum class ModeRequestResult { Rejected, Sent, WriteFailed };
 enum class SelectionRequestResult { Rejected, Busy, Sent, Failed };
+enum class CandidateActionRequestResult { Rejected, Busy, Sent, Failed };
 enum class VoiceCompositionResult { Rejected, Busy, Sent, Failed };
 enum class ControllerFailure {
   None,
@@ -54,6 +56,9 @@ public:
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
   SelectionRequestResult request_selection(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index);
+  CandidateActionRequestResult request_candidate_action(
+      const FocusLease &lease, uint64_t session, uint64_t generation,
+      size_t index, CandidateAction action, uint8_t position = 0);
   // Send a bounded voice snapshot through the authenticated worker endpoint.
   // The caller owns recording/ASR; this method only validates the focus lease
   // and performs the ordered frame delivery.

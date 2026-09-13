@@ -100,6 +100,39 @@ struct Painting {
       : window(value), dc(BeginPaint(window, &state)) {}
   ~Painting() { EndPaint(window, &state); }
 };
+struct PopupMenu {
+  HMENU handle = nullptr;
+  ~PopupMenu() {
+    if (handle)
+      DestroyMenu(handle);
+  }
+  PopupMenu() = default;
+  explicit PopupMenu(HMENU value) : handle(value) {}
+  PopupMenu(const PopupMenu &) = delete;
+  PopupMenu &operator=(const PopupMenu &) = delete;
+  PopupMenu(PopupMenu &&other) noexcept : handle(other.handle) {
+    other.handle = nullptr;
+  }
+  PopupMenu &operator=(PopupMenu &&other) noexcept {
+    if (this != &other) {
+      if (handle)
+        DestroyMenu(handle);
+      handle = other.handle;
+      other.handle = nullptr;
+    }
+    return *this;
+  }
+};
+constexpr UINT menu_pin = 1;
+constexpr UINT menu_remove = 2;
+constexpr UINT menu_fix_first = 100;
+constexpr UINT menu_fix_last = menu_fix_first + 4;
+constexpr UINT menu_clear_fix = 105;
+void append_menu(HMENU menu, UINT flags, UINT_PTR command,
+                 const wchar_t *label) {
+  if (!AppendMenuW(menu, flags, command, label))
+    throw std::runtime_error("Candidate context menu unavailable");
+}
 } // namespace
 CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  unsigned preedit_font_size,
@@ -420,6 +453,67 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   return CandidateClick{painted_->lease, candidate.session,
                         candidate.generation, candidate.index};
 }
+void CandidateWindow::show_context_menu(const CandidateClick &click,
+                                        POINT client_point) {
+  if (!painted_ || !click_)
+    return;
+  const auto candidate = std::find_if(
+      painted_->candidates.begin(), painted_->candidates.end(),
+      [&](const PresentationCandidate &item) {
+        return item.session == click.session &&
+               item.generation == click.generation &&
+               item.index == click.index;
+      });
+  if (candidate == painted_->candidates.end())
+    return;
+  const auto text = wide(candidate->text);
+  size_t code_points = 0;
+  for (size_t i = 0; i < text.size(); ++i) {
+    ++code_points;
+    if (i + 1 < text.size() &&
+        IS_HIGH_SURROGATE(text[i]) && IS_LOW_SURROGATE(text[i + 1]))
+      ++i;
+  }
+
+  PopupMenu menu(CreatePopupMenu());
+  if (!menu.handle)
+    throw std::runtime_error("Candidate context menu unavailable");
+  append_menu(menu.handle, MF_STRING, menu_pin, L"置顶");
+  PopupMenu fixed(CreatePopupMenu());
+  if (!fixed.handle)
+    throw std::runtime_error("Candidate context menu unavailable");
+  for (UINT position = 1; position <= 5; ++position)
+    append_menu(fixed.handle, MF_STRING, menu_fix_first + position - 1,
+                (L"第 " + std::to_wstring(position) + L" 位").c_str());
+  append_menu(fixed.handle, MF_SEPARATOR, 0, nullptr);
+  append_menu(fixed.handle, MF_STRING, menu_clear_fix, L"取消固定");
+  append_menu(menu.handle, MF_POPUP,
+              reinterpret_cast<UINT_PTR>(fixed.handle), L"固定排位");
+  fixed.handle = nullptr; // Ownership now belongs to the parent menu.
+  if (code_points != 1)
+    append_menu(menu.handle, MF_STRING, menu_remove, L"删除");
+
+  POINT screen = client_point;
+  if (!ClientToScreen(window_, &screen))
+    throw std::runtime_error("Candidate context menu position unavailable");
+  const UINT command = TrackPopupMenuEx(
+      menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NOANIMATION,
+      screen.x, screen.y, window_, nullptr);
+  CandidateClick action = click;
+  if (command == menu_pin)
+    action.action = CandidateAction::Pin;
+  else if (command == menu_remove && code_points != 1)
+    action.action = CandidateAction::Remove;
+  else if (command >= menu_fix_first && command <= menu_fix_last) {
+    action.action = CandidateAction::FixPosition;
+    action.position = static_cast<uint8_t>(command - menu_fix_first + 1);
+  } else if (command == menu_clear_fix) {
+    action.action = CandidateAction::ClearPosition;
+  } else {
+    return;
+  }
+  click_(action);
+}
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
                                             LPARAM lparam) noexcept {
@@ -474,6 +568,15 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
             pressed->lease.token == hit->lease.token &&
             same_ticket(pressed->lease.transport, hit->lease.transport))
           self->click_(*hit);
+        return 0;
+      }
+      case WM_RBUTTONUP: {
+        const auto hit = self->hit(static_cast<short>(LOWORD(lparam)),
+                                   static_cast<short>(HIWORD(lparam)));
+        if (hit)
+          self->show_context_menu(*hit,
+                                  POINT{static_cast<short>(LOWORD(lparam)),
+                                        static_cast<short>(HIWORD(lparam))});
         return 0;
       }
       case WM_CANCELMODE:

@@ -10,6 +10,16 @@ InputState::select_candidate(const FocusLease &lease, uint64_t expected_session,
                                          index)
                : std::nullopt;
 }
+std::optional<nlohmann::json>
+InputState::candidate_action(const FocusLease &lease, uint64_t session,
+                             uint64_t generation, size_t index,
+                             CandidateAction action, uint8_t position) {
+  check_thread();
+  auto *owner = this->session(lease.transport);
+  return owner ? owner->candidate_action(lease, session, generation, index,
+                                         action, position)
+               : std::nullopt;
+}
 bool InputState::ui_delivered(const FocusLease &lease, uint64_t generation) {
   check_thread();
   auto *owner = session(lease.transport);

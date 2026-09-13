@@ -180,6 +180,39 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
     throw std::logic_error("Candidate selection while input disabled");
   return response(msime_client_select(session_, generation, index));
 }
+nlohmann::json ServerSession::candidate_action(uint64_t epoch,
+                                               uint64_t generation,
+                                               size_t index,
+                                               CandidateAction action,
+                                               uint8_t position) {
+  check_active(epoch);
+  if (!input_enabled_)
+    throw std::logic_error("Candidate action while input disabled");
+  char *raw = nullptr;
+  switch (action) {
+  case CandidateAction::Pin:
+    raw = msime_client_pin_candidate(session_, generation, index);
+    break;
+  case CandidateAction::Remove:
+    raw = msime_client_remove_candidate(session_, generation, index);
+    break;
+  case CandidateAction::FixPosition:
+    if (position < 1 || position > 5)
+      throw std::invalid_argument("Candidate position outside 1-5");
+    raw = msime_client_fix_candidate_position(session_, generation, index,
+                                               position);
+    break;
+  case CandidateAction::ClearPosition:
+    raw = msime_client_clear_candidate_position(session_, generation, index);
+    break;
+  case CandidateAction::Select:
+    throw std::invalid_argument("Selection is not a candidate action");
+  }
+  auto result = response(raw);
+  if (!result.at("commit").is_null())
+    throw std::logic_error("Candidate action unexpectedly committed text");
+  return result;
+}
 std::optional<std::string> ServerSession::online_query(uint64_t epoch) {
   check_active(epoch);
   try {

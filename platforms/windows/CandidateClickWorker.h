@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateAction.h"
 #include "CandidatePresentation.h"
 #include <atomic>
 #include <condition_variable>
@@ -10,6 +11,8 @@ struct CandidateClick {
   FocusLease lease;
   uint64_t session, generation;
   size_t index;
+  CandidateAction action = CandidateAction::Select;
+  uint8_t position = 0;
 };
 // One worker and one outstanding click. No backlog/retries. Dependencies must
 // outlive stop(); cancel handler I/O before joining when necessary.

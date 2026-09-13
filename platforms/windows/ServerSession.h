@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateAction.h"
 #include "NavigationPolicy.h"
 #include "WordCharacterPolicy.h"
 #include "windows_ipc.h"
@@ -51,6 +52,9 @@ public:
                                            uint64_t epoch,
                                            const NavigationBindings &bindings);
   nlohmann::json select(uint64_t epoch, uint64_t generation, size_t index);
+  nlohmann::json candidate_action(uint64_t epoch, uint64_t generation,
+                                  size_t index, CandidateAction action,
+                                  uint8_t position = 0);
   std::optional<std::string> online_query(uint64_t epoch);
   std::optional<nlohmann::json>
   apply_cloud_response(uint64_t epoch, const std::string &query,

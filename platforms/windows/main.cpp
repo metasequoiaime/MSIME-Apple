@@ -328,10 +328,18 @@ int wmain(int argc, wchar_t **argv) {
     if (!clipboard_monitor.start())
       throw std::runtime_error("Clipboard monitor unavailable");
     CandidateClickWorker clicks([&](const CandidateClick &click) {
-      if (server.request_selection(click.lease, click.session, click.generation,
-                                   click.index) ==
-          SelectionRequestResult::Failed)
-        throw std::runtime_error("Candidate selection failed");
+      if (click.action == CandidateAction::Select) {
+        if (server.request_selection(click.lease, click.session,
+                                     click.generation, click.index) ==
+            SelectionRequestResult::Failed)
+          throw std::runtime_error("Candidate selection failed");
+        return;
+      }
+      if (server.request_candidate_action(
+              click.lease, click.session, click.generation, click.index,
+              click.action, click.position) ==
+          CandidateActionRequestResult::Failed)
+        throw std::runtime_error("Candidate action failed");
     });
     ModeClickWorker mode_clicks([&](const ModeClick &click) {
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)

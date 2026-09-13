@@ -36,6 +36,12 @@ public:
       uint64_t session, uint64_t generation, size_t index) {
     return controller_->request_selection(lease, session, generation, index);
   }
+  CandidateActionRequestResult request_candidate_action(
+      const FocusLease &lease, uint64_t session, uint64_t generation,
+      size_t index, CandidateAction action, uint8_t position = 0) {
+    return controller_->request_candidate_action(lease, session, generation,
+                                                 index, action, position);
+  }
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }
