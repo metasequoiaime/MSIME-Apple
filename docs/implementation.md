@@ -847,3 +847,9 @@ Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win
 共享 Emoji/剪贴板面板现在在 Windows 暴露粘贴动作：宿主先将所选历史文本写入 Unicode 系统剪贴板，再恢复面板打开前记忆的编辑器窗口并注入 Ctrl+V。目标句柄、剪贴板写入和按键注入均经过现有 host-windows 包装；文本继续受非空、NUL 和大小限制，失败不会伪造成功状态。Linux 路径保持原有选择监听与 Ctrl+V 实现，其他平台仍报告不支持。
 
 本地验证：x86_64 Windows GNU `msime-host-windows` 检查通过；桌面 Windows GNU 检查已编译通过更新后的 host crate，随后在既有 `MSIME_WINDOWS_DEPS` 环境要求处停止。未执行 Windows 原生编辑器、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows 手写候选提交
+
+手写面板在 Windows 现在复用现有目标窗口和 Unicode 输入注入路径提交识别候选；提交前沿用共享 `validate_candidate` 校验，非法候选不会进入宿主。Linux 的异步显示服务器路径和其他平台的明确不支持行为保持不变，识别算法与候选生成仍由 Engine/Host API 负责。
+
+本地验证：x86_64 Windows GNU 桌面检查已编译通过更新后的 `msime-host-windows` 与 Tauri Rust 代码，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生手写识别、编辑器上屏、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
