@@ -117,6 +117,67 @@ int main() {
     require(tsf_preedit_style({{"tsf_preedit_style", "nonsense"}}) == "local");
     require(tsf_preedit_style({{"tsf_preedit_style", 3}}) == "local");
 
+    // The floating toolbar reads the same store, with the same rule: a value
+    // PreviewConfig would refuse is dropped rather than copied through.
+    auto toolbar_document = [&](const nlohmann::json &preferences) {
+      nlohmann::json document{
+          {"format_version", 1},
+          {"resources", (root / "resources").u8string()},
+          {"state_root", state.u8string()},
+          {"pipe_namespace", "production"},
+          {"preedit_style", "local"}};
+      apply_floating_toolbar(document, preferences);
+      return document;
+    };
+    // No stored block leaves the document untouched, so the defaults stand.
+    require(!toolbar_document(nlohmann::json::object())
+                 .contains("floating_toolbar_enabled"));
+    require(!toolbar_document({{"floating_toolbar", 7}})
+                 .contains("floating_toolbar_enabled"));
+
+    const nlohmann::json full{
+        {"floating_toolbar",
+         {{"enabled", false},
+          {"scale_percent", 125},
+          {"font_size", 20},
+          {"character_set", true},
+          {"punctuation", false},
+          {"fullwidth", true},
+          {"emoji", false},
+          {"screen_keyboard", true},
+          {"settings", false}}}};
+    const auto bar = PreviewConfig::parse(toolbar_document(full).dump());
+    require(!bar.floating_toolbar_enabled);
+    // Stored as a percentage, carried as a multiplier.
+    require(bar.floating_toolbar_scale > 1.249 &&
+            bar.floating_toolbar_scale < 1.251);
+    require(bar.floating_toolbar_font_size == 20);
+    require(bar.floating_toolbar_items[0] && !bar.floating_toolbar_items[1] &&
+            bar.floating_toolbar_items[2] && !bar.floating_toolbar_items[3] &&
+            bar.floating_toolbar_items[4] && !bar.floating_toolbar_items[5]);
+
+    // Out-of-range scale and size are dropped, and the document still loads.
+    auto hostile_toolbar = full;
+    hostile_toolbar["floating_toolbar"]["scale_percent"] = 900;
+    hostile_toolbar["floating_toolbar"]["font_size"] = 2;
+    const auto dropped = toolbar_document(hostile_toolbar);
+    require(!dropped.contains("floating_toolbar_scale"));
+    require(!dropped.contains("floating_toolbar_font_size"));
+    require(PreviewConfig::parse(dropped.dump()).floating_toolbar_font_size == 24);
+
+    // PreviewConfig demands exactly six item keys, so a partial block must be
+    // omitted entirely rather than sent and refused.
+    auto partial = full;
+    partial["floating_toolbar"].erase("emoji");
+    const auto without_items = toolbar_document(partial);
+    require(!without_items.contains("floating_toolbar_items"));
+    require(without_items.contains("floating_toolbar_enabled"));
+    PreviewConfig::parse(without_items.dump()); // Still loads.
+    // A non-boolean item is the same case: six good keys or none.
+    auto mistyped = full;
+    mistyped["floating_toolbar"]["emoji"] = "yes";
+    require(!toolbar_document(mistyped).contains("floating_toolbar_items"));
+
     std::cout << "Candidate appearance: stored preferences reach the card\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

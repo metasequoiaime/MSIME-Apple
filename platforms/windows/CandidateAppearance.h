@@ -81,6 +81,46 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
   }
   return appearance;
 }
+// Copy the stored floating-toolbar preferences onto the runtime document.
+//
+// Same contract as candidate_appearance: PreviewConfig validates these too - a
+// scale outside 0.75..1.5 or a font size outside 16..28 throws on the launch
+// path - so a value that would not survive is left out rather than copied
+// through. The items object is all-or-nothing because PreviewConfig requires
+// exactly six keys, so a partial block would be refused outright.
+inline void apply_floating_toolbar(nlohmann::json &document,
+                                   const nlohmann::json &preferences) {
+  if (!preferences.contains("floating_toolbar") ||
+      !preferences.at("floating_toolbar").is_object())
+    return;
+  const auto &toolbar = preferences.at("floating_toolbar");
+  if (toolbar.contains("enabled") && toolbar.at("enabled").is_boolean())
+    document["floating_toolbar_enabled"] = toolbar.at("enabled").get<bool>();
+  // Stored as a percentage; the document carries a multiplier.
+  if (toolbar.contains("scale_percent") &&
+      toolbar.at("scale_percent").is_number_integer()) {
+    const auto percent = toolbar.at("scale_percent").get<int64_t>();
+    if (percent >= 75 && percent <= 150)
+      document["floating_toolbar_scale"] =
+          static_cast<double>(percent) / 100.0;
+  }
+  if (toolbar.contains("font_size") &&
+      toolbar.at("font_size").is_number_integer()) {
+    const auto size = toolbar.at("font_size").get<int64_t>();
+    if (size >= 16 && size <= 28)
+      document["floating_toolbar_font_size"] = static_cast<int>(size);
+  }
+  static constexpr const char *names[] = {"character_set", "punctuation",
+                                          "fullwidth",     "emoji",
+                                          "screen_keyboard", "settings"};
+  nlohmann::json items = nlohmann::json::object();
+  for (const char *name : names) {
+    if (!toolbar.contains(name) || !toolbar.at(name).is_boolean())
+      return; // Six or none.
+    items[name] = toolbar.at(name).get<bool>();
+  }
+  document["floating_toolbar_items"] = items;
+}
 // The inline preedit the TSF side draws. PreviewConfig spells the pass-through
 // case "local"; the stored preference spells the same thing "raw".
 inline std::string tsf_preedit_style(const nlohmann::json &preferences) {

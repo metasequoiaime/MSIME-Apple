@@ -246,6 +246,7 @@ std::string production_preview_document(const std::string &runtime_document,
       msime::windows::tsf_preedit_style(*preferences);
   document["appearance"] = msime::windows::candidate_appearance(
       std::filesystem::u8path(state), *preferences, system_prefers_dark());
+  msime::windows::apply_floating_toolbar(document, *preferences);
   // Last line of defence. The field filtering above is deliberately
   // conservative, but a preference shape nobody anticipated must still not
   // cost the user their IME: if the assembled document would not load, drop
@@ -254,6 +255,10 @@ std::string production_preview_document(const std::string &runtime_document,
     msime::windows::PreviewConfig::parse(document.dump());
   } catch (...) {
     document.erase("appearance");
+    document.erase("floating_toolbar_enabled");
+    document.erase("floating_toolbar_scale");
+    document.erase("floating_toolbar_font_size");
+    document.erase("floating_toolbar_items");
     document["preedit_style"] = "local";
   }
   return document.dump();
