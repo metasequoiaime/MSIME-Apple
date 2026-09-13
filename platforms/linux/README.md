@@ -624,3 +624,5 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 标点锁定的跟随、固定中文、固定英文子菜单现在与父菜单共享焦点、输入启用、活动会话和保存中状态；失焦、密码输入、会话尚未建立或保存进行中时，子项同步禁用，避免无效切换。
 
 候选布局、每页候选数和词频调节的子菜单项现在与父菜单共享焦点、会话、输入启用和保存中状态；失焦或保存进行中时统一禁用，避免无效选择。
+
+Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：只有 `DEFINITELY_NOT_SENT` 允许宿主执行本地 fallback；`DELIVERY_AMBIGUOUS` 必须等待 lease 恢复，不能重复注入按键。IBus focus-in 在 Engine 会话建立后安装 lease，focus-out 只撤销精确匹配的当前 lease。
