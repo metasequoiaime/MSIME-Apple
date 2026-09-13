@@ -106,6 +106,8 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout clipboardPanel;
     private ScrollView schemeScroll;
     private LinearLayout schemePanel;
+    private ScrollView skinScroll;
+    private LinearLayout skinPanel;
     private ScrollView layoutSettingsScroll;
     private LinearLayout layoutSettingsPanel;
     private ScrollView moreToolsScroll;
@@ -317,6 +319,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private record SchemeConfiguration(
         java.util.List<KeyboardScheme> enabled, KeyboardScheme selected, boolean shared) {}
+
+    private record SkinChoice(String id, String title, KeyboardSkin skin, JSONObject design) {}
 
     private SchemeConfiguration schemeConfiguration(
             JSONObject preferences, KeyboardScheme engineScheme) {
@@ -580,6 +584,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
+        closeSkinPicker();
         closeLayoutSettings();
         closeMoreTools();
         closeEmojiPicker();
@@ -1585,6 +1590,8 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(clipboardPanel);
         if (schemePanel != null)
             applySkinBackground(schemePanel);
+        if (skinPanel != null)
+            applySkinBackground(skinPanel);
         if (layoutSettingsPanel != null)
             applySkinBackground(layoutSettingsPanel);
         if (moreToolsPanel != null)
@@ -1696,6 +1703,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void closeSchemePicker() {
         if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
         synchronizeReplyKeyboard();
+    }
+
+    private void closeSkinPicker() {
+        if (skinScroll != null) skinScroll.setVisibility(View.GONE);
     }
 
     private void closeLayoutSettings() {
@@ -2148,21 +2159,94 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showSkinMenu(Button anchor) {
-        if (anchor == null || !canSaveKeyboardSkin()) return;
-        PopupMenu popup = new PopupMenu(this, anchor);
+        if (anchor == null || !canSaveKeyboardSkin() || skinScroll == null) return;
+        closeEmojiPicker();
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeMoreTools();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        renderSkinPicker();
+        skinScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void renderSkinPicker() {
+        if (skinPanel == null) return;
+        skinPanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("选择皮肤");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button close = button(header, "返回键盘", this::closeSkinPicker);
+        close.setContentDescription("返回键盘");
+        skinPanel.addView(header);
+
+        java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
+        try {
+            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Path.of(preferencesDirectory))) {
+                JSONObject design = item.design();
+                saved.add(new SkinChoice("custom", item.name(),
+                    KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
+            }
+        } catch (Exception ignored) {
+            // A partially written library must not hide built-in skins.
+        }
+        if (!saved.isEmpty()) addSkinSection(skinPanel, "我的设计", saved);
+
+        java.util.List<SkinChoice> builtIns = new java.util.ArrayList<>();
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
         JSONObject customDesign = preferences == null ? null
             : preferences.optJSONObject("custom_touch_keyboard_skin");
-        for (KeyboardSkin choice : KeyboardSkin.choices(skin.dark(), customDesign)) {
-            MenuItem item = popup.getMenu().add(choice.title());
-            item.setCheckable(true).setChecked(skin.id().equals(choice.id()));
-            item.setOnMenuItemClickListener(ignored -> {
-                saveKeyboardSkin(choice.id());
-                return true;
-            });
+        for (KeyboardSkin choice : KeyboardSkin.builtIns(skin.dark()))
+            builtIns.add(new SkinChoice(choice.id(), choice.title(), choice, null));
+        KeyboardSkin custom = KeyboardSkin.from("custom", skin.dark(), customDesign);
+        builtIns.add(new SkinChoice("custom", custom.title(), custom, customDesign));
+        addSkinSection(skinPanel, null, builtIns);
+        applySkin();
+    }
+
+    private void addSkinSection(LinearLayout parent, String heading, java.util.List<SkinChoice> choices) {
+        if (heading != null) {
+            TextView label = new TextView(this);
+            label.setText(heading);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            parent.addView(label, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
-        popup.show();
+        for (int start = 0; start < choices.size(); start += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int slot = 0; slot < 2; slot++) {
+                int index = start + slot;
+                if (index >= choices.size()) {
+                    row.addView(new View(this), new LinearLayout.LayoutParams(0, pixels(124), 1));
+                    continue;
+                }
+                SkinChoice choice = choices.get(index);
+                KeyboardSkinCard card = new KeyboardSkinCard(this, choice.skin(), choice.title());
+                card.setSelected(skin.id().equals(choice.id())
+                    && skin.key().equals(choice.skin().key()));
+                card.setContentDescription("屏幕键盘皮肤 " + choice.title());
+                if (Build.VERSION.SDK_INT >= 30)
+                    card.setStateDescription(card.isSelected() ? "已选中" : "未选中");
+                card.setOnClickListener(ignored -> {
+                    playFeedback(card);
+                    closeSkinPicker();
+                    saveKeyboardSkin(choice.id(), choice.design());
+                });
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, pixels(124), 1);
+                params.setMargins(pixels(4), pixels(4), pixels(4), pixels(4));
+                row.addView(card, params);
+            }
+            parent.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, pixels(132)));
+        }
     }
 
     private void showKeyboardSkinStatus(String value) {
@@ -2179,8 +2263,12 @@ public final class MSIMEInputService extends InputMethodService {
             : preferencesSnapshot.optJSONObject("preferences");
         JSONObject customDesign = currentPreferences == null ? null
             : currentPreferences.optJSONObject("custom_touch_keyboard_skin");
+        saveKeyboardSkin(identifier, customDesign);
+    }
+
+    private void saveKeyboardSkin(String identifier, JSONObject customDesign) {
         KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark(), customDesign);
-        if (skin.id().equals(next.id()) || skinSaving || traditionalOutputSaving || session == 0
+        if (skin.key().equals(next.key()) || skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
@@ -2189,7 +2277,10 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = pending.getLong("revision");
-            pending.getJSONObject("preferences").put("touch_keyboard_skin", next.id());
+            JSONObject preferences = pending.getJSONObject("preferences");
+            preferences.put("touch_keyboard_skin", next.id());
+            if ("custom".equals(identifier) && customDesign != null)
+                preferences.put("custom_touch_keyboard_skin", new JSONObject(customDesign.toString()));
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
             return;
@@ -4806,6 +4897,18 @@ public final class MSIMEInputService extends InputMethodService {
         schemeScroll.setFillViewport(true);
         schemeScroll.setVisibility(View.GONE);
         keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        skinPanel = new LinearLayout(this);
+        skinPanel.setOrientation(LinearLayout.VERTICAL);
+        skinPanel.setPadding(24, 16, 24, 16);
+        skinPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        skinPanel.setContentDescription("键盘皮肤选择器");
+        skinScroll = new ScrollView(this);
+        skinScroll.addView(skinPanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        skinScroll.setFillViewport(true);
+        skinScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(skinScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         layoutSettingsPanel = new LinearLayout(this);
         layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
