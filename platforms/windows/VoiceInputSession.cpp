@@ -125,6 +125,20 @@ void send_text_via_ctrl_v(std::wstring_view text) {
   input[3].ki.dwFlags = KEYEVENTF_KEYUP;
   (void)SendInput(4, input, sizeof(INPUT));
 }
+
+void show_voice_failure(WaveOverlay &overlay, const std::atomic<uint64_t> &session,
+                        uint64_t expected, const wchar_t *message) {
+  if (session.load() != expected)
+    return;
+  overlay.set_show_transcript(true);
+  overlay.set_compact_status(WaveOverlay::CompactStatus::None);
+  overlay.set_actions_visible(false);
+  overlay.set_transcript(message);
+  overlay.show();
+  Sleep(1200);
+  if (session.load() == expected)
+    overlay.hide();
+}
 } // namespace
 
 VoiceInputSession::VoiceInputSession(WaveOverlay &overlay,
@@ -420,7 +434,10 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     }
   } catch (const std::exception &) {
     cancel_inline();
-    clear_overlay();
+    if (!cancel_requested_.load())
+      show_voice_failure(overlay_, session, session, L"语音识别失败");
+    if (session_.load() == session)
+      clear_overlay();
     release_doubao();
     return;
   }
