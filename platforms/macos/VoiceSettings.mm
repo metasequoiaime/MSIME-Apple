@@ -47,9 +47,9 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _streamInline = [NSButton checkboxWithTitle:@"实时显示语音中间结果" target:self action:@selector(voiceOptionsChanged:)];
         _streamInline.state = [defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"] ? NSControlStateValueOn : NSControlStateValueOff;
         _muteAudio.state = [defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"] ? NSControlStateValueOn : NSControlStateValueOff;
-        _provider.target = self; _provider.action = @selector(providerChanged:);
+        _provider.target = self; _provider.action = @selector(voiceOptionsChanged:);
         _polish.target = self; _polish.action = @selector(voiceOptionsChanged:);
-        _polishProvider.target = self; _polishProvider.action = @selector(voiceOptionsChanged:);
+        _polishProvider.target = self; _polishProvider.action = @selector(polishProviderChanged:);
         _model.target = self; _model.action = @selector(voiceOptionsChanged:);
         _endpoint.target = self; _endpoint.action = @selector(voiceOptionsChanged:); _token.target = self; _token.action = @selector(voiceOptionsChanged:); _asrModel.target = self; _asrModel.action = @selector(asrModelChanged:);
         _status = [NSTextField labelWithString:@"权限状态未知"];
@@ -66,12 +66,12 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
 - (void)requestPermission:(id)sender { (void)sender; [_service requestSpeechPermission:^(BOOL granted) { if (granted) [_service requestMicrophonePermission:^(BOOL grantedMicrophone) { (void)grantedMicrophone; [self refreshStatus]; }]; else [self refreshStatus]; }]; }
 - (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 - (void)asrModelChanged:(NSTextField *)sender { [NSUserDefaults.standardUserDefaults setObject:sender.stringValue forKey:@"MSIMEClientVoiceASRModel"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
-- (void)providerChanged:(id)sender
+- (void)polishProviderChanged:(id)sender
 {
     (void)sender;
-    NSArray *models = @[@"FunAudioLLM/SenseVoiceSmall", @"whisper-1", @"FunAudioLLM/SenseVoiceSmall", @"whisper-large-v3-turbo"];
-    NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, models.count - 1);
-    if (_asrModel.stringValue.length == 0) _asrModel.stringValue = models[index];
+    NSArray *models = @[@"deepseek-v4-flash", @"gpt-4o-mini", @"Qwen/Qwen3-8B", @"llama-3.3-70b-versatile"];
+    NSUInteger index = MIN((NSUInteger)_polishProvider.indexOfSelectedItem, models.count - 1);
+    if (_model.stringValue.length == 0) _model.stringValue = models[index];
     [self voiceOptionsChanged:nil];
 }
 - (void)voiceOptionsChanged:(id)sender { (void)sender; NSUserDefaults *d=NSUserDefaults.standardUserDefaults; NSArray *asr=@[@"doubao",@"openai",@"siliconflow",@"groq"], *polish=@[@"deepseek",@"openai",@"siliconflow",@"groq"]; [d setObject:asr[_provider.indexOfSelectedItem] forKey:@"MSIMEClientVoiceASRProvider"]; [d setObject:_endpoint.stringValue forKey:@"MSIMEClientVoiceASREndpoint"]; [d setObject:_token.stringValue forKey:@"MSIMEClientVoiceASRToken"]; [d setBool:_hotkey.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlF9"]; [d setBool:_holdSpace.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyHoldSpace"]; [d setBool:_rightAlt.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyRightAlt"]; [d setBool:_ctrlCommand.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]; [d setBool:_ctrlOption.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlOption"]; [d setBool:_soundEnabled.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceSoundEnabled"]; [d setBool:_muteAudio.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceMuteSystemAudio"]; [d setBool:_streamInline.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceStreamInlinePreedit"]; [d setBool:_polish.state==NSControlStateValueOn forKey:@"MSIMEClientVoicePolish"]; [d setObject:polish[_polishProvider.indexOfSelectedItem] forKey:@"MSIMEClientVoicePolishProvider"]; [d setObject:_model.stringValue forKey:@"MSIMEClientVoicePolishModel"]; [d setObject:_polishEndpoint.stringValue forKey:@"MSIMEClientVoicePolishEndpoint"]; [d setObject:_polishPrompt.stringValue forKey:@"MSIMEClientVoicePolishPrompt"]; [d setObject:_polishPromptID.titleOfSelectedItem forKey:@"MSIMEClientVoicePolishPromptID"]; [d setObject:_polishCustom1.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom1"]; [d setObject:_polishCustom2.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom2"]; [d setObject:_polishCustom3.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom3"]; [d setObject:_doubaoBoostingTable.stringValue forKey:@"MSIMEClientVoiceDoubaoBoostingTableID"]; [d setObject:_doubaoAppKey.stringValue forKey:@"MSIMEClientVoiceDoubaoAppKey"]; [d setObject:_doubaoResourceID.stringValue forKey:@"MSIMEClientVoiceDoubaoResourceID"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
