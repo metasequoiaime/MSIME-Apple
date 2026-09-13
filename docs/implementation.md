@@ -853,3 +853,9 @@ Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win
 手写面板在 Windows 现在复用现有目标窗口和 Unicode 输入注入路径提交识别候选；提交前沿用共享 `validate_candidate` 校验，非法候选不会进入宿主。Linux 的异步显示服务器路径和其他平台的明确不支持行为保持不变，识别算法与候选生成仍由 Engine/Host API 负责。
 
 本地验证：x86_64 Windows GNU 桌面检查已编译通过更新后的 `msime-host-windows` 与 Tauri Rust 代码，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生手写识别、编辑器上屏、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri Emoji 目录
+
+共享 Emoji、颜文字和符号面板在 Windows 现在读取已验证资源目录中的 `others.db`。此前 Tauri 只在 Unix 启用 Engine 目录 API，Windows 虽有资源路径却始终显示空目录；本切片将只读分页和符号分组接口开放到 Windows，保留 Engine 的分类、父级与顺序，目录不可用时仍返回明确的单类降级状态。
+
+本地验证：Windows x86_64 GNU 桌面检查已编译通过更新后的 Tauri/Host API 接口，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生 `others.db` 加载、面板交互、TSF、安装或系统验收，不能据此声称 Windows Emoji 功能完整接入，CI 保持禁用。
