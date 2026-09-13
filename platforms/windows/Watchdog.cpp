@@ -11,7 +11,7 @@
 #include <windows.h>
 
 namespace {
-constexpr wchar_t server_file_name[] = L"msime-client-server.exe";
+constexpr wchar_t server_file_name[] = L"MetasequoiaImeServer.exe";
 constexpr wchar_t watchdog_mutex[] = L"Local\\MSIMEClientWatchdog.SingleInstance";
 constexpr wchar_t managed_argument[] = L"--watchdog-managed";
 constexpr DWORD profile_ready_timeout_milliseconds = 30'000;

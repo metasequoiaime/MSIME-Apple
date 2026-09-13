@@ -102,7 +102,7 @@ bool LaunchServerIfNeeded()
     const std::wstring workingDirectory =
         separator == std::wstring::npos ? std::wstring{} : serverPath.substr(0, separator);
     const HINSTANCE result =
-        ShellExecuteW(nullptr, L"open", serverPath.c_str(), nullptr,
+        ShellExecuteW(nullptr, L"open", serverPath.c_str(), L"--production",
                       workingDirectory.empty() ? nullptr : workingDirectory.c_str(), SW_SHOWNOACTIVATE);
     const bool launched = reinterpret_cast<INT_PTR>(result) > 32;
     ReleaseMutex(launchMutex);

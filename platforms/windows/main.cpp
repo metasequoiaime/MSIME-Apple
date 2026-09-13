@@ -13,10 +13,14 @@
 #include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
 #include "ipc_negotiation.h"
+#include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#ifdef _WIN32
+#include <shlobj.h>
+#endif
 
 namespace {
 // The desktop shell is packaged beside this Server; a development build points
@@ -105,6 +109,65 @@ bool contains(const std::filesystem::path &parent,
       return false;
   return true;
 }
+std::filesystem::path production_state_directory() {
+#ifdef _WIN32
+  PWSTR app_data = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
+                                  &app_data)))
+    return {};
+  const std::filesystem::path state =
+      std::filesystem::path(app_data) / L"MSIME-Client";
+  CoTaskMemFree(app_data);
+  return state;
+#else
+  return {};
+#endif
+}
+std::string read_document(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input)
+    throw std::runtime_error("Configuration unavailable");
+  std::string document(16385, '\0');
+  input.read(document.data(), static_cast<std::streamsize>(document.size()));
+  if (input.bad() || input.gcount() > 16384)
+    throw std::runtime_error("Configuration read failed");
+  document.resize(static_cast<size_t>(input.gcount()));
+  return document;
+}
+std::string production_preview_document(const std::string &runtime_document,
+                                        const std::filesystem::path &fallback) {
+  const auto host = nlohmann::json::parse(runtime_document);
+  if (!host.is_object() || !host.at("resources").is_string())
+    throw std::invalid_argument("Invalid production host options");
+  const auto state = host.value("preferences_directory", fallback.u8string());
+  if (state.empty())
+    throw std::invalid_argument("Production state directory unavailable");
+  return nlohmann::json{
+      {"format_version", 1},
+      {"resources", host.at("resources")},
+      {"state_root", state},
+      {"pipe_namespace", "production"},
+      {"preedit_style", "local"},
+  }.dump();
+}
+class ProductionInstance final {
+public:
+  ProductionInstance() {
+    handle_ = CreateMutexW(nullptr, FALSE,
+                           L"Local\\MetasequoiaImeServer_SingleInstance");
+    if (!handle_)
+      throw std::runtime_error("Server instance guard unavailable");
+    already_running_ = GetLastError() == ERROR_ALREADY_EXISTS;
+  }
+  ~ProductionInstance() {
+    if (handle_)
+      CloseHandle(handle_);
+  }
+  bool already_running() const { return already_running_; }
+private:
+  HANDLE handle_ = nullptr;
+  bool already_running_ = false;
+};
 } // namespace
 int wmain(int argc, wchar_t **argv) {
   using namespace msime::windows;
@@ -115,26 +178,31 @@ int wmain(int argc, wchar_t **argv) {
                  "not a complete IME.\n";
     return 0;
   }
-  if (argc != 3 || std::wstring(argv[1]) != L"--config")
+  const bool production = argc == 2 && std::wstring(argv[1]) == L"--production";
+  if (!production && (argc != 3 || std::wstring(argv[1]) != L"--config"))
     return 2;
   try {
-    const std::filesystem::path config_path(argv[2]);
+    const auto default_state = production_state_directory();
+    const std::filesystem::path config_path =
+        production ? default_state / L"runtime-options.json"
+                    : std::filesystem::path(argv[2]);
     if (!config_path.is_absolute())
       throw std::invalid_argument("Relative config path");
-    std::ifstream input(config_path, std::ios::binary);
-    if (!input)
-      throw std::runtime_error("Configuration unavailable");
-    std::string document(16385, '\0');
-    input.read(document.data(), static_cast<std::streamsize>(document.size()));
-    if (input.bad())
-      throw std::runtime_error("Configuration read failed");
-    document.resize(static_cast<size_t>(input.gcount()));
+    auto document = read_document(config_path);
+    if (production)
+      document = production_preview_document(document, default_state);
     auto config = PreviewConfig::parse(document);
     config.resources = std::filesystem::canonical(config.resources);
     config.state_root = std::filesystem::weakly_canonical(config.state_root);
     if (contains(config.resources, config.state_root) ||
         contains(config.state_root, config.resources))
       throw std::invalid_argument("Resources and state must be disjoint");
+    std::unique_ptr<ProductionInstance> instance;
+    if (production) {
+      instance = std::make_unique<ProductionInstance>();
+      if (instance->already_running())
+        return 0;
+    }
     StateRootLease lease(config.state_root);
     ConsoleControl console;
     const auto bootstrap =
@@ -161,7 +229,12 @@ int wmain(int argc, wchar_t **argv) {
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
     WindowsServerOptions options;
-    options.pipes.names = config.pipe_names();
+    options.pipes.names = production
+                              ? std::array<std::wstring, 3>{
+                                    FANY_IME_NAMED_PIPE,
+                                    FANY_IME_TO_TSF_NAMED_PIPE,
+                                    FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE}
+                              : config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
