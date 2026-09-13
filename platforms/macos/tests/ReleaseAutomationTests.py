@@ -48,7 +48,8 @@ class BuildNumberTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
         self.assertEqual(builds, sorted(set(builds)))
-        self.assertGreater(builds[0], (0, 48, 6))
+        # The offset keeps every build above the legacy commit-count builds (491): #405 dropped it from a stale checkout and shipped 3.64.1, a CFBundleVersion below the 1002.x line TestFlight and Sparkle already carry.
+        self.assertGreater(builds[0], (1000, 0, 0))
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
