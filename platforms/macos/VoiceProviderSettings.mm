@@ -165,7 +165,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         if (![[NSFileManager defaultManager] fileExistsAtPath:self.modelPath isDirectory:&directory] || directory)
             message = @"请选择已下载的 Whisper 模型文件。";
     }
-    else if (![self.provider isEqualToString:@"cloud"])
+    else if (![self.provider isEqualToString:@"cloud"] && ![self.provider isEqualToString:@"doubao"] && ![self.provider isEqualToString:@"openai"] && ![self.provider isEqualToString:@"siliconflow"] && ![self.provider isEqualToString:@"groq"])
         message = @"请选择识别方式。";
     else if (!IsEndpoint(self.endpoint) || self.model.length == 0 || self.token.length == 0)
         message = @"请填写 HTTPS 识别地址、模型名称和 API 密钥。";
@@ -248,7 +248,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         window.title = @"语音输入设置";
         _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 455, 435, 28) pullsDown:NO];
         _provider.accessibilityLabel = @"识别方式";
-        [_provider addItemsWithTitles:@[ @"云端识别", @"本地 Whisper" ]];
+        [_provider addItemsWithTitles:@[ @"豆包", @"OpenAI", @"SiliconFlow", @"Groq", @"本地 Whisper" ]];
         _provider.target = self;
         _provider.action = @selector(updateEnabled:);
         [window.contentView addSubview:_provider];
@@ -285,7 +285,9 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
 - (void)showAndActivate
 {
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings loadSettings];
-    [_provider selectItemAtIndex:[value.provider isEqualToString:@"local"] ? 1 : 0];
+    NSArray *providerIDs = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"local" ];
+    NSUInteger providerIndex = [providerIDs indexOfObject:value.provider];
+    [_provider selectItemAtIndex:providerIndex == NSNotFound ? 0 : providerIndex];
     _endpoint.stringValue = value.endpoint;
     _model.stringValue = value.model;
     _token.stringValue = value.token;
@@ -301,7 +303,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
 - (void)updateEnabled:(id)sender
 {
     (void)sender;
-    BOOL cloud = _provider.indexOfSelectedItem == 0;
+    BOOL cloud = _provider.indexOfSelectedItem < 4;
     _endpoint.enabled = cloud;
     _model.enabled = cloud;
     _token.enabled = cloud;
@@ -334,7 +336,8 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
 {
     (void)sender;
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings new];
-    value.provider = _provider.indexOfSelectedItem == 0 ? @"cloud" : @"local";
+    NSArray *providerIDs = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"local" ];
+    value.provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
     value.endpoint = _endpoint.stringValue;
     value.model = _model.stringValue;
     value.token = _token.stringValue;
