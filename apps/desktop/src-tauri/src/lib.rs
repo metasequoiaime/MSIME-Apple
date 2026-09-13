@@ -889,6 +889,17 @@ fn start_desktop_preferences_monitor(
         .spawn(move || {
             let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
             loop {
+                #[cfg(target_os = "windows")]
+                {
+                    // The native Server signals after a successful bounded
+                    // store update. Keep the same timeout as the old poll so
+                    // preferences and writes from other tools remain visible
+                    // even when the event is unavailable.
+                    let _ = msime_host_windows::wait_for_clipboard_history_change(
+                        std::time::Duration::from_millis(750),
+                    );
+                }
+                #[cfg(not(target_os = "windows"))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
             }

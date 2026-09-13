@@ -14,6 +14,53 @@ pub mod ink;
 pub mod voice_controller;
 
 use std::path::Path;
+use std::time::Duration;
+
+const CLIPBOARD_HISTORY_CHANGE_EVENT: &[u16] = &[
+    'L' as u16,
+    'o' as u16,
+    'c' as u16,
+    'a' as u16,
+    'l' as u16,
+    '\\' as u16,
+    'M' as u16,
+    'S' as u16,
+    'I' as u16,
+    'M' as u16,
+    'E' as u16,
+    '.' as u16,
+    'C' as u16,
+    'l' as u16,
+    'i' as u16,
+    'e' as u16,
+    'n' as u16,
+    't' as u16,
+    '.' as u16,
+    'C' as u16,
+    'l' as u16,
+    'i' as u16,
+    'p' as u16,
+    'b' as u16,
+    'o' as u16,
+    'a' as u16,
+    'r' as u16,
+    'd' as u16,
+    'H' as u16,
+    'i' as u16,
+    's' as u16,
+    't' as u16,
+    'o' as u16,
+    'r' as u16,
+    'y' as u16,
+    'C' as u16,
+    'h' as u16,
+    'a' as u16,
+    'n' as u16,
+    'g' as u16,
+    'e' as u16,
+    'd' as u16,
+    0,
+];
 
 mod voice_output;
 pub use voice_output::{focus_external, paste_text, paste_voice_text};
@@ -95,6 +142,27 @@ pub fn foreground_is_external() -> bool {
         GetWindowThreadProcessId(window, &mut process);
         process != 0 && process != GetCurrentProcessId()
     }
+}
+
+/// Wait for the native Windows Server to publish a new clipboard-history row.
+///
+/// The event is session-local and carries no clipboard contents. A missing
+/// Server or a denied event handle is treated like a timeout; the desktop
+/// monitor continues its bounded file-poll fallback in either case.
+pub fn wait_for_clipboard_history_change(timeout: Duration) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{OpenEventW, WaitForSingleObject};
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    let millis = timeout.as_millis().min(u128::from(u32::MAX)) as u32;
+    // SAFETY: the name is a static, nul-terminated UTF-16 string and the
+    // returned handle is closed on every path.
+    let event = unsafe { OpenEventW(SYNCHRONIZE, 0, CLIPBOARD_HISTORY_CHANGE_EVENT.as_ptr()) };
+    if event.is_null() {
+        return false;
+    }
+    let result = unsafe { WaitForSingleObject(event, millis) };
+    unsafe { CloseHandle(event) };
+    result == WAIT_OBJECT_0
 }
 
 /// Keys that must carry `KEYEVENTF_EXTENDEDKEY`.
