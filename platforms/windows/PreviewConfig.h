@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <string_view>
 #include <nlohmann/json.hpp>
 
 namespace msime::windows {
