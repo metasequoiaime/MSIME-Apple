@@ -106,6 +106,21 @@ int main()
                     "A zero-width edge caret positioned the panel outside its screen.");
             [panel hide];
         }
+        NSRect bounds = NSScreen.mainScreen.visibleFrame;
+        panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
+        panel.caretRect = NSMakeRect(NSMidX(bounds), NSMinY(bounds) + 100, 0, 20);
+        [panel setCandidateData:candidates];
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(NSMinY(panel.candidateFrame) > NSMaxY(panel.caretRect),
+                "A tall vertical page did not flip above a low caret.");
+        [panel setCandidateData:@[ candidates[0] ]];
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(NSMinY(panel.candidateFrame) > NSMaxY(panel.caretRect),
+                "A shorter page changed sides after a tall page had flipped.");
+        [panel hide];
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(NSMaxY(panel.candidateFrame) < NSMinY(panel.caretRect),
+                "Hiding the candidate panel did not reset placement memory.");
         panel.caretRect = NSZeroRect;
         [panel show:kIMKLocateCandidatesBelowHint];
         Require(!panel.isVisible, "An invalid caret displayed a misplaced candidate window.");

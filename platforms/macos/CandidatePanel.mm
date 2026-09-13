@@ -150,6 +150,7 @@
     NSInteger _selected;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
+    CGFloat _tallestVerticalHeight;
 }
 
 - (void)setDelegate:(id<MetasequoiaCandidatePanelDelegate>)delegate
@@ -399,8 +400,17 @@
     NSRect bounds = [self screenForCaret].visibleFrame;
     NSSize size = _window.frame.size;
     CGFloat x = MIN(MAX(NSMinX(caret), NSMinX(bounds)), MAX(NSMinX(bounds), NSMaxX(bounds) - size.width));
+    const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
+    if (vertical)
+        _tallestVerticalHeight = MAX(_tallestVerticalHeight, size.height);
+    const CGFloat decisionHeight = vertical ? _tallestVerticalHeight : size.height;
     CGFloat y = NSMinY(caret) - size.height - 4;
-    if (y < NSMinY(bounds))
+    // Use the tallest vertical page seen in this composition to choose the
+    // side of the caret, but place the current page with its actual height.
+    // This prevents a growing page from jumping below-to-above while avoiding
+    // an empty gap when a later page is shorter.
+    const CGFloat decisionY = NSMinY(caret) - decisionHeight - 4;
+    if (decisionY < NSMinY(bounds))
         y = NSMaxY(caret) + 4;
     y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
     [_window setFrameOrigin:NSMakePoint(x, y)];
@@ -408,6 +418,7 @@
 }
 - (void)hide
 {
+    _tallestVerticalHeight = 0;
     [_window orderOut:nil];
 }
 - (BOOL)isVisible
