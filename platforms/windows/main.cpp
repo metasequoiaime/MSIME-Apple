@@ -5,6 +5,8 @@
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
+#include "FloatingToolbarVisibilityPolicy.h"
+#include "FullscreenForeground.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
 #include "ShellLauncher.h"
@@ -388,6 +390,12 @@ int wmain(int argc, wchar_t **argv) {
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
+    auto voice_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("voice_theme", std::string("follow"));
+      return theme == "light" ||
+             (theme == "follow" && !system_prefers_dark());
+    }());
     auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
@@ -410,7 +418,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled](const PreferenceSnapshot &snapshot) {
+         toolbar_enabled, voice_light](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           traditional_output->store(
@@ -418,6 +426,16 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          // 语音面板主题: follow / dark / light. The overlay has had the setter
+          // all along, but nothing read the preference, so it was always dark.
+          // The overlay is built later, so publish through a flag the loop
+          // applies.
+          const auto voice_theme =
+              preferences.value("voice_theme", std::string("follow"));
+          voice_light->store(voice_theme == "light" ||
+                                 (voice_theme == "follow" &&
+                                  !system_prefers_dark()),
+                             std::memory_order_release);
           // The settings page owns this too; without reconciling it here the
           // toolbar only followed the preference across a restart.
           const auto toolbar_preferences =
@@ -468,6 +486,7 @@ int wmain(int argc, wchar_t **argv) {
         production ? production_key_handler() : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
+    voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
     VoiceInputSession *voice_session = nullptr;
     if (!voice_overlay.init(
             GetModuleHandleW(nullptr), [&voice_session](WaveOverlay::Action action) {
@@ -774,7 +793,15 @@ int wmain(int argc, wchar_t **argv) {
       modes.refresh();
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
-      toolbar.refresh(toolbar_visible);
+      voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+      // The toolbar is topmost, so without this it floats over full-screen
+      // video and presentations. ShouldShowFloatingToolbar was ported long ago
+      // but nothing ever supplied its fullscreen argument, leaving the whole
+      // predicate dead outside its unit test.
+      const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
+      const bool show_toolbar = ShouldShowFloatingToolbar(
+          toolbar_visible, fullscreen, server.mode_view().has_value());
+      toolbar.refresh(show_toolbar);
       // The listener thread owns no window; the anchor is applied here, on the
       // thread that created the tray card.
       const uint64_t now = GetTickCount64();

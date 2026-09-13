@@ -8,6 +8,8 @@
 // which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
+// IDWriteFontFallback and IDWriteTextFormat1 live here, not in dwrite.h.
+#include <dwrite_2.h>
 
 namespace msime::windows {
 // Main/UI thread owns construction, polling, painting and destruction. Reader
@@ -75,6 +77,9 @@ private:
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;
+  // Configured supplementary faces, in order, for the per-glyph fallback chain.
+  std::vector<std::wstring> fallback_families_;
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical
   // pixels. Only the flip decision reads it; placement uses the real height.
   int64_t tallest_ = 0;

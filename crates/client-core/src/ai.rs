@@ -68,6 +68,33 @@ pub fn chat_completion_body(
 
 /// Resolve local provider credentials into a native HTTP descriptor. Contains a
 /// bearer token and private input: never log or persist this descriptor.
+/// The key the settings page stores an AI token under: `https://host:port`.
+///
+/// Mirrors `aiCredentialOrigin` in the shared UI, including its refusals, so a
+/// token stored by the page is found here and an endpoint the page would not
+/// have keyed is not matched by accident.
+fn credential_origin(endpoint: &str) -> Option<String> {
+    let endpoint = endpoint.trim();
+    if endpoint.is_empty() || endpoint.len() > 2048 {
+        return None;
+    }
+    if endpoint.chars().any(char::is_control) {
+        return None;
+    }
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    if url.fragment().is_some() {
+        return None;
+    }
+    let host = url.host_str()?.to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("https://{host}:{}", url.port().unwrap_or(443)))
+}
+
 pub fn chat_completion_http_request(
     config: &crate::preferences::AiAssistantPreferences,
     request: &AiSuggestionRequest,
@@ -88,16 +115,26 @@ pub fn chat_completion_http_request(
     {
         return Err(AiError::InvalidConfiguration);
     }
+    // Two key spaces reach this map and they never intersected. The reference
+    // keeps one slot per provider id, and this function has always read that.
+    // The settings page, however, stores the token under the endpoint's origin
+    // ("https://api.deepseek.com:443") and clears the legacy flat field, so a
+    // user who pasted a key got InvalidConfiguration and no request was ever
+    // sent. Android reads the origin key, which is why it kept working and why
+    // re-keying the page would break it instead. Accept either.
+    let origin = credential_origin(&config.endpoint);
+    let usable = |token: &&String| {
+        let token = token.trim();
+        !token.is_empty()
+            && !token.starts_with("FAKESECRET_")
+            && !(token.starts_with('<') && token.ends_with('>'))
+    };
     let token = config
         .tokens
         .get(&config.provider)
+        .filter(usable)
+        .or_else(|| origin.as_deref().and_then(|key| config.tokens.get(key)).filter(usable))
         .map(String::as_str)
-        .filter(|token| {
-            let token = token.trim();
-            !token.is_empty()
-                && !token.starts_with("FAKESECRET_")
-                && !(token.starts_with('<') && token.ends_with('>'))
-        })
         .unwrap_or(&config.token)
         .trim();
     if token.is_empty()
@@ -381,6 +418,70 @@ mod tests {
         config.prompt_id = "custom_2".into();
         let value = descriptor(&config);
         assert_eq!(value["headers"]["Authorization"], "Bearer synthetic-slot");
+
+        // The settings page stores the token under the endpoint origin and
+        // clears the flat field. Reading only the provider slot meant a user
+        // who pasted a key got InvalidConfiguration and no request was sent.
+        let mut origin_only = config.clone();
+        origin_only.tokens.clear();
+        origin_only.token = String::new();
+        origin_only.provider = "deepseek".into();
+        origin_only.endpoint = "https://api.deepseek.com/chat/completions".into();
+        origin_only
+            .tokens
+            .insert("https://api.deepseek.com:443".into(), "synthetic-origin".into());
+        assert_eq!(
+            descriptor(&origin_only)["headers"]["Authorization"],
+            "Bearer synthetic-origin"
+        );
+
+        // The provider slot still wins when both are present, which is the
+        // shape the reference uses.
+        let mut both = origin_only.clone();
+        both.tokens
+            .insert("deepseek".into(), "synthetic-provider".into());
+        assert_eq!(
+            descriptor(&both)["headers"]["Authorization"],
+            "Bearer synthetic-provider"
+        );
+
+        // A placeholder in the provider slot must not shadow a real origin key.
+        let mut placeholder = origin_only.clone();
+        placeholder
+            .tokens
+            .insert("deepseek".into(), "<YOUR_TOKEN>".into());
+        assert_eq!(
+            descriptor(&placeholder)["headers"]["Authorization"],
+            "Bearer synthetic-origin"
+        );
+
+        // An origin key recorded for a different endpoint is not accepted.
+        let mut mismatched = origin_only.clone();
+        mismatched.tokens.clear();
+        mismatched
+            .tokens
+            .insert("https://api.openai.com:443".into(), "synthetic-other".into());
+        assert!(matches!(
+            chat_completion_http_request(&mismatched, &request),
+            Err(AiError::InvalidConfiguration)
+        ));
+
+        // The origin key is derived the same way the page derives it: the
+        // default HTTPS port is spelled out, and the host is lowercased.
+        assert_eq!(
+            credential_origin("https://API.DeepSeek.com/chat/completions").as_deref(),
+            Some("https://api.deepseek.com:443")
+        );
+        assert_eq!(
+            credential_origin("https://host.example:8443/v1").as_deref(),
+            Some("https://host.example:8443")
+        );
+        // Anything the page would refuse to key is refused here too.
+        assert!(credential_origin("http://api.deepseek.com/x").is_none());
+        assert!(credential_origin("https://user:pw@api.deepseek.com/x").is_none());
+        assert!(credential_origin("https://api.deepseek.com/x#frag").is_none());
+        assert!(credential_origin("").is_none());
+        assert!(credential_origin("not a url").is_none());
         assert_eq!(value["body"]["messages"][0]["content"], "second prompt");
         assert_eq!(value["timeout_ms"], 8000);
         assert_eq!(value["connect_timeout_ms"], 2500);

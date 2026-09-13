@@ -130,6 +130,43 @@ constexpr UINT menu_remove = 2;
 constexpr UINT menu_fix_first = 100;
 constexpr UINT menu_fix_last = menu_fix_first + 4;
 constexpr UINT menu_clear_fix = 105;
+// Build a real per-glyph fallback chain from the configured faces.
+//
+// PreviewConfig documents these as "supplementary faces tried in order when the
+// main font lacks a glyph", but the window only ever used them to replace the
+// primary family when that family was not installed at all. Once the primary
+// existed, a missing glyph fell through to DirectWrite's system fallback and
+// the user's list was ignored entirely - which is the case the setting is for,
+// since the primary is usually a Latin/CJK face and the missing glyph is an
+// emoji or a rare character.
+Microsoft::WRL::ComPtr<IDWriteFontFallback>
+build_font_fallback(IDWriteFactory *factory,
+                    const std::vector<std::wstring> &families) {
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> result;
+  if (!factory || families.empty())
+    return result;
+  Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+  if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) || !factory2)
+    return result; // Windows 7 and older: keep the system chain.
+  Microsoft::WRL::ComPtr<IDWriteFontFallbackBuilder> builder;
+  if (FAILED(factory2->CreateFontFallbackBuilder(&builder)) || !builder)
+    return result;
+  // The whole Unicode range, in the user's order.
+  DWRITE_UNICODE_RANGE range{0, 0x10FFFF};
+  for (const auto &family : families) {
+    const wchar_t *name = family.c_str();
+    if (FAILED(builder->AddMapping(&range, 1, &name, 1)))
+      return result;
+  }
+  // Append the system chain last so anything the list does not cover still
+  // resolves the way it did before.
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> system;
+  if (SUCCEEDED(factory2->GetSystemFontFallback(&system)) && system)
+    builder->AddMappings(system.Get());
+  if (FAILED(builder->CreateFontFallback(&result)))
+    result.Reset();
+  return result;
+}
 void append_menu(HMENU menu, UINT flags, UINT_PTR command,
                  const wchar_t *label) {
   if (!AppendMenuW(menu, flags, command, label))
@@ -155,11 +192,18 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
+  // Keep the configured faces for the per-glyph chain, and separately allow one
+  // of them to stand in when the primary family is not installed at all. The
+  // two are different problems and both need handling.
+  for (const auto &fallback : fallback_fonts) {
+    auto candidate = wide(fallback);
+    if (!candidate.empty() && candidate.size() <= 128)
+      fallback_families_.push_back(std::move(candidate));
+  }
   if (!installed_font(font_family_)) {
-    for (const auto &fallback : fallback_fonts) {
-      auto candidate = wide(fallback);
-      if (!candidate.empty() && candidate.size() <= 128 && installed_font(candidate)) {
-        font_family_ = std::move(candidate);
+    for (const auto &candidate : fallback_families_) {
+      if (installed_font(candidate)) {
+        font_family_ = candidate;
         break;
       }
     }
@@ -366,6 +410,12 @@ void CandidateWindow::paint() {
   };
   // Points are device independent here; the composition target carries the
   // scale, so the constructor's validated sizes go straight to DirectWrite.
+  // Built once per paint and shared by every run below; the formats themselves
+  // are cached by DeviceResources, so attaching here is what actually puts the
+  // user's faces in front of the system chain.
+  if (!fallback_families_.empty() && !font_fallback_)
+    font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
+                                         fallback_families_);
   auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
     auto *value = device_.GetTextFormat(
         font_family_, static_cast<float>(points),
@@ -373,6 +423,11 @@ void CandidateWindow::paint() {
         DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
+    if (font_fallback_) {
+      Microsoft::WRL::ComPtr<IDWriteTextFormat1> typed;
+      if (SUCCEEDED(value->QueryInterface(IID_PPV_ARGS(&typed))) && typed)
+        typed->SetFontFallback(font_fallback_.Get());
+    }
     return value;
   };
   const float inset = palette_.border_width / 2.0f;

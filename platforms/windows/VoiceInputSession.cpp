@@ -304,21 +304,26 @@ bool VoiceInputSession::start() {
     const float rms = frames ? static_cast<float>(std::sqrt(sum / frames)) : 0.0f;
     const float normalized = std::min(1.0f, std::max(0.0f, rms - 0.004f) * 14.0f);
     overlay_.set_input_level(std::pow(normalized, 0.55f));
-    std::lock_guard lock(samples_mutex_);
-    if (captured_frames_ >= kMaximumSamples ||
-        frames > kMaximumSamples - captured_frames_) {
-      capture_overflow_.store(true);
-      return;
-    }
-    samples_.insert(samples_.end(), samples, samples + frames);
-    captured_frames_ += frames;
     std::shared_ptr<DoubaoAsrClient> client;
     {
       std::lock_guard doubao_lock(doubao_mutex_);
       client = doubao_;
     }
+    // Streaming is not bounded by the batch buffer. Upstream never buffers at
+    // all on this path, so stopping the feed at 60 s threw away the second
+    // half of exactly the hands-free dictation the space lock exists for.
     if (client)
       client->PushFloatSamples(samples, frames);
+    std::lock_guard lock(samples_mutex_);
+    if (captured_frames_ >= kMaximumSamples ||
+        frames > kMaximumSamples - captured_frames_) {
+      // The batch upload still has a ceiling; record that it was reached so
+      // stop() can say so instead of committing nothing without explanation.
+      capture_overflow_.store(true);
+      return;
+    }
+    samples_.insert(samples_.end(), samples, samples + frames);
+    captured_frames_ += frames;
   });
   if (!started) {
     std::shared_ptr<DoubaoAsrClient> client;
@@ -394,10 +399,16 @@ void VoiceInputSession::stop() {
       (void)sender_(*lease, FanyImeWorkerReplyType::CancelVoiceComposition,
                     L"", generation);
   };
-  if (!lease || capture_overflow_.load()) {
+  // Overflow only matters when the batch buffer is what gets uploaded; the
+  // streaming client has its own transcript and was fed throughout.
+  const bool overflowed = capture_overflow_.load() && !doubao;
+  if (!lease || overflowed) {
     if (doubao)
       doubao->Cancel();
     cancel_inline();
+    if (overflowed && lease)
+      show_voice_failure(overlay_, session_.load(), session_.load(),
+                         L"录音超过 60 秒上限");
     clear_overlay();
     return;
   }
@@ -516,9 +527,20 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     const auto model = config.polish_model.empty()
                            ? default_polish_model(config.polish_provider)
                            : config.polish_model;
-    final_text = polish_cloud_text(text, config.polish_provider, endpoint, model,
-                                   config.polish_token, polish_prompt(config),
-                                   cancelled);
+    // Polishing is best-effort, as it is upstream: a transport error, a non-2xx
+    // status or a missing body must not cost the user a transcript the ASR has
+    // already produced. The exception used to escape into the std::async future
+    // - which is only wait()ed, never get() - so the text vanished silently.
+    try {
+      auto polished =
+          polish_cloud_text(text, config.polish_provider, endpoint, model,
+                            config.polish_token, polish_prompt(config),
+                            cancelled);
+      if (!polished.empty())
+        final_text = std::move(polished);
+    } catch (const std::exception &) {
+      final_text = text;
+    }
   }
   if (session_.load() != session || cancel_requested_.load() || final_text.empty()) {
     cancel_inline();
@@ -541,10 +563,14 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
         FanyImeWorkerReplyType::CommitVoiceComposition, converted, generation);
     if (encoded && sender_(lease, FanyImeWorkerReplyType::CommitVoiceComposition,
                           converted, generation) ==
-                      VoiceCompositionResult::Sent)
+                      VoiceCompositionResult::Sent) {
       clear_overlay();
-    else {
+    } else {
+      // The TSF route was refused - focus moved to a window with no text
+      // service, or the transaction lock was busy. Upstream falls back to
+      // SendInput rather than dropping the text, which is the whole recording.
       cancel_inline();
+      send_text_via_send_input(converted);
       clear_overlay();
     }
   }

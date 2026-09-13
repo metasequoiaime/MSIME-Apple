@@ -275,10 +275,31 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
-    case WM_LBUTTONDOWN:
-      ReleaseCapture();
-      SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    case WM_LBUTTONDOWN: {
+      // Only the strip left of the first button drags. Treating the whole
+      // window as a caption meant a press on a button entered the system move
+      // loop, and the click below only ran for whatever button-up survived it.
+      const int unit = dpi_scale(window, 1);
+      if (GET_X_LPARAM(l) < 8 * unit) {
+        ReleaseCapture();
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+      }
       return 0;
+    }
+    case WM_SETCURSOR:
+      // Show the move cursor over the drag strip only, so the buttons keep the
+      // ordinary arrow and the strip advertises what it does.
+      if (LOWORD(l) == HTCLIENT) {
+        POINT cursor{};
+        RECT bounds{};
+        if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
+            GetClientRect(window, &bounds) &&
+            cursor.x < 8 * dpi_scale(window, 1)) {
+          SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+          return TRUE;
+        }
+      }
+      break;
     case WM_LBUTTONUP: {
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
