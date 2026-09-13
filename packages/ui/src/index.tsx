@@ -401,6 +401,44 @@ function importFailureMessage(kind: string, error: unknown): string {
     : `${kind}导入失败，请检查文本格式。`;
 }
 
+/** The shipped export filenames, one per dictionary kind. */
+export function dictionaryExportName(kind: LocalDictionaryKind): string {
+  const names: Record<LocalDictionaryKind, string> = {
+    pinyin: "水杉IME-拼音用户词库.txt",
+    wubi: "水杉IME-五笔用户词库.txt",
+    english: "水杉IME-英文用户词库.txt",
+    quick_phrase: "水杉IME-快捷短语用户词库.txt",
+  };
+  return names[kind];
+}
+/**
+ * Prepare the export payload.
+ *
+ * Two things the plain Blob did not do. A UTF-8 BOM, because Notepad and Excel
+ * on a GBK-default Windows render the Chinese as mojibake without one. And for
+ * the pinyin book, single-character rows are dropped: those are learning
+ * artefacts the engine accumulated, not words the user added, so exporting
+ * them buries the real entries.
+ */
+export function dictionaryExportPayload(
+  kind: LocalDictionaryKind,
+  format: LocalDictionaryFormat,
+  text: string,
+): { body: string; rows: number } {
+  const lines = text.split("\n").filter(line => line.trim().length > 0);
+  // Windows exports put the code first; every other format puts the word first.
+  const wordColumn = format === "windows" ? 1 : 0;
+  const kept = kind === "pinyin"
+    ? lines.filter(line => {
+        const columns = line.split("\t");
+        const word = columns[wordColumn]?.trim() ?? "";
+        return Array.from(word).length > 1;
+      })
+    : lines;
+  if (!kept.length) return { body: "", rows: 0 };
+  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
+}
+
 function dictionaryKindLabel(kind: LocalDictionaryKind): string {
   return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
 }
@@ -957,8 +995,11 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           ? `${entry.key}\t${entry.value}\t${entry.weight}`
           : `${entry.value}\t${entry.key}\t${entry.weight}`).join("\n");
       }
-      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `msime-${dictionaryKind}-dictionary.tsv`; anchor.click(); URL.revokeObjectURL(url);
+      const payload = dictionaryExportPayload(dictionaryKind, dictionaryFormat, text);
+      if (!payload.rows) { setPhraseError("当前没有可导出的用户新增词条。"); return; }
+      const url = URL.createObjectURL(new Blob([payload.body], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = dictionaryExportName(dictionaryKind); anchor.click(); URL.revokeObjectURL(url);
+      setPhraseNotice(`已导出 ${payload.rows} 条用户词条。`);
     } catch { setPhraseError("词库导出失败，请稍后重试。"); }
     finally { setPhraseBusy(false); }
   }
@@ -1243,7 +1284,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
           <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
             <div className="floating-toolbar-preview-label">预览</div>
-            <div className="skin-card-preview toolbar-settings-preview" data-preview-theme={toolbarPreviewTheme}>
+            <div className={`skin-card-preview toolbar-settings-preview skin-${draft.candidate_skin ?? "fluent"}`} data-preview-theme={toolbarPreviewTheme}>
               <SkinToolbarPreview preferences={floatingToolbar} />
             </div>
           </div>
