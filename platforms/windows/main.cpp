@@ -32,6 +32,7 @@
 #include "WatchdogPolicy.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -73,6 +74,17 @@ std::wstring configured_shell_command() {
       static_cast<DWORD>(value.size()));
   return length && length < value.size() ? std::wstring(value.data(), length)
                                          : std::wstring{};
+}
+bool same_ticket_set(
+    const std::vector<msime::windows::PipeTicket> &left,
+    const std::vector<msime::windows::PipeTicket> &right) {
+  if (left.size() != right.size())
+    return false;
+  return std::all_of(left.begin(), left.end(), [&](const auto &ticket) {
+    return std::any_of(right.begin(), right.end(), [&](const auto &other) {
+      return msime::windows::same_ticket(ticket, other);
+    });
+  });
 }
 // Resolve the configured skin through the shared catalog. Appearance is not
 // worth failing a running Server over, so an unreadable root or an unknown
@@ -552,6 +564,7 @@ int wmain(int argc, wchar_t **argv) {
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
     auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
+    std::vector<msime::windows::PipeTicket> tsf_configured_tickets;
     // The toolbar resolves light/dark from its own preference, independently
     // of the candidate card: toolbar_theme is honoured on macOS and in the
     // settings preview but was ignored by the Windows surface, which simply
@@ -653,8 +666,8 @@ int wmain(int argc, wchar_t **argv) {
           // applies.
           const auto voice_surface_theme =
               preferences.value("voice_theme", std::string("follow"));
-          // Publish the TSF-local settings; the loop pushes them to the
-          // focused TIP, since the server is constructed after this handler.
+          // Publish the TSF-local settings; the loop broadcasts them after the
+          // server is constructed.
           {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             *tsf_config = tsf_local_config(preferences);
@@ -1264,17 +1277,23 @@ int wmain(int argc, wchar_t **argv) {
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
       // but nothing ever supplied its fullscreen argument, leaving the whole
       // predicate dead outside its unit test.
-      // Push the TSF-local settings whenever they changed, so turning smart
-      // punctuation off takes effect on the text being typed now.
+      // A TIP can register without publishing a preference snapshot. Detect
+      // that topology change so a newly connected TIP receives the current
+      // settings even when the values themselves did not change.
+      const auto registered_tickets = server.current_tsf_tickets();
+      if (!same_ticket_set(registered_tickets, tsf_configured_tickets))
+        tsf_config_dirty->store(true, std::memory_order_release);
+      // Broadcast the TSF-local settings whenever they changed, so every TIP
+      // observes the same punctuation, shuangpin, and preedit behavior.
       if (tsf_config_dirty->load(std::memory_order_acquire)) {
-        if (const auto view = server.mode_view()) {
-          msime::windows::TsfLocalConfig pending;
-          {
-            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-            pending = *tsf_config;
-          }
-          if (server.send_tsf_config(view->lease, pending))
-            tsf_config_dirty->store(false, std::memory_order_release);
+        msime::windows::TsfLocalConfig pending;
+        {
+          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+          pending = *tsf_config;
+        }
+        if (server.send_tsf_config(pending)) {
+          tsf_config_dirty->store(false, std::memory_order_release);
+          tsf_configured_tickets = server.current_tsf_tickets();
         }
       }
       // One CN/EN state follows the user between applications when the scope

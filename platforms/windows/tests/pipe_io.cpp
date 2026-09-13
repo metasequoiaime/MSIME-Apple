@@ -346,6 +346,9 @@ void registries(int malformed = 0) {
   ++wrong_ticket.generations[0];
   PipeMainTransport transport(registry, 2000);
   require(transport.current(registered.ticket) && !transport.current(wrong_ticket));
+  const auto registered_tickets = transport.current_tickets();
+  require(registered_tickets.size() == 1 &&
+          same_ticket(registered_tickets.front(), registered.ticket));
   require(transport.try_current(registered.ticket) &&
           !transport.try_current(wrong_ticket) &&
           !transport.try_current(PipeTicket{}));
@@ -418,7 +421,9 @@ void registries(int malformed = 0) {
   Pair reclaimed;
   require(register_reverse(reclaimed, 1, id + 1).status ==
           RegistryStatus::Ready);
+  require(transport.current_tickets().empty());
   registry.shutdown();
+  require(transport.current_tickets().empty());
   require(!registry.send(registered.ticket, 1, frame, 2000).complete());
 }
 template <typename Predicate> void eventually(Predicate predicate) {

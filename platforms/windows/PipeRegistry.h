@@ -5,6 +5,7 @@
 #include <array>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 namespace msime::windows {
 enum class RegistryStatus { Ready, Rejected, Capacity, Stale, TransportError };
@@ -37,6 +38,9 @@ public:
   bool is_current(const PipeTicket &ticket);
   // Display-only snapshot; false includes contention, not just invalidation.
   bool try_is_current(const PipeTicket &ticket);
+  // Snapshot all clients with a complete Main/ToTsf/Worker transport chain.
+  // The returned tickets are registration identities, not focus leases.
+  std::vector<PipeTicket> current_tickets();
   // Returned input is still untrusted packet data, and the caller must carry
   // its ticket into the input queue and validate focus/activation there.
   // Transport-only send: caller must ALSO verify input focus/activation before

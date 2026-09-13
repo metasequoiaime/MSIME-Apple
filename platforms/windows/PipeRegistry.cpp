@@ -1,6 +1,7 @@
 #include "PipeRegistry.h"
 #include "MainFrame.h"
 #include "ReplyCodec.h"
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -217,6 +218,30 @@ bool PipeRegistry::is_current(const PipeTicket &value) {
     return false;
   std::lock_guard lock(client->mutex);
   return current(value, *client);
+}
+std::vector<PipeTicket> PipeRegistry::current_tickets() {
+  std::vector<std::pair<uint64_t, std::shared_ptr<Client>>> clients;
+  {
+    std::lock_guard lock(mutex_);
+    if (stopped_)
+      return {};
+    clients.reserve(clients_.size());
+    for (const auto &[id, client] : clients_)
+      clients.emplace_back(id, client);
+  }
+  std::vector<PipeTicket> result;
+  result.reserve(clients.size());
+  for (const auto &[id, client] : clients) {
+    std::lock_guard lock(client->mutex);
+    if (!client->retired && client->endpoints[0] && client->endpoints[1] &&
+        client->endpoints[2])
+      result.push_back(ticket(id, *client));
+  }
+  std::sort(result.begin(), result.end(),
+            [](const PipeTicket &a, const PipeTicket &b) {
+              return a.client < b.client;
+            });
+  return result;
 }
 IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
   auto client = lookup(value.client, false);

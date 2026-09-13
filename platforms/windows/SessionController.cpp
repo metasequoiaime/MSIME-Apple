@@ -421,34 +421,34 @@ bool SessionController::send_caps_lock(const FocusLease &lease, bool enabled) {
   }
   return sent;
 }
-bool SessionController::send_tsf_config(const FocusLease &lease,
-                                       const TsfLocalConfig &config) {
+bool SessionController::send_tsf_config(const TsfLocalConfig &config) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Config push cannot reenter controller callbacks");
   if (stopping_)
     return false;
+  const auto tickets = transport_.current_tickets();
   const auto frames = tsf_config_frames(config);
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock())
     return false;
-  bool sent = false;
-  try {
-    focus_.with_active(lease, [&] {
-      if (stopping_ || !transport_.current(lease.transport))
-        return;
-      // All or nothing: a TIP left holding half the settings is worse than one
-      // holding its compiled defaults, because the user cannot tell which.
-      for (const auto &frame : frames) {
-        if (transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
-                            frame) != KeyEventSendResult::Sent)
-          return;
+  bool all_sent = true;
+  for (const auto &ticket : tickets) {
+    for (const auto &frame : frames) {
+      bool sent = false;
+      try {
+        sent = !stopping_ &&
+               transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread,
+                               frame) == KeyEventSendResult::Sent;
+      } catch (...) {
+        sent = false;
       }
-      sent = true;
-    });
-  } catch (...) {
-    return false;
+      if (!sent) {
+        all_sent = false;
+        break;
+      }
+    }
   }
-  return sent;
+  return all_sent;
 }
 namespace {
 // Long enough for an import of a large personal dictionary, short enough that

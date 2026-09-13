@@ -14,6 +14,9 @@ bool PipeMainTransport::current(const PipeTicket &ticket) {
 bool PipeMainTransport::try_current(const PipeTicket &ticket) {
   return registry_.try_is_current(ticket);
 }
+std::vector<PipeTicket> PipeMainTransport::current_tickets() {
+  return registry_.current_tickets();
+}
 std::optional<FanyImeNamedpipeData>
 PipeMainTransport::read(const PipeTicket &ticket) {
   auto result = registry_.read_main(ticket);
