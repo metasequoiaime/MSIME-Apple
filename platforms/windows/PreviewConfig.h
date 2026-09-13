@@ -153,7 +153,10 @@ struct PreviewConfig {
       }
       if (appearance.contains("candidate_font")) {
         result.candidate_font = appearance.at("candidate_font").get<std::string>();
-        if (result.candidate_font.empty() || result.candidate_font.size() > 128)
+        if (result.candidate_font.empty() || result.candidate_font.size() > 128 ||
+            result.candidate_font.find('\0') != std::string::npos ||
+            std::any_of(result.candidate_font.begin(), result.candidate_font.end(),
+                        [](unsigned char c) { return c < 0x20; }))
           throw std::invalid_argument("Invalid candidate font");
       }
       if (appearance.contains("candidate_selected_bar")) {
