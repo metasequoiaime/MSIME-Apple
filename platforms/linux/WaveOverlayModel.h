@@ -16,6 +16,8 @@ struct WaveOverlayModel {
   bool show_transcript = true;
   bool actions_visible = false;
   std::string transcript;
+  std::string status;
+  bool locked = false;
 
   void set_transcript(std::string value) {
     constexpr std::size_t kVisibleCharacters = 160;

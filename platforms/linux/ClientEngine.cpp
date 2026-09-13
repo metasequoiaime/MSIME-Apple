@@ -8,6 +8,7 @@
 #include "VoiceAction.h"
 #include "VoiceWorker.h"
 #include "WaveOverlayModel.h"
+#include "WaveOverlayIbusSurface.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -94,7 +95,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -255,6 +256,8 @@ struct State {
   std::string voice_phase = "正在录音…";
   std::optional<unsigned> voice_level;
   msime::linux_host::WaveOverlayModel wave_overlay;
+  std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface;
+  bool wave_overlay_visible = false;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -2456,38 +2459,27 @@ void render(IBusEngine *engine, const Json &view) {
   // preedit.
   const auto style = state(engine).preedit_style;
   if (state(engine).voice_active) {
+    auto &s = state(engine);
     ibus_engine_update_preedit_text_with_mode(
         engine,
-        ibus_text_new_from_string(state(engine).voice_preedit.c_str()),
-        static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)),
-        !state(engine).voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
+        ibus_text_new_from_string(s.voice_preedit.c_str()),
+        static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
+        !s.voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
-    auto feedback = state(engine).voice_phase;
-    if (state(engine).voice_space_locked && !state(engine).voice_stopping)
-      feedback = "录音已锁定 · 可松开快捷键 · 再按快捷键或点击语音菜单结束 · Esc 取消";
-    if (!state(engine).voice_stopping && state(engine).voice_level) {
-      feedback += "  麦克风 [";
-      const auto &bars = state(engine).wave_overlay.levels;
-      for (unsigned index = 0; index < 10; ++index)
-        feedback += (index < bars.size() && bars[index] >= 0.08f) ? "▰" : "▱";
-      feedback += "]";
+    s.wave_overlay.status = s.voice_phase;
+    s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
+    s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
+    if (s.wave_overlay_surface) {
+      if (s.wave_overlay_visible)
+        s.wave_overlay_surface->update(s.wave_overlay);
+      else
+        s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
     }
-    if (!state(engine).voice_transcript.empty()) {
-      const auto &transcript = state(engine).voice_transcript;
-      const auto length = g_utf8_strlen(transcript.c_str(), -1);
-      const auto *tail = g_utf8_offset_to_pointer(
-          transcript.c_str(), std::max<glong>(0, length - 160));
-      std::string preview(tail);
-      for (auto &character : preview)
-        if (character == '\r' || character == '\n' || character == '\t')
-          character = ' ';
-      feedback += "\n";
-      if (length > 160) feedback += "…";
-      feedback += preview;
-    }
-    ibus_engine_update_auxiliary_text(engine,
-        ibus_text_new_from_string(feedback.c_str()), TRUE);
     return;
+  }
+  if (state(engine).wave_overlay_surface && state(engine).wave_overlay_visible) {
+    state(engine).wave_overlay_surface->hide();
+    state(engine).wave_overlay_visible = false;
   }
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
                                  : view.at("editing_text").get<std::string>();
@@ -2715,6 +2707,9 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_level.reset();
   s.wave_overlay = {};
   s.wave_overlay.actions_visible = false;
+  if (s.wave_overlay_surface && s.wave_overlay_visible)
+    s.wave_overlay_surface->hide();
+  s.wave_overlay_visible = false;
   s.voice_generation = 0;
   s.voice_preedit.clear();
   s.voice_transcript.clear();
@@ -2778,6 +2773,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.wave_overlay = {};
   s.wave_overlay.listening = true;
   s.wave_overlay.actions_visible = true;
+  s.wave_overlay_visible = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
@@ -5354,6 +5350,9 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
+  engine->state->wave_overlay_surface =
+      std::make_unique<msime::linux_host::WaveOverlayIbusSurface>(
+          IBUS_ENGINE(engine));
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.
   if (configured.is_object())
