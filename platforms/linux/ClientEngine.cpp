@@ -2710,6 +2710,7 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
   s.wave_overlay = {};
+  s.wave_overlay.actions_visible = false;
   s.voice_generation = 0;
   s.voice_preedit.clear();
   s.voice_transcript.clear();
@@ -2771,6 +2772,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.voice_level.reset();
   s.wave_overlay = {};
   s.wave_overlay.listening = true;
+  s.wave_overlay.actions_visible = true;
   s.voice_stopping = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
