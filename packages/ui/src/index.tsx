@@ -38,6 +38,7 @@ export { ASR_PROVIDER_DEFAULTS, POLISH_PROVIDER_DEFAULTS, asrProviderUpdate, pol
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
+export { emojiDisplayName } from "./panels";
 export { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type CloudCandidate, type CloudCandidateKind, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryCatalogEntry, type CloudDictionaryEntry, type CloudDictionaryFileFormat, type CloudDictionaryKind, type CloudDictionaryPanelClient, type CloudFixedPosition, type CloudRankingMode, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
