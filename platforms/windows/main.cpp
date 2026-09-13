@@ -224,6 +224,55 @@ bool system_prefers_dark() {
     return true;
   return light == 0;
 }
+// Flip a stored boolean through the same revisioned store the settings shell
+// uses. The tray rows used to change only an in-process flag, so the choice was
+// forgotten on every Server restart and disagreed with the settings page.
+bool toggle_stored_flag(const std::filesystem::path &directory,
+                        const char *section, const char *field, bool fallback,
+                        bool &result) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return false;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return false;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    auto &preferences = snapshot.at("preferences");
+    bool current = fallback;
+    if (section) {
+      if (!preferences.contains(section) || !preferences.at(section).is_object())
+        preferences[section] = nlohmann::json::object();
+      current = preferences.at(section).value(field, fallback);
+      preferences[section][field] = !current;
+    } else {
+      current = preferences.value(field, fallback);
+      preferences[field] = !current;
+    }
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision, reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+    if (!saved)
+      return false;
+    const auto saved_response = nlohmann::json::parse(saved.get());
+    if (!saved_response.value("ok", false) ||
+        !saved_response.at("value").is_object())
+      return false;
+    result = !current;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -338,6 +387,10 @@ int wmain(int argc, wchar_t **argv) {
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
+    auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("floating_toolbar", nlohmann::json::object())
+            .value("enabled", true));
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -355,8 +408,8 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&, voice_config, voice_config_mutex, traditional_output](
-            const PreferenceSnapshot &snapshot) {
+        [&, voice_config, voice_config_mutex, traditional_output,
+         toolbar_enabled](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           traditional_output->store(
@@ -364,6 +417,12 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          // The settings page owns this too; without reconciling it here the
+          // toolbar only followed the preference across a restart.
+          const auto toolbar_preferences =
+              preferences.value("floating_toolbar", nlohmann::json::object());
+          toolbar_enabled->store(toolbar_preferences.value("enabled", true),
+                                 std::memory_order_release);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.enabled = input.value("enabled", true);
@@ -540,7 +599,7 @@ int wmain(int argc, wchar_t **argv) {
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(resolved_palette);
-    bool toolbar_visible = config.floating_toolbar_enabled;
+    bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
@@ -603,7 +662,20 @@ int wmain(int argc, wchar_t **argv) {
         menu_capabilities,
         [&](TrayMenuCommand command) {
           if (command == TrayMenuCommand::ToggleFloatingToolbar) {
-            toolbar_visible = !toolbar_visible;
+            // Write it back, so the choice survives a restart and the settings
+            // page and this row cannot disagree. A store that refuses the write
+            // leaves the row unhandled rather than showing a state that was
+            // never saved.
+            bool next = !toolbar_visible;
+            if (!toggle_stored_flag(config.state_root, "floating_toolbar",
+                                    "enabled", toolbar_visible, next))
+              return false;
+            // Publish immediately as well as writing the store: the file
+            // monitor reports the change a moment later, and the refresh loop
+            // reads this flag, so without it the toolbar would flip back until
+            // the monitor caught up.
+            toolbar_enabled->store(next, std::memory_order_release);
+            toolbar_visible = next;
             if (!toolbar_visible)
               toolbar.hide();
             return true;
@@ -662,6 +734,8 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
+      // The settings page may have published a new value since the last pass.
+      toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       toolbar.refresh(toolbar_visible);
       // The listener thread owns no window; the anchor is applied here, on the
       // thread that created the tray card.
