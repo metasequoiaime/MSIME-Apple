@@ -589,6 +589,20 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     finally { setBusy(false); }
   }
 
+  function resetTouchKeyboardSettings() {
+    if (!draft || !window.confirm("恢复屏幕键盘的高度、间距和顶部语音入口默认值？")) return;
+    const next = { ...draft };
+    // Delete the optional fields instead of storing the current defaults. This keeps reset
+    // forward-compatible when a host changes its fallback values.
+    delete next.touch_key_spacing_tenths;
+    delete next.touch_row_spacing_tenths;
+    delete next.touch_keyboard_height_adjustment;
+    delete next.touch_voice_shortcut;
+    setDraft(next);
+    setError("");
+    setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
+  }
+
   async function openExternalUrl(url: string) {
     try {
       if (client.openExternalUrl) {
@@ -1289,6 +1303,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">行间距 <small>{(touchRowSpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="行间距" type="range" min="40" max="100" step="1" value={touchRowSpacingTenths} onChange={event => setDraft({ ...draft, touch_row_spacing_tenths: Number(event.target.value) })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">顶部语音入口 <small>在触屏键盘工具栏直接打开最近一次语音结果</small></span><input aria-label="顶部语音入口" className="toggle" type="checkbox" checked={draft.touch_voice_shortcut ?? false} onChange={event => setDraft({ ...draft, touch_voice_shortcut: event.target.checked })} /></label>
+          <button type="button" className="danger-text" aria-label="恢复屏幕键盘默认设置" onClick={resetTouchKeyboardSettings}>恢复默认</button>
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>

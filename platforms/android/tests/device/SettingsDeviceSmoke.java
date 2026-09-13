@@ -37,6 +37,14 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 9 键\"]')";
     private static final String KEYBOARD_HEIGHT =
         "document.querySelector('[aria-label=\"键盘高度\"]')";
+    private static final String KEY_SPACING =
+        "document.querySelector('[aria-label=\"按键间距\"]')";
+    private static final String ROW_SPACING =
+        "document.querySelector('[aria-label=\"行间距\"]')";
+    private static final String VOICE_SHORTCUT =
+        "document.querySelector('[aria-label=\"顶部语音入口\"]')";
+    private static final String RESET_KEYBOARD_SETTINGS =
+        "document.querySelector('[aria-label=\"恢复屏幕键盘默认设置\"]')";
     private static final String MIDNIGHT_SKIN =
         "document.querySelector('[aria-label=\"屏幕键盘皮肤 霓虹夜航\"]')";
     private static final String CUSTOM_SKIN_DESIGN_TAB =
@@ -51,7 +59,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         + "tab.textContent?.trim() === '我的')";
     private WebView web;
     @Override protected String successDescription() {
-        return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+        return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
@@ -218,10 +226,32 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Engine scheme did not use the fallback");
             if (!"twenty_six_key".equals(savedPreferences.getString("touch_keyboard_layout")))
                 throw new AssertionError("Touch layout did not use the fallback");
+            stage = "React reset keyboard geometry";
+            js("window.confirm = () => true; (" + RESET_KEYBOARD_SETTINGS + ").click(); true");
+            awaitJs("(" + KEYBOARD_HEIGHT + ").value === '0' && (" + KEY_SPACING
+                + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
+                + VOICE_SHORTCUT + ").checked");
+            awaitJs("!document.querySelector('button[type=submit]').disabled");
+            js("document.querySelector('button[type=submit]').click(); true");
+            awaitJs("document.querySelector('[role=status]')?.textContent === '设置已保存。'");
+            JSONObject resetSaved = new JSONObject(new String(Files.readAllBytes(
+                preferences.toPath()), StandardCharsets.UTF_8));
+            if (resetSaved.getLong("revision") != saved.getLong("revision") + 1)
+                throw new AssertionError("Keyboard geometry reset did not advance preferences revision");
+            JSONObject resetPreferences = resetSaved.getJSONObject("preferences");
+            for (String key : new String[] {"touch_key_spacing_tenths",
+                    "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
+                    "touch_voice_shortcut"}) {
+                if (resetPreferences.has(key))
+                    throw new AssertionError("Keyboard geometry reset retained " + key);
+            }
             stage = "React reload";
             js("(" + RELOAD_BUTTON + ").click(); true");
             awaitJs("!(" + RELOAD_BUTTON + ").disabled && ("
-                + PUNCTUATION_CHECKBOX + ").checked === " + !before);
+                + PUNCTUATION_CHECKBOX + ").checked === " + !before + " && ("
+                + KEYBOARD_HEIGHT + ").value === '0' && (" + KEY_SPACING
+                + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
+                + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
             shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
             shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
