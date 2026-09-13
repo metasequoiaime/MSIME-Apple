@@ -823,6 +823,7 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 Windows Server 现在从 PipeRegistry 快照所有已完成 Main/ToTsf/Worker 注册链，并由 SessionController 将 TSF-local 配置帧广播到每个 TIP，而不是只发送给当前焦点会话。设置发布会更新共享 `TsfLocalConfig` 并标记待发送；新 TIP 注册即使配置值未变化也会收到当前快照。广播失败保留 dirty 状态，下一轮继续重试；票据集合变化会触发重新发送，避免新连接停留在编译时默认值。
 
 新增 PipeRegistry/PipeMainTransport 票据枚举测试，验证完整注册、代次失效、回收和 shutdown 后均不泄漏旧票据。x64 MinGW 以 `-Wall -Wextra -Werror` 严格编译通过 `PipeRegistry.cpp`、`PipeMainTransport.cpp`、`SessionController.cpp`、`WindowsServer.cpp` 和 `tests/pipe_io.cpp`；全量 `check-cross.sh` 仍在既有 `tests/server_smoke.cpp:132` 的 `PresentationCandidate` 缺失字段警告处停止，未修改该无关基线问题。`main.cpp` 的交叉编译还受现有 mingw/libstdc++ 对宽路径 `ofstream` 及 `toolbar_palette` 命名冲突影响。没有 Windows 主机，因此未执行 TSF 注册、原生 Server、真实编辑器或安装后的系统验收；本切片不宣称 Windows 平台接入完成，CI 保持禁用。
+
 ### Windows TSF 终止回退确认
 
 当 TSF Main 管道在 DLL 销毁期间写入 `ClientDeactivated` 失败时，DLL 通过 Aux 管道发送 `TerminalDeactivation|client_id|focus_token`，Server 仅在输入队列中精确匹配该 client 与 focus token、完成 lease 清理后回写 UTF-16 `OK`。Aux 字段严格按十进制 `uint64_t` 解析，拒绝空值、符号、非数字、溢出和零值；旧 token 不得停用同一 client 的新激活，已完成或已不存在的旧 lease 可幂等确认。清理同时撤销 Engine 组合、候选邮箱、模式邮箱和展示状态，保留 TSF DLL / Server 进程及协议边界。
