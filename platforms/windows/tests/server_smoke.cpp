@@ -142,6 +142,10 @@ int main() {
       value->y = frame.y;
       window.refresh();
       require(IsWindowVisible(window.handle()) && !window.failed());
+      // Re-showing invalidates, so flush that paint before asking whether a
+      // second refresh dirties anything. Without this the check below reads the
+      // re-show's own update region and says nothing about refresh idempotence.
+      UpdateWindow(window.handle());
       window.refresh();
       require(!GetUpdateRect(window.handle(), nullptr, FALSE));
       require(AreDpiAwarenessContextsEqual(original_dpi,
@@ -179,7 +183,10 @@ int main() {
       const auto point = first_candidate_point(clickable.handle(), 1);
       SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
-      require(clicks == 1 && !clickable.failed());
+      // Split so a failure names the cause. A dead click with failed()==false
+      // means the card never painted, so hit() has no page to test against.
+      require(!clickable.failed());
+      require(clicks == 1);
       // Cancellation must reject the release even with an unchanged frame.
       for (const UINT cancellation : {WM_MOUSELEAVE, WM_CANCELMODE,
                                        WM_CAPTURECHANGED}) {

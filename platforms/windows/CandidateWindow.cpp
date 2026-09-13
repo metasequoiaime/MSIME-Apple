@@ -437,8 +437,14 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate presentation failed");
   if (drawn == D2DERR_RECREATE_TARGET) {
     // Losing the device is not a presentation failure; rebuild on the next
-    // refresh rather than hiding a live composition.
+    // refresh rather than hiding a live composition. Clearing shown_ is what
+    // makes that rebuild reachable: reposition() returns early while the cached
+    // frame still matches, so leaving it set would suppress the very repaint
+    // this path is counting on, and painted_ would stay behind for good. That
+    // also strands clicks, because hit() refuses without a painted page.
     device_.DiscardTarget();
+    shown_.reset();
+    InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
