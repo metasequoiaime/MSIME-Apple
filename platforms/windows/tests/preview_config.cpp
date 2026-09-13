@@ -2,10 +2,18 @@
 #include <iostream>
 
 using namespace msime::windows;
-void require(bool value) {
-  if (!value)
-    throw std::runtime_error("Preview configuration test failed");
+// A bare `return 1` told us only that something in three hundred assertions
+// broke, which is how this test stayed red unnoticed: the pipe-only preset
+// skips it, so nobody read the exit code. Report the line instead.
+[[noreturn]] void require_failed(int line) {
+  throw std::runtime_error("Preview configuration test failed at line " +
+                           std::to_string(line));
 }
+#define require(value)                                                         \
+  do {                                                                         \
+    if (!(value))                                                              \
+      require_failed(__LINE__);                                                \
+  } while (false)
 int main() {
   try {
     const auto root = std::filesystem::temp_directory_path();
@@ -25,15 +33,19 @@ int main() {
     const auto names = good.pipe_names();
     require(names[0] == L"\\\\.\\pipe\\msime-client-preview-fixture-12-0" &&
             names[0] != names[1] && names[1] != names[2]);
-    auto reject = [&](nlohmann::json bad) {
+    // Takes the caller's line, or every rejection failure would report the one
+    // line inside this lambda and name none of the ~60 documents it checks.
+    auto reject_at = [&](nlohmann::json bad, int line) {
       bool rejected = false;
       try {
         PreviewConfig::parse(bad.dump());
       } catch (...) {
         rejected = true;
       }
-      require(rejected);
+      if (!rejected)
+        require_failed(line);
     };
+#define reject(bad) reject_at((bad), __LINE__)
     for (const char *field : {"resources", "state_root", "preedit_style",
                               "format_version", "pipe_namespace"}) {
       auto bad = document;
@@ -114,7 +126,13 @@ int main() {
       config["key_bindings"][name] = 1;
       reject(config);
       config["key_bindings"].erase(name);
-      reject(config);
+      // mouse_wheel arrived after the other six, so the parser accepts a
+      // binding block written before it existed and reads it as off. The rest
+      // are mandatory: a missing one means a partial block, not a default.
+      if (std::string(name) == "mouse_wheel")
+        require(!PreviewConfig::parse(config.dump()).navigation.mouse_wheel);
+      else
+        reject(config);
     }
     document["key_bindings"] = bindings;
     for (const auto &[name, expected] :
@@ -213,7 +231,11 @@ int main() {
     document.erase("appearance");
     std::cout
         << "Preview configuration: isolated names and strict fields passed\n";
+  } catch (const std::exception &failure) {
+    std::cerr << failure.what() << '\n';
+    return 1;
   } catch (...) {
+    std::cerr << "Preview configuration test failed with an unknown error\n";
     return 1;
   }
 }

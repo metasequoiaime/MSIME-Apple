@@ -85,6 +85,29 @@ struct PreviewConfig {
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
+      // The envelope is strict, so appearance is too: an unknown key is far
+      // more likely a typo than a future field, and silently ignoring it means
+      // the user's setting never applies and nothing says why.
+      static constexpr std::string_view known[] = {
+          "skin_directory",       "skin",
+          "layout",               "dark_theme",
+          "candidate_font_size",  "candidate_preedit_font_size",
+          "candidate_text_color", "candidate_number_color",
+          "candidate_surface_color", "candidate_border_color",
+          "candidate_selected_color", "candidate_hover_color",
+          "candidate_accent_color",  "candidate_font",
+          "candidate_selected_bar",  "candidate_fallback_fonts",
+          "candidate_preedit_style"};
+      for (const auto &entry : appearance.items()) {
+        bool recognized = false;
+        for (const auto &name : known)
+          if (entry.key() == name) {
+            recognized = true;
+            break;
+          }
+        if (!recognized)
+          throw std::invalid_argument("Invalid preview appearance");
+      }
       result.skin_directory = std::filesystem::u8path(
           appearance.at("skin_directory").get<std::string>());
       if (!result.skin_directory.is_absolute() ||
