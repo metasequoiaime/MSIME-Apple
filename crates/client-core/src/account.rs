@@ -183,6 +183,25 @@ impl BackendAccountClient {
         body: Option<Vec<u8>>,
         maximum_response_bytes: usize,
     ) -> Result<Vec<u8>, AccountError> {
+        self.request_with_limit_timeout(
+            method,
+            path,
+            token,
+            body,
+            maximum_response_bytes,
+            Duration::from_secs(30),
+        )
+    }
+
+    pub(crate) fn request_with_limit_timeout(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<Vec<u8>>,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, AccountError> {
         if !path.starts_with("/v1/") || path.contains('\\') {
             return Err(AccountError::Invalid);
         }
@@ -215,7 +234,10 @@ impl BackendAccountClient {
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(body);
         }
-        let response = request.send().map_err(|_| AccountError::Unavailable)?;
+        let response = request
+            .timeout(timeout)
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
         read_bounded_response(response, maximum_response_bytes)
     }
 
@@ -247,6 +269,30 @@ impl BackendAccountClient {
             .transpose()
             .map_err(|_| AccountError::Invalid)?;
         let bytes = self.request_with_limit(method, path, token, body, maximum_response_bytes)?;
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
+    }
+
+    pub(crate) fn json_with_limit_timeout<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&B>,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+    ) -> Result<T, AccountError> {
+        let body = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| AccountError::Invalid)?;
+        let bytes = self.request_with_limit_timeout(
+            method,
+            path,
+            token,
+            body,
+            maximum_response_bytes,
+            timeout,
+        )?;
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 

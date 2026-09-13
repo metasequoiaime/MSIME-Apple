@@ -14,8 +14,8 @@ import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./touch-keyboard-skin-editor";
-import { defaultTouchKeyboardSkinDesign, type CustomSkinLibraryClient, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
-export type { CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboardSkin, TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import { defaultTouchKeyboardSkinDesign, type AiSkinClient, type CustomSkinLibraryClient, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+export type { AiSkinClient, AiSkinProposal, AiSkinProgress, CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboardSkin, TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 import { AccountPage, type AccountClient } from "./account-page";
@@ -416,6 +416,8 @@ export interface SettingsClient {
   customTouchKeyboardSkins?: boolean;
   /** Named custom designs use a separate bounded file, outside hot-path preferences. */
   customSkinLibrary?: CustomSkinLibraryClient;
+  /** Android account-backed AI skin draw and artwork jobs. */
+  aiSkins?: AiSkinClient;
   /** Android can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
 }
@@ -1247,7 +1249,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           </div>
           {client.customTouchKeyboardSkins && <button type="button" className="secondary touch-skin-editor-open" aria-expanded={showTouchSkinEditor} onClick={() => setShowTouchSkinEditor(value => !value)}>{showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}</button>}
         </div>
-        {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} library={client.customSkinLibrary} onChange={design => setDraft(current => current ? { ...current, custom_touch_keyboard_skin: design } : current)} onUse={() => setDraft(current => current ? { ...current, touch_keyboard_skin: "custom" } : current)} onClose={() => setShowTouchSkinEditor(false)} /></div>}
+        {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} library={client.customSkinLibrary} aiSkins={client.aiSkins} communitySkins={client.communitySkins} onChange={design => setDraft(current => current ? { ...current, custom_touch_keyboard_skin: design } : current)} onUse={() => setDraft(current => current ? { ...current, touch_keyboard_skin: "custom" } : current)} onClose={() => setShowTouchSkinEditor(false)} /></div>}
         <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
           <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
           <label className="section-header"><span className="section-title">键盘高度 <small>{touchKeyboardHeightAdjustment > 0 ? "+" : ""}{touchKeyboardHeightAdjustment} dp</small></span><input aria-label="键盘高度" type="range" min="-12" max="48" step="1" value={touchKeyboardHeightAdjustment} onChange={event => setDraft({ ...draft, touch_keyboard_height_adjustment: Number(event.target.value) })} /></label>

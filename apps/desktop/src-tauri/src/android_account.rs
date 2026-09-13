@@ -2,6 +2,7 @@ use msime_client_core::account::{
     AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountUser,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
+use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
 use msime_client_core::community_resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
@@ -21,9 +22,11 @@ use msime_client_core::keyboard_skin_trial::{
 };
 use msime_client_core::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
-use tauri::{Manager, Runtime, State, Wry};
+use tauri::{Emitter, Manager, Runtime, State, Wry};
 
 const MAX_SECURE_SESSION_BYTES: usize = 16 * 1024;
 
@@ -79,11 +82,14 @@ type CommunityService =
     BackendCommunitySkinService<BackendAccountClient, AndroidAccountStorage<Wry>>;
 type CommunityResourceService =
     BackendCommunityResourceService<BackendAccountClient, AndroidAccountStorage<Wry>>;
+type AiSkinService = BackendAiSkinService<BackendAccountClient, AndroidAccountStorage<Wry>>;
 
 pub struct AccountState {
     session: Arc<Session>,
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
+    ai_skin: Arc<AiSkinService>,
+    ai_skin_requests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -104,7 +110,17 @@ pub fn init() -> TauriPlugin<Wry> {
                 resource_client,
                 Arc::clone(&session),
             ));
-            app.manage(AccountState { session, community, resources });
+            let ai_skin = Arc::new(BackendAiSkinService::new(
+                BackendAccountClient::new()?,
+                Arc::clone(&session),
+            ));
+            app.manage(AccountState {
+                session,
+                community,
+                resources,
+                ai_skin,
+                ai_skin_requests: Arc::new(Mutex::new(HashMap::new())),
+            });
             Ok(())
         })
         .build()
@@ -206,6 +222,105 @@ fn community_error(error: AccountError) -> super::CommandError {
             AccountError::Unavailable => "community_unavailable",
         },
     }
+}
+
+fn ai_skin_error(error: AiSkinError) -> super::CommandError {
+    let code = match error {
+        AiSkinError::Cancelled => "ai_skin_cancelled",
+        AiSkinError::InvalidResponse => "ai_skin_invalid",
+        AiSkinError::Account(error) => error.code(),
+    };
+    super::CommandError { code }
+}
+
+fn valid_ai_skin_request_id(value: &str) -> bool {
+    (1..=96).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiSkinProgress {
+    request_id: String,
+    completed: usize,
+}
+
+#[tauri::command]
+pub async fn ai_skin_generate(
+    app: tauri::AppHandle<Wry>,
+    state: State<'_, AccountState>,
+    request_id: String,
+    prompt: String,
+) -> Result<Vec<AiSkinProposal>, super::CommandError> {
+    if !valid_ai_skin_request_id(&request_id) {
+        return Err(super::CommandError {
+            code: "ai_skin_invalid",
+        });
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut requests = state
+            .ai_skin_requests
+            .lock()
+            .map_err(|_| super::CommandError {
+                code: "ai_skin_unavailable",
+            })?;
+        if requests
+            .insert(request_id.clone(), Arc::clone(&cancelled))
+            .is_some()
+        {
+            return Err(super::CommandError {
+                code: "ai_skin_busy",
+            });
+        }
+    }
+    let service = Arc::clone(&state.ai_skin);
+    let progress_app = app.clone();
+    let progress_request_id = request_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        service.generate(&prompt, &cancelled, move |completed| {
+            let _ = progress_app.emit(
+                "ai-skin-progress",
+                AiSkinProgress {
+                    request_id: progress_request_id.clone(),
+                    completed,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_skin_unavailable",
+    })?
+    .map_err(ai_skin_error);
+    if let Ok(mut requests) = state.ai_skin_requests.lock() {
+        requests.remove(&request_id);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn ai_skin_cancel(
+    state: State<'_, AccountState>,
+    request_id: String,
+) -> Result<(), super::CommandError> {
+    if !valid_ai_skin_request_id(&request_id) {
+        return Err(super::CommandError {
+            code: "ai_skin_invalid",
+        });
+    }
+    let requests = state
+        .ai_skin_requests
+        .lock()
+        .map_err(|_| super::CommandError {
+            code: "ai_skin_unavailable",
+        })?;
+    if let Some(cancelled) = requests.get(&request_id) {
+        cancelled.store(true, Ordering::Release);
+    }
+    Ok(())
 }
 
 async fn community_call<T, F>(

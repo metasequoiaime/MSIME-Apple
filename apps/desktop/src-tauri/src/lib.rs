@@ -3392,6 +3392,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::community_skin_finish_trial,
             #[cfg(target_os = "android")]
+            android_account::ai_skin_generate,
+            #[cfg(target_os = "android")]
+            android_account::ai_skin_cancel,
+            #[cfg(target_os = "android")]
             android_account::community_resource_list,
             #[cfg(target_os = "android")]
             android_account::community_resource_detail,

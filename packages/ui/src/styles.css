@@ -258,6 +258,24 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .community-publish-warning { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .community-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; border-top: 1px solid var(--divider-color); }
 .community-dialog-actions button { margin: 0; }
+.ai-skin-generation { width: min(760px, 100%); }
+.ai-skin-generation-note { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.ai-skin-mystery-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px 0; }
+.ai-skin-mystery-card { display: flex; min-height: 130px; flex-direction: column; align-items: center; justify-content: space-between; padding: 14px; border-radius: 14px; background: linear-gradient(145deg, #4d806b, #1a493c); color: #fff; font-size: 11px; letter-spacing: .08em; transform: rotate(-4deg); }
+.ai-skin-mystery-card span { font-size: 34px; font-weight: 300; letter-spacing: 0; }
+.ai-skin-mystery-1 { background: linear-gradient(145deg, #5b528d, #29234c); transform: translateY(-6px); }
+.ai-skin-mystery-2 { background: linear-gradient(145deg, #9b6b45, #4c2e26); transform: rotate(4deg); }
+.ai-skin-card-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ai-skin-card { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--surface-subtle); }
+.ai-skin-card h3, .ai-skin-card p { margin: 0; }
+.ai-skin-card h3 { font-size: 14px; }
+.ai-skin-card p { min-height: 52px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.ai-skin-card .screen-keyboard-artwork { width: 100%; min-height: 160px; }
+.ai-skin-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-skin-card-actions button { flex: 1 1 100%; margin: 0; }
+.ai-skin-publish-form { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-raised); }
+.ai-skin-publish-form h3, .ai-skin-publish-form p { margin: 0; }
+@media (max-width: 680px) { .ai-skin-card-list { grid-template-columns: 1fr; } .ai-skin-card p { min-height: 0; } }
 .statistics-availability p { margin: 8px 0 0; color: var(--text-secondary); line-height: 1.6; }
 .error { color: var(--danger-text); background: var(--surface-raised); padding: 12px; border-radius: 8px; }
 .notice { color: var(--text-secondary); }

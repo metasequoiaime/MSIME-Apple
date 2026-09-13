@@ -961,6 +961,33 @@ test("Android named skin library reports duplicate names and concurrent twelve-i
   expect(mutate).toHaveBeenCalledTimes(2);
 });
 
+test("Android AI skin draw prepares artwork, saves a proposal and continues editing", async () => {
+  const aiSkins = {
+    generate: vi.fn().mockResolvedValue([1, 2, 3].map(index => ({
+      name: `AI 测试 ${index}`, description: "仅用于界面自动化的合成设计", artworkPrompt: "原创背景场景，角色位于边缘，柔和插画，中央安静留白",
+      design: savedSkinDesign({ keyShape: index === 1 ? "rounded" : index === 2 ? "capsule" : "ticket", keyMaterial: index === 1 ? "flat" : index === 2 ? "raised" : "paper" }),
+      artwork: { b64_json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", mime_type: "image/png" as const, width: 1, height: 1 },
+    }))),
+    cancel: vi.fn().mockResolvedValue(undefined),
+    onProgress: vi.fn().mockResolvedValue(() => {}),
+  };
+  const mutate = vi.fn().mockImplementation(async (action: CustomSkinLibraryAction) => [{ id: "33333333-3333-4333-8333-333333333333", name: action.operation === "create" ? action.name : "AI 测试 1", design: savedSkinDesign() }]);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true, aiSkins, customSkinLibrary: { load: async () => [], mutate } }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  await waitFor(() => expect((within(editor).getByRole("button", { name: "AI 皮肤抽卡" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(within(editor).getByRole("button", { name: "AI 皮肤抽卡" }));
+  fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
+  await screen.findByRole("heading", { name: "AI 测试 1" });
+  fireEvent.click(screen.getAllByRole("button", { name: "保存到我的皮肤" })[0]);
+  await screen.findByText("已保存到“我的皮肤”。");
+  expect(aiSkins.generate).toHaveBeenCalledTimes(1);
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ operation: "create", name: "AI 测试 1", design: expect.objectContaining({ photo: expect.any(String), keyOpacity: .92 }) }));
+  fireEvent.click(screen.getAllByRole("button", { name: "使用并继续编辑" })[0]);
+  expect(screen.queryByRole("dialog", { name: "AI 皮肤抽卡" })).toBeNull();
+});
+
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
   let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "dark", settings_theme: "dark", candidate_theme: "dark", toolbar_theme: "light" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {

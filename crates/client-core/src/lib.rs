@@ -2,6 +2,7 @@
 
 pub mod account;
 pub mod ai;
+pub mod ai_skin;
 pub mod clipboard;
 pub mod cloud;
 pub mod cloud_dictionary;

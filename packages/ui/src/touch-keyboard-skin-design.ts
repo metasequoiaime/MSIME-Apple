@@ -44,6 +44,22 @@ export type CustomSkinLibraryClient = {
   mutate(action: CustomSkinLibraryAction): Promise<SavedTouchKeyboardSkin[]>;
 };
 
+export type AiSkinProposal = {
+  name: string;
+  description: string;
+  design: TouchKeyboardSkinDesign;
+  artworkPrompt: string;
+  artwork: { b64_json: string; mime_type: "image/png" | "image/jpeg"; width: number; height: number };
+};
+
+export type AiSkinProgress = { requestId: string; completed: number };
+
+export type AiSkinClient = {
+  generate(requestId: string, prompt: string): Promise<AiSkinProposal[]>;
+  cancel(requestId: string): Promise<void>;
+  onProgress?(listener: (progress: AiSkinProgress) => void): Promise<() => void>;
+};
+
 export const defaultTouchKeyboardSkinDesign: TouchKeyboardSkinDesign = {
   background: 0xE8F0EB,
   keyBackground: 0xFFFFFF,
