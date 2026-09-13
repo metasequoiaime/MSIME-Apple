@@ -93,6 +93,10 @@ const client: SettingsClient = {
   }, chat: {
     models: () => invoke("account_chat_models"),
     complete: (messages, model) => invoke<{ content: string }>("account_chat", { messages, model }).then(response => response.content),
+  }, home: {
+    openKeyboard: () => invoke("open_keyboard_panel"),
+    openSystemKeyboardSettings: () => invoke("android_open_input_method_settings"),
+    showInputMethodPicker: () => invoke("android_show_input_method_picker"),
   }, communitySkins: {
     list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
     detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),

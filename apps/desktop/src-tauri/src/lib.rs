@@ -3629,6 +3629,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "android")]
+            android_account::android_open_input_method_settings,
+            #[cfg(target_os = "android")]
+            android_account::android_show_input_method_picker,
+            #[cfg(target_os = "android")]
             android_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,

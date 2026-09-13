@@ -1560,6 +1560,42 @@ pub async fn account_status(
 }
 
 #[tauri::command]
+pub async fn android_open_input_method_settings(
+    state: State<'_, AccountState>,
+) -> Result<(), super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<()>("openInputMethodSettings", ())
+            .map_err(|_| super::CommandError {
+                code: "system_settings",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "system_settings",
+    })?
+}
+
+#[tauri::command]
+pub async fn android_show_input_method_picker(
+    state: State<'_, AccountState>,
+) -> Result<(), super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<()>("showInputMethodPicker", ())
+            .map_err(|_| super::CommandError {
+                code: "input_method_picker",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "input_method_picker",
+    })?
+}
+
+#[tauri::command]
 pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, super::CommandError> {

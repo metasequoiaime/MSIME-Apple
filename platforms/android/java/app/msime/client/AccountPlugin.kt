@@ -5,7 +5,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -256,6 +259,28 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("invalid_text", "invalid_text")
         } catch (_: Exception) {
             invoke.reject("clipboard", "clipboard")
+        }
+    }
+
+    @Command
+    fun openInputMethodSettings(invoke: Invoke) {
+        try {
+            hostActivity.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("system_settings", "system_settings")
+        }
+    }
+
+    @Command
+    fun showInputMethodPicker(invoke: Invoke) {
+        try {
+            val manager = hostActivity.getSystemService(InputMethodManager::class.java)
+                ?: throw IllegalStateException("input method manager unavailable")
+            manager.showInputMethodPicker()
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("input_method_picker", "input_method_picker")
         }
     }
 

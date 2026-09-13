@@ -177,6 +177,39 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .account-page .section { margin: 0; }
 .account-page h2 { margin: 0; color: var(--text-color); font-size: 15px; font-weight: 600; }
 .account-page p { margin: 7px 0 0; color: var(--text-secondary); line-height: 1.6; }
+.home-page { display: flex; flex-direction: column; gap: 14px; padding-bottom: 24px; }
+.home-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 4px 2px; }
+.home-intro h2 { margin: 0; color: var(--text-color); font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+.home-intro p { margin: 6px 0 0; color: var(--text-muted); }
+.home-intro img { width: 48px; height: 48px; opacity: .8; }
+.home-keyboard-card, .home-feature-card, .home-settings-card { width: 100%; border: 1px solid var(--border-color); border-radius: 14px; background: var(--card-bg); color: var(--text-color); text-align: left; box-shadow: var(--card-shadow); }
+.home-keyboard-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.home-keyboard-card:hover, .home-feature-card:hover, .home-settings-card:hover { border-color: var(--border-strong); }
+.home-card-heading, .home-feature-card, .home-settings-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.home-card-heading strong, .home-feature-card strong, .home-settings-card strong { display: block; font-size: 15px; font-weight: 600; }
+.home-card-heading small, .home-feature-card small, .home-settings-card small { margin-top: 4px; }
+.home-card-heading em { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-color); font-size: 11px; font-style: normal; }
+.home-card-action { display: flex; align-items: center; justify-content: space-between; color: var(--accent-color); font-size: 13px; font-weight: 600; }
+.home-quick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.home-quick-grid button { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 5px; padding: 12px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--surface-subtle); color: var(--text-color); text-align: left; }
+.home-quick-grid button:hover { border-color: var(--border-strong); background: var(--surface-raised); }
+.home-quick-grid button > span { color: var(--accent-color); font-size: 18px; line-height: 1; }
+.home-quick-grid strong { font-size: 13px; font-weight: 600; }
+.home-quick-grid small { overflow: hidden; width: 100%; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.home-feature-card { padding: 13px 14px; }
+.home-feature-card > span:nth-child(2), .home-settings-card > span:nth-child(2) { flex: 1; min-width: 0; }
+.home-feature-card > span:last-child, .home-settings-card > span:last-child { flex: 0 0 auto; color: var(--text-muted); font-size: 18px; }
+.home-feature-icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent-color); font-size: 18px; }
+.home-settings-card { padding: 13px 14px; }
+.home-settings-card > span:first-child { color: var(--accent-color); font-size: 19px; }
+.home-system-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.home-system-actions .secondary { margin: 0; }
+@media (max-width: 560px) {
+  .home-intro h2 { font-size: 21px; }
+  .home-quick-grid { gap: 7px; }
+  .home-quick-grid button { padding: 10px 8px; }
+  .home-quick-grid small { font-size: 11px; }
+}
 .account-hero { display: flex; align-items: center; gap: 16px; }
 .account-avatar { display: grid; width: 58px; height: 58px; flex: 0 0 58px; place-items: center; border-radius: 50%; background: var(--accent-strong); color: #fff; font-size: 24px; font-weight: 650; }
 .account-profile, .account-login, .account-actions, .account-settings-sync, .account-privacy { display: flex; flex-direction: column; gap: 16px; }

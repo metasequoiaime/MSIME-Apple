@@ -23,11 +23,13 @@ import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 import { AccountPage, type AccountClient } from "./account-page";
 import { ChatPage, type ChatClient } from "./chat-page";
+import { HomePage, type HomePageActions } from "./home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export { AccountPage, type AccountChallenge, type AccountClient, type AccountPreferenceSchema, type AccountPreferences, type AccountPreferenceValue, type AccountProfile, type AccountProviders, type AccountUser, type AppIconClient, type AppIconInfo, type SettingsSyncClient } from "./account-page";
 export { ChatPage, type ChatClient, type ChatMessage, type ChatModel, type ChatModels } from "./chat-page";
+export { HomePage, type HomePageActions } from "./home-page";
 export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
 export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -119,6 +121,7 @@ function selectTouchKeyboardScheme(preferences: Preferences, selected: TouchKeyb
 }
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
+  { id: "home", title: "首页", icon: new URL("./assets/msime.svg", import.meta.url).href },
   { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
   { id: "chat", title: "AI 对话", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
@@ -537,6 +540,8 @@ const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16,
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
+  /** Android's platform-adapted Apple-style keyboard home surface. */
+  home?: HomePageActions;
   /** Android account commands expose user/profile DTOs but never session tokens. */
   account?: AccountClient;
   /** Android account commands expose the authenticated EveryAPI chat surface. */
@@ -747,7 +752,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage));
+  const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
   const [communityMine, setCommunityMine] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -1074,6 +1079,14 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     const next = selectTouchKeyboardScheme(draft, selected);
     setDraft({ ...next, touch_keyboard_schemes: { enabled: ordered, selected } });
   };
+  const selectHomeScheme = (scheme: TouchKeyboardScheme) => {
+    if (!draft) return;
+    const visible = new Set(touchKeyboardSchemes.enabled);
+    visible.add(scheme);
+    const enabled = allTouchKeyboardSchemes.filter(value => visible.has(value));
+    const next = selectTouchKeyboardScheme(draft, scheme);
+    setDraft({ ...next, touch_keyboard_schemes: { enabled, selected: scheme } });
+  };
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
@@ -1122,6 +1135,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   const availablePages = pages.filter(item =>
+    (item.id !== "home" || Boolean(client.home))
+    &&
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
     && (item.id !== "account" || Boolean(client.account))
     && (item.id !== "chat" || Boolean(client.chat))
@@ -1223,6 +1238,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
+    {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => setPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => setPage("chat") : undefined} />}
     {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityMine ? "mine" : "all"} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityMine} localDictionary={client.dictionary} />}
