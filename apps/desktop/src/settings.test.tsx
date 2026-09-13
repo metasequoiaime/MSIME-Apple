@@ -556,6 +556,13 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
 
+test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
+  const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("鼠标滚轮")).toBeDefined();
+});
+
 test("utility mode switches preserve defaults and drafts across pages", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

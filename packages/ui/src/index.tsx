@@ -1459,6 +1459,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             {(draft.navigation ?? defaultNavigation).comma_period && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>, / .</kbd></div>}
             {(draft.navigation ?? defaultNavigation).tab && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Shift+Tab / Tab</kbd></div>}
             {(draft.navigation ?? defaultNavigation).page_up_down && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Page Up / Page Down</kbd></div>}
+            {(draft.navigation ?? defaultNavigation).mouse_wheel && <div className="shortcut-row"><span>候选窗口翻页</span><kbd>鼠标滚轮</kbd></div>}
             {(draft.navigation ?? defaultNavigation).arrows && <div className="shortcut-row"><span>移动候选项</span><kbd>↑ / ↓</kbd></div>}
             <div className="shortcut-row"><span>编辑输入串</span><kbd>← / → / Backspace</kbd></div>
             <div className="shortcut-row"><span>提交原始输入 / 取消输入</span><kbd>Enter / Esc</kbd></div>
