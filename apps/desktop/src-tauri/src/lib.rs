@@ -626,6 +626,12 @@ async fn dictionary_request(
         let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
+        #[cfg(target_os = "android")]
+        {
+            return msime_host_api::personal_dictionary_request_json(&bytes)
+                .map_err(|_| CommandError { code: "storage" });
+        }
+        #[cfg(not(target_os = "android"))]
         msime_host_api::dictionary_request_json(&bytes)
             .map_err(|_| CommandError { code: "storage" })
     })

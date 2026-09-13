@@ -329,11 +329,14 @@ export type Snapshot = { format_version: number; revision: number; preferences: 
 export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 export type DictionaryEntry = { kind: LocalDictionaryKind; key: string; value: string; weight: number };
+export type DictionaryFailure = { request_id: string; label: string; error: string };
 export interface DictionaryClient {
-  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
+  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
   import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<{ applied: number }>;
   export?(kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number): Promise<{ text: string; has_more: boolean }>;
+  retry?(request_id: string): Promise<void>;
+  dismissFailure?(request_id: string): Promise<void>;
 }
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
@@ -531,6 +534,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [phraseError, setPhraseError] = useState("");
+  const [dictionaryPendingCount, setDictionaryPendingCount] = useState(0);
+  const [dictionaryFailures, setDictionaryFailures] = useState<DictionaryFailure[]>([]);
+  const [dictionarySnapshotError, setDictionarySnapshotError] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
@@ -695,6 +701,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE);
       const entries = page.entries.filter(entry => entry.kind === kind);
       setPhrases(entries);
+      setDictionaryPendingCount(page.pending_count ?? 0);
+      setDictionaryFailures(page.failed_requests ?? []);
+      setDictionarySnapshotError(page.snapshot_error ?? "");
       setPhrasePage({
         offset,
         hasMore: page.has_more && page.entries.length > 0,
@@ -759,6 +768,24 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       }
       await loadPhrases(dictionaryKind);
     } catch { setPhraseError("快捷短语导入失败，请检查文本格式。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function retryDictionaryFailure(requestId: string) {
+    if (!client.dictionary?.retry) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      await client.dictionary.retry(requestId);
+      await loadPhrases(dictionaryKind, phrasePage.offset);
+    } catch { setPhraseError("词条重试失败，请稍后重试。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function dismissDictionaryFailure(requestId: string) {
+    if (!client.dictionary?.dismissFailure) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      await client.dictionary.dismissFailure(requestId);
+      await loadPhrases(dictionaryKind, phrasePage.offset);
+    } catch { setPhraseError("移除失败记录失败，请稍后重试。"); }
     finally { setPhraseBusy(false); }
   }
   async function exportPhrases() {
@@ -1011,6 +1038,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases(dictionaryKind, 0)}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy || dictionaryFormat === "hans"} onClick={() => void exportPhrases()}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
+          {dictionaryPendingCount > 0 && <p className="input-setting-description" role="status">{dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。</p>}
+          {dictionarySnapshotError && <p role="alert" className="error">{dictionarySnapshotError}</p>}
+          {dictionaryFailures.length > 0 && <div className="dictionary-failures" role="alert"><p>有 {dictionaryFailures.length} 项词库请求同步失败，可以重试或移除失败记录。</p><ul>{dictionaryFailures.map(failure => <li key={failure.request_id}><span><strong>{failure.label}</strong><small>{failure.error}</small></span><span><button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.retry} onClick={() => void retryDictionaryFailure(failure.request_id)}>重试</button> <button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.dismissFailure} onClick={() => void dismissDictionaryFailure(failure.request_id)}>移除记录</button></span></li>)}</ul></div>}
           <div className="dictionary-manager-controls"><label>词库 <select aria-label="本地词库类型" value={dictionaryKind} disabled={phraseBusy} onChange={event => { const kind = event.target.value as LocalDictionaryKind; setDictionaryKind(kind); if (kind !== "pinyin" && dictionaryFormat === "hans") setDictionaryFormat("standard"); setPhrases([]); void loadPhrases(kind); }}>{localDictionaryKinds.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label><label>文件格式 <select aria-label="本地词库文件格式" value={dictionaryFormat} disabled={phraseBusy} onChange={event => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option><option value="rime">Rime userdb / dict.yaml</option>{dictionaryKind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label></div>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
           {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>{dictionaryKind === "quick_phrase" ? "短语" : "词条"} <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}

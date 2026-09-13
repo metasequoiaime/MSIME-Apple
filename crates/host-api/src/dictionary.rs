@@ -1,13 +1,17 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{edit_personal_dictionary, response, DictionaryAccess, HostOptions};
+use msime_client_core::personal_dictionary::{
+    PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    PersonalWordRequestStatus,
+};
 use msime_engine_bridge::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::ffi::c_char;
 use std::path::Path;
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum Kind {
     Pinyin,
@@ -95,6 +99,12 @@ enum Operation {
         format: String,
         offset: usize,
         limit: usize,
+    },
+    Retry {
+        request_id: String,
+    },
+    DismissFailure {
+        request_id: String,
     },
 }
 
@@ -276,6 +286,319 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             };
             Ok(json!({ "text": text, "has_more": has_more }))
         }
+        Operation::Retry { .. } | Operation::DismissFailure { .. } => {
+            Err("dictionary failure actions require the Android personal dictionary API".into())
+        }
+    }
+}
+
+/// Android settings use a shared host/keyboard queue rather than editing the
+/// Engine while the IME may still own a session. The queue is intentionally a
+/// separate entry point so desktop hosts retain their synchronous contract.
+pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    if bytes.len() > 65536 {
+        return Err("invalid dictionary buffer".into());
+    }
+    let request: Request =
+        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request".to_owned())?;
+    if request.options.api_version != 1 {
+        return Err("unsupported host API version".into());
+    }
+    request
+        .options
+        .preferences
+        .validate()
+        .map_err(|_| "invalid dictionary options".to_owned())?;
+    let directory = request
+        .options
+        .preferences_directory
+        .as_deref()
+        .filter(|path| Path::new(path).is_absolute())
+        .ok_or("personal dictionary shared directory unavailable")?;
+    let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
+    match request.action {
+        Operation::List { offset, limit } => {
+            if offset > 1_000_000 || !(1..=1000).contains(&limit) {
+                return Err("invalid dictionary page".into());
+            }
+            store
+                .request_page(offset)
+                .map_err(personal_dictionary_error)?;
+            let state = store.read().map_err(personal_dictionary_error)?;
+            let has_more = state.has_more;
+            let pending_count = state.pending_count();
+            let snapshot_date = state.snapshot_date.clone();
+            let snapshot_error = state.snapshot_error.clone();
+            let page_offset = state.page_offset;
+            let requested_page_offset = state.requested_page_offset;
+            let failed_requests: Vec<_> = state
+                .requests
+                .iter()
+                .filter(|request| request.status == PersonalWordRequestStatus::Failed)
+                .map(|request| {
+                    json!({
+                        "request_id": request.id,
+                        "label": request.replacement.as_ref()
+                            .or(request.previous.as_ref())
+                            .map(|word| word.value.clone())
+                            .unwrap_or_else(|| "词条".to_owned()),
+                        "error": request.error.as_deref().unwrap_or("同步失败"),
+                    })
+                })
+                .collect();
+            let entries = state
+                .entries
+                .into_iter()
+                .map(personal_to_entry)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "entries": entries,
+                "has_more": has_more,
+                "pending_count": pending_count,
+                "snapshot_date": snapshot_date,
+                "snapshot_error": snapshot_error,
+                "page_offset": page_offset,
+                "requested_page_offset": requested_page_offset,
+                "failed_requests": failed_requests,
+            }))
+        }
+        Operation::Edit {
+            previous,
+            replacement,
+            request_id,
+        } => {
+            let previous = previous.map(personal_from_entry).transpose()?;
+            let replacement = replacement.map(personal_from_entry).transpose()?;
+            store
+                .enqueue(previous, replacement, request_id)
+                .map_err(personal_dictionary_error)?;
+            let pending_count = store
+                .read()
+                .map_err(personal_dictionary_error)?
+                .pending_count();
+            Ok(json!({ "queued": true, "pending_count": pending_count }))
+        }
+        Operation::Import {
+            kind,
+            format,
+            text,
+            request_id,
+        } => {
+            let options = request.options.into_engine_options();
+            let entries = if format == "hans" {
+                parse_hans_import(&kind, &text, &options)?
+            } else {
+                parse_import(&kind, &format, &text)?.0
+            };
+            let words = entries
+                .into_iter()
+                .map(|entry| {
+                    PersonalWord {
+                        kind: personal_kind(entry.kind),
+                        key: entry.key,
+                        value: entry.value,
+                        weight: entry.weight,
+                    }
+                })
+                .collect();
+            store
+                .enqueue_import(words, request_id)
+                .map_err(personal_dictionary_error)?;
+            let state = store.read().map_err(personal_dictionary_error)?;
+            Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
+        }
+        Operation::Export {
+            kind,
+            format,
+            offset,
+            limit,
+        } => {
+            if !matches!(format.as_str(), "standard" | "windows")
+                || offset > 1_000_000
+                || !(1..=1000).contains(&limit)
+            {
+                return Err("invalid dictionary export".into());
+            }
+            let state = store.read().map_err(personal_dictionary_error)?;
+            let matching: Vec<_> = state
+                .entries
+                .into_iter()
+                .filter(|entry| personal_to_kind(entry.kind) == kind)
+                .collect();
+            let has_more = matching.len() > offset.saturating_add(limit);
+            let text = matching
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .map(|entry| {
+                    if format == "windows" {
+                        format!("{}\t{}\t{}", entry.key, entry.value, entry.weight)
+                    } else {
+                        format!("{}\t{}\t{}", entry.value, entry.key, entry.weight)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = if text.is_empty() {
+                text
+            } else {
+                format!("{text}\n")
+            };
+            Ok(json!({ "text": text, "has_more": has_more }))
+        }
+        Operation::Retry { request_id } => {
+            store
+                .retry(&request_id)
+                .map_err(personal_dictionary_error)?;
+            let state = store.read().map_err(personal_dictionary_error)?;
+            Ok(json!({ "pending_count": state.pending_count() }))
+        }
+        Operation::DismissFailure { request_id } => {
+            store
+                .dismiss_failure(&request_id)
+                .map_err(personal_dictionary_error)?;
+            let state = store.read().map_err(personal_dictionary_error)?;
+            Ok(json!({ "pending_count": state.pending_count() }))
+        }
+    }
+}
+
+/// Synchronize the Android queue with the Engine. The caller must invoke this
+/// only after its Engine session has been destroyed; the shared dictionary lock
+/// then prevents races with any other host.
+pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    if bytes.len() > 65536 {
+        return Err("invalid dictionary buffer".into());
+    }
+    let request: Request =
+        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request".to_owned())?;
+    if request.options.api_version != 1 {
+        return Err("unsupported host API version".into());
+    }
+    request
+        .options
+        .preferences
+        .validate()
+        .map_err(|_| "invalid dictionary options".to_owned())?;
+    let directory = request
+        .options
+        .preferences_directory
+        .as_deref()
+        .filter(|path| Path::new(path).is_absolute())
+        .ok_or("personal dictionary shared directory unavailable")?;
+    let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
+    let options = request.options.into_engine_options();
+    store
+        .synchronize(
+            |queued| {
+                let previous = queued.previous.as_ref().map(personal_engine_entry);
+                let replacement = queued.replacement.as_ref().map(personal_engine_entry);
+                edit_personal_dictionary(
+                    &options,
+                    previous.as_ref(),
+                    replacement.as_ref(),
+                    &queued.id,
+                )
+                .map_err(str::to_owned)
+            },
+            |offset| {
+                let page = msime_engine_bridge::dictionary_entries(&options, offset, 100)
+                    .map_err(|_| "dictionary read rejected".to_owned())?;
+                Ok(msime_client_core::personal_dictionary::PersonalWordPage {
+                    entries: page
+                        .entries
+                        .into_iter()
+                        .map(|entry| PersonalWord {
+                            kind: personal_kind(entry.kind),
+                            key: entry.key,
+                            value: entry.value,
+                            weight: entry.weight,
+                        })
+                        .collect(),
+                    has_more: page.has_more,
+                })
+            },
+        )
+        .map_err(personal_dictionary_error)?;
+    let state = store.read().map_err(personal_dictionary_error)?;
+    Ok(json!({
+        "synchronized": true,
+        "pending_count": state.pending_count(),
+        "snapshot_error": state.snapshot_error,
+    }))
+}
+
+/// JNI entry point for the Android IME worker.
+///
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_dictionary_sync(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid dictionary buffer".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        personal_dictionary_sync_json(bytes)
+    })
+}
+
+fn personal_dictionary_error(error: PersonalDictionaryError) -> String {
+    error.to_string()
+}
+
+fn personal_from_entry(entry: Entry) -> Result<PersonalWord, String> {
+    validate_entry(&entry)?;
+    Ok(PersonalWord {
+        kind: personal_kind(entry.kind.into()),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    })
+}
+
+fn personal_engine_entry(word: &PersonalWord) -> msime_engine_bridge::DictionaryEntry {
+    msime_engine_bridge::DictionaryEntry {
+        kind: match word.kind {
+            PersonalWordKind::Pinyin => DictionaryKind::Pinyin,
+            PersonalWordKind::Wubi => DictionaryKind::Wubi,
+            PersonalWordKind::QuickPhrase => DictionaryKind::QuickPhrase,
+            PersonalWordKind::English => DictionaryKind::English,
+        },
+        key: word.key.clone(),
+        value: word.value.clone(),
+        weight: word.weight,
+    }
+}
+
+fn personal_to_entry(entry: PersonalWord) -> Result<Entry, String> {
+    Ok(Entry {
+        kind: personal_to_kind(entry.kind),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    })
+}
+
+fn personal_kind(kind: DictionaryKind) -> PersonalWordKind {
+    match kind {
+        DictionaryKind::Pinyin => PersonalWordKind::Pinyin,
+        DictionaryKind::Wubi => PersonalWordKind::Wubi,
+        DictionaryKind::QuickPhrase => PersonalWordKind::QuickPhrase,
+        DictionaryKind::English => PersonalWordKind::English,
+        _ => unreachable!("unsupported personal dictionary kind"),
+    }
+}
+
+fn personal_to_kind(kind: PersonalWordKind) -> Kind {
+    match kind {
+        PersonalWordKind::Pinyin => Kind::Pinyin,
+        PersonalWordKind::Wubi => Kind::Wubi,
+        PersonalWordKind::QuickPhrase => Kind::QuickPhrase,
+        PersonalWordKind::English => Kind::English,
     }
 }
 

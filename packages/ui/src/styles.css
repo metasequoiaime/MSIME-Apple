@@ -296,6 +296,13 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .quick-phrase-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
 .quick-phrase-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .quick-phrase-list .secondary { margin-top: 0; padding: 4px 9px; }
+.dictionary-failures { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-raised); }
+.dictionary-failures p { margin: 0; color: var(--danger-text); font-size: 12px; }
+.dictionary-failures ul { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.dictionary-failures li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+.dictionary-failures li > span:first-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.dictionary-failures li small { color: var(--text-muted); }
+.dictionary-failures li button { margin-top: 0; padding: 4px 9px; }
 .dict-empty { color: var(--text-muted); }
 .document-page { line-height: 1.7; }
 .document-page p { margin: 0 0 14px; color: var(--text-secondary); }

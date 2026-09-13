@@ -38,7 +38,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
 mod learned_translation;
 mod tencent_translation;
-pub use dictionary::{dictionary_request_json, msime_client_dictionary};
+pub use dictionary::{
+    dictionary_request_json, msime_client_dictionary, msime_client_personal_dictionary_sync,
+    personal_dictionary_request_json,
+};
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,

@@ -97,6 +97,10 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* Android personal-dictionary queue synchronization. The request contains the
+ * same HostOptions object as msime_client_create. The caller must have no
+ * Engine session using its user_data/dictionaries paths. */
+char *msime_client_personal_dictionary_sync(const uint8_t *request, size_t length);
 /* Snapshot lifecycle. Version is a redacted SHA-256 binding the canonical
  * resource/user/cache/dictionary paths and one consistent Engine journal.
  * Prepare/discard are native-only; a prepared handle is not active until a

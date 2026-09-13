@@ -53,6 +53,10 @@ public final class NativeClient {
         return text(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
             snapshot.getBytes(StandardCharsets.UTF_8)));
     }
+    /** Applies a bounded batch of queued personal dictionary edits. Call with no active session. */
+    public static String personalDictionarySync(String options) {
+        return text(personalDictionarySyncRaw(options.getBytes(StandardCharsets.UTF_8)));
+    }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
     public static String setNineKeyMode(long session, boolean enabled) {
         return text(setNineKeyModeRaw(session, enabled));
@@ -112,6 +116,7 @@ public final class NativeClient {
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
+    private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);

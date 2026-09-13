@@ -456,6 +456,19 @@ public final class MSIMEInputService extends InputMethodService {
                 applyCandidateGlossPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
+                // Settings edits are queued in the shared PersonalDictionary
+                // journal. There is no live Engine session yet, so this is a
+                // safe idle boundary at which to apply a bounded batch and
+                // refresh the confirmed page.
+                try {
+                    JSONObject sync = value(NativeClient.personalDictionarySync(options.toString()));
+                    if (sync.optString("snapshot_error", "").length() > 0) {
+                        preferencesNotice = " · 个人词库同步稍后重试";
+                    }
+                } catch (JSONException | LinkageError ignored) {
+                    // Personal dictionary maintenance is optional; never make
+                    // a new editor session unavailable because it is busy.
+                }
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
                 String resources = options.optString("resources", "");

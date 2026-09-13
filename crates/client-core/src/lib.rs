@@ -18,6 +18,7 @@ mod file_lock;
 pub mod host_surface;
 pub mod keyboard_skin_trial;
 pub mod panels;
+pub mod personal_dictionary;
 pub mod preferences;
 pub mod resources;
 pub mod skin_catalog;
