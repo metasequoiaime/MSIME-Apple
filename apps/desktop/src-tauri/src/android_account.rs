@@ -1596,6 +1596,42 @@ pub async fn android_show_input_method_picker(
 }
 
 #[tauri::command]
+pub async fn android_bootstrap_status(
+    state: State<'_, AccountState>,
+) -> Result<bool, super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<Value>("bootstrapStatus", ())
+            .map_err(|_| super::CommandError { code: "bootstrap" })?
+            .get("ready")
+            .and_then(Value::as_bool)
+            .ok_or(super::CommandError { code: "bootstrap" })
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "bootstrap" })?
+}
+
+#[tauri::command]
+pub async fn android_prepare_bootstrap(
+    state: State<'_, AccountState>,
+) -> Result<(), super::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<Value>("prepareBootstrap", ())
+            .map_err(|_| super::CommandError { code: "bootstrap" })?
+            .get("ready")
+            .and_then(Value::as_bool)
+            .filter(|ready| *ready)
+            .map(|_| ())
+            .ok_or(super::CommandError { code: "bootstrap" })
+    })
+    .await
+    .map_err(|_| super::CommandError { code: "bootstrap" })?
+}
+
+#[tauri::command]
 pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, super::CommandError> {

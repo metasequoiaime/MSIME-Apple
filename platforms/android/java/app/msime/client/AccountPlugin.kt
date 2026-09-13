@@ -18,6 +18,8 @@ import app.tauri.plugin.Plugin
 import java.io.File
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 @InvokeArg
 class SaveAccountSessionArgs {
@@ -60,6 +62,7 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
     private val feedback = activity.getSharedPreferences("keyboard-feedback", Context.MODE_PRIVATE)
+    private val bootstrapWorker: ExecutorService = Executors.newSingleThreadExecutor()
 
     private fun snapshotQueue(): DictionarySnapshotQueue {
         val files = hostActivity.filesDir
@@ -281,6 +284,33 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (_: Exception) {
             invoke.reject("input_method_picker", "input_method_picker")
+        }
+    }
+
+    @Command
+    fun bootstrapStatus(invoke: Invoke) {
+        try {
+            val ready = File(hostActivity.filesDir, "runtime-options.json").isFile
+            invoke.resolve(JSObject().put("ready", ready))
+        } catch (_: Exception) {
+            invoke.reject("bootstrap", "bootstrap")
+        }
+    }
+
+    @Command
+    fun prepareBootstrap(invoke: Invoke) {
+        try {
+            bootstrapWorker.execute {
+                try {
+                    Bootstrap.prepare(hostActivity.applicationContext)
+                    val ready = File(hostActivity.filesDir, "runtime-options.json").isFile
+                    invoke.resolve(JSObject().put("ready", ready))
+                } catch (_: Exception) {
+                    invoke.reject("bootstrap", "bootstrap")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("bootstrap", "bootstrap")
         }
     }
 

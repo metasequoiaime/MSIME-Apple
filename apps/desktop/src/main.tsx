@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -227,6 +227,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
+  const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
@@ -245,8 +246,12 @@ function DesktopSettings() {
     const requested = isTauri()
       ? invoke<string | null>("initial_settings_page").catch(() => null)
       : Promise.resolve(null);
-    void Promise.all([discoverFontReader(isTauri(), invoke), requested, discoverHostCapabilities()]).then(([reader, page, host]) => {
+    void Promise.all([discoverFontReader(isTauri(), invoke), requested, discoverHostCapabilities()]).then(async ([reader, page, host]) => {
       if (!active) return;
+      const android = host?.platform === "android";
+      const ready = !android || await invoke<boolean>("android_bootstrap_status").catch(() => false);
+      if (!active) return;
+      setBootstrapRequired(android && !ready);
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
         ? { ...client, host, ...(host.typing_statistics ? { typingStatistics } : {}), ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}) }
@@ -262,7 +267,30 @@ function DesktopSettings() {
     });
     return () => { active = false; unsubscribe?.(); };
   }, []);
+  const onboardingActions: OnboardingActions = {
+    prepareResources: () => invoke("android_prepare_bootstrap").then(() => undefined),
+    openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
+    showInputMethodPicker: () => invoke("android_show_input_method_picker").then(() => undefined),
+  };
+  const completeOnboarding = async (scheme: OnboardingInputScheme) => {
+    const snapshot = await client.load();
+    const enabled = [...(snapshot.preferences.touch_keyboard_schemes?.enabled ?? [])];
+    if (!enabled.includes(scheme)) enabled.push(scheme);
+    await client.save(snapshot.revision, {
+      ...snapshot.preferences,
+      scheme: "quanpin",
+      last_chinese_scheme: "quanpin",
+      touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
+      touch_keyboard_schemes: {
+        ...snapshot.preferences.touch_keyboard_schemes,
+        enabled,
+        selected: scheme,
+      },
+    });
+    setBootstrapRequired(false);
+  };
   // Mount once after discovery: replacing the client later would reload draft preferences.
+  if (bootstrapRequired) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
   if (!settingsClient) return <p role="status">正在连接设置…</p>;
   if (mobilePanel === "cloud-clipboard") {
     return <CloudClipboardPanel client={{
