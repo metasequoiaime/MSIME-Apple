@@ -13,6 +13,7 @@
 #include "VoiceHotkey.h"
 #include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
+#include "ServerLaunch.h"
 #include "ipc_negotiation.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
@@ -179,14 +180,15 @@ int wmain(int argc, wchar_t **argv) {
                  "not a complete IME.\n";
     return 0;
   }
-  const bool production = argc == 2 && std::wstring(argv[1]) == L"--production";
-  if (!production && (argc != 3 || std::wstring(argv[1]) != L"--config"))
+  const auto launch = parse_server_arguments(argc, argv);
+  const bool production = launch.kind == ServerLaunchKind::Managed;
+  if (launch.kind == ServerLaunchKind::Invalid)
     return 2;
   try {
     const auto default_state = production_state_directory();
     const std::filesystem::path config_path =
         production ? default_state / L"runtime-options.json"
-                    : std::filesystem::path(argv[2]);
+                    : std::filesystem::path(launch.config);
     if (!config_path.is_absolute())
       throw std::invalid_argument("Relative config path");
     auto document = read_document(config_path);
