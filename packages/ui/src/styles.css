@@ -700,3 +700,28 @@ html[data-theme="light"] .window-close:active .window-icon { filter: none; }
 .handwriting-actions { flex-wrap: wrap; }
 
 .emoji-panel-catalog-status { flex: 0 0 auto; padding: 6px 24px; font-size: 12px; }
+
+.settings-warning {
+  margin: 6px 0 0;
+  color: #a2543a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.secret-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.secret-input-toggle {
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.secret-input-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

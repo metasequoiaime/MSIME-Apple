@@ -10,6 +10,7 @@ import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { CandidateFontControls } from "./candidate-font-controls";
 import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
+import { SecretInput } from "./secret-input";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
@@ -466,6 +467,18 @@ type SettingsPageId = (typeof pages)[number]["id"];
 // default page rather than opening an empty one.
 function requestedPage(value: string | undefined): SettingsPageId {
   return pages.some(page => page.id === value) ? (value as SettingsPageId) : "appearance";
+}
+
+/** Mirrors `client-core::translation::is_supported_endpoint`. */
+export function translationEndpointIssue(endpoint: string): string {
+  if (!endpoint) return "请填写完整的接口地址。";
+  if (endpoint.length > 2048) return "接口地址过长。";
+  // eslint-disable-next-line no-control-regex
+  if (/[ -]/.test(endpoint)) return "接口地址不能包含控制字符。";
+  if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
+    return "请填写以 http:// 或 https:// 开头的完整接口地址。";
+  }
+  return "";
 }
 
 export function SettingsPage({ client, initialPage }: { client: SettingsClient; initialPage?: string }) {
@@ -1139,11 +1152,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
         <div className="section" role="group" aria-label="自定义翻译服务">
-          <label className="section-header"><span className="section-title">自定义翻译服务<small>通过 Linux provider 使用兼容 DeepLX 的 HTTPS 服务</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">自定义翻译服务<small>通过 Linux provider 使用兼容 DeepLX 的 HTTPS 服务；关闭后候选翻译改用宿主配置的默认服务</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">翻译 Endpoint</span><input aria-label="自定义翻译 Endpoint" type="url" value={customTranslation.endpoint} disabled={!customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, endpoint: event.target.value } })} placeholder="https://example.com/translate" /></label>
+          <label className="section-header"><span className="section-title">翻译 Endpoint</span><input aria-label="自定义翻译 Endpoint" type="url" value={customTranslation.endpoint} disabled={!candidateTranslations || !customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, endpoint: event.target.value } })} placeholder="https://example.com/translate" /></label>
+          {candidateTranslations && customTranslation.enabled && translationEndpointIssue(customTranslation.endpoint) && <p className="settings-warning" role="status">{translationEndpointIssue(customTranslation.endpoint)}</p>}
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">API Key</span><input aria-label="自定义翻译 API Key" type="password" value={customTranslation.api_key} disabled={!customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: event.target.value } })} /></label>
+          <label className="section-header"><span className="section-title">API Key</span><SecretInput label="自定义翻译 API Key" value={customTranslation.api_key} disabled={!candidateTranslations || !customTranslation.enabled} onChange={value => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: value } })} /></label>
         </div>
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
