@@ -218,6 +218,7 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_surface_color"] = "#654321";
     options["preferences"]["candidate_number_color"] = "#abcdef";
+    options["preferences"]["candidate_selected_color"] = "#fedcba";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
@@ -1087,8 +1088,8 @@ int main(int argc, char **argv) {
             "Candidate numeric label missing");
     require(seen.first_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    require(seen.first_candidate_background == 0x654321,
-            "Candidate surface color attribute missing");
+    require(seen.first_candidate_background == 0xfedcba,
+            "Selected candidate color attribute missing");
     require(seen.first_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
