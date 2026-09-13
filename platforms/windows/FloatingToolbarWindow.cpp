@@ -1,4 +1,5 @@
 #include "FloatingToolbarWindow.h"
+#include <algorithm>
 #include <stdexcept>
 #include <windowsx.h>
 #include <vector>
