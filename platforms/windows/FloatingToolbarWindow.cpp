@@ -1,5 +1,6 @@
 #include "FloatingToolbarWindow.h"
 #include "FloatingToolbarPlacement.h"
+#include "ToolbarIcons.h"
 #include <stdexcept>
 #include <windowsx.h>
 #include <vector>
@@ -20,6 +21,47 @@ bool same(const FocusLease &a, const FocusLease &b) {
 // The preference array is ordered as character_set, punctuation, fullwidth,
 // emoji, screen_keyboard, settings. Language is always present; the other
 // buttons follow the shared shell order.
+// Installed icon font, resolved once. "Segoe Fluent Icons" is Windows 11 only,
+// so Windows 10 falls back to "Segoe MDL2 Assets"; neither installed means
+// every icon draws its text label instead.
+const wchar_t *icon_font_family(IDWriteFactory *factory) {
+  static const wchar_t *family = [factory]() -> const wchar_t * {
+    for (const wchar_t *name : {L"Segoe Fluent Icons", L"Segoe MDL2 Assets"}) {
+      Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+      UINT32 index = 0;
+      BOOL exists = FALSE;
+      if (factory && SUCCEEDED(factory->GetSystemFontCollection(fonts.GetAddressOf())) &&
+          fonts && SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists)
+        return name;
+    }
+    return nullptr;
+  }();
+  return family;
+}
+// Does the resolved icon font actually carry this codepoint? The MDL2 build on
+// an older Windows 10 may not, and DirectWrite would silently substitute some
+// other font and draw a blank box rather than telling us.
+bool icon_font_has(IDWriteFactory *factory, const wchar_t *family,
+                   wchar_t codepoint) {
+  if (!factory || !family || !codepoint)
+    return false;
+  Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+  UINT32 index = 0;
+  BOOL exists = FALSE;
+  if (FAILED(factory->GetSystemFontCollection(fonts.GetAddressOf())) || !fonts ||
+      FAILED(fonts->FindFamilyName(family, &index, &exists)) || !exists)
+    return false;
+  Microsoft::WRL::ComPtr<IDWriteFontFamily> resolved;
+  Microsoft::WRL::ComPtr<IDWriteFont> font;
+  if (FAILED(fonts->GetFontFamily(index, resolved.GetAddressOf())) || !resolved ||
+      FAILED(resolved->GetFirstMatchingFont(
+          DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+          DWRITE_FONT_STYLE_NORMAL, font.GetAddressOf())) ||
+      !font)
+    return false;
+  BOOL has = FALSE;
+  return SUCCEEDED(font->HasCharacter(codepoint, &has)) && has;
+}
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
   result.push_back(0); // language
@@ -172,25 +214,44 @@ void FloatingToolbarWindow::paint() {
       brush(palette_.border), palette_.border_width * unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
-    // An unreported mode shows a question mark rather than a guessed state.
-    auto label = [](const std::optional<bool> &state, const wchar_t *on,
-                    const wchar_t *off) {
-      return !state ? L"?" : (*state ? on : off);
-    };
-    const wchar_t *labels[] = {
-        label(value->chinese, L"\u4e2d", L"\u82f1"),
-        label(value->fullwidth, L"\u5168", L"\u534a"),
-        label(value->chinese_punctuation, L"\u3002", L"."),
-        !shown_character_set_ ? L"?" : (*shown_character_set_ ? L"\u7e41" : L"\u7b80"),
-        items_[3] ? L"😀" : L"", items_[4] ? L"⌨" : L"",
-        items_[5] ? L"\u8bbe" : L"", L"🎙", L"?", L"×"};
+    auto *factory = device_.GetDWriteFactory();
+    const wchar_t *icon_family = icon_font_family(factory);
+    // Each button's two-way mode, in slot order. An absent state means the
+    // Server has not reported it, and the icon shows a question mark rather
+    // than asserting a mode the user is not actually in.
+    const std::optional<bool> states[] = {
+        value->chinese,
+        value->fullwidth,
+        value->chinese_punctuation,
+        shown_character_set_,
+        std::nullopt, std::nullopt, std::nullopt,
+        std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
-      target->DrawText(labels[button], static_cast<UINT32>(wcslen(labels[button])), format,
-                       cell, brush(palette_.text));
+      const auto icon = toolbar_icon(button, states[button]);
+      // Draw the glyph only when the installed icon font really has it;
+      // otherwise the text fallback, which is always readable.
+      const bool glyph = icon.codepoint && icon_family &&
+                         icon_font_has(factory, icon_family, icon.codepoint);
+      const wchar_t text[] = {icon.codepoint, L'\0'};
+      auto *cell_format =
+          glyph ? device_.GetTextFormat(
+                      icon_family, static_cast<float>(font_size_) * unit,
+                      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
+                      DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                      DWRITE_WORD_WRAPPING_NO_WRAP)
+                : format;
+      if (!cell_format)
+        cell_format = format;
+      const wchar_t *drawn_text = glyph ? text : icon.fallback;
+      const auto length = static_cast<UINT32>(wcslen(drawn_text));
+      if (!length)
+        continue;
+      target->DrawText(drawn_text, length, cell_format, cell,
+                       brush(palette_.text));
     }
   }
   const HRESULT drawn = target->EndDraw();
