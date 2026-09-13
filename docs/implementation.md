@@ -817,3 +817,9 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 补齐 Windows Main 管道的 `DoubleSingleByteSwitch` 事件路由。会话泵现在像中英文和中英文标点通知一样，在活动焦点 lease 内验证并交给模式邮箱；输入队列只确认 TSF 展示状态，不把全半角误送进 Engine。这样浮动工具栏的全角/半角按钮在 TSF 回报后能更新模式面板，失效连接仍按既有焦点门禁拒绝。
 
 回归覆盖 SessionController 收到全半角通知后继续处理按键，并完成修改对象的 x64 MinGW 严格编译检查。全量交叉脚本仍在既有 `server_smoke.cpp` 缺失字段警告处停止；当前没有 Windows 主机，未执行真实 TSF、工具栏或安装后的系统验收。
+
+### Windows TSF 配置广播到所有 TIP
+
+Windows Server 现在从 PipeRegistry 快照所有已完成 Main/ToTsf/Worker 注册链，并由 SessionController 将 TSF-local 配置帧广播到每个 TIP，而不是只发送给当前焦点会话。设置发布会更新共享 `TsfLocalConfig` 并标记待发送；新 TIP 注册即使配置值未变化也会收到当前快照。广播失败保留 dirty 状态，下一轮继续重试；票据集合变化会触发重新发送，避免新连接停留在编译时默认值。
+
+新增 PipeRegistry/PipeMainTransport 票据枚举测试，验证完整注册、代次失效、回收和 shutdown 后均不泄漏旧票据。x64 MinGW 以 `-Wall -Wextra -Werror` 严格编译通过 `PipeRegistry.cpp`、`PipeMainTransport.cpp`、`SessionController.cpp`、`WindowsServer.cpp` 和 `tests/pipe_io.cpp`；全量 `check-cross.sh` 仍在既有 `tests/server_smoke.cpp:132` 的 `PresentationCandidate` 缺失字段警告处停止，未修改该无关基线问题。`main.cpp` 的交叉编译还受现有 mingw/libstdc++ 对宽路径 `ofstream` 及 `toolbar_palette` 命名冲突影响。没有 Windows 主机，因此未执行 TSF 注册、原生 Server、真实编辑器或安装后的系统验收；本切片不宣称 Windows 平台接入完成，CI 保持禁用。
