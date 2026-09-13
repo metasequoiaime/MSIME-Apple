@@ -393,7 +393,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // every restart.
       {
         RECT rect{};
-        if (GetWindowRect(window, &rect))
+        if (self->user_dragging_ && GetWindowRect(window, &rect))
           self->dragged_position_ = POINT{rect.left, rect.top};
       }
       return 0;
