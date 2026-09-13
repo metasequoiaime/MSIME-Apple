@@ -152,6 +152,8 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private LinearLayout shortcutBar;
+    private HorizontalScrollView shortcutScroll;
     private final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
     private final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>();
     private HandwritingCanvas handwritingCanvas;
@@ -3046,6 +3048,21 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private void installShortcutBar(Button dismissButton) {
+        shortcutBar.removeAllViews();
+        Button[] buttons = {moreButton, schemeButton, replyShortcutButton, emojiShortcutButton,
+            voiceShortcutButton, skinButton, layoutSettingsButton, dismissButton};
+        for (Button button : buttons) {
+            if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
+            shortcutBar.addView(button, new LinearLayout.LayoutParams(
+                pixels(44), pixels(44)));
+        }
+        // Traditional output and AI are persistent settings/actions in the Apple layout; keep
+        // their Android controls detached from the shortcut strip rather than duplicating them.
+        scriptShortcutButton.setVisibility(View.GONE);
+        aiPolishShortcutButton.setVisibility(View.GONE);
+    }
+
     private void toggleSoundFromMoreTools() {
         soundEnabled = !soundEnabled;
         saveFeedbackPreferences();
@@ -4050,26 +4067,26 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePage = new TextView(this);
         candidateHeader.addView(candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        scriptShortcutButton = button(candidateHeader, "简", this::toggleChineseOutput);
+        shortcutBar = new LinearLayout(this);
+        shortcutBar.setOrientation(LinearLayout.HORIZONTAL);
+        shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
+        shortcutBar.setContentDescription("键盘快捷栏");
+        shortcutBar.setPadding(pixels(2), 0, pixels(2), 0);
+        shortcutScroll = new HorizontalScrollView(this);
+        shortcutScroll.setHorizontalScrollBarEnabled(false);
+        shortcutScroll.setContentDescription("键盘快捷栏");
+        shortcutScroll.addView(shortcutBar, new HorizontalScrollView.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        scriptShortcutButton = button(shortcutBar, "简", this::toggleChineseOutput);
         scriptShortcutButton.setContentDescription("切换到繁体");
-        scriptShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        emojiShortcutButton = button(candidateHeader, "☺", this::showEmojiPicker);
+        emojiShortcutButton = button(shortcutBar, "☺", this::showEmojiPicker);
         emojiShortcutButton.setContentDescription("打开表情浏览");
-        emojiShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        voiceShortcutButton = button(candidateHeader, "语音", this::showVoiceResult);
+        voiceShortcutButton = button(shortcutBar, "语音", this::showVoiceResult);
         voiceShortcutButton.setContentDescription("打开语音结果");
-        voiceShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        aiPolishShortcutButton = button(candidateHeader, "AI", this::showAiPolish);
+        aiPolishShortcutButton = button(shortcutBar, "AI", this::showAiPolish);
         aiPolishShortcutButton.setContentDescription("打开 AI 润色");
-        aiPolishShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        replyShortcutButton = button(candidateHeader, "回复", this::showReplyKeyboard);
+        replyShortcutButton = button(shortcutBar, "回复", this::showReplyKeyboard);
         replyShortcutButton.setContentDescription("生成高情商回复");
-        replyShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         expandCandidates = new Button(this);
         expandCandidates.setAllCaps(false);
         expandCandidates.setText("展开");
@@ -4081,6 +4098,8 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
+        candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
         nineKeySpellings = new LinearLayout(this);
         nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
         nineKeySpellingScroll = new HorizontalScrollView(this);
@@ -4174,6 +4193,7 @@ public final class MSIMEInputService extends InputMethodService {
             params.weight = 0;
             child.setLayoutParams(params);
         }
+        installShortcutBar(dismissButton);
         expandedCandidates = new LinearLayout(this);
         expandedCandidates.setOrientation(LinearLayout.VERTICAL);
         expandedCandidates.setPadding(24, 16, 24, 16);
@@ -4415,10 +4435,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0));
+        if (shortcutScroll != null)
+            shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
-            boolean replaced = touchVoiceShortcutEnabled
-                || selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY;
-            scriptShortcutButton.setVisibility(idle && !replaced ? View.VISIBLE : View.GONE);
+            scriptShortcutButton.setVisibility(View.GONE);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
             scriptShortcutButton.setSelected(traditionalChineseOutput);
             styleButton(scriptShortcutButton, true);

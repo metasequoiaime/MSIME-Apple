@@ -17,6 +17,10 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         startActivitySync(intent);
         stage = "more tools focus";
         tap(field("msime-test-plain"));
+        stage = "keyboard shortcut bar";
+        await(shortcutBar());
+        for (String label : new String[] {"方案", "皮肤", "设置", "收起"})
+            await(key(label));
         stage = "more tools open";
         tap(key("更多"));
         AccessibilityNodeInfo panel = await(toolPanel());
@@ -98,6 +102,11 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> toolPanel() {
         return node -> equalsText("app.msime.client.preview", node.getPackageName())
             && equalsText("更多工具", node.getContentDescription());
+    }
+
+    private Predicate<AccessibilityNodeInfo> shortcutBar() {
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && equalsText("键盘快捷栏", node.getContentDescription());
     }
 
     private Predicate<AccessibilityNodeInfo> tool(String description) {
