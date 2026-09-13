@@ -2,6 +2,7 @@
 
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
+#include "VoiceProviders.h"
 #include <msime/voice/audio_capture.h>
 #include <msime/voice/cloud_stt_worker.h>
 #include <msime/voice/provider_protocol.h>
@@ -100,9 +101,15 @@ bool VoiceInputSession::start() {
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
   const VoiceInputConfig config = config_provider_();
-  const bool doubao = config.endpoint.rfind("wss://", 0) == 0;
-  if (!config.enabled || config.token.empty() || config.endpoint.empty() ||
-      (!doubao && config.model.empty()) || (doubao && config.resource_id.empty()))
+  const bool doubao = is_doubao_asr_provider(config.asr_provider, config.endpoint);
+  const auto endpoint = config.endpoint.empty()
+                            ? default_asr_endpoint(config.asr_provider)
+                            : config.endpoint;
+  const auto model = config.model.empty()
+                         ? default_asr_model(config.asr_provider)
+                         : config.model;
+  if (!config.enabled || config.token.empty() || endpoint.empty() ||
+      (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
     return false;
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
@@ -123,7 +130,7 @@ bool VoiceInputSession::start() {
   const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
   if (doubao) {
     auto client = std::make_shared<DoubaoAsrClient>(
-        config.endpoint, config.app_key, config.token, config.resource_id,
+        endpoint, config.app_key, config.token, config.resource_id,
         config.enable_itn, config.enable_punc, config.enable_ddc,
         config.boosting_table_id,
         [this, lease = *lease, generation, session](const std::string &text) {
@@ -297,8 +304,14 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
         return;
       }
     } else {
+      const auto endpoint = config.endpoint.empty()
+                                ? default_asr_endpoint(config.asr_provider)
+                                : config.endpoint;
+      const auto model = config.model.empty()
+                             ? default_asr_model(config.asr_provider)
+                             : config.model;
       metasequoia::voice::CloudSttWorker recognizer(
-          metasequoia::voice::RequestOptions{config.endpoint, config.model,
+          metasequoia::voice::RequestOptions{endpoint, model,
                                              config.token, 10000, cancelled});
       text = recognizer.recognize(samples);
     }
