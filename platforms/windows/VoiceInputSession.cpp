@@ -257,7 +257,7 @@ bool VoiceInputSession::start() {
     captured_frames_ += frames;
     std::shared_ptr<DoubaoAsrClient> client;
     {
-      std::lock_guard lock(doubao_mutex_);
+      std::lock_guard doubao_lock(doubao_mutex_);
       client = doubao_;
     }
     if (client)

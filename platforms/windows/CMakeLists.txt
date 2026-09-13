@@ -142,8 +142,9 @@ add_library(msime-windows-focused STATIC FocusedSession.cpp)
 target_link_libraries(msime-windows-focused PUBLIC msime-windows-composer)
 add_library(msime-windows-input STATIC InputQueue.cpp)
 target_link_libraries(msime-windows-input PUBLIC msime-windows-focused)
-add_library(msime-windows-pump STATIC SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp)
-target_link_libraries(msime-windows-pump PUBLIC msime-windows-input)
+add_library(msime-windows-pump STATIC SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp
+            CloudCandidateWorker.cpp TranslationWorker.cpp)
+target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl)
 target_link_libraries(windows-session-smoke PRIVATE msime-windows-pump)
 add_executable(windows-input-queue tests/input_queue.cpp)
 target_link_libraries(windows-input-queue PRIVATE msime-windows-input)
@@ -184,7 +185,10 @@ if(WIN32)
   else()
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
-  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp CloudCandidateWorker.cpp TranslationWorker.cpp)
+  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp TrayMenuWindow.cpp)
+  # main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
+  # are out of line. Without these the Server target does not link at all.
+  target_sources(msime-windows-server PRIVATE ClipboardHistory.cpp ClipboardMonitor.cpp)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
                  DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp
@@ -222,7 +226,15 @@ if(WIN32)
   target_link_libraries(windows-server-smoke PRIVATE msime-windows-server)
   foreach(target msime-windows-server windows-server-smoke msime-client-server)
     if(MSVC)
-      target_compile_options(${target} PRIVATE /W4 /WX /utf-8)
+      # MinGW gets these from -municode and its headers. MSVC does not define
+      # UNICODE itself, so TCHAR macros resolve to the ANSI entry points, and
+      # windows.h defines min/max macros that swallow std::min / std::max.
+      target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX
+                                 WIN32_LEAN_AND_MEAN)
+      # Vendored Engine and system headers are not ours to warn-clean; keep
+      # /W4 /WX for this repository's own sources only.
+      target_compile_options(${target} PRIVATE /W4 /WX /utf-8
+                             /external:anglebrackets /external:W0)
     else()
       target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
     endif()

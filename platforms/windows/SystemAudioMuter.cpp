@@ -61,6 +61,24 @@ bool known_locked(const std::wstring &id) {
   return false;
 }
 
+// The reader decodes these ids with MultiByteToWideChar(CP_UTF8), so the writer
+// has to encode with the matching conversion. Narrowing each wchar_t to char
+// truncated every non-ASCII endpoint id and could not round-trip.
+std::string utf8_from_wide(const std::wstring &value) {
+  if (value.empty())
+    return {};
+  const int length =
+      WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                          nullptr, 0, nullptr, nullptr);
+  if (length <= 0)
+    return {};
+  std::string text(static_cast<size_t>(length), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                          text.data(), length, nullptr, nullptr) != length)
+    return {};
+  return text;
+}
+
 void persist_locked() {
   if (state_path.empty())
     return;
@@ -69,7 +87,7 @@ void persist_locked() {
     return;
   for (const auto &item : muted) {
     if (!item.id.empty())
-      output << "0\t" << std::string(item.id.begin(), item.id.end()) << '\n';
+      output << "0\t" << utf8_from_wide(item.id) << '\n';
   }
 }
 

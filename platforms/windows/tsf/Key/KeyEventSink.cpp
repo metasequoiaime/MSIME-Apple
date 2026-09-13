@@ -10,6 +10,7 @@
 #include <cwctype>
 #include <string>
 #include "Ipc.h"
+#include "FanyDefines.h"
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
