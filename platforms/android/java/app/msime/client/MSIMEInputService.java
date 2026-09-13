@@ -869,6 +869,20 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(); return true; }
     }
 
+    private boolean helpcodeCompositionEligible() {
+        if (view == null) return false;
+        return ChineseHelpcodePolicy.eligible(dedicatedEnglish,
+            view.optString("editing_text", ""), view.optInt("scheme", -1),
+            view.optString("local_mode", "none"));
+    }
+
+    private boolean entersHelpcode() {
+        if (view == null) return false;
+        return ChineseHelpcodePolicy.entersHelpcode(dedicatedEnglish, letterCase.usesUppercase(),
+            view.optString("editing_text", ""), view.optInt("scheme", -1),
+            view.optString("local_mode", "none"));
+    }
+
     private boolean command(int code) {
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
@@ -879,6 +893,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection == null) return;
         if (dedicatedEnglish && !isAsciiLetter(key)) {
             commitEnglishLiteral(key);
+            return;
+        }
+        if (entersHelpcode() && isAsciiLetter(key)) {
+            character(Character.toUpperCase(key), true);
+            if (letterCase.consumeLetter()) {
+                rebuildKeyRows();
+                render();
+            }
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -4186,7 +4208,7 @@ public final class MSIMEInputService extends InputMethodService {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         keyboard.addView(controlScroll);
         shiftButton = button(controls, "⇧", () -> {
-            if (!dedicatedEnglish && session != 0) {
+            if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()) {
                 toggleInputLanguage();
                 if (!dedicatedEnglish) return;
                 // Match Apple: the Shift that entered English starts from lowercase even if the
