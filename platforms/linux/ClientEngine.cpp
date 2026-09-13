@@ -1943,7 +1943,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("切换辅助码方案"), !menu_save_pending, TRUE,
+        ibus_text_new_from_static_string("切换辅助码方案"),
+        s.focused && !s.blocked && s.input_enabled &&
+            (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
+            !menu_save_pending,
+        TRUE,
         schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(helpcode_schema_menu, item);
   }
