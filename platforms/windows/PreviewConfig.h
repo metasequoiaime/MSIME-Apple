@@ -33,6 +33,7 @@ struct PreviewConfig {
   std::string candidate_selected_color;
   std::string candidate_hover_color;
   std::string candidate_accent_color;
+  std::string candidate_font = "Segoe UI";
   std::optional<bool> candidate_selected_bar;
   std::array<bool, 6> floating_toolbar_items{true, true, true, true, false, true};
   static PreviewConfig parse(const std::string &document) {
@@ -74,7 +75,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 14 ||
+      if (!appearance.is_object() || appearance.size() > 15 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -149,6 +150,11 @@ struct PreviewConfig {
         result.candidate_accent_color = appearance.at("candidate_accent_color").get<std::string>();
         if (result.candidate_accent_color.size() > 32)
           throw std::invalid_argument("Invalid candidate accent color");
+      }
+      if (appearance.contains("candidate_font")) {
+        result.candidate_font = appearance.at("candidate_font").get<std::string>();
+        if (result.candidate_font.empty() || result.candidate_font.size() > 128)
+          throw std::invalid_argument("Invalid candidate font");
       }
       if (appearance.contains("candidate_selected_bar")) {
         if (!appearance.at("candidate_selected_bar").is_boolean())
