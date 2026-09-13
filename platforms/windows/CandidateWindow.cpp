@@ -468,6 +468,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_MOUSELEAVE:
         self->pressed_.reset();
         self->hovered_.reset();
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
         return 0;
       case WM_ERASEBKGND:
         return 1;
