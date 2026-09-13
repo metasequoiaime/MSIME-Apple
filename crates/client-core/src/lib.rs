@@ -12,6 +12,7 @@ pub mod community_resource_library;
 pub mod community_skin;
 pub mod custom_skin_library;
 pub mod dictionary_access;
+pub mod dictionary_import;
 mod file_lock;
 pub mod host_surface;
 pub mod keyboard_skin_trial;

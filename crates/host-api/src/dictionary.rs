@@ -174,10 +174,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             text,
             request_id,
         } => {
-            let entries = if format == "hans" {
-                parse_hans_import(&kind, &text, &options)?
+            let (entries, report) = if format == "hans" {
+                (parse_hans_import(&kind, &text, &options)?, None)
             } else {
-                parse_import(&kind, &format, &text)?
+                let (entries, report) = parse_import(&kind, &format, &text)?;
+                (entries, Some(report))
             };
             if request_id.is_empty()
                 || request_id.len() > 120
@@ -204,7 +205,15 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 }
                 applied += 1;
             }
-            Ok(json!({ "applied": applied }))
+            let mut result = json!({ "applied": applied });
+            // Tell the caller what was skipped instead of reporting a clean import.
+            if let Some(report) = report {
+                result["failed"] = json!(report.failed);
+                result["truncated"] = json!(report.truncated);
+                result["first_failures"] = serde_json::to_value(&report.first_failures)
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(result)
         }
         Operation::Export {
             kind,
@@ -282,95 +291,46 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryEntry>, String> {
-    if !matches!(format, "standard" | "windows" | "rime")
-        || text.is_empty()
-        || text.len() > msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
-        || text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    {
-        return Err("invalid dictionary import".into());
+impl From<&Kind> for msime_client_core::dictionary_import::ImportKind {
+    fn from(kind: &Kind) -> Self {
+        use msime_client_core::dictionary_import::ImportKind;
+        match kind {
+            Kind::Pinyin => ImportKind::Pinyin,
+            Kind::Wubi => ImportKind::Wubi,
+            Kind::QuickPhrase => ImportKind::QuickPhrase,
+            Kind::English => ImportKind::English,
+        }
     }
-    let mut entries = Vec::new();
-    let mut in_yaml_header = false;
-    for line in text.lines() {
-        let line = line.trim_end_matches('\r');
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if format == "rime" {
-            if trimmed == "---" {
-                in_yaml_header = true;
-                continue;
-            }
-            if trimmed == "..." {
-                in_yaml_header = false;
-                continue;
-            }
-            if in_yaml_header {
-                continue;
-            }
-        }
-        let columns: Vec<_> = line.split('\t').collect();
-        if !(2..=3).contains(&columns.len()) || entries.len() >= 1000 {
-            return Err("invalid dictionary import".into());
-        }
-        let (word, key) = if format == "windows" {
-            (columns[1].trim(), columns[0].trim())
-        } else {
-            (columns[0].trim(), columns[1].trim())
-        };
-        let key = key.to_ascii_lowercase();
-        let weight = match columns.get(2).map(|value| value.trim()) {
-            None | Some("") => 10000,
-            Some(value) if format == "rime" && value.contains('=') => 10000,
-            Some(value) => value
-                .parse::<i64>()
-                .map_err(|_| "invalid dictionary import")?,
-        };
-        let entry = DictionaryEntry {
+}
+
+/// Entries ready for the Engine, plus what the shared parser skipped.
+type ParsedImport = (
+    Vec<DictionaryEntry>,
+    msime_client_core::dictionary_import::ImportReport,
+);
+
+/// Parse a submitted dictionary file through the shared parser. Unusable rows
+/// are skipped and counted there rather than rejecting the whole file, so the
+/// report is returned alongside the entries.
+fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<ParsedImport, String> {
+    let report = msime_client_core::dictionary_import::parse(
+        kind.into(),
+        format,
+        text,
+        msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES,
+    )
+    .map_err(|error| error.to_string())?;
+    let entries = report
+        .entries
+        .iter()
+        .map(|entry| DictionaryEntry {
             kind: (*kind).into(),
-            key: key.clone(),
-            value: word.to_owned(),
-            weight,
-        };
-        let key_limit = match kind {
-            Kind::Pinyin => 256,
-            Kind::Wubi => 4,
-            Kind::QuickPhrase => 32,
-            Kind::English => 64,
-        };
-        let key_alphabet = match kind {
-            Kind::Pinyin => key.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte == b'\'' || (format == "rime" && byte == b' ')
-            }),
-            Kind::Wubi => key.bytes().all(|byte| byte.is_ascii_lowercase()),
-            Kind::QuickPhrase => key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-            Kind::English => key.bytes().all(|byte| byte.is_ascii_alphabetic()),
-        };
-        if key.is_empty()
-            || key.len() > key_limit
-            || !key_alphabet
-            || word.is_empty()
-            || word.len() > 1024
-            || (matches!(kind, Kind::QuickPhrase) && word.encode_utf16().count() > 199)
-            || weight < 0
-            || key.chars().any(char::is_control)
-            || word.chars().any(char::is_control)
-        {
-            return Err("invalid dictionary import".into());
-        }
-        entries.push(entry);
-    }
-    if entries.is_empty() {
-        return Err("invalid dictionary import".into());
-    }
-    Ok(entries)
+            key: entry.key.clone(),
+            value: entry.value.clone(),
+            weight: entry.weight,
+        })
+        .collect();
+    Ok((entries, report))
 }
 
 fn parse_hans_import(
@@ -443,8 +403,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_standard_and_windows_rows_without_logging_content() {
-        let standard = parse_import(
+    fn import_maps_shared_entries_onto_the_requested_engine_kind() {
+        // Row semantics are covered exhaustively in
+        // client-core::dictionary_import, which is unit-testable without the
+        // Engine. This asserts only the mapping this module is responsible for.
+        let (standard, report) = parse_import(
             &Kind::Pinyin,
             "standard",
             "你好\tni'hao\t7\n# comment\n西安\txi'an\n",
@@ -453,32 +416,36 @@ mod tests {
         assert_eq!(standard.len(), 2);
         assert_eq!(standard[0].value, "你好");
         assert_eq!(standard[0].key, "ni'hao");
+        assert_eq!(standard[0].weight, 7);
         assert_eq!(standard[1].weight, 10000);
+        assert!(standard.iter().all(|entry| entry.kind == Kind::Pinyin.into()));
+        assert_eq!(report.failed, 0);
+        assert!(!report.truncated);
 
-        let windows = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n").unwrap();
+        let (windows, _) = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n").unwrap();
         assert_eq!(windows[0].key, "wq");
         assert_eq!(windows[0].value, "你好");
+        assert_eq!(windows[0].kind, Kind::Wubi.into());
     }
 
     #[test]
-    fn accepts_rime_yaml_front_matter_and_metadata_weights() {
-        let entries = parse_import(
+    fn a_single_unusable_row_is_reported_rather_than_failing_the_import() {
+        let (entries, report) = parse_import(
             &Kind::Pinyin,
-            "rime",
-            "---\nname: luna_pinyin\nsort: by_weight\n...\n你好\tni hao\tc=3 d=0.12 t=12345\n西安\txi'an\t5\n",
+            "standard",
+            "你好\tni'hao\n没有制表符\n世界\tshi'jie\n",
         )
         .unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].key, "ni hao");
-        assert_eq!(entries[0].weight, 10000);
-        assert_eq!(entries[1].weight, 5);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.first_failures[0].line, 2);
     }
 
     #[test]
-    fn rejects_unsupported_or_unbounded_import_rows() {
+    fn an_unusable_envelope_is_still_rejected_outright() {
         assert!(parse_import(&Kind::Pinyin, "hans", "你好\tni'hao").is_err());
-        assert!(parse_import(&Kind::Wubi, "windows", "abcde\t你好").is_err());
-        assert!(parse_import(&Kind::Pinyin, "standard", "你好\tni\t-1").is_err());
         assert!(parse_import(&Kind::Pinyin, "standard", "# only comments\n").is_err());
+        // Every row unusable means nothing to import.
+        assert!(parse_import(&Kind::Wubi, "windows", "abcde\t你好").is_err());
     }
 }
