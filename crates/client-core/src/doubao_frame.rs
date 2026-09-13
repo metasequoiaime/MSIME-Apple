@@ -18,6 +18,10 @@ mod tests {
     use super::*;
     #[test]
     fn encodes_protocol_header_and_gzip_payload() {
+        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
+        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
         let frame = encode_json_frame(9, 0, 1, b"{}");
         assert_eq!(&frame[..4], &[0x11, 0x90, 0x11, 0]);
         let mut response = frame[..4].to_vec();
@@ -58,4 +62,25 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
     let mut payload = Vec::new();
     std::io::Read::read_to_end(&mut decoder, &mut payload).ok()?;
     Some(((flags & 0x02) != 0, 0, payload))
+}
+
+/// Decode the numeric error code from a Doubao error frame (message type 0xF).
+pub fn decode_error_code(frame: &[u8]) -> Option<i32> {
+    if frame.len() < 12 || (frame[0] & 0x0f) != 1 || (frame[1] >> 4) != 0x0f {
+        return None;
+    }
+    let flags = frame[1] & 0x0f;
+    let mut offset = 4usize;
+    if flags & 0x01 != 0 {
+        offset += 4;
+    }
+    if flags & 0x04 != 0 {
+        offset += 4;
+    }
+    if offset + 4 > frame.len() {
+        return None;
+    }
+    Some(i32::from_be_bytes(
+        frame[offset..offset + 4].try_into().ok()?,
+    ))
 }
