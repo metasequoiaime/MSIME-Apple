@@ -232,6 +232,8 @@ export type Preferences = {
   candidate_font_family?: string;
   candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
+  /** Inline (host-drawn) preedit. Linux applies it via ClientEngine preedit_style(). */
+  tsf_preedit_style?: "raw" | "pinyin" | "empty";
   candidate_preedit_style?: "pinyin" | "empty";
   candidate_skin?: string;
   learning: boolean;
@@ -948,6 +950,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
         </div></div></div>
+        <div className="section"><label className="section-header"><span className="section-title">行内预编辑</span><select aria-label="行内预编辑" value={draft.tsf_preedit_style ?? "raw"} onChange={event => setDraft({ ...draft, tsf_preedit_style: event.target.value as Preferences["tsf_preedit_style"] })}>
+          <option value="raw">原始按键</option><option value="pinyin">拼音分词</option><option value="empty">不显示</option>
+        </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>
