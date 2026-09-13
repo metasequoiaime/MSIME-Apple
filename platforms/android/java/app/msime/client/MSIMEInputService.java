@@ -3891,8 +3891,14 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             }
         }
+        boolean chineseMode = !dedicatedEnglish;
+        boolean localMode = view != null
+            && !"none".equals(view.optString("local_mode", "none"));
+        boolean shifted = letterCase.usesUppercase();
+        boolean uppercaseFaces = LetterKeyFacePolicy.displaysUppercase(
+            chineseMode, localMode, shifted);
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(
-            keyboardLayer, letterCase.usesUppercase());
+            keyboardLayer, uppercaseFaces);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(this);
@@ -3903,8 +3909,13 @@ public final class MSIMEInputService extends InputMethodService {
             for (String key : keys) {
                 final String input = key;
                 String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                    ? ChineseSymbolFaces.face(key, sendsChinesePunctuation()) : key;
+                    ? ChineseSymbolFaces.face(key, sendsChinesePunctuation())
+                    : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
                 Button keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+                    keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
+                        input, chineseMode, localMode, shifted));
+                }
                 if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
                     symbolKeyButtons.add(keyButton);
                     symbolKeyInputs.add(input);
