@@ -12,6 +12,7 @@
 #include "WaveOverlaySurfaceFactory.h"
 #include "CandidatePalette.h"
 #include "CandidateActionPolicy.h"
+#include "PairedPunctuation.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -226,6 +227,7 @@ struct State {
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
+  msime::linux_host::PairedPunctuationTracker paired_tracker;
   std::string ai_context;
   void remember_commit(const std::string &text) {
     if (!focused || blocked || private_input) {
@@ -326,6 +328,7 @@ struct State {
     for (auto &query : online_dispatched_query) query.clear();
   }
   std::string surrounding_text;
+  bool surrounding_valid = false;
   bool surrounding_utf16 = false;
   // Preserve client units until use: focus identity may arrive after text.
   guint surrounding_cursor = 0;
@@ -367,11 +370,13 @@ struct State {
     session = 0;
     view = nullptr;
     surrounding_text.clear();
+    surrounding_valid = false;
     surrounding_cursor = 0;
     surrounding_anchor = 0;
     last_smart_punctuation = 0;
     last_smart_punctuation_time = 0;
     smart_punctuation_rejected = 0;
+    paired_tracker.clear();
   }
   void open() {
     auto options = configured;
@@ -512,6 +517,9 @@ struct State {
       word_character.enabled = *word_character_override;
   }
   void refresh_host_preferences(const Json &preferences) {
+    const bool previous_paired_punctuation = paired_punctuation;
+    const bool previous_chinese_punctuation = chinese_punctuation;
+    const bool previous_fullwidth = fullwidth;
     configure_clipboard(configured_clipboard_path(configured),
                         preferences.value("clipboard_history", false));
     mode_scope_global = preferences.value("ime_mode_scope", "app") == "global";
@@ -543,6 +551,10 @@ struct State {
       chinese_punctuation = true;
     else if (punctuation_lock == "english")
       chinese_punctuation = false;
+    if (paired_punctuation != previous_paired_punctuation ||
+        chinese_punctuation != previous_chinese_punctuation ||
+        fullwidth != previous_fullwidth)
+      paired_tracker.clear();
     if (!smart_punctuation || !smart_punctuation_repeat || !paired_punctuation) {
       last_smart_punctuation = 0;
       last_smart_punctuation_time = 0;
@@ -1160,6 +1172,18 @@ bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mode) {
   }
   return false;
 }
+std::optional<std::string> paired_closing_from_text(std::string_view text) {
+  for (const auto closing : {std::string_view("）"), std::string_view("】"),
+                             std::string_view("》"), std::string_view("〉"),
+                             std::string_view("｝"), std::string_view("}"),
+                             std::string_view("”"), std::string_view("’")}) {
+    if (text.size() >= closing.size() &&
+        text.compare(text.size() - closing.size(), closing.size(), closing) ==
+            0)
+      return std::string(closing);
+  }
+  return std::nullopt;
+}
 bool is_smart_punctuation_key(guint key) {
   return key == IBUS_comma || key == IBUS_period || key == IBUS_colon;
 }
@@ -1221,6 +1245,38 @@ bool smart_punctuation_repeat_matches_document(const State &s) {
   return cursor >= previous.size() &&
          s.surrounding_text.compare(cursor - previous.size(), previous.size(),
                                     previous) == 0;
+}
+std::optional<std::string> surrounding_following_character(const State &s) {
+  if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
+    return std::nullopt;
+  const auto offset = surrounding_byte_offset(s, s.surrounding_cursor);
+  if (offset >= s.surrounding_text.size())
+    return std::string{};
+  const auto *start = s.surrounding_text.c_str() + offset;
+  const auto codepoint = g_utf8_get_char_validated(start, -1);
+  if (codepoint == static_cast<gunichar>(-1) ||
+      codepoint == static_cast<gunichar>(-2))
+    return std::nullopt;
+  const auto *end = g_utf8_next_char(start);
+  return std::string(start, static_cast<std::size_t>(end - start));
+}
+bool try_skip_paired_closing(IBusEngine *engine, guint key) {
+  auto &s = state(engine);
+  if (key > 0x7f) return false;
+  const auto closing = msime::linux_host::paired_closing_for_key(
+      static_cast<char>(key), s.fullwidth);
+  if (!closing) return false;
+  const auto following = surrounding_following_character(s);
+  if (!s.paired_tracker.consume(*closing, following.value_or(""),
+                                    following.has_value()))
+    return false;
+  s.last_smart_punctuation = 0;
+  s.last_smart_punctuation_time = 0;
+  s.smart_punctuation_rejected = 0;
+  // The paired mark is already in the document. Move over it without sending
+  // the user's closing key through Engine, which would insert a duplicate.
+  ibus_engine_forward_key_event(engine, IBUS_Right, 0, 0);
+  return true;
 }
 constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
 
@@ -2612,7 +2668,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
     auto &s = state(engine);
     text = traditional_display(
         s, result.value("commit_context", Json(nullptr)), std::move(text));
-    normalize_punctuation_pair(text, pair_mode);
+    const bool inserted_pair = normalize_punctuation_pair(text, pair_mode);
     if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
@@ -2625,6 +2681,10 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
       text = fullwidth_text(text);
     if (!text.empty()) {
       commit_text(engine, text);
+      if (inserted_pair) {
+        if (const auto closing = paired_closing_from_text(text))
+          s.paired_tracker.push(*closing);
+      }
     }
   }
   state(engine).view = result.at("view");
@@ -3068,6 +3128,7 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
+  s.surrounding_valid = text != nullptr;
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
   s.surrounding_cursor = cursor;
   s.surrounding_anchor = anchor;
@@ -3120,11 +3181,13 @@ void focus_out(IBusEngine *engine) {
     s.ai_context.clear();
     s.invalidate_providers();
     s.surrounding_text.clear();
+    s.surrounding_valid = false;
     s.surrounding_cursor = 0;
     s.surrounding_anchor = 0;
     s.last_smart_punctuation = 0;
     s.last_smart_punctuation_time = 0;
     s.smart_punctuation_rejected = 0;
+    s.paired_tracker.clear();
     if (s.session)
       apply(engine, msime_client_focus(s.session, false));
     clear(engine);
@@ -3653,6 +3716,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       s.paired_punctuation_override = enabled;
       s.paired_punctuation = enabled;
+      s.paired_tracker.clear();
       s.last_smart_punctuation = 0;
       s.smart_punctuation_rejected = 0;
       publish_mode(engine);
@@ -3698,6 +3762,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       }
       s.fullwidth = value == PROP_STATE_CHECKED;
+      s.paired_tracker.clear();
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
         render(engine, s.view);
@@ -3990,6 +4055,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       s.punctuation_lock_override = selected;
       s.punctuation_lock = selected;
+      s.paired_tracker.clear();
       {
         const bool chinese = selected == "follow"
                                   ? s.punctuation_override.value_or(configured.at("preferences").value("chinese_punctuation", true))
@@ -4015,6 +4081,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           response(msime_client_set_chinese_punctuation(s.session, enabled));
       s.chinese_punctuation = enabled;
       s.punctuation_override = enabled;
+      s.paired_tracker.clear();
       publish_mode(engine);
       return;
     }
@@ -4054,6 +4121,7 @@ void reset(IBusEngine *engine) {
     state(engine).last_smart_punctuation = 0;
     state(engine).last_smart_punctuation_time = 0;
     state(engine).smart_punctuation_rejected = 0;
+    state(engine).paired_tracker.clear();
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
@@ -4190,6 +4258,7 @@ bool unicode_plus_key(const Json &view, guint key, guint modifiers) {
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.native_compose.reset();
+  s.paired_tracker.clear();
   if (s.voice_active)
     voice_cancel(engine);
   s.invalidate_providers();
@@ -4440,6 +4509,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   if (fullwidth_toggle) {
     s.fullwidth = !s.fullwidth;
+    s.paired_tracker.clear();
     guarded(engine, "toggle_character_width", [&] {
       s.open();
       if (s.session) {
@@ -4569,6 +4639,20 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    if (try_skip_paired_closing(engine, key)) {
+      handled = true;
+      return;
+    }
+    if (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
+        key == IBUS_Return || key == IBUS_KP_Enter || key == IBUS_Escape ||
+        key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
+        key == IBUS_KP_Right || key == IBUS_Up || key == IBUS_KP_Up ||
+        key == IBUS_Down || key == IBUS_KP_Down || key == IBUS_Home ||
+        key == IBUS_KP_Home || key == IBUS_End || key == IBUS_KP_End ||
+        key == IBUS_Page_Up || key == IBUS_KP_Page_Up ||
+        key == IBUS_Page_Down || key == IBUS_KP_Page_Down || key == IBUS_Tab ||
+        key == IBUS_KP_Tab || key == IBUS_ISO_Left_Tab)
+      s.paired_tracker.clear();
     // Match Windows TSF: with CapsLock enabled, an uppercase letter at the
     // beginning of a fresh composition belongs to the editor. IBus exposes
     // the lock state in the modifier mask while preserving the uppercase
@@ -4737,6 +4821,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (s.fullwidth)
           text = fullwidth_text(std::move(text));
         commit_text(engine, text);
+        s.paired_tracker.push(s.fullwidth ? "｝" : "}");
         handled = true;
       }
       if (!handled)
@@ -5181,6 +5266,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->input_enabled = request.value.get<bool>();
           if (request.preference == MenuPreference::ChinesePunctuation)
             self->state->punctuation_override.reset();
+          if (request.preference == MenuPreference::CharacterWidth)
+            self->state->paired_tracker.clear();
           if (request.preference == MenuPreference::CharacterWidth)
             self->state->fullwidth = request.value.get<bool>();
           if (request.preference == MenuPreference::VoiceEnabled)
