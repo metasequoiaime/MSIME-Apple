@@ -1,5 +1,15 @@
 //! Host-independent voice session lifecycle. Audio and ASR transports are injected.
 
+/// Platform-injected streaming voice transport.
+pub trait VoiceTransport {
+    type Error;
+    fn start(&mut self, generation: u64) -> Result<(), Self::Error>;
+    fn send_audio(&mut self, generation: u64, pcm16_mono_16khz: &[u8]) -> Result<(), Self::Error>;
+    fn finish(&mut self, generation: u64) -> Result<(), Self::Error>;
+    fn cancel(&mut self, generation: u64) -> Result<(), Self::Error>;
+}
+
+
 #[derive(Debug, Default)]
 pub struct VoiceSessionState {
     generation: u64,
