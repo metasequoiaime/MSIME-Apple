@@ -15,6 +15,7 @@ public:
   using Reader = std::function<std::optional<ModePresentation>()>;
   using Click = std::function<void(const ModeClick &)>;
   using Action = std::function<void()>;
+  using PositionChanged = std::function<void(POINT)>;
   FloatingToolbarWindow(Reader reader, Click click);
   ~FloatingToolbarWindow();
   // Share the candidate card's resolved tokens so one theme covers the surface.
@@ -23,6 +24,7 @@ public:
   void set_font_size(int size) { font_size_ = size; }
   void set_items(std::array<bool, 6> items) { items_ = items; }
   void set_position(std::optional<POINT> position) { dragged_position_ = position; }
+  void set_position_changed(PositionChanged callback) { position_changed_ = std::move(callback); }
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {
     character_set_reader_ = std::move(reader);
   }
@@ -63,6 +65,7 @@ private:
   Action voice_action_;
   Action about_action_;
   Action hide_action_;
+  PositionChanged position_changed_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   std::optional<bool> shown_character_set_;

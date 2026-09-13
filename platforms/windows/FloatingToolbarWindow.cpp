@@ -219,6 +219,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
                                                      info.rcWork.bottom - height);
           }
         }
+        if (self->position_changed_ && self->dragged_position_)
+          self->position_changed_(*self->dragged_position_);
       }
       return 0;
     case WM_NCHITTEST: {
