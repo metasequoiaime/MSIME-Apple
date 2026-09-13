@@ -65,6 +65,7 @@ private:
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   std::optional<bool> shown_character_set_;
+  std::optional<POINT> dragged_position_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
   double scale_ = 1.0;

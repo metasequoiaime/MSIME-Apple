@@ -87,8 +87,9 @@ void FloatingToolbarWindow::refresh(bool enabled) {
         window_, static_cast<int>((kLeadingWidth + kCellWidth * slots(items_).size() + 8) * scale_));
     const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
     const int margin = dpi_scale(window_, 20);
-    if (!SetWindowPos(window_, HWND_TOPMOST, work.right - width - margin,
-                      work.bottom - height - margin, width, height,
+    const int x = dragged_position_ ? dragged_position_->x : work.right - width - margin;
+    const int y = dragged_position_ ? dragged_position_->y : work.bottom - height - margin;
+    if (!SetWindowPos(window_, HWND_TOPMOST, x, y, width, height,
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Toolbar positioning failed");
     InvalidateRect(window_, nullptr, FALSE);
@@ -198,6 +199,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
+    case WM_MOVE:
+      self->dragged_position_ = POINT{static_cast<LONG>(static_cast<short>(LOWORD(l))),
+                                      static_cast<LONG>(static_cast<short>(HIWORD(l)))};
+      return 0;
     case WM_NCHITTEST: {
       POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
       ScreenToClient(window, &point);
