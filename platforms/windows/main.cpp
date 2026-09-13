@@ -181,6 +181,7 @@ int wmain(int argc, wchar_t **argv) {
           next.hotkey_rctrl_ralt = input.value("hotkey_rctrl_ralt", false);
           next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
+          next.commit_mode = input.value("commit_mode", std::string{"tsf"});
           next.asr_provider = input.value("asr_provider", std::string{"doubao"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
