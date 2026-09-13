@@ -757,6 +757,28 @@ int main(int argc, char **argv) {
       }
       {
         using namespace msime::windows;
+        // Enter while the candidate page is active must select the
+        // highlighted candidate. The same VK is raw-local commit only after
+        // a partial prefix has already been retained by ReplyComposer.
+        ReplyComposer enter_composer(42, epoch);
+        for (char c : std::string("nihao"))
+          key(c - 'a' + 'A', c);
+        FanyImeNamedpipeData enter{};
+        enter.client_id = 42;
+        enter.event_type = FanyImePipeEventType::KeyEvent;
+        enter.request_id = request++;
+        enter.keycode = 0x0D;
+        const auto pending = enter_composer.configured_key(
+            session, enter, epoch, TsfPreeditStyle::Pinyin, {});
+        require(pending && pending->source.transition.at("commit") == "你好" &&
+                    pending->encoded && *pending->encoded &&
+                    pending->encoded->packet.msg_type == FanyImeReplyType::Normal &&
+                    session.view().at("editing_text") == "",
+                "Candidate-state Enter did not commit the highlighted candidate");
+        enter_composer.confirm_delivery(42, epoch, enter.request_id);
+      }
+      {
+        using namespace msime::windows;
         ReplyComposer basic(42, epoch);
         for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
         const auto unchanged = session.view();
