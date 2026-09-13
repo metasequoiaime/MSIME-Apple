@@ -4464,6 +4464,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const auto &id = candidate.at("id");
     if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
       return FALSE;
+    const auto source = candidate.value("source", 0);
+    if (!msime::linux_host::candidate_dictionary_removal_available(
+            s.view.value("scheme", 255), source,
+            candidate.value("text", std::string{})))
+      return FALSE;
     guarded(engine, "remove_candidate_shortcut", [&] {
       apply(engine, msime_client_remove_candidate(
           s.session, id.at("generation").get<uint64_t>(),

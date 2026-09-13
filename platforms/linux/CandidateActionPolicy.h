@@ -50,4 +50,11 @@ inline bool candidate_removal_available(std::string_view text) {
   return false;
 }
 
+inline bool candidate_dictionary_removal_available(std::uint64_t scheme,
+                                                   std::uint64_t source,
+                                                   std::string_view text) {
+  return scheme != 3 && (source == 0 || source == 1 || source == 4) &&
+         candidate_removal_available(text);
+}
+
 } // namespace msime::linux_host
