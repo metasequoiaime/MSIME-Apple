@@ -5,10 +5,9 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.util.TypedValue;
-import android.widget.Button;
 
 /** A letter key that reserves its lower edge for a double-pinyin hint. */
-public final class ShuangpinHintButton extends Button {
+public final class ShuangpinHintButton extends KeyboardPressButton {
     private final Paint hintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int basePaddingBottom;
     private String hintText = "";

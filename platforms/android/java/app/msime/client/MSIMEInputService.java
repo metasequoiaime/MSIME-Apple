@@ -1376,7 +1376,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button keyboardKey(String label, String description, Runnable action) {
-        Button button = new Button(this);
+        Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
         button.setText(label);
         button.setContentDescription("按键 " + description);
