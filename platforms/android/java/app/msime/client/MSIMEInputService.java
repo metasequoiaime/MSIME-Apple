@@ -129,6 +129,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
     private boolean wubiCodeHint = true;
+    private boolean wubiMixedPinyin;
     private String candidateGlossResources = "";
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
@@ -475,6 +476,8 @@ public final class MSIMEInputService extends InputMethodService {
                 applyChineseOutputPreference(preferences);
                 applyCandidateGlossPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
+                wubiMixedPinyin = preferences != null
+                    && preferences.optBoolean("wubi_mixed_pinyin", false);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
                 // Settings edits are queued in the shared PersonalDictionary
@@ -560,6 +563,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossResources = "";
         candidateEnglishGloss = false;
         wubiCodeHint = true;
+        wubiMixedPinyin = false;
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
@@ -725,6 +729,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousWubiCodeHint = wubiCodeHint;
+        boolean previousWubiMixedPinyin = wubiMixedPinyin;
         KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
@@ -744,6 +749,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousWubiCodeHint != wubiCodeHint
+                || previousWubiMixedPinyin != wubiMixedPinyin
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
@@ -775,6 +781,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
+        boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -804,6 +811,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
         wubiCodeHint = nextWubiCodeHint;
+        wubiMixedPinyin = nextWubiMixedPinyin;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();

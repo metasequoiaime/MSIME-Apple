@@ -47,6 +47,7 @@ fn activation_case(nested_dictionaries: bool) {
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
+        wubi_mixed_pinyin: false,
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),

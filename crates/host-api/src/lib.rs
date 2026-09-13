@@ -166,6 +166,7 @@ impl HostSession {
             snapshot.preferences.quanpin_autocorrect_transposition();
         options.autocorrect_neighbor = snapshot.preferences.quanpin_autocorrect_neighbor();
         options.fuzzy_pinyin_rules = snapshot.preferences.fuzzy_pinyin.active_rules();
+        options.wubi_mixed_pinyin = snapshot.preferences.wubi_mixed_pinyin;
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
         options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
@@ -352,6 +353,7 @@ impl HostOptions {
             autocorrect_transposition: self.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: self.preferences.quanpin_autocorrect_neighbor(),
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
+            wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -1054,6 +1056,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             autocorrect_transposition: options.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: options.preferences.quanpin_autocorrect_neighbor(),
             fuzzy_pinyin_rules: options.preferences.fuzzy_pinyin.active_rules(),
+            wubi_mixed_pinyin: options.preferences.wubi_mixed_pinyin,
             frequency_mode: options.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: options.preferences.frequency.trigger_count,
             frequency_linear_step: options.preferences.frequency.linear_step,
@@ -3230,6 +3233,40 @@ mod tests {
         });
         read(msime_client_destroy(handle));
     }
+
+    #[test]
+    fn wubi_mixed_pinyin_reaches_engine_and_applies_after_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'a', false));
+        let mut preferences = Preferences {
+            scheme: InputScheme::Wubi,
+            wubi_mixed_pinyin: true,
+            ..Preferences::default()
+        };
+        let queued = update(handle, 1, &preferences);
+        assert_eq!(queued["value"]["deferred"], true);
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+        });
+
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(session.options.wubi_mixed_pinyin);
+            assert!(session.applied.wubi_mixed_pinyin);
+        });
+
+        preferences.wubi_mixed_pinyin = false;
+        let disabled = update(handle, 2, &preferences);
+        assert_eq!(disabled["value"]["deferred"], false);
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+        });
+        read(msime_client_destroy(handle));
+    }
+
     #[test]
     fn japanese_mode_switch_defers_and_restores_chinese_profile() {
         use msime_client_core::preferences::ChineseScheme;

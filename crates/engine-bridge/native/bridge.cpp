@@ -269,6 +269,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
         (value.autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
     options.fuzzy_pinyin.rules = value.fuzzy_pinyin_rules & 0x7ffu;
+    options.wubi.mixed_pinyin = value.wubi_mixed_pinyin;
     options.chinese_punctuation = value.chinese_punctuation;
     options.paired_punctuation = value.paired_punctuation;
     options.punctuation_lock = value.punctuation_lock;
