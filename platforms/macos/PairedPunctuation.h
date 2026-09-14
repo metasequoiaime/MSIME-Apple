@@ -28,6 +28,7 @@ class PairedPunctuationTracker {
 
   void clear() { closings_.clear(); }
   bool empty() const { return closings_.empty(); }
+  std::size_t size() const { return closings_.size(); }
 
   void push(std::string closing) {
     if (closing.empty()) return;
