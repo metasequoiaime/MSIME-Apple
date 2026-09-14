@@ -38,6 +38,13 @@ public final class KeyboardSchemeSmoke {
             == KeyboardScheme.THOUGHTFUL_REPLY);
         check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN_NINE_KEY, "handwriting", visible)
             == KeyboardScheme.QUANPIN);
+        check(KeyboardScheme.mappingForRuntimeSelection(
+            KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN_NINE_KEY, "japanese", "xiaohe")
+            .touchKeyboardLayout().equals("nine_key"));
+        check(KeyboardScheme.mappingForRuntimeSelection(
+            KeyboardScheme.QUANPIN, KeyboardScheme.THOUGHTFUL_REPLY, "quanpin", "xiaohe") == null);
+        check(KeyboardScheme.mappingForRuntimeSelection(
+            KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN, "quanpin", "xiaohe") == null);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting") == KeyboardScheme.HANDWRITING);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "nine_key") == KeyboardScheme.QUANPIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key") == KeyboardScheme.JAPANESE_NINE_KEY);

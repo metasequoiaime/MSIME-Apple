@@ -384,6 +384,9 @@ pub struct Preferences {
     /// `None` preserves the default-on behavior without rewriting legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wubi_code_hint: Option<bool>,
+    /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
+    #[serde(default)]
+    pub wubi_mixed_pinyin: bool,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
@@ -1027,6 +1030,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,
+            wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
             custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
@@ -1838,6 +1842,29 @@ mod tests {
             !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
                 .unwrap()
                 .wubi_code_hint_enabled()
+        );
+    }
+
+    #[test]
+    fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
+        let defaults = Preferences::default();
+        assert!(!defaults.wubi_mixed_pinyin);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("wubi_mixed_pinyin");
+        assert!(
+            !serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .wubi_mixed_pinyin
+        );
+
+        let enabled = Preferences {
+            wubi_mixed_pinyin: true,
+            ..defaults
+        };
+        assert!(
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+                .unwrap()
+                .wubi_mixed_pinyin
         );
     }
 

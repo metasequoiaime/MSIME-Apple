@@ -34,6 +34,9 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(enabled.checked).toBe(false);
   expect(rule.disabled).toBe(true);
   fireEvent.click(enabled);
+  expect(rule.checked).toBe(true);
+  fireEvent.click(rule);
+  expect(rule.checked).toBe(false);
   fireEvent.click(rule);
   expect(rule.checked).toBe(true);
   fireEvent.click(enabled);
@@ -44,6 +47,22 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(enabled.checked).toBe(false);
   expect(rule.checked).toBe(false);
   confirm.mockRestore();
+});
+
+test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const enabled = screen.getByRole("checkbox", { name: "启用模糊音" }) as HTMLInputElement;
+  fireEvent.click(enabled);
+  for (const id of ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]) {
+    expect((screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked).toBe(true);
+  }
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    fuzzy_pinyin: { enabled: true, rules: ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"], seeded: true },
+  }));
 });
 
 const touchSchemeLabels = ["全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "高情商回复"];
@@ -399,6 +418,22 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
     [firstOrigin]: "first-origin-fixture",
     "https://other.invalid:443": "second-origin-fixture",
   });
+});
+
+test("Android AI settings fetch models and run a native-hosted polish test", async () => {
+  const fetchModels = vi.fn().mockResolvedValue(["fixture-model", "fixture-fast"]);
+  const testAi = vi.fn().mockResolvedValue("fixture-polished");
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), aiAssistant: { fetchModels, test: testAi } }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
+  fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+  await screen.findByText("已获取 2 个可用模型。");
+  fireEvent.change(screen.getByRole("combobox", { name: "已获取的 AI 模型" }), { target: { value: "fixture-fast" } });
+  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
+  await screen.findByText("fixture-polished");
+  expect(fetchModels).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", token: "fixture-token" });
+  expect(testAi).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", model: "fixture-fast", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", token: "fixture-token", text: "fixture input" });
 });
 
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
@@ -1306,6 +1341,32 @@ test("help, about and feedback pages expose their Windows content and actions", 
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues"));
 });
 
+test("Android help and about pages use mobile instructions and project links", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    host: { platform: "android", floating_toolbar: false } as never,
+  };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
+  expect(screen.getByText(/语言和输入法/)).toBeDefined();
+  expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText(/Android 触屏输入体验/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE"));
+  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+});
+
 test("about page validates a newer release before offering its URL", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
@@ -1450,6 +1511,74 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
+});
+
+test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const downloadToLocal = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
+  const panel = render(<CloudDictionaryPanel client={{ close, request, downloadToLocal }} />);
+  expect(await screen.findByText("你")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "下载到本机 你" }));
+  expect(confirm).toHaveBeenCalledWith("确认将云词条“你”加入本机个人词典？");
+  await waitFor(() => expect(downloadToLocal).toHaveBeenCalledWith(entry));
+  expect(screen.getByRole("status").textContent).toContain("云词条已加入本机词典队列");
+  confirm.mockRestore();
+  panel.unmount();
+});
+
+test("cloud dictionary snapshot requires preview and explicit confirmation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
+    if (action.operation === "snapshot_preview") return {
+      previewToken: "snapshot-token",
+      snapshot: { cloudRevision: 42, sha256: "a".repeat(64), bytes: 2048, records: 12, entries: 4, overlays: 4, positions: 2, selections: 2 },
+    };
+    return { request: { id: "request", cloudRevision: 42, fileSha256: "a".repeat(64), status: action.operation === "snapshot_cancel" ? "cancelled" : "queued" } };
+  });
+  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
+  await screen.findByText("暂无词条");
+  fireEvent.click(screen.getByRole("button", { name: "下载并预览" }));
+  expect(await screen.findByText(/云端 revision 42/)).toBeDefined();
+  expect(request).not.toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" });
+  fireEvent.click(screen.getByRole("button", { name: "确认加入本机" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" }));
+  expect(confirm).toHaveBeenCalledWith("确认将此云词典快照加入本机词库？输入法会在下一次空闲边界应用。");
+  fireEvent.click(screen.getByRole("button", { name: "取消待应用" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
+});
+
+test("cloud dictionary snapshot backup and restore stay behind validation and confirmation", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
+    if (action.operation === "snapshot_export") return { text: "{\"type\":\"header\"}\n", filename: "snapshot.ndjson" };
+    if (action.operation === "snapshot_restore_preview") return {
+      snapshot: { cloudRevision: 7, sha256: "b".repeat(64), bytes: 20, records: 0, entries: 0, overlays: 0, positions: 0, selections: 0 },
+      expectedRevision: 12,
+    };
+    if (action.operation === "snapshot_restore") return { revision: 13, reset: true };
+    return {};
+  });
+  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
+  await screen.findByText("暂无词条");
+  const file = new File(["snapshot fixture"], "snapshot.ndjson", { type: "application/x-ndjson" });
+  fireEvent.change(screen.getByLabelText("恢复快照"), { target: { files: [file] } });
+  expect(await screen.findByText(/当前云端 revision：12/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({
+    operation: "snapshot_restore", text: "snapshot fixture", expected_sha256: "b".repeat(64), revision: 12,
+  }));
+  expect(confirm).toHaveBeenCalledWith("确认用此快照替换全部云端词库和排序记录？");
+  if (typeof URL.createObjectURL === "function") vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
+  else Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:fixture") });
+  fireEvent.click(screen.getByRole("button", { name: "导出完整快照" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_export" }));
 });
 
 test("cloud dictionary catalog panel queries and edits complete directory entries", async () => {

@@ -13,6 +13,7 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.keySpacing(35) == 35);
         check(KeyboardGeometry.rowSpacing(95) == 95);
         check(KeyboardGeometry.heightAdjustment(Integer.MIN_VALUE) == 0);
+        check(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP == 48);
         check(KeyboardGeometry.heightAdjustment(-13) == -12);
         check(KeyboardGeometry.heightAdjustment(49) == 48);
         check(KeyboardGeometry.heightAdjustment(24) == 24);

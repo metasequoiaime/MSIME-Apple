@@ -79,6 +79,14 @@ public enum KeyboardScheme {
         return available.get(0);
     }
 
+    /** Returns the Engine preference mapping needed when the shared picker changed the fallback. */
+    public static PreferenceMapping mappingForRuntimeSelection(
+            KeyboardScheme applied, KeyboardScheme selected,
+            String currentLastChineseScheme, String currentProfile) {
+        if (selected == null || selected == THOUGHTFUL_REPLY || selected == applied) return null;
+        return selected.mapping(currentLastChineseScheme, currentProfile);
+    }
+
     public static KeyboardScheme fromHostSelection(String value, boolean thoughtfulEnabled,
                                                     KeyboardScheme engineSelection) {
         if (thoughtfulEnabled && THOUGHTFUL_REPLY.name().equals(value)

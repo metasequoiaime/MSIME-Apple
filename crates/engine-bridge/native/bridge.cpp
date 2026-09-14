@@ -270,6 +270,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
         (value.autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
     options.fuzzy_pinyin.rules = value.fuzzy_pinyin_rules & 0x7ffu;
+    options.wubi.mixed_pinyin = value.wubi_mixed_pinyin;
     options.chinese_punctuation = value.chinese_punctuation;
     options.paired_punctuation = value.paired_punctuation;
     options.punctuation_lock = value.punctuation_lock;
@@ -508,6 +509,9 @@ EngineSnapshot EngineSession::snapshot() const {
     output.shuangpin_profile = rust::String(shuangpin_profile_);
     output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
+    output.reading = value.scheme == SchemeType::JapaneseRomaji
+                         ? value.normalized_segmentation
+                         : std::string{};
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
     for (std::size_t index = 0; index < value.candidates.size(); ++index) {
@@ -844,6 +848,8 @@ EngineResult EngineSession::command(std::uint8_t value) {
         case 6: return result_for(session_.command(Command::MoveHome));
         case 7: return result_for(session_.command(Command::MoveEnd));
         case 8: return result_for(session_.command(Command::DeleteForward));
+        case 9: return result_for(session_.command(Command::CycleKanaVariant));
+        case 10: return result_for(session_.command(Command::CommitReading));
         default: throw std::invalid_argument("Unsupported input command");
     }
 }
