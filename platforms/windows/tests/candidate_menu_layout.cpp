@@ -1,0 +1,228 @@
+#include "../CandidateMenuLayout.h"
+
+#include <cassert>
+#include <iostream>
+#include <set>
+
+using namespace msime::windows;
+
+namespace {
+// Removing a single character from the dictionary would leave the user unable
+// to type it at all, so the shipped menu omits the row rather than offering it.
+void delete_is_offered_only_for_words() {
+  const auto single = candidate_menu_items(1);
+  for (const auto &item : single)
+    assert(item.command != CandidateMenuCommand::Remove);
+  assert(single.size() == 2);
+  for (size_t code_points : {0u, 2u, 3u, 8u}) {
+    const auto many = candidate_menu_items(code_points);
+    assert(many.size() == 3);
+    assert(many.back().command == CandidateMenuCommand::Remove);
+  }
+}
+
+// 固定排位 opens the submenu and is not itself a command; the rest are.
+void only_the_fix_row_carries_a_submenu() {
+  const auto items = candidate_menu_items(2);
+  size_t submenus = 0;
+  for (const auto &item : items) {
+    if (item.submenu) {
+      ++submenus;
+      assert(item.command == CandidateMenuCommand::FixPosition);
+    }
+    assert(!item.separator);
+    assert(!item.label.empty());
+  }
+  assert(submenus == 1);
+}
+
+// The submenu offers exactly the five positions the protocol accepts, each
+// distinct, plus 取消固定 under a separator.
+void submenu_offers_five_positions_and_a_clear() {
+  const auto items = candidate_menu_submenu_items();
+  std::set<unsigned> positions;
+  size_t separators = 0;
+  size_t clears = 0;
+  for (const auto &item : items) {
+    if (item.separator) {
+      ++separators;
+      // A separator is a line; it must carry no label to draw.
+      assert(item.label.empty());
+      continue;
+    }
+    assert(!item.label.empty());
+    assert(!item.submenu);
+    if (item.command == CandidateMenuCommand::FixAtPosition) {
+      assert(item.position >= 1 && item.position <= 5);
+      positions.insert(item.position);
+    } else {
+      assert(item.command == CandidateMenuCommand::ClearFixedPosition);
+      ++clears;
+    }
+  }
+  assert(positions.size() == 5);
+  assert(separators == 1);
+  assert(clears == 1);
+  // 取消固定 comes last, after the separator.
+  assert(!items.back().separator);
+  assert(items.back().command == CandidateMenuCommand::ClearFixedPosition);
+}
+
+// Rows have to tile the card exactly, or a click lands between two of them.
+void rows_tile_the_card_without_gaps() {
+  const CandidateMenuMetrics metrics;
+  for (const auto &items :
+       {candidate_menu_items(1), candidate_menu_items(3),
+        candidate_menu_submenu_items()}) {
+    const auto size = candidate_menu_size(items, metrics);
+    assert(candidate_menu_row(0, items, metrics).top == metrics.padding);
+    for (size_t i = 1; i < items.size(); ++i)
+      assert(candidate_menu_row(i - 1, items, metrics).bottom ==
+             candidate_menu_row(i, items, metrics).top);
+    // The last row ends exactly one padding short of the card's bottom.
+    assert(candidate_menu_row(items.size() - 1, items, metrics).bottom +
+               metrics.padding ==
+           size.height);
+  }
+}
+
+// A separator is a line, not a command. Treating it as a hit would let a click
+// land on whatever row happens to follow it - here, 取消固定.
+void separators_are_never_hit() {
+  const CandidateMenuMetrics metrics;
+  const auto items = candidate_menu_submenu_items();
+  size_t separator = items.size();
+  for (size_t i = 0; i < items.size(); ++i)
+    if (items[i].separator)
+      separator = i;
+  assert(separator < items.size());
+  const auto row = candidate_menu_row(separator, items, metrics);
+  for (double y : {row.top, (row.top + row.bottom) / 2.0, row.bottom - 0.01})
+    assert(!candidate_menu_hit(metrics.width / 2.0, y, items, metrics));
+}
+
+// Every drawn row is selectable across its whole height and width, and nothing
+// outside the card is.
+void hit_testing_matches_the_drawn_rows() {
+  const CandidateMenuMetrics metrics;
+  const auto items = candidate_menu_items(3);
+  const auto size = candidate_menu_size(items, metrics);
+  for (size_t i = 0; i < items.size(); ++i) {
+    const auto row = candidate_menu_row(i, items, metrics);
+    for (double y : {row.top, (row.top + row.bottom) / 2.0, row.bottom - 0.01})
+      for (double x : {0.0, metrics.width / 2.0, size.width - 0.01}) {
+        const auto hit = candidate_menu_hit(x, y, items, metrics);
+        assert(hit && *hit == i);
+      }
+  }
+  // Outside, including the padding above the first row and below the last.
+  assert(!candidate_menu_hit(-1.0, 10.0, items, metrics));
+  assert(!candidate_menu_hit(size.width, 10.0, items, metrics));
+  assert(!candidate_menu_hit(10.0, -1.0, items, metrics));
+  assert(!candidate_menu_hit(10.0, size.height, items, metrics));
+  assert(!candidate_menu_hit(10.0, metrics.padding / 2.0, items, metrics));
+  assert(!candidate_menu_hit(10.0, size.height - metrics.padding / 2.0, items,
+                             metrics));
+}
+
+// The flyout opens at the pointer, and flips rather than clamping flush: a
+// menu jammed against the edge with a row under the cursor would select
+// something the moment the button comes up.
+void the_flyout_flips_instead_of_clamping() {
+  const CandidateMenuMetrics metrics;
+  const auto size = candidate_menu_size(candidate_menu_items(3), metrics);
+  const auto roomy = candidate_menu_bounds(400, 300, 0, 0, 1920, 1080, 96, size);
+  assert(roomy.x == 400 && roomy.y == 300);
+
+  // Against the right and bottom edges it opens up and to the left, so the
+  // pointer ends up outside it rather than on its first row.
+  const auto corner =
+      candidate_menu_bounds(1910, 1070, 0, 0, 1920, 1080, 96, size);
+  assert(corner.x + corner.width <= 1920);
+  assert(corner.y + corner.height <= 1080);
+  assert(corner.x < 1910);
+  assert(corner.y < 1070);
+
+  // Never outside the monitor, whatever the pointer claims.
+  for (int x : {-5000, 0, 1919, 5000})
+    for (int y : {-5000, 0, 1079, 5000}) {
+      const auto bounds =
+          candidate_menu_bounds(x, y, 0, 0, 1920, 1080, 96, size);
+      assert(bounds.x >= 0 && bounds.y >= 0);
+      assert(bounds.x + bounds.width <= 1920);
+      assert(bounds.y + bounds.height <= 1080);
+    }
+  // A monitor that is not at the origin.
+  const auto second =
+      candidate_menu_bounds(2200, 400, 1920, 0, 3840, 1080, 96, size);
+  assert(second.x >= 1920 && second.x + second.width <= 3840);
+}
+
+// The submenu sits beside its parent row and must not cover it: the pointer
+// has to stay on that row to keep the submenu open.
+void the_submenu_opens_beside_its_parent() {
+  const CandidateMenuMetrics metrics;
+  const auto size = candidate_menu_size(candidate_menu_submenu_items(), metrics);
+  const auto beside =
+      candidate_submenu_bounds(400, 508, 320, 0, 0, 1920, 1080, 96, size);
+  assert(beside.x == 508);
+  assert(beside.y == 320);
+
+  // No room on the right: it flips to the parent's left, still not overlapping.
+  const auto flipped =
+      candidate_submenu_bounds(1800, 1908, 320, 0, 0, 1920, 1080, 96, size);
+  assert(flipped.x + flipped.width <= 1800);
+  assert(flipped.x >= 0);
+
+  // A row near the bottom pulls the submenu up so all of it stays on screen.
+  const auto low =
+      candidate_submenu_bounds(400, 508, 1070, 0, 0, 1920, 1080, 96, size);
+  assert(low.y + low.height <= 1080);
+}
+
+// Bad geometry must be refused rather than producing a zero-size or offscreen
+// window that the user cannot see or dismiss.
+void invalid_placement_is_refused() {
+  const CandidateMenuMetrics metrics;
+  const auto size = candidate_menu_size(candidate_menu_items(2), metrics);
+  for (unsigned dpi : {0u, 47u, 961u}) {
+    bool threw = false;
+    try {
+      candidate_menu_bounds(10, 10, 0, 0, 1920, 1080, dpi, size);
+    } catch (const std::invalid_argument &) {
+      threw = true;
+    }
+    assert(threw);
+  }
+  bool threw = false;
+  try {
+    candidate_menu_bounds(10, 10, 100, 0, 100, 1080, 96, size);
+  } catch (const std::invalid_argument &) {
+    threw = true;
+  }
+  assert(threw);
+  // An empty menu has nothing to show and no size to compute.
+  threw = false;
+  try {
+    candidate_menu_size({}, metrics);
+  } catch (const std::invalid_argument &) {
+    threw = true;
+  }
+  assert(threw);
+  assert(!candidate_menu_hit(0.0, 0.0, {}, metrics));
+}
+} // namespace
+
+int main() {
+  delete_is_offered_only_for_words();
+  only_the_fix_row_carries_a_submenu();
+  submenu_offers_five_positions_and_a_clear();
+  rows_tile_the_card_without_gaps();
+  separators_are_never_hit();
+  hit_testing_matches_the_drawn_rows();
+  the_flyout_flips_instead_of_clamping();
+  the_submenu_opens_beside_its_parent();
+  invalid_placement_is_refused();
+  std::cout << "Candidate menu: contents, geometry and placement\n";
+  return 0;
+}

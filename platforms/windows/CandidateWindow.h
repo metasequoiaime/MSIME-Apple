@@ -13,14 +13,14 @@
 #include <dwrite_2.h>
 
 namespace msime::windows {
+// Forward declared: the flyout pulls in its own window headers, and only the
+// implementation needs them.
+class CandidateFlyoutWindow;
 // Main/UI thread owns construction, polling, painting and destruction. Reader
 // outlives the window and returns a freshly validated value, never Engine
 // state.
 // One owner-drawn menu row's label. Owner drawing keeps the platform's own
 // keyboard handling and dismissal while letting the skin paint the row.
-struct MenuRowLabel {
-  std::wstring text;
-};
 class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
@@ -104,7 +104,9 @@ private:
   float decoration_offset_ = 0.0f;
   // Owner-drawn menu labels, kept alive for the duration of the popup: the
   // draw messages carry pointers into this list.
-  std::vector<std::unique_ptr<MenuRowLabel>> menu_labels_;
+  // Built on first use: most sessions never open the right-click menu, and
+  // the flyout owns two windows and two Direct2D devices.
+  std::unique_ptr<CandidateFlyoutWindow> flyout_;
   std::vector<std::wstring> fallback_families_;
   Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical
