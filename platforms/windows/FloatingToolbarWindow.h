@@ -23,7 +23,8 @@ public:
   // Caps Lock and Japanese mode change what the language button shows.
   void set_language_state(ToolbarLanguageState state) {
     if (state.caps_lock == language_.caps_lock &&
-        state.japanese == language_.japanese)
+        state.japanese == language_.japanese &&
+        state.dedicated_english == language_.dedicated_english)
       return;
     language_ = state;
     if (window_)

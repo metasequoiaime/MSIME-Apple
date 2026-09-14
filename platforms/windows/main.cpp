@@ -489,6 +489,12 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
             .value("enabled", true));
+    // The Engine's own English mode, which the toolbar marks with an
+    // underlined "En". Published like the rest rather than read once, or the
+    // button would only follow the setting across a restart.
+    auto dedicated_english = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("default_ime_mode", std::string("chinese")) == "english");
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -507,8 +513,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light, toolbar_light, menu_light,
-         mode_scope_global, tsf_config,
+         toolbar_enabled, dedicated_english, voice_light, toolbar_light,
+         menu_light, mode_scope_global, tsf_config,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -567,6 +573,10 @@ int wmain(int argc, wchar_t **argv) {
               preferences.value("floating_toolbar", nlohmann::json::object());
           toolbar_enabled->store(toolbar_preferences.value("enabled", true),
                                  std::memory_order_release);
+          dedicated_english->store(
+              preferences.value("default_ime_mode", std::string("chinese")) ==
+                  "english",
+              std::memory_order_release);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.enabled = input.value("enabled", true);
@@ -1056,12 +1066,15 @@ int wmain(int argc, wchar_t **argv) {
                                     decision.push_chinese ? WorkerMode::Chinese
                                                           : WorkerMode::English);
       }
-      // The language button shows 'A' while Caps Lock is on and 日 in Japanese
-      // mode, so it has to follow both. Showing 中 with Caps Lock on tells the
-      // user the wrong thing about what the next letter key will do.
+      // The language button shows 'A' while Caps Lock is on, 日 in Japanese
+      // mode and an underlined "En" in the Engine's own English mode, so it
+      // has to follow all three. Showing 中 with Caps Lock on tells the user
+      // the wrong thing about what the next letter key will do.
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);
+        language.dedicated_english =
+            dedicated_english->load(std::memory_order_acquire);
         {
           std::lock_guard<std::mutex> lock(*tsf_config_mutex);
           language.japanese = tsf_config->japanese_input_mode;

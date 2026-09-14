@@ -12,6 +12,10 @@ namespace msime::windows {
 struct ToolbarIcon {
   wchar_t codepoint = 0;
   const wchar_t *fallback = L"";
+  // Dedicated English draws an underlined "En" rather than a glyph. The line
+  // is what separates it from the temporary English toggle: both say the next
+  // letter is Latin, but only one survives the next commit.
+  bool underline = false;
 };
 // Button ids as the toolbar's slot order uses them.
 enum ToolbarButton {
@@ -38,6 +42,10 @@ enum ToolbarButton {
 struct ToolbarLanguageState {
   bool caps_lock = false;
   bool japanese = false;
+  // The Engine's own English mode, as opposed to the temporary Chinese/English
+  // toggle carried in `state`. It outlives a commit, so it is worth telling
+  // apart on the button.
+  bool dedicated_english = false;
 };
 inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
                                 ToolbarLanguageState language = {}) {
@@ -48,12 +56,17 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     // whatever input mode is selected.
     if (language.caps_lock)
       return {0xE7B5, L"A"};
+    // The temporary toggle wins over the dedicated mode: it is what the next
+    // key actually does, and it is the one the user just pressed.
+    if (state && !*state)
+      return {0xE983, L"英"}; // 英
+    if (language.dedicated_english)
+      return {0, L"En", true};
     if (language.japanese)
       return {0xE7DE, L"日"};
     if (!state)
       return unknown;
-    return *state ? ToolbarIcon{0xE982, L"中"}   // 中
-                  : ToolbarIcon{0xE983, L"英"};  // 英
+    return ToolbarIcon{0xE982, L"中"}; // 中
   case kToolbarFullwidth:
     if (!state)
       return unknown;

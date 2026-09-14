@@ -4,6 +4,7 @@
 #include "ToolbarLayout.h"
 #include "WindowShadow.h"
 #include "IconFont.h"
+#include <algorithm>
 #include <stdexcept>
 #include <windowsx.h>
 #include <vector>
@@ -268,6 +269,17 @@ void FloatingToolbarWindow::paint() {
         continue;
       target->DrawText(drawn_text, length, cell_format, cell,
                        brush(palette_.text));
+      // Dedicated English underlines its "En". Upstream insets the line by a
+      // twelfth of the cell and floors both the offset and the stroke, so it
+      // stays a visible line rather than thinning away at small icon sizes.
+      if (icon.underline && !glyph) {
+        const float size = static_cast<float>(font_size_) * unit;
+        const float side = (cell.right - cell.left) * 0.08f;
+        const float y = cell.bottom - (std::max)(2.0f * unit, size * 0.12f);
+        target->DrawLine({cell.left + side, y}, {cell.right - side, y},
+                         brush(palette_.text),
+                         (std::max)(1.0f * unit, size * 0.06f));
+      }
     }
   }
   const HRESULT drawn = target->EndDraw();
