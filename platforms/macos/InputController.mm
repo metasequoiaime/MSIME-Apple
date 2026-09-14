@@ -2003,6 +2003,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSString *characters = event.charactersIgnoringModifiers;
         if (characters.length == 1) {
             const unichar character = [characters characterAtIndex:0];
+            // In temporary Japanese mode '-' and '=' are composition input (the
+            // Windows TSF path gives these keys to the engine as well). Do not
+            // consume them as candidate paging shortcuts while the panel is up.
+            if ([_view["local_mode"] isEqual:@"temporary_japanese"] &&
+                (character == '-' || character == '=')) {
+                // Fall through to the normal engine dispatch below.
+            } else {
             NSDictionary *wordCharacter = [_appearance wordCharacterOptions];
             BOOL brackets = [wordCharacter[@"keys"] isEqual:@"brackets"];
             BOOL first = character == (brackets ? '[' : '-');
@@ -2025,6 +2032,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (previous || next) {
                 [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
                 return YES;
+            }
             }
         }
     }
