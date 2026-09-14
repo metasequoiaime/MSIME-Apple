@@ -1,20 +1,30 @@
 #pragma once
 
 #import <AppKit/AppKit.h>
+#import "RuntimeOptions.h"
 
 enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI };
 
-static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace,
-                                        dispatch_block_t fallback) {
+static inline void MSIMEOpenDesktopRouteWithOptions(NSString *route, NSString *optionsPath,
+                                                   NSWorkspace *workspace, dispatch_block_t fallback) {
+    if (optionsPath && !optionsPath.isAbsolutePath) { fallback(); return; }
     NSURL *url = [workspace URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
     if (!url) { fallback(); return; }
     NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
     configuration.arguments = @[[NSString stringWithFormat:@"--route=%@", route]];
+    // LaunchServices does not reliably inherit the input method's environment.
+    // Pass only the selected file path, never its credentials or input state.
+    if (optionsPath) configuration.environment = @{@"MSIME_CLIENT_HOST_OPTIONS":optionsPath};
     configuration.createsNewApplicationInstance = YES;
     [workspace openApplicationAtURL:url configuration:configuration
                  completionHandler:^(NSRunningApplication *application, NSError *error) {
         if (error || !application) dispatch_async(dispatch_get_main_queue(), fallback);
     }];
+}
+
+static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace,
+                                        dispatch_block_t fallback) {
+    MSIMEOpenDesktopRouteWithOptions(route, MSIMERuntimeOptionsPath(), workspace, fallback);
 }
 
 // These are settings categories from client-core, not input-panel routes.

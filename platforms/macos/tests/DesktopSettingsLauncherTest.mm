@@ -58,5 +58,19 @@ int main() {
             assert(fallbacks == 2);
         }
         assert(workspace.launches == 5);
+        NSString *options = @"/synthetic/共享 配置/runtime-options.json";
+        MSIMEOpenDesktopRouteWithOptions(@"settings:input", options, workspace, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=settings:input"]]);
+        assert([workspace.configuration.environment isEqual:@{@"MSIME_CLIENT_HOST_OPTIONS":options}]);
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        assert(fallbacks == 2 && workspace.launches == 6);
+        MSIMEOpenDesktopRouteWithOptions(@"settings:input", @"relative.json", workspace, fallback);
+        assert(fallbacks == 3 && workspace.launches == 6);
+        MSIMEOpenDesktopRouteWithOptions(@"settings:input", nil, workspace, fallback);
+        assert(!workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"]);
+        assert(workspace.launches == 7);
+        // Existing entry points select exactly the same file as the native host.
+        MSIMEOpenDesktopRoute(@"settings:ai", workspace, fallback);
+        assert([workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:MSIMERuntimeOptionsPath()]);
     }
 }

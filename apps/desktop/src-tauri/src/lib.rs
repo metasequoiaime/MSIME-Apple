@@ -6,6 +6,8 @@ mod linux_audio_devices;
 mod linux_clipboard;
 #[cfg(target_os = "android")]
 mod android_account;
+#[cfg(any(target_os = "macos", test))]
+mod macos_launch;
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::custom_skin_library::{
@@ -30,6 +32,7 @@ use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
 use tauri::Emitter;
 use std::collections::HashMap;
+#[cfg(not(target_os = "macos"))]
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::io::Write;
@@ -3887,9 +3890,18 @@ pub fn run() {
     let builder = builder.plugin(android_account::init());
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            let macos_launch = macos_launch::resolve(
+                &app.path().app_data_dir()?,
+                std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS")),
+                std::env::var_os("MSIME_CLIENT_STATE_DIR"),
+            )?;
+            #[cfg(target_os = "macos")]
+            let directory = macos_launch.preferences_directory.clone();
             #[cfg(target_os = "android")]
             let directory = app.path().app_data_dir()?.join("files/bootstrap/state");
-            #[cfg(not(target_os = "android"))]
+            #[cfg(not(any(target_os = "android", target_os = "macos")))]
             let directory = match std::env::var_os("MSIME_CLIENT_STATE_DIR") {
                 Some(value) => {
                     let path = std::path::PathBuf::from(value);
@@ -3993,7 +4005,9 @@ pub fn run() {
                 .join("files/runtime-options.json");
             #[cfg(target_os = "ios")]
             let host_options_path = directory.join("runtime-options.json");
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            #[cfg(target_os = "macos")]
+            let host_options_path = macos_launch.options_path;
+            #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
             let host_options_path = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
@@ -4040,7 +4054,11 @@ pub fn run() {
                         Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
                     }
                 }
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                #[cfg(target_os = "macos")]
+                {
+                    macos_launch.document
+                }
+                #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
                 {
                     let host_options = fs::read_to_string(&host_options_path)
                         .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
