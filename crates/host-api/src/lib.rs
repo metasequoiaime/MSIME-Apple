@@ -2060,7 +2060,15 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .as_ref()
                 .map(|snapshot| &snapshot.preferences)
                 .unwrap_or(&session.applied);
-            if !preferences.candidate_translations {
+            // The offline English gloss rides this same query, so it has to be
+            // reachable with online translation off: it is a packaged
+            // dictionary lookup and never leaves the machine.
+            let english_gloss = preferences.candidate_english_gloss
+                && matches!(
+                    preferences.translation_target_language,
+                    msime_client_core::preferences::TranslationTargetLanguage::En
+                );
+            if !preferences.candidate_translations && !english_gloss {
                 return Ok(Value::Null);
             }
             let view = session.runtime.view();
@@ -2116,6 +2124,11 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
                 "niutrans": niutrans,
+                "english_gloss": english_gloss,
+                // Only carried when the gloss will actually be looked up; the
+                // host has no other use for these paths.
+                "resources": english_gloss.then(|| session.options.resources.clone()),
+                "user_data": english_gloss.then(|| session.options.user_data.clone()),
             }))
         })
     })
@@ -4149,6 +4162,48 @@ mod tests {
             read(msime_client_translation_query(handle))["value"],
             Value::Null
         );
+
+        // The offline gloss is a packaged dictionary lookup, so it has to be
+        // reachable with every online provider off - which is the usual case,
+        // and was why Windows could not offer the setting at all.
+        preferences.candidate_english_gloss = true;
+        preferences.translation_target_language =
+            msime_client_core::preferences::TranslationTargetLanguage::En;
+        update(handle, 6, &preferences);
+        let gloss = read(msime_client_translation_query(handle));
+        assert_eq!(gloss["value"]["generation"], view["generation"]);
+        assert_eq!(gloss["value"]["english_gloss"], true);
+        assert_eq!(gloss["value"]["target_language"], "en");
+        // The dictionary paths ride along only because the lookup needs them.
+        assert!(gloss["value"]["resources"].is_string());
+        assert!(!gloss["value"]["candidates"].as_array().unwrap().is_empty());
+        // Still no online provider: the gloss must not imply one.
+        assert!(gloss["value"]["tencent_tmt"].is_null());
+        assert!(gloss["value"]["custom_translation"].is_null());
+        assert!(gloss["value"]["niutrans"].is_null());
+
+        // The packaged gloss dictionary is English only, so another target
+        // language is an online request or nothing - never a wrong-language
+        // gloss.
+        preferences.translation_target_language =
+            msime_client_core::preferences::TranslationTargetLanguage::Ja;
+        update(handle, 7, &preferences);
+        assert_eq!(
+            read(msime_client_translation_query(handle))["value"],
+            Value::Null
+        );
+
+        // And with the gloss off, the paths are not handed out at all.
+        preferences.candidate_english_gloss = false;
+        preferences.translation_target_language =
+            msime_client_core::preferences::TranslationTargetLanguage::En;
+        preferences.candidate_translations = true;
+        preferences.tencent_tmt.secret_key = "synthetic".into();
+        update(handle, 8, &preferences);
+        let online = read(msime_client_translation_query(handle));
+        assert_eq!(online["value"]["english_gloss"], false);
+        assert!(online["value"]["resources"].is_null());
+        assert!(online["value"]["user_data"].is_null());
         read(msime_client_destroy(handle));
     }
 

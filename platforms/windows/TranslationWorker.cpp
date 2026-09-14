@@ -319,6 +319,39 @@ std::optional<TranslationWorker::Result> TranslationWorker::translate(
   try {
     const auto &query = *document;
     const auto generation = query.at("generation").get<uint64_t>();
+    // The offline English gloss comes from a packaged dictionary, so it is
+    // resolved before any provider is consulted and never reaches the network.
+    // It is also the only source available when no online provider is
+    // configured, which is the usual case.
+    if (query.value("english_gloss", false)) {
+      const auto resources = query.value("resources", std::string{});
+      if (!resources.empty()) {
+        auto gloss_request = nlohmann::json{{"generation", generation}};
+        const auto user_data = query.value("user_data", std::string{});
+        if (!user_data.empty())
+          gloss_request["user_data"] = user_data;
+        auto gloss_candidates = nlohmann::json::array();
+        for (const auto &candidate : query.at("candidates"))
+          gloss_candidates.push_back(
+              {{"text", candidate.at("text")}, {"source", 0}});
+        gloss_request["candidates"] = std::move(gloss_candidates);
+        const auto gloss_bytes = gloss_request.dump();
+        auto glossed = host_value(msime_client_candidate_gloss_request(
+            reinterpret_cast<const uint8_t *>(gloss_bytes.data()),
+            gloss_bytes.size(),
+            reinterpret_cast<const uint8_t *>(resources.data()),
+            resources.size()));
+        if (cancelled())
+          return std::nullopt;
+        if (glossed && glossed->is_object() &&
+            glossed->value("translations", nlohmann::json::array()).is_array() &&
+            !glossed->at("translations").empty())
+          return TranslationWorker::Result{request.lease, generation,
+                                           glossed->at("translations").dump()};
+      }
+      // No gloss for this page. Fall through: an online provider may still be
+      // configured, and a page with no dictionary entry is not a failure.
+    }
     const auto plan_request = nlohmann::json{
         {"target_language", query.at("target_language")},
         {"candidates", [&] {
