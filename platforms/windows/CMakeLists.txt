@@ -462,3 +462,8 @@ else()
   target_compile_options(windows-voice-control-message PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-voice-control-message COMMAND windows-voice-control-message)
+
+add_executable(windows-voice-session-epoch tests/voice_session_epoch.cpp)
+target_link_libraries(windows-voice-session-epoch PRIVATE Threads::Threads)
+add_test(NAME windows-voice-session-epoch COMMAND windows-voice-session-epoch)
+set_tests_properties(windows-voice-session-epoch PROPERTIES TIMEOUT 10)
