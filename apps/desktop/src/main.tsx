@@ -340,7 +340,7 @@ function DesktopSettings() {
   };
   // Mount once after discovery: replacing the client later would reload draft preferences.
   if (bootstrapRequired) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
-  if (!settingsClient) return <p role="status">正在连接设置…</p>;
+  if (!settingsClient) return <p role="status">冷启动可能需要稍等片刻</p>;
   if (mobilePanel === "cloud-clipboard") {
     return <CloudClipboardPanel client={{
       ...panelClients.cloudClipboard,
