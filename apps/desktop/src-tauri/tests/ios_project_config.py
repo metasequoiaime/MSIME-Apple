@@ -75,7 +75,9 @@ class IOSProjectConfigTests(unittest.TestCase):
             project,
         )
         self.assertIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: true", project)
+        self.assertIn('- "**/libapp.a"', project)
         self.assertIn("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES", generated_project)
+        self.assertNotIn("libapp.a in Resources", generated_project)
         for name in alternate_names:
             icon_set = APPLE_ROOT / f"Assets.xcassets/{name}.appiconset"
             self.assertTrue((icon_set / "Contents.json").is_file())

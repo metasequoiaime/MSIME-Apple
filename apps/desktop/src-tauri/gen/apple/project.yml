@@ -35,6 +35,8 @@ targets:
       - path: Sources
       - path: Assets.xcassets
       - path: Externals
+        excludes:
+          - "**/libapp.a"
       - path: msime-desktop_iOS
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources

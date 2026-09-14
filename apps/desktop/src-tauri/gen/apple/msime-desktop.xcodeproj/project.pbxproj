@@ -79,7 +79,6 @@
 		E6070EF4FA88B25EED0E08FC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93976EEAF73A5D2020DC06F8 /* Security.framework */; };
 		E7400F043A78213CA91D1FC1 /* KeyboardServiceFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D8D19E1A41E08CD1CA2409 /* KeyboardServiceFallback.swift */; };
 		E984E0A878B6814DB9D81A63 /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 731F798B855B23710BD14944 /* WubiCodeHintPreference.swift */; };
-		EB0CF4DBED615085E3C91417 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = F38FFD0280601AA297613B3C /* libapp.a */; };
 		EC6246D18E102E8F6162FFF9 /* InputSchemePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD7393EB5379FE8D8D6C00C /* InputSchemePreference.swift */; };
 		F14E6368DF8E74AF784A5AB0 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3043141481E53F3542239F79 /* Metal.framework */; };
 		F54FB79FA31BB9A6DF6D553F /* BackendAccountClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE645274F887741A26A00A72 /* BackendAccountClient.swift */; };
@@ -217,7 +216,6 @@
 		E8D3E85C4E9152AB7985C998 /* ReplyKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyKeyboardView.swift; sourceTree = "<group>"; };
 		EA84C56CC56D4361398701E7 /* EnglishMixedCandidatesMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnglishMixedCandidatesMigration.swift; sourceTree = "<group>"; };
 		EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F38FFD0280601AA297613B3C /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		F4DAF5D37DA63434A28047F9 /* CustomKeyboardSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomKeyboardSkin.swift; sourceTree = "<group>"; };
 		F6935FCF57FF23C85F9C04CF /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		F6B707FBF06F0C1F6C6B3086 /* voice_sessions.rs */ = {isa = PBXFileReference; path = voice_sessions.rs; sourceTree = "<group>"; };
@@ -262,14 +260,6 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		3DC17C3DF8EA0DBDA3F17AC6 /* release */ = {
-			isa = PBXGroup;
-			children = (
-				F38FFD0280601AA297613B3C /* libapp.a */,
-			);
-			path = release;
-			sourceTree = "<group>";
-		};
 		484A9C33ABA6A7B45D889FD1 /* msime-desktop */ = {
 			isa = PBXGroup;
 			children = (
@@ -307,14 +297,6 @@
 			path = ../../../../../platforms/ios/App/Services;
 			sourceTree = "<group>";
 		};
-		61F11D318DAD2E64DF61552C /* arm64 */ = {
-			isa = PBXGroup;
-			children = (
-				3DC17C3DF8EA0DBDA3F17AC6 /* release */,
-			);
-			path = arm64;
-			sourceTree = "<group>";
-		};
 		65ADC03620438C3F76D5D67C /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -346,7 +328,6 @@
 		9B88193B2692CC7C40407BF6 /* Externals */ = {
 			isa = PBXGroup;
 			children = (
-				61F11D318DAD2E64DF61552C /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -605,7 +586,6 @@
 				FBDFC1B867E44837A18A0FD2 /* MLKit-Dependencies.txt in Resources */,
 				16B4C371EDD2C19F4E2C7EF3 /* MLKit-NOTICES.txt in Resources */,
 				71DC88F6D04A89453E1CBC1A /* assets in Resources */,
-				EB0CF4DBED615085E3C91417 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
