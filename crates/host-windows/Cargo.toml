@@ -14,6 +14,8 @@ windows-sys = { version = "0.59", features = [
   "Win32_UI_Shell",
   "Win32_System_Com",
   "Win32_System_Threading",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
 ] }
 # Windows Ink handwriting recognition is WinRT, which windows-sys does not
 # project; this is the same InkRecognizerContainer the reference panel uses.
