@@ -72,6 +72,7 @@ end = time.monotonic() + 0.3
 while time.monotonic() < end:
     pump()
     time.sleep(0.01)
+keys("Shift_L")
 keys("n", "i", "h", "a", "o")
 wait(lambda: bool(preedit["text"]), "GTK did not receive composition preedit")
 assert first.get_text() == "", "GTK committed spelling before selection"

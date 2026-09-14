@@ -272,8 +272,8 @@ impl TouchKeyboardSchemePreferences {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
-    #[default]
     Chinese,
+    #[default]
     English,
 }
 
@@ -2113,7 +2113,7 @@ mod tests {
         fs::write(store.path(), bytes).unwrap();
         assert_eq!(
             store.load().unwrap().preferences.default_ime_mode,
-            DefaultImeMode::Chinese
+            DefaultImeMode::English
         );
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
         value["default_ime_mode"] = "english".into();

@@ -32,6 +32,8 @@ context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | 
 context.focus_in()
 assert bus.set_global_engine("msime-client-preview"), "Global engine activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+assert not context.process_key_event(ord("n"), 0, 0), "Configured English default intercepted input"
+context.property_activate("InputMode", IBus.PropState.CHECKED)
 context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
 context.property_activate("EnglishCandidates", IBus.PropState.CHECKED)
 context.property_activate("EmojiCandidates", IBus.PropState.CHECKED)
@@ -41,15 +43,17 @@ for character in "nihao":
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好"])
 # This fixture uses global CN/EN mode. A different input source must clear
-# that authority so returning starts with the configured Chinese default.
+# that authority so returning starts with the configured English default.
 context.property_activate("InputMode", IBus.PropState.UNCHECKED)
 assert not context.process_key_event(ord("n"), 0, 0)
 assert bus.set_global_engine("xkb:us::eng"), "US input source activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "xkb:us::eng")
 assert bus.set_global_engine("msime-client-preview"), "Input source reactivation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+assert not context.process_key_event(ord("n"), 0, 0), "Source switch did not restore configured English mode"
+context.property_activate("InputMode", IBus.PropState.CHECKED)
 for character in "nihao":
-    assert context.process_key_event(ord(character), 0, 0), "Source switch retained global English mode"
+    assert context.process_key_event(ord(character), 0, 0)
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好", "你好"])
 context.focus_out()

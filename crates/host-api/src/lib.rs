@@ -3517,7 +3517,7 @@ mod tests {
             scheme: InputScheme::Shuangpin,
             shuangpin_profile: ShuangpinProfile::Microsoft,
             last_chinese_scheme: Some(ChineseScheme::Shuangpin),
-            ..Preferences::default()
+            ..chinese_preferences()
         };
         let handle = test_host_preferences(dir.path(), chinese.clone());
         read(msime_client_focus(handle, true));
@@ -3610,7 +3610,7 @@ mod tests {
             Preferences {
                 scheme: InputScheme::Japanese,
                 touch_keyboard_layout: TouchKeyboardLayout::TwentySixKey,
-                ..Preferences::default()
+                ..chinese_preferences()
             },
         );
         read(msime_client_focus(handle, true));
@@ -3775,7 +3775,7 @@ mod tests {
                     emoji: false,
                     kaomoji: false,
                 },
-                ..Preferences::default()
+                ..chinese_preferences()
             },
         );
         read(msime_client_focus(handle, true));
@@ -4188,7 +4188,13 @@ mod tests {
     }
 
     fn test_host(root: &std::path::Path) -> u64 {
-        test_host_preferences(root, Preferences::default())
+        test_host_preferences(root, chinese_preferences())
+    }
+    fn chinese_preferences() -> Preferences {
+        Preferences {
+            default_ime_mode: msime_client_core::preferences::DefaultImeMode::Chinese,
+            ..Preferences::default()
+        }
     }
     fn test_host_preferences(root: &std::path::Path, preferences: Preferences) -> u64 {
         let path = |name| {
@@ -4331,7 +4337,7 @@ mod tests {
                     InputScheme::Japanese
                 },
                 candidate_translations: true,
-                ..Preferences::default()
+                ..chinese_preferences()
             };
             let handle = test_host_preferences(dir.path(), preferences.clone());
             read(msime_client_focus(handle, true));
@@ -4374,7 +4380,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let raw = Preferences {
             scheme: InputScheme::Shuangpin,
-            ..Preferences::default()
+            ..chinese_preferences()
         };
         let handle = test_host_preferences(dir.path(), raw.clone());
         read(msime_client_focus(handle, true));
@@ -4407,7 +4413,7 @@ mod tests {
         let microsoft = Preferences {
             scheme: InputScheme::Shuangpin,
             shuangpin_profile: ShuangpinProfile::Microsoft,
-            ..Preferences::default()
+            ..chinese_preferences()
         };
         let handle = test_host_preferences(dir.path(), microsoft.clone());
         read(msime_client_focus(handle, true));
@@ -4897,7 +4903,7 @@ mod tests {
             std::fs::create_dir_all(&path).unwrap();
             path
         };
-        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": { "scheme": "quanpin", "candidate_page_size": 5, "learning": false, "chinese_punctuation": true } }).to_string();
+        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": { "scheme": "quanpin", "default_ime_mode": "chinese", "candidate_page_size": 5, "learning": false, "chinese_punctuation": true } }).to_string();
         let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
         assert_eq!(created["ok"], true, "{created}");
         let handle = created["value"]["session"].as_u64().unwrap();
@@ -4929,7 +4935,7 @@ mod tests {
         let preferences = Preferences {
             scheme: InputScheme::Quanpin,
             cloud_candidates: true,
-            ..Preferences::default()
+            ..chinese_preferences()
         };
         let handle = test_host_preferences(dir.path(), preferences.clone());
         read(msime_client_focus(handle, true));
@@ -5003,7 +5009,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut preferences = Preferences {
             scheme: InputScheme::Quanpin,
-            ..Preferences::default()
+            ..chinese_preferences()
         };
         preferences.ai_assistant.enabled = true;
         preferences.ai_assistant.model = "synthetic-original".into();
