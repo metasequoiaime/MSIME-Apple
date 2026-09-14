@@ -7,6 +7,30 @@ namespace msime::windows {
 // Reads the catalog msime_client_skin_catalog returns and resolves one package
 // into the presenter's tokens. The shared catalog already validated the
 // manifest; nothing here trusts it further than the color parser does.
+// The minimum card width a package asks for, in DIPs, or 0 when it asks for
+// none. A mascot skin is drawn against a card of a particular width; a narrower
+// card makes the decoration overhang it.
+inline double candidate_skin_min_width(const nlohmann::json &catalog,
+                                       const std::string &id) {
+  if (id.empty() || !catalog.is_object() || !catalog.contains("packages") ||
+      !catalog.at("packages").is_array())
+    return 0.0;
+  for (const auto &package : catalog.at("packages")) {
+    if (!package.is_object() || !package.contains("id") ||
+        !package.at("id").is_string() || package.at("id") != id)
+      continue;
+    if (!package.contains("min_width_dip") ||
+        !package.at("min_width_dip").is_number())
+      return 0.0;
+    const auto value = package.at("min_width_dip").get<double>();
+    // The catalog validates the manifest, but a value this card cannot use is
+    // still refused here rather than propagated into the geometry.
+    if (!(value > 0.0) || value > 2000.0)
+      return 0.0;
+    return value;
+  }
+  return 0.0;
+}
 inline CandidatePaletteOverrides
 candidate_skin_overrides(const nlohmann::json &catalog, const std::string &id,
                          bool dark, const std::string &layout) {

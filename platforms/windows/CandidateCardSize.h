@@ -21,6 +21,11 @@ struct CandidateCardInput {
   // Work area caps. At most one pixel means the axis stays uncapped.
   double max_width = 0.0;
   double max_height = 0.0;
+  // Minimum card width asked for by an external skin package, in DIPs. Zero
+  // keeps the width derived from the font size. A mascot skin needs it: the
+  // artwork is drawn against a card of a particular width, and a narrow card
+  // makes the decoration overhang.
+  double skin_min_width = 0.0;
 };
 struct CandidateCardSize {
   double width, height;
@@ -105,7 +110,13 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   const double number_and_bar = shape.number_and_bar;
   const double pad_x = shape.pad_x, pad_y = shape.pad_y,
                slack_x = shape.slack_x, slack_y = shape.slack_y;
-  const double min_width = shape.min_width;
+  // The skin's floor only ever raises the built-in one, never lowers it: a
+  // package must not be able to shrink the card below what the text needs.
+  const double min_width =
+      (std::max)(shape.min_width, std::isfinite(input.skin_min_width) &&
+                                          input.skin_min_width > 0.0
+                                      ? input.skin_min_width
+                                      : 0.0);
   const double preedit_row = shape.preedit_row;
   const double candidate_row = shape.candidate_row;
 

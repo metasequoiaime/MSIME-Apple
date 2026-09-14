@@ -685,6 +685,27 @@ int wmain(int argc, wchar_t **argv) {
         config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); });
     const auto palette = resolve_palette(config);
+    // An external package may ask for a wider card than the font implies; the
+    // artwork is drawn against that width.
+    double skin_min_width = 0.0;
+    if (!config.skin_directory.empty() && !config.skin_id.empty() &&
+        !msime::windows::candidate_builtin_skin(config.skin_id)) {
+      try {
+        const auto root = config.skin_directory.u8string();
+        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+            msime_client_skin_catalog(
+                reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+            msime_client_string_free);
+        if (owned) {
+          const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
+          if (!catalog.is_discarded() && catalog.value("ok", false))
+            skin_min_width = msime::windows::candidate_skin_min_width(
+                catalog.at("value"), config.skin_id);
+        }
+      } catch (const std::exception &) {
+        skin_min_width = 0.0;
+      }
+    }
     auto resolved_palette = palette;
     if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
         config.candidate_number_color != "none")
@@ -707,6 +728,7 @@ int wmain(int argc, wchar_t **argv) {
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
+    candidates.set_skin_min_width(skin_min_width);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(resolved_palette);

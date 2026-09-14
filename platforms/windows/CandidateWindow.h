@@ -35,6 +35,8 @@ public:
   // Adopt resolved skin tokens. The next refresh repaints with them; the
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
+  // Minimum card width asked for by the active skin package, in DIPs.
+  void set_skin_min_width(double value) { skin_min_width_ = value; }
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
@@ -78,6 +80,8 @@ private:
   bool horizontal_ = false;
   bool show_preedit_ = true;
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
+  // Minimum card width asked for by the active skin package, in DIPs.
+  double skin_min_width_ = 0.0;
   std::vector<std::wstring> fallback_families_;
   Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical

@@ -343,6 +343,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.preedit_font_size = preedit_font_size_;
   input.max_width = static_cast<double>(available_width) / scale / 2.0;
   input.max_height = static_cast<double>(available_height) / scale / 2.0;
+  input.skin_min_width = skin_min_width_;
   if (show_preedit_)
     input.preedit_width = measured_width(device_, wide(value.preedit),
                                          font_family_,
