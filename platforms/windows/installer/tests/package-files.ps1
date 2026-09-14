@@ -91,6 +91,27 @@ try {
     if (-not $rejected) { throw 'Missing handwriting license was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing license damaged previous staging' }
     [IO.File]::WriteAllText($notice, 'fixture')
+    $pinyin = Join-Path $fixture 'server/assets/tables/pinyin.txt'
+    [IO.File]::WriteAllText($pinyin, 'invalid-fixture')
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'xing' }
+    if (-not $rejected) { throw 'Incomplete pinyin table was accepted' }
+    if (-not (Test-Path $database) -or [IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Invalid pinyin table damaged previous staging' }
+    [IO.File]::WriteAllText($pinyin, 'xing')
+    $factory = Join-Path $installer 'config.default.toml'
+    $originalFactory = [IO.File]::ReadAllText($factory)
+    foreach ($invalid in @(
+        ('schema = "invalid"' + "`n" + 'theme_mode = "system"'),
+        ('schema = "quanpin"' + "`n" + 'theme_mode = "invalid"'),
+        ('schema = "quanpin"' + "`n" + 'theme_mode = "system"' + "`n" + 'diagnostic_log = true')
+    )) {
+        [IO.File]::WriteAllText($factory, $invalid)
+        $rejected = $false
+        try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $true }
+        if (-not $rejected) { throw 'Invalid factory configuration was accepted' }
+        if (-not (Test-Path $database) -or [IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Invalid factory configuration damaged previous staging' }
+    }
+    [IO.File]::WriteAllText($factory, $originalFactory)
     if (-not (Test-Path (Join-Path $installer 'app_data/html/webview2/shared/runtime.js'))) { throw 'Light package lost shared contracts' }
     Remove-Item (Join-Path $fixture 'ui-html/webview2/shared') -Recurse -Force
     $rejected = $false

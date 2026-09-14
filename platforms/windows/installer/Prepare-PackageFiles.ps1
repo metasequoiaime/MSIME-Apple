@@ -138,6 +138,21 @@ if 'weight' not in names or pk != ['word', 'display']:
         throw "英文词库数据库 schema 检查失败：$englishDb"
     }
     Assert-PathExists -LiteralPath $othersDb -Description '杂项数据库 others.db'
+    # Validate source content before any existing package staging is removed.
+    if (-not (Get-Content -LiteralPath $pinyinTable | Where-Object { $_.Trim() -eq 'xing' })) {
+        throw "完整拼音音节表缺少 xing：$pinyinTable"
+    }
+    $defaultConfig = Get-Content -LiteralPath $factoryConfig -Raw
+    if ($defaultConfig -notmatch '(?m)^schema\s*=\s*"quanpin"\s*$') {
+        throw '出厂配置的 input.schema 必须是 quanpin。'
+    }
+    if ($defaultConfig -notmatch '(?m)^theme_mode\s*=\s*"system"\s*$') {
+        throw '出厂配置的 appearance.theme_mode 必须是 system。'
+    }
+    if ($defaultConfig -match '(?m)^diagnostic_log\s*=\s*true\s*$') {
+        throw '出厂配置不应默认打开 diagnostic_log。'
+    }
+    $defaultConfig = $defaultConfig.TrimEnd("`r", "`n") + "`r`n"
 }
 
 $hasHandwritingModel = Test-Path -LiteralPath $handwritingModel -PathType Leaf
@@ -157,9 +172,6 @@ if ($Light) {
 }
 else {
     Reset-Directory -LiteralPath $targetAppData
-    if (-not (Get-Content -LiteralPath $pinyinTable | Where-Object { $_.Trim() -eq 'xing' })) {
-        throw "完整拼音音节表缺少 xing：$pinyinTable"
-    }
     Copy-Item -LiteralPath $pinyinTable -Destination (Join-Path $targetAppData 'pinyin.txt') -Force
     Copy-Item -LiteralPath $dictionaryDb -Destination (Join-Path $targetAppData 'msime.db') -Force
     if (Test-Path -LiteralPath $dictionaryManifest) {
@@ -173,18 +185,6 @@ else {
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
     # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。
     # 安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
-    Copy-Item -LiteralPath $factoryConfig -Destination $defaultConfigPath -Force
-    $defaultConfig = Get-Content -LiteralPath $defaultConfigPath -Raw
-    if ($defaultConfig -notmatch '(?m)^schema\s*=\s*"quanpin"\s*$') {
-        throw '出厂配置的 input.schema 必须是 quanpin。'
-    }
-    if ($defaultConfig -notmatch '(?m)^theme_mode\s*=\s*"system"\s*$') {
-        throw '出厂配置的 appearance.theme_mode 必须是 system。'
-    }
-    if ($defaultConfig -match '(?m)^diagnostic_log\s*=\s*true\s*$') {
-        throw '出厂配置不应默认打开 diagnostic_log。'
-    }
-    $defaultConfig = $defaultConfig.TrimEnd("`r", "`n") + "`r`n"
     Set-Content -LiteralPath $defaultConfigPath -Value $defaultConfig -Encoding utf8NoBOM -NoNewline
     foreach ($stagedUserConfig in @('config.toml', 'config.base.toml')) {
         $stagedPath = Join-Path $targetAppData $stagedUserConfig
