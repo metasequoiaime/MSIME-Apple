@@ -2,6 +2,7 @@
 #include "CandidateFlyoutWindow.h"
 #include "CandidateWheel.h"
 #include "CursorResource.h"
+#include "NativeFontAlias.h"
 #include <algorithm>
 
 namespace msime::windows {
@@ -183,6 +184,11 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
       }
     }
   }
+  // GDI selects installed faces above; DirectWrite needs canonical families
+  // both for measurement and the per-glyph fallback mapping.
+  font_family_ = native_font_alias(font_family_);
+  for (auto &family : fallback_families_)
+    family = native_font_alias(family);
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;

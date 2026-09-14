@@ -664,6 +664,27 @@ pub extern "C" fn msime_client_abi_version() -> u32 {
     2
 }
 
+/// Resolve display font families using the same adapter as the shared preview.
+/// # Safety
+/// `value` points to `length` readable bytes containing a JSON string array.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resolve_font_families(
+    value: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if value.is_null() || length > 32 * 1024 {
+            return Err("font_family".into());
+        }
+        // SAFETY: guaranteed by the caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(value, length) };
+        let names: Vec<String> = serde_json::from_slice(bytes).map_err(|_| "font_family")?;
+        let resolved = system_fonts::resolve_css_families(names).map_err(str::to_owned)?;
+        Ok(json!(resolved))
+    })
+}
+
 /// Resolve a shared surface route so a native host launches the shared shell by
 /// name instead of hardcoding window labels. Returns the canonical route plus
 /// the panel label, query and geometry, or an error for an unknown route.

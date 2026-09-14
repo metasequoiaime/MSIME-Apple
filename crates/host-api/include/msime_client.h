@@ -464,6 +464,10 @@ char *msime_client_apply_online_candidates(uint64_t session,
  * so a host launches the shared shell by name. Returns the canonical route and,
  * for panel surfaces, the window label, query and geometry. */
 char *msime_client_parse_surface_route(const uint8_t *value, size_t length);
+/* Display-only font aliases. Input: JSON array, at most 33 names / 32 KiB.
+ * Returns the standard response with an array value. Free with string_free.
+ * Resolution failure retains the corresponding original family name. */
+char *msime_client_resolve_font_families(const uint8_t *value, size_t length);
 /* Describe what the named host ("windows"/"macos"/"linux"/"android"/"ios") can
  * do, so the shared UI renders from capabilities rather than the user agent. */
 char *msime_client_host_capabilities(const uint8_t *platform, size_t length);
