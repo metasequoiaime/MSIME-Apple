@@ -1082,6 +1082,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     _ = bridge.cancel()
     XCTAssertTrue(bridge.suspendDictionarySession())
     XCTAssertTrue(bridge.suspendDictionarySession(), "suspending twice is not an error")
+    // Pausing learning would leave the session, and its dictionary access, very much alive. Only a
+    // destroyed session hands the access back, and a destroyed session cannot answer a keystroke.
+    let whileSuspended = bridge.handleCharacter("n")
+    XCTAssertNotNil(whileSuspended.diagnosticText, "the session is paused, not released")
+    XCTAssertTrue(whileSuspended.candidates.isEmpty)
     try bridge.resumeDictionarySession()
     snapshot = bridge.cancel()
     for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
