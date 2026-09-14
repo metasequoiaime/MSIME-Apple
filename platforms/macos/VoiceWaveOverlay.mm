@@ -22,6 +22,9 @@
     NSTextView *_transcriptView;
     NSUInteger _presentationGeneration;
     BOOL _showingFailure;
+    BOOL _dismissed;
+    NSButton *_cancelButton;
+    NSButton *_confirmButton;
 }
 - (instancetype)init {
     self = [super initWithContentRect:NSMakeRect(0,0,156,44)
@@ -44,24 +47,55 @@
         _transcriptView.textContainer.containerSize = NSMakeSize(340, CGFLOAT_MAX);
         _transcriptView.maxSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
         _transcriptScroll.documentView = _transcriptView; [_view addSubview:_transcriptScroll];
+        _cancelButton = [NSButton buttonWithTitle:@"取消" target:self action:@selector(cancelVoice:)];
+        _confirmButton = [NSButton buttonWithTitle:@"确认" target:self action:@selector(confirmVoice:)];
+        for (NSButton *button in @[_cancelButton, _confirmButton]) {
+            button.hidden = YES; button.refusesFirstResponder = YES;
+            button.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+            button.contentTintColor = NSColor.whiteColor;
+            [_view addSubview:button];
+        }
     }
     return self;
 }
 - (NSString *)statusText { return _view.status; }
 - (NSString *)transcriptText { return _transcriptView.string; }
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+- (void)setActionHandler:(void (^)(BOOL))handler {
+    _actionHandler = [handler copy];
+    [self layoutPresentation];
+}
+- (void)cancelVoice:(id)sender {
+    (void)sender;
+    if (self.visible && !_showingFailure && !_dismissed && self.actionHandler) self.actionHandler(YES);
+}
+- (void)confirmVoice:(id)sender {
+    (void)sender;
+    if (self.visible && !_showingFailure && !_dismissed && self.actionHandler) self.actionHandler(NO);
+}
+- (void)dismissProcessing {
+    _dismissed = YES;
+    ++_presentationGeneration;
+    [self orderOut:nil];
+}
 - (void)layoutPresentation {
     const BOOL transcript = _transcriptView.string.length > 0;
+    const BOOL actions = self.actionHandler && _view.status.length && !_showingFailure && !_dismissed;
     NSRect frame = self.frame;
     CGFloat center = NSMidX(frame);
-    frame.size.width = MAX(transcript ? 380 : 156, ceil([_view.status sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width) + 50);
-    frame.size.height = transcript ? 180 : 44;
+    frame.size.width = MAX(transcript ? 380 : actions ? 220 : 156, ceil([_view.status sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width) + 50);
+    frame.size.height = (transcript ? 180 : 44) + (actions ? 36 : 0);
     frame.origin.x = center - frame.size.width / 2;
     [self setFrame:frame display:NO];
     _transcriptScroll.hidden = !transcript;
-    _transcriptScroll.frame = NSMakeRect(12, 12, frame.size.width - 24, MAX(0, frame.size.height - 56));
-    // Only the scrollable preview handles pointer events; this panel still
+    _transcriptScroll.frame = NSMakeRect(12, actions ? 48 : 12, frame.size.width - 24, transcript ? 124 : 0);
+    _cancelButton.hidden = _confirmButton.hidden = !actions;
+    _cancelButton.frame = NSMakeRect(frame.size.width - 156, 8, 68, 28);
+    _confirmButton.frame = NSMakeRect(frame.size.width - 80, 8, 68, 28);
+    // Buttons and the scrollable preview handle pointer events; this panel still
     // cannot become key/main or redirect typing away from the IMK client.
-    self.ignoresMouseEvents = !transcript;
+    self.ignoresMouseEvents = !transcript && !actions;
     [_view setNeedsDisplay:YES];
 }
 - (void)setTranscript:(NSString *)text {
@@ -76,7 +110,7 @@
     _view.listening = listening; _view.level = 0; _view.status = status;
     _view.accessibilityLabel = status; [_view setNeedsDisplay:YES];
     [self layoutPresentation];
-    if (!status.length) { [self orderOut:nil]; return; }
+    if (!status.length || _dismissed) { [self orderOut:nil]; return; }
     if (!self.visible) {
         NSRect screen = (NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
         [self setFrameOrigin:NSMakePoint(NSMidX(screen) - self.frame.size.width / 2, NSMinY(screen) + 32)];
@@ -84,12 +118,16 @@
     [self orderFront:nil];
 }
 - (void)setListening:(BOOL)listening {
+    if (listening) _dismissed = NO;
+    else self.actionHandler = nil;
     _transcriptView.string = @"";
     [self showStatus:listening ? @"正在录音…" : @"" listening:listening];
 }
 - (void)setProcessing:(BOOL)polishing { [self showStatus:polishing ? @"正在润色…" : @"正在识别…" listening:NO]; }
 - (NSTimeInterval)failureDisplayDuration { return 6; }
 - (void)showFailure:(MSIMEVoiceFailure)failure {
+    self.actionHandler = nil;
+    _dismissed = NO;
     _transcriptView.string = @"";
     // Never surface raw transport errors, transcripts, URLs or credentials.
     NSString *message;

@@ -42,6 +42,8 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+@property(copy) void (^actionHandler)(BOOL);
+@property BOOL dismissed;
 @property(copy) NSString *preview;
 @property NSUInteger phase;
 @property NSUInteger failure;
@@ -53,6 +55,7 @@
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
+- (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
@@ -147,12 +150,14 @@ int main() {
         assert(Start(controller, capture, session, YES));
         assert(cues.starts == 1 && cues.stops == 0);
         DoubaoRequestFixture *request = controller.fixture;
+        void (^oldAction)(BOOL) = presentation.actionHandler;
         request.result(@"synthetic partial", NO, nil);
         assert(!presentation.preview.length);
         assert([client.marked isEqual:@"synthetic partial"] && client.commits.count == 0);
         capture.chunk([NSMutableData dataWithLength:32], nil);
-        [controller finishVoiceInputForDisable];
-        [controller finishVoiceInputForDisable];
+        presentation.actionHandler(NO);
+        presentation.actionHandler(NO);
+        assert(presentation.dismissed && capture.active);
         assert(request.audio.length == 48 && request.finishes == 1 && capture.finishes == 1);
         assert(!request.cancellations);
         request.result(@"synthetic final", YES, nil);
@@ -161,6 +166,8 @@ int main() {
         request.result(@"duplicate", YES, nil);
         assert(client.commits.count == 1);
         assert(Start(controller, capture, session, NO));
+        oldAction(YES); oldAction(NO);
+        assert(capture.active && !controller.fixture.finishes && !controller.fixture.cancellations);
         controller.fixture.result(@"hidden partial", NO, nil);
         assert(!client.marked.length);
         assert([presentation.preview isEqual:@"hidden partial"]);
@@ -169,7 +176,7 @@ int main() {
         assert(Start(controller, capture, session, YES));
         request = controller.fixture;
         request.result(@"cancelled partial", NO, nil);
-        [controller cancelDoubaoVoiceInput];
+        presentation.actionHandler(YES);
         assert(!client.marked.length && request.cancellations == 1);
         assert(Start(controller, capture, session, YES));
         request.result(@"late old final", YES, nil);

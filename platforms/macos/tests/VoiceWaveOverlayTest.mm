@@ -19,6 +19,23 @@ int main(int argc, char **argv) {
         assert(!panel.canBecomeMainWindow);
         assert(panel.contentView != nil);
         assert(!panel.isVisible);
+        __block NSUInteger cancels = 0, confirms = 0;
+        panel.actionHandler = ^(BOOL cancel) { if (cancel) ++cancels; else ++confirms; };
+        [panel setListening:YES];
+        NSButton *cancelButton = [panel valueForKey:@"cancelButton"];
+        NSButton *confirmButton = [panel valueForKey:@"confirmButton"];
+        assert(!cancelButton.hidden && !confirmButton.hidden && !panel.ignoresMouseEvents);
+        [cancelButton performClick:nil]; [confirmButton performClick:nil];
+        assert(cancels == 1 && confirms == 1);
+        assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        [panel setProcessing:NO]; [panel dismissProcessing]; [panel setProcessing:YES];
+        [panel setTranscript:@"synthetic dismissed preview"];
+        assert(!panel.visible && !panel.transcriptText.length);
+        [confirmButton performClick:nil]; assert(confirms == 1);
+        [panel setListening:YES];
+        assert(panel.visible && !confirmButton.hidden);
+        [panel showFailure:MSIMEVoiceFailureProvider];
+        assert(cancelButton.hidden && confirmButton.hidden && !panel.actionHandler);
         [panel setListening:NO];
         assert(!panel.isVisible);
         // Synthetic levels exercise the main-queue update without microphone access.
@@ -46,9 +63,11 @@ int main(int argc, char **argv) {
         assert([panel.transcriptText containsString:@"合成预览"]);
         assert([panel.contentView.accessibilityLabel isEqual:panel.statusText]);
         if (argc == 2) {
+            panel.actionHandler = ^(BOOL) {};
             NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
             [panel.contentView cacheDisplayInRect:panel.contentView.bounds toBitmapImageRep:bitmap];
             assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);
+            panel.actionHandler = nil;
         }
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         NSString *longPreview = [@"合成滚动文本\n" stringByPaddingToLength:5000 withString:@"合成滚动文本\n" startingAtIndex:0];

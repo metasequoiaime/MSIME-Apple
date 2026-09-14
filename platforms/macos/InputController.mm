@@ -1020,6 +1020,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _doubaoVoiceProcessing = NO;
     _doubaoVoiceMarked = NO;
     _doubaoVoiceInline = [options[@"stream"] boolValue];
+    [self bindVoiceOverlayActions];
     __weak MSIMEInputController *weakSelf = self;
     __weak MSIMEDoubaoVoiceRequest *weakRequest = request;
     if (![request startWithResult:^(NSString *text, BOOL final, NSError *failure) {
@@ -1119,6 +1120,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _httpVoiceGeneration = _voiceGeneration;
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
+    [self bindVoiceOverlayActions];
     __weak MSIMEHTTPVoiceRequest *weakRequest = request;
     request.polishingHandler = ^{
         MSIMEInputController *controller = weakSelf;
@@ -1216,12 +1218,36 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _livePolishRequest = socket.length ? nil : [self makeLiveVoicePolishRequest:options];
     _liveVoiceFinalReceived = NO;
     _liveVoiceInline = [options[@"stream"] boolValue]; _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
+    [self bindVoiceOverlayActions];
     id token = _liveVoiceToken;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         [weakSelf expireLiveVoice:token];
     });
     return token;
+}
+- (void)bindVoiceOverlayActions {
+    __weak MSIMEInputController *weakSelf = self;
+    id client = _activeClient;
+    MSIMEClientSession *session = _session;
+    const uint64_t generation = _voiceGeneration;
+    id http = _httpVoiceRequest, doubao = _doubaoVoiceRequest, live = _liveVoiceToken;
+    _voiceOverlay.actionHandler = ^(BOOL cancel) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_activeClient != client || controller->_session != session ||
+            controller->_voiceGeneration != generation || !controller->_voiceService.active ||
+            controller->_httpVoiceRequest != http || controller->_doubaoVoiceRequest != doubao ||
+            controller->_liveVoiceToken != live || !(http || doubao || live)) return;
+        // A subsequent physical hold release must not toggle pending recognition.
+        controller->_voiceHoldShortcut.reset();
+        if (cancel) {
+            [controller cancelHTTPVoiceInput]; [controller cancelDoubaoVoiceInput]; [controller cancelLiveVoiceInput];
+        } else if (controller->_httpVoiceProcessing || controller->_doubaoVoiceProcessing || controller->_liveVoiceProcessing) {
+            [controller->_voiceOverlay dismissProcessing];
+        } else if (http) [controller finishHTTPVoiceInput];
+        else if (doubao) [controller finishDoubaoVoiceInput];
+        else [controller finishLiveVoiceInput];
+    };
 }
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;

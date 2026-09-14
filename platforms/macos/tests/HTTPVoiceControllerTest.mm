@@ -54,11 +54,14 @@
 @end
 
 @interface HTTPOverlayFixture : NSObject
+@property(copy) void (^actionHandler)(BOOL);
+@property BOOL dismissed;
 @property NSUInteger phase;
 @property NSUInteger failure;
 @property NSUInteger failures;
 @end
 @implementation HTTPOverlayFixture
+- (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
@@ -156,6 +159,32 @@ int main() {
         controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         assert(overlay.failures == beforeStale && !capture.active);
         [controller setValue:client forKey:@"activeClient"];
+        // Overlay confirmation stops capture once, then only dismisses processing.
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        void (^oldAction)(BOOL) = overlay.actionHandler;
+        overlay.actionHandler(NO);
+        assert(controller.requestFixture.submitted && !controller.requestFixture.cancellations);
+        overlay.actionHandler(NO);
+        assert(overlay.dismissed && capture.active && !controller.requestFixture.cancellations);
+        NSUInteger beforeConfirm = session.submissions;
+        controller.requestFixture.completion(@"synthetic", nil);
+        assert(session.submissions == beforeConfirm + 1 && !capture.active);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        oldAction(YES); oldAction(NO);
+        assert(capture.active && !controller.requestFixture.submitted && !controller.requestFixture.cancellations);
+        // Focus, session and generation mismatches make both buttons inert.
+        for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
+            id original = [controller valueForKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            overlay.actionHandler(YES); overlay.actionHandler(NO);
+            assert(capture.active && !controller.requestFixture.submitted);
+            [controller setValue:original forKey:field];
+        }
+        overlay.actionHandler(NO);
+        HTTPRequestFixture *cancelled = controller.requestFixture;
+        overlay.actionHandler(YES);
+        cancelled.completion(@"synthetic", nil); cancelled.completion = nil;
+        assert(!capture.active && session.submissions == beforeConfirm + 1);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

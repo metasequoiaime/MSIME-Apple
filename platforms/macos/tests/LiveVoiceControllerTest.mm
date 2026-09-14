@@ -41,6 +41,8 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+@property(copy) void (^actionHandler)(BOOL);
+@property BOOL dismissed;
 @property(copy) NSString *preview;
 @property NSUInteger phase;
 @property NSUInteger failure;
@@ -50,6 +52,7 @@
 - (void)restore;
 @end
 @implementation LivePresentationFixture
+- (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
@@ -150,8 +153,9 @@ int main(int argc, char **) {
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert(cues.starts == 1 && cues.stops == 0);
             assert([client.marked isEqual:@"socket partial"] && !client.commits.count);
-            [controller finishVoiceInputForDisable];
-            [controller finishVoiceInputForDisable];
+            presentation.actionHandler(NO);
+            presentation.actionHandler(NO);
+            assert(presentation.dismissed && capture.active);
             session.providerPhase(1); session.providerPhase(2); session.providerPhase(0);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert(presentation.phase == 3);
@@ -192,18 +196,25 @@ int main(int argc, char **) {
         assert(!presentation.preview.length); // Inline mode does not duplicate client text.
         assert(client.commits.count == 0 && [client.marked isEqual:@"synthetic partial"]);
         NSUInteger cancelled = capture.transcriptionStops;
-        [controller toggleVoiceInput:nil];
+        void (^oldAction)(BOOL) = presentation.actionHandler;
+        presentation.actionHandler(NO);
         assert(capture.active && capture.captureStops && capture.transcriptionStops == cancelled);
         assert(presentation.phase == 2);
+        presentation.actionHandler(NO);
+        assert(presentation.dismissed && capture.active);
         first(@"synthetic final", YES);
         assert(!capture.active && client.commits.count == 1 && [client.commits[0] isEqual:@"synthetic final"]);
         assert(presentation.phase == 0);
         first(@"duplicate", YES); assert(client.commits.count == 1);
         assert(cues.starts == 1 && cues.stops == 1);
         [controller toggleVoiceInput:nil];
+        oldAction(YES); oldAction(NO);
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
         first(@"old callback", YES); assert(capture.active && client.commits.count == 1);
         capture.transcript(@"cancelled partial", NO);
-        [controller voiceProviderSettingsChanged:nil]; assert(!capture.active && !client.marked.length);
+        void (^cancelledTranscript)(NSString *, BOOL) = capture.transcript;
+        presentation.actionHandler(YES); assert(!capture.active && !client.marked.length);
+        cancelledTranscript(@"synthetic cancelled final", YES); assert(client.commits.count == 1);
         [controller toggleVoiceInput:nil];
         [controller setValue:[LiveTextFixture new] forKey:@"activeClient"];
         capture.transcript(@"wrong focus", YES); assert(client.commits.count == 1);
