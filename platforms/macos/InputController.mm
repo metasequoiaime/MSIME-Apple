@@ -37,6 +37,7 @@
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
 #import "VoiceWaveOverlay.h"
+#include "../../shared/voice/CaptureDuration.h"
 #import "VoiceCuePlayer.h"
 #import "VoiceAudioMuter.h"
 #import "VoiceProviderSettings.h"
@@ -1039,16 +1040,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             return; // Partial text must not consume the runtime's final-only token.
         }
         controller->_doubaoFinalReceived = YES;
+        if (!controller->_doubaoVoiceProcessing) {
+            controller->_doubaoVoiceProcessing = YES;
+            // Final already arrived: stop capture without sending a final packet.
+            [controller->_voiceService finishPCMStreamingWithError:nil];
+            [controller->_voiceAudioMuter restore];
+            [controller voiceCaptureDidEnd];
+        }
+        if (msime::voice::short_capture(controller->_voiceService.recordedDuration)) {
+            [controller cancelDoubaoVoiceInput]; return;
+        }
         MSIMEHTTPVoiceRequest *polisher = controller->_doubaoPolishRequest;
         if (text.length && polisher) {
-            if (!controller->_doubaoVoiceProcessing) {
-                controller->_doubaoVoiceProcessing = YES;
-                // The server already ended recognition. Drain/stop capture,
-                // but never send another packet to its completed request.
-                [controller->_voiceService finishPCMStreamingWithError:nil];
-                [controller->_voiceAudioMuter restore];
-                [controller voiceCaptureDidEnd];
-            }
             [controller->_voiceOverlay setProcessing:YES];
             if (!controller->_doubaoVoiceInline) [controller->_voiceOverlay setTranscript:text];
         }
@@ -1085,6 +1088,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _doubaoVoiceProcessing = YES;
     NSError *error = nil;
     NSData *tail = [_voiceService finishPCMStreamingWithError:&error];
+    if (tail && !error && msime::voice::short_capture(_voiceService.recordedDuration)) { [self cancelDoubaoVoiceInput]; return; }
     [_voiceAudioMuter restore];
     [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
@@ -1157,6 +1161,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _httpVoiceProcessing = YES;
     NSError *error = nil;
     NSData *pcm = [_voiceService finishPCMRecordingWithError:&error];
+    if (pcm && !error && msime::voice::short_capture(_voiceService.recordedDuration)) { [self cancelHTTPVoiceInput]; return; }
     [_voiceAudioMuter restore];
     [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
@@ -1271,6 +1276,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         return;
     }
     _liveVoiceFinalReceived = YES;
+    if (!_liveVoiceSocket.length && !_liveVoiceProcessing) {
+        [self finishLiveVoiceInput];
+        if (![self ownsLiveVoiceToken:token]) return;
+    }
     if (text.length && _livePolishRequest) {
         // Final recognition may arrive before key release. Stop audio while
         // polishing, retaining only this session's final-result authorization.
@@ -1301,6 +1310,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _liveVoiceProcessing = YES;
     // endAudio is sent by stopMicrophoneCapture; leave Speech alive for its final.
     [_voiceService stopMicrophoneCapture];
+    if (!_liveVoiceSocket.length && msime::voice::short_capture(_voiceService.recordedDuration)) { [self cancelLiveVoiceInput]; return; }
     [_voiceAudioMuter restore]; [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (_liveVoiceSocket.length) {

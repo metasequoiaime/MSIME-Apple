@@ -33,5 +33,7 @@ typedef void (^MSIMEVoicePCMChunk)(NSData * _Nullable pcm, NSError * _Nullable e
 - (void)requestSpeechPermission:(void (^)(BOOL))completion;
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion;
 @property(nonatomic, readonly, getter=isActive) BOOL active;
+// Actual admitted capture frames; frozen at stop and reset for each new tap.
+@property(nonatomic, readonly) NSTimeInterval recordedDuration;
 @end
 NS_ASSUME_NONNULL_END

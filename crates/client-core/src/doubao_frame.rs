@@ -1,5 +1,9 @@
 use flate2::{write::GzEncoder, Compression};
-use std::io::Write;
+use std::io::{Read, Write};
+
+// A small compressed response must not expand without bound in host-api.
+const MAX_RESPONSE_FRAME_BYTES: usize = 1_048_576;
+const MAX_RESPONSE_PAYLOAD_BYTES: usize = 1_048_576;
 
 /// Build the initial Doubao ASR request used by the Windows client.
 pub fn start_frame(
@@ -50,7 +54,12 @@ pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[
 }
 
 pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
-    if frame.len() < 8 || (frame[0] & 0x0f) != 1 || (frame[1] >> 4) != 0x09 || frame[2] != 0x11 {
+    if frame.len() < 8
+        || frame.len() > MAX_RESPONSE_FRAME_BYTES
+        || frame[0] != 0x11
+        || (frame[1] >> 4) != 0x09
+        || frame[2] != 0x11
+    {
         return None;
     }
     let flags = frame[1] & 0x0f;
@@ -64,14 +73,24 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
     if offset + 4 > frame.len() {
         return None;
     }
-    let size = i32::from_be_bytes(frame[offset..offset + 4].try_into().ok()?) as usize;
+    let size = u32::from_be_bytes(frame[offset..offset + 4].try_into().ok()?) as usize;
     offset += 4;
-    if frame.len() < offset + size {
+    // Compare by subtraction: hostile length fields must never overflow an
+    // addition, and one WebSocket message must contain exactly one frame.
+    if size != frame.len() - offset {
         return None;
     }
-    let mut decoder = flate2::read::GzDecoder::new(&frame[offset..offset + size]);
+    // bufread preserves unread bytes, allowing us to reject concatenated gzip
+    // members or junk inside the declared compressed payload as well.
+    let mut decoder = flate2::bufread::GzDecoder::new(&frame[offset..]);
     let mut payload = Vec::new();
-    std::io::Read::read_to_end(&mut decoder, &mut payload).ok()?;
+    (&mut decoder)
+        .take((MAX_RESPONSE_PAYLOAD_BYTES + 1) as u64)
+        .read_to_end(&mut payload)
+        .ok()?;
+    if payload.len() > MAX_RESPONSE_PAYLOAD_BYTES || !decoder.into_inner().is_empty() {
+        return None;
+    }
     Some(((flags & 0x02) != 0, 0, payload))
 }
 
@@ -99,6 +118,54 @@ pub fn decode_error_code(frame: &[u8]) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_decoder_bounds_expansion_and_accepts_exact_limit() {
+        let payload = vec![b'a'; MAX_RESPONSE_PAYLOAD_BYTES];
+        let frame = encode_json_frame(9, 1, 1, &payload);
+        assert_eq!(decode_json_frame(&frame).unwrap().2, payload);
+        let frame = encode_json_frame(9, 1, 1, &vec![b'a'; MAX_RESPONSE_PAYLOAD_BYTES + 1]);
+        assert!(frame.len() < 4096);
+        assert!(decode_json_frame(&frame).is_none());
+        assert!(decode_json_frame(&vec![0; MAX_RESPONSE_FRAME_BYTES + 1]).is_none());
+    }
+
+    #[test]
+    fn response_decoder_rejects_truncation_hostile_sizes_and_wrong_version() {
+        let frame = encode_json_frame(9, 1, 1, b"{}");
+        for length in 0..frame.len() {
+            assert!(decode_json_frame(&frame[..length]).is_none());
+        }
+        for size in [0_u32, 1, u32::MAX, i32::MAX as u32] {
+            let mut invalid = frame.clone();
+            invalid[8..12].copy_from_slice(&size.to_be_bytes());
+            assert!(decode_json_frame(&invalid).is_none());
+        }
+        let mut invalid = frame;
+        invalid[0] = 0x21;
+        assert!(decode_json_frame(&invalid).is_none());
+    }
+
+    #[test]
+    fn response_decoder_rejects_trailing_bytes_and_corrupt_gzip() {
+        let frame = encode_json_frame(9, 1, 1, b"{}");
+        let mut invalid = frame.clone();
+        invalid.push(0);
+        assert!(decode_json_frame(&invalid).is_none());
+        // Even if the outer size includes junk, gzip must consume it all.
+        let size = (invalid.len() - 12) as u32;
+        invalid[8..12].copy_from_slice(&size.to_be_bytes());
+        assert!(decode_json_frame(&invalid).is_none());
+        let mut concatenated = frame.clone();
+        concatenated.extend_from_slice(&frame[12..]);
+        let size = (concatenated.len() - 12) as u32;
+        concatenated[8..12].copy_from_slice(&size.to_be_bytes());
+        assert!(decode_json_frame(&concatenated).is_none());
+        let mut corrupt = frame;
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
+        assert!(decode_json_frame(&corrupt).is_none());
+    }
 
     #[test]
     fn builds_windows_compatible_start_and_final_audio_frames() {
