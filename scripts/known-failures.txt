@@ -10,7 +10,6 @@
 #
 # The desktop suite has no entries: it is green. It used to fail five tests on
 # timing alone, which raising the test timeout fixed - see vite.config.ts.
-msime-client-core translation_store::tests::concurrent_replacement_never_exposes_partial_records
 native voice_audio_contract
 native voice_capture_lifetime
 native voice_doubao_protocol
