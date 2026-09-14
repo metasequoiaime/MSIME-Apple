@@ -10,6 +10,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAccountSession.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAnonymousAccount.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendLocalStore.swift"
+    "${CMAKE_CURRENT_SOURCE_DIR}/platforms/macos/src/CandidateGlossClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendClipboardClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendPreferencesClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendDictionaryClient.swift"
@@ -29,7 +30,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${METASEQUOIA_MACOS_ROOT}/src/BackendSettingsView.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendClipboardView.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendAccountWindow.swift"
-    "${METASEQUOIA_MACOS_ROOT}/src/CandidateTranslationBridge.swift")
+    "${METASEQUOIA_MACOS_ROOT}/src/BackendAccountBridge.swift")
 set(MSIME_ACCOUNT_ARCHIVES)
 foreach(architecture IN LISTS CMAKE_OSX_ARCHITECTURES)
     set(archive "${CMAKE_CURRENT_BINARY_DIR}/backend-account/${architecture}/libMSIMEBackendAccount.a")

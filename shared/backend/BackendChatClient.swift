@@ -36,3 +36,21 @@ extension BackendAccountClient {
     return reply.content
   }
 }
+
+extension BackendAccountClient {
+  /// 一次一组。服务端的 texts 走腾讯 TextTranslateBatch,按顺序返回同样多条 —— 按词发请求会让一页
+  /// 九个候选两种语言变成十八个并发请求,而后端的 max_concurrent 是非阻塞信号量,满了直接 503。
+  /// 上游是腾讯还是别的由服务端决定,客户端不持有任何密钥。
+  func translate(texts: [String], target: String, token: String) async throws -> [String] {
+    struct Body: Encodable { let texts: [String]; let source_lang = "ZH"; let target_lang: String }
+    struct Response: Decodable { let code: Int; let data: [String] }
+    guard (1...32).contains(texts.count), !target.isEmpty, target.utf8.count <= 16,
+          texts.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 2048 })
+    else { throw Failure(status: 400) }
+    let body = try JSONEncoder().encode(Body(texts: texts, target_lang: target))
+    let response: Response = try await json("POST", "/v1/translate", token: token, body: body, timeout: 30)
+    // 少一条就对不上号了 —— 释义是按位置配回候选的,宁可整批丢掉也不能错位。
+    guard response.code == 200, response.data.count == texts.count else { throw Failure(status: 502) }
+    return response.data
+  }
+}
