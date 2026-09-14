@@ -507,10 +507,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertFalse(package.get("include-component-in-tag", True))
 
         ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
+        # 这份名单是受信任的第三方代码的边界,加一项就是扩大 CI 里能跑的代码范围,所以要显式改这里,
+        # 而不是让断言自动接受新出现的 action。actions/cache 是 GitHub 自家的,和名单上其余几项同源,
+        # 并且下面那条断言仍然要求它钉在 40 位 commit SHA 上。
         allowed_actions = {
             "actions/checkout", "googleapis/release-please-action", "actions/setup-go",
             "actions/dependency-review-action", "actions/upload-artifact", "github/codeql-action/init",
-            "github/codeql-action/analyze",
+            "github/codeql-action/analyze", "actions/cache",
         }
         used_actions = set()
         # The guard against a broken glob or parse counts the whole tree rather than each file:
