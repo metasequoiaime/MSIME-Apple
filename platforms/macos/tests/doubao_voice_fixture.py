@@ -69,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            legacy = self.path in ("/legacy", "/inferred")
+            legacy = self.path in ("/legacy", "/inferred", "/trimmed-legacy")
             assert self.headers.get("X-Api-Key") == (None if legacy else "fixture-token")
             assert self.headers.get("X-Api-App-Key") == ("stale-fixture-app" if legacy else None)
             assert self.headers.get("X-Api-Access-Key") == ("fixture-token" if legacy else None)
@@ -124,7 +124,8 @@ try:
     result = subprocess.run([sys.argv[1], f"ws://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors
     assert all(counts.get(path) == 1 for path in
-               ("/api", "/legacy", "/inferred", "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent"))
+               ("/api", "/legacy", "/inferred", "/masked-app", "/inferred-masked", "/trimmed", "/trimmed-legacy",
+                "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent"))
     assert "/leaked" not in counts
 finally:
     server.shutdown()

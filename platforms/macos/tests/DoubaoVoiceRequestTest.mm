@@ -33,16 +33,29 @@ int main(int argc, const char *argv[]) {
             @{@"asr_token":@"fixture\r\nheader"}, @{@"asr_token":@""}, @{@"asr_token":@42},
             @{@"asr_token":@"fixture-token", @"doubao_auth_mode":@"other"},
             @{@"asr_token":@"fixture-token", @"doubao_auth_mode":@"legacy"},
+            @{@"asr_token":@"<stored>"}, @{@"asr_token":@"***"}, @{@"asr_token":@"   "},
+            @{@"asr_token":@"fixture-token", @"asr_resource_id":@"<stored>"},
+            @{@"asr_token":@"fixture-token", @"asr_resource_id":@"***"},
+            @{@"asr_token":@"fixture-token", @"doubao_auth_mode":@"legacy", @"asr_app_key":@"<stored>"},
+            @{@"asr_token":@"fixture-token", @"doubao_auth_mode":@"legacy", @"asr_app_key":@"***"},
             @{@"asr_token":@"fixture-token", @"doubao_boosting_table_id":invalidUTF8},
             @{@"asr_token":@"fixture-token", @"doubao_enable_itn":@1}
         ]) {
             NSError *error = nil;
             assert(![[MSIMEDoubaoVoiceRequest alloc] initWithOptions:invalid error:&error] && error);
         }
-        for (NSString *path in @[@"/api", @"/legacy", @"/inferred"]) {
+        for (NSString *path in @[@"/api", @"/legacy", @"/inferred", @"/masked-app", @"/inferred-masked", @"/trimmed", @"/trimmed-legacy"]) {
             NSMutableDictionary *snapshot = [options(path) mutableCopy];
             if ([path isEqual:@"/legacy"]) snapshot[@"doubao_auth_mode"] = @"legacy";
             if ([path isEqual:@"/inferred"]) [snapshot removeObjectForKey:@"doubao_auth_mode"];
+            if ([path isEqual:@"/masked-app"] || [path isEqual:@"/inferred-masked"]) snapshot[@"asr_app_key"] = @"<stored>";
+            if ([path isEqual:@"/inferred-masked"]) [snapshot removeObjectForKey:@"doubao_auth_mode"];
+            if ([path hasPrefix:@"/trimmed"]) {
+                snapshot[@"doubao_auth_mode"] = [path isEqual:@"/trimmed-legacy"] ? @" legacy " : @" api_key ";
+                snapshot[@"asr_token"] = @" fixture-token ";
+                snapshot[@"asr_app_key"] = @" stale-fixture-app ";
+                snapshot[@"asr_resource_id"] = @" volc.bigasr.sauc.duration ";
+            }
             MSIMEDoubaoVoiceRequest *request = [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:snapshot error:nil];
             assert(request);
             snapshot[@"asr_token"] = @"changed-after-snapshot";

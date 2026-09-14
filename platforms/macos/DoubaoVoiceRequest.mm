@@ -1,7 +1,9 @@
 #import "DoubaoVoiceRequest.h"
 #include <msime/voice/doubao_protocol.h>
+#include "msime_client.h"
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -48,8 +50,11 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
         @"doubao_auth_mode", @"doubao_boosting_table_id"]) {
         id value = options[key];
         if (value && (![value isKindOfClass:NSString.class] || [value length] > 8192 ||
-            ![value UTF8String] ||
-            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound)) {
+            ![value UTF8String])) {
+            if (error) *error = DoubaoFailure(); return nil;
+        }
+        if (([key isEqual:@"asr_endpoint"] || [key isEqual:@"doubao_boosting_table_id"]) && value &&
+            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) {
             if (error) *error = DoubaoFailure(); return nil;
         }
         if (value) snapshot[key] = [value copy];
@@ -58,22 +63,35 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
     NSURLComponents *url = [NSURLComponents componentsWithString:endpoint];
     BOOL local = [@[@"127.0.0.1", @"localhost", @"::1"] containsObject:url.host.lowercaseString];
     if (!url.URL || !url.host.length || url.user || url.password || url.fragment ||
-        (![url.scheme.lowercaseString isEqual:@"wss"] && !(local && [url.scheme.lowercaseString isEqual:@"ws"])) ||
-        ![snapshot[@"asr_token"] length]) { if (error) *error = DoubaoFailure(); return nil; }
-    NSString *mode = snapshot[@"doubao_auth_mode"];
-    if (mode.length && ![@[@"api_key", @"legacy"] containsObject:mode]) { if (error) *error = DoubaoFailure(); return nil; }
-    BOOL legacy = mode.length ? [mode isEqual:@"legacy"] : [snapshot[@"asr_app_key"] length] > 0;
-    if (legacy && ![snapshot[@"asr_app_key"] length]) { if (error) *error = DoubaoFailure(); return nil; }
+        (![url.scheme.lowercaseString isEqual:@"wss"] && !(local && [url.scheme.lowercaseString isEqual:@"ws"]))) {
+        if (error) *error = DoubaoFailure(); return nil;
+    }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url.URL];
     request.timeoutInterval = 10;
     request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    if (legacy) {
-        [request setValue:snapshot[@"asr_app_key"] forHTTPHeaderField:@"X-Api-App-Key"];
-        [request setValue:snapshot[@"asr_token"] forHTTPHeaderField:@"X-Api-Access-Key"];
-    } else [request setValue:snapshot[@"asr_token"] forHTTPHeaderField:@"X-Api-Key"];
-    [request setValue:[snapshot[@"asr_resource_id"] length] ? snapshot[@"asr_resource_id"] : @"volc.bigasr.sauc.duration"
-        forHTTPHeaderField:@"X-Api-Resource-Id"];
-    [request setValue:NSUUID.UUID.UUIDString forHTTPHeaderField:@"X-Api-Request-Id"];
+    // The same client-core policy owns probe and recording authentication on all
+    // hosts. This adapter only translates the sensitive ABI result to NSURLRequest.
+    NSData *authInput = [NSJSONSerialization dataWithJSONObject:@{
+        @"auth_mode":snapshot[@"doubao_auth_mode"] ?: @"", @"app_id":snapshot[@"asr_app_key"] ?: @"",
+        @"token":snapshot[@"asr_token"] ?: @"", @"resource_id":[snapshot[@"asr_resource_id"] length]
+            ? snapshot[@"asr_resource_id"] : @"volc.bigasr.sauc.duration"} options:0 error:nil];
+    std::unique_ptr<char, decltype(&msime_client_string_free)> authRaw(
+        msime_client_doubao_auth_headers(static_cast<const uint8_t *>(authInput.bytes), authInput.length),
+        msime_client_string_free);
+    id auth = authRaw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:authRaw.get()
+        length:std::strlen(authRaw.get())] options:0 error:nil] : nil;
+    if (![auth isKindOfClass:NSDictionary.class] || ![auth[@"ok"] isEqual:@YES] ||
+        ![auth[@"value"] isKindOfClass:NSDictionary.class] ||
+        ![auth[@"value"][@"headers"] isKindOfClass:NSArray.class] || ![auth[@"value"][@"headers"] count]) {
+        if (error) *error = DoubaoFailure(); return nil;
+    }
+    for (id header in auth[@"value"][@"headers"]) {
+        if (![header isKindOfClass:NSArray.class] || [header count] != 2 ||
+            ![header[0] isKindOfClass:NSString.class] || ![header[1] isKindOfClass:NSString.class]) {
+            if (error) *error = DoubaoFailure(); return nil;
+        }
+        [request setValue:header[1] forHTTPHeaderField:header[0]];
+    }
     metasequoia::voice::DoubaoRequestOptions config;
     bool *flags[] = {&config.enable_itn, &config.enable_punc, &config.enable_ddc};
     NSArray *keys = @[@"doubao_enable_itn", @"doubao_enable_punc", @"doubao_enable_ddc"];
