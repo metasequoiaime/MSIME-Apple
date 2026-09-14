@@ -1086,6 +1086,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? draft?.autocorrect ?? true,
   };
   const clipboardHistory = draft?.clipboard_history ?? false;
+  function toggleClipboardHistory(enabled: boolean) {
+    if (!draft) return;
+    setDraft({ ...draft, clipboard_history: enabled });
+    // Clearing on opt-out keeps the local history from lingering while the
+    // draft is unsaved. Hosts may omit this capability, so the preference
+    // still changes independently when no clear hook is available.
+    if (!enabled && clipboardHistory && client.clipboard?.clear) {
+      void client.clipboard.clear().catch(() => setError("无法清空剪贴板历史，请稍后重试。"));
+      setClipboardEntries([]);
+    }
+  }
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
@@ -1262,21 +1273,21 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的候选面板不支持悬停或边框颜色。</small></div>}
         {showCandidateRowColors && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
           <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
-          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
+          <button type="button" aria-label="候选强调色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
         </div></div></div>}
         {showCandidateRowColors && <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
           <input aria-label="候选选中色" type="color" value={candidateTextColor(draft.candidate_selected_color) ?? (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")} onChange={event => setDraft({ ...draft, candidate_selected_color: event.target.value })} />
-          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
+          <button type="button" aria-label="候选选中色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
         </div></div></div>}
         {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选悬停色</span><div className="candidate-color-control">
           <input aria-label="候选悬停色" type="color" value={candidateTextColor(draft.candidate_hover_color) ?? (candidatePreviewTheme === "light" ? "#ececec" : "#414141")} onChange={event => setDraft({ ...draft, candidate_hover_color: event.target.value })} />
-          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_hover_color)} onClick={() => { if (candidateTextColor(draft.candidate_hover_color)) setDraft({ ...draft, candidate_hover_color: null }); }}>跟随主题</button>
+          <button type="button" aria-label="候选悬停色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_hover_color)} onClick={() => { if (candidateTextColor(draft.candidate_hover_color)) setDraft({ ...draft, candidate_hover_color: null }); }}>跟随主题</button>
         </div></div></div>}
-        <div className="section"><div className="section-header"><span className="section-title">候选表面色</span><div className="candidate-color-control"><input aria-label="候选表面色" type="color" value={candidateTextColor(draft.candidate_surface_color) ?? (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")} onChange={event => setDraft({ ...draft, candidate_surface_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_surface_color: null })}>跟随主题</button></div></div></div>
-        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>}
+        <div className="section"><div className="section-header"><span className="section-title">候选表面色</span><div className="candidate-color-control"><input aria-label="候选表面色" type="color" value={candidateTextColor(draft.candidate_surface_color) ?? (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")} onChange={event => setDraft({ ...draft, candidate_surface_color: event.target.value })} /><button type="button" aria-label="候选表面色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_surface_color: null })}>跟随主题</button></div></div></div>
+        {showCandidateSelectionAppearance && <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" aria-label="候选边框色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>}
         <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
           <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
-          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
+          <button type="button" aria-label="候选编号颜色跟随主题" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
         </div></div></div>
         <div className="section"><label className="section-header"><span className="section-title">行内预编辑</span><select aria-label="行内预编辑" value={draft.tsf_preedit_style ?? "raw"} onChange={event => setDraft({ ...draft, tsf_preedit_style: event.target.value as Preferences["tsf_preedit_style"] })}>
           <option value="raw">原始按键</option><option value="pinyin">拼音分词</option><option value="empty">不显示</option>
@@ -1605,7 +1616,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label>
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => toggleClipboardHistory(event.target.checked)} /></label>
           {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
           {clipboardHistory && client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
           {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}

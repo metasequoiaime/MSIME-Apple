@@ -10,7 +10,7 @@ export const fallbackEmojiGroups: EmojiCatalogGroup[] = [
     icon: "😀",
     items: [
       ["😀", "grinning 笑脸"], ["😃", "smiling 开心"], ["😄", "smile 微笑"], ["😁", "beaming 大笑"],
-      ["😆", "laugh 大笑"], ["😅", "sweat 尴尬"], ["🤣", "rofl 笑哭"], ["😂", "joy 喜悦"],
+      ["😆", "laugh 大笑"], ["😅", "sweat 尴尬"], ["🤣", "rofl 笑哭"], ["😂", "joy laugh 喜悦"],
       ["🙂", "slightly smiling 微笑"], ["🙃", "upside down 颠倒"], ["😉", "wink 眨眼"], ["😊", "blush 害羞"],
       ["😍", "heart eyes 爱心眼"], ["🥰", "love 爱"], ["😘", "kiss 亲吻"], ["😎", "cool 酷"],
       ["🤔", "thinking 思考"], ["😐", "neutral 面无表情"], ["🙄", "roll eyes 翻白眼"], ["😮", "surprised 惊讶"],
