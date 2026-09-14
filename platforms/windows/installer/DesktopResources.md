@@ -19,10 +19,10 @@ resources with only verified files. Legacy app_data staging remains for the
 parts of the installer still being migrated.
 
 `msime-client-prepare.exe` can consume the installed resource directory to
-create fresh per-user HostOptions. Automatic per-user first-run invocation,
-existing-state upgrades and native installation verification remain separate
-unfinished integration work. Resource packaging alone does not make a fresh
-installation operational.
+create fresh per-user HostOptions. The production Server now uses the same
+preparation flow automatically only when its user state directory is absent.
+Existing-state upgrades and native installation verification remain unfinished.
+Resource packaging alone does not establish a working native installation.
 
 The package fixture uses a synthetic manifest and synthetic files, verifies
 the output hashes, checks both size and same-size hash corruption, excludes

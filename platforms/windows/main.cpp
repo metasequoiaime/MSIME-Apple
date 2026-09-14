@@ -9,6 +9,7 @@
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
 #include "FloatingToolbarVisibilityPolicy.h"
+#include "FirstRun.h"
 #include "FloatingToolbarWindow.h"
 #include "FullscreenForeground.h"
 #include "MaintenanceHotkey.h"
@@ -492,6 +493,22 @@ int wmain(int argc, wchar_t **argv) {
     return 2;
   try {
     const auto default_state = production_state_directory();
+    std::unique_ptr<ProductionInstance> instance;
+    if (production) {
+      instance = std::make_unique<ProductionInstance>();
+      if (instance->already_running())
+        return 0;
+      prepare_first_run(executable_directory(), default_state,
+                       [](const std::string &request) {
+        std::unique_ptr<char, decltype(&msime_client_string_free)> response(
+            msime_client_prepare_host(
+                reinterpret_cast<const uint8_t *>(request.data()), request.size()),
+            msime_client_string_free);
+        if (!response)
+          throw std::runtime_error("Host preparation failed");
+        return std::string(response.get());
+      });
+    }
     const std::filesystem::path config_path =
         production ? default_state / L"runtime-options.json"
                     : std::filesystem::path(launch.config);
@@ -506,12 +523,6 @@ int wmain(int argc, wchar_t **argv) {
     if (contains(config.resources, config.state_root) ||
         contains(config.state_root, config.resources))
       throw std::invalid_argument("Resources and state must be disjoint");
-    std::unique_ptr<ProductionInstance> instance;
-    if (production) {
-      instance = std::make_unique<ProductionInstance>();
-      if (instance->already_running())
-        return 0;
-    }
     StateRootLease lease(config.state_root);
     ConsoleControl console;
     const auto bootstrap =

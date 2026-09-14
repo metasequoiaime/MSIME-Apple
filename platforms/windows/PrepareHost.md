@@ -29,9 +29,15 @@ replacing an existing destination. The filesystem must support hard links
 not raw Host API diagnostics. This command is for fresh preparation, not upgrades
 or automatic recovery; do not delete an existing state directory to force retry.
 
-The installer does not yet invoke this command automatically. Resource staging,
-per-user first-run invocation and upgrade policy still need integration. Merely
-building this executable does not establish a working first installation.
+The production Server now invokes the same preparation orchestration in its
+own user context when the LocalAppData state directory does not exist. It uses
+the verified bundle staged beside the executable in `resources`, after the
+production single-instance check and before reading runtime options. The
+installer does not launch this standalone command or prepare state elevated.
+Both --production and --watchdog-managed use this path; --config does not.
+Existing directories, including incomplete preparation, are never rebuilt
+automatically. Upgrade/recovery policy and native installation verification
+remain unfinished; merely building does not prove a working installation.
 
 `tests/prepare_host.cpp` exercises the orchestration with synthetic Host API
 responses: publication, invalid paths, refusal of existing state, failed host
