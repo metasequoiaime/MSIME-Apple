@@ -49,43 +49,6 @@ pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[
     frame
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builds_windows_compatible_start_and_final_audio_frames() {
-        let start = start_frame(true, false, true, "table");
-        assert_eq!(&start[..4], &[0x11, 0x11, 0x11, 0]);
-        assert_eq!(&start[4..8], &[0, 0, 0, 1]);
-
-        let audio = audio_frame(2, &[0, 1, 2, 3], true);
-        assert_eq!(&audio[..4], &[0x11, 0x23, 0x11, 0]);
-        assert_eq!(&audio[4..8], &(-2i32).to_be_bytes());
-    }
-
-    #[test]
-    fn encodes_protocol_header_and_gzip_payload() {
-        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
-        assert_eq!(decode_error_code(&error), Some(7));
-        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
-        assert_eq!(decode_error_code(&error), Some(7));
-        let frame = encode_json_frame(9, 0, 1, b"{}");
-        assert_eq!(&frame[..4], &[0x11, 0x90, 0x11, 0]);
-        let mut response = frame[..4].to_vec();
-        response.extend_from_slice(&frame[8..12]);
-        response.extend_from_slice(&frame[12..]);
-        let (last, sequence, payload) = decode_json_frame(&response).unwrap();
-        assert!(!last && sequence == 0 && payload == b"{}");
-        let mut final_response = response.clone();
-        final_response[1] |= 2;
-        assert!(decode_json_frame(&final_response).unwrap().0);
-        let mut invalid = response;
-        invalid[2] = 0x10;
-        assert!(decode_json_frame(&invalid).is_none());
-    }
-}
-
 pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
     if frame.len() < 8 || (frame[0] & 0x0f) != 1 || (frame[1] >> 4) != 0x09 || frame[2] != 0x11 {
         return None;
@@ -131,4 +94,41 @@ pub fn decode_error_code(frame: &[u8]) -> Option<i32> {
     Some(i32::from_be_bytes(
         frame[offset..offset + 4].try_into().ok()?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_windows_compatible_start_and_final_audio_frames() {
+        let start = start_frame(true, false, true, "table");
+        assert_eq!(&start[..4], &[0x11, 0x11, 0x11, 0]);
+        assert_eq!(&start[4..8], &[0, 0, 0, 1]);
+
+        let audio = audio_frame(2, &[0, 1, 2, 3], true);
+        assert_eq!(&audio[..4], &[0x11, 0x23, 0x11, 0]);
+        assert_eq!(&audio[4..8], &(-2i32).to_be_bytes());
+    }
+
+    #[test]
+    fn encodes_protocol_header_and_gzip_payload() {
+        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
+        let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
+        assert_eq!(decode_error_code(&error), Some(7));
+        let frame = encode_json_frame(9, 0, 1, b"{}");
+        assert_eq!(&frame[..4], &[0x11, 0x90, 0x11, 0]);
+        let mut response = frame[..4].to_vec();
+        response.extend_from_slice(&frame[8..12]);
+        response.extend_from_slice(&frame[12..]);
+        let (last, sequence, payload) = decode_json_frame(&response).unwrap();
+        assert!(!last && sequence == 0 && payload == b"{}");
+        let mut final_response = response.clone();
+        final_response[1] |= 2;
+        assert!(decode_json_frame(&final_response).unwrap().0);
+        let mut invalid = response;
+        invalid[2] = 0x10;
+        assert!(decode_json_frame(&invalid).is_none());
+    }
 }

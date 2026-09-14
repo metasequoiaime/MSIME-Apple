@@ -2663,7 +2663,7 @@ mod tests {
 
     #[test]
     fn ascii_punctuation_finishes_highlighted_candidate_for_keypad_marks() {
-        for mark in [b'.', b'-', b'+', b'/', b'*'] {
+        for mark in *b".-+/*" {
             let mut runtime = runtime();
             runtime.focus(true).unwrap();
             type_key(&mut runtime);

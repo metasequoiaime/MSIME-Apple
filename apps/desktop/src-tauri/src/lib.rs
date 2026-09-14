@@ -204,7 +204,7 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     }
     #[cfg(target_os = "windows")]
     {
-        return serde_json::to_value(
+        serde_json::to_value(
             msime_host_api::voice_capture_device_names()
                 .into_iter()
                 .enumerate()
@@ -215,7 +215,7 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
                 }))
                 .collect::<Vec<_>>(),
         )
-        .map_err(|_| CommandError { code: "audio_devices" });
+        .map_err(|_| CommandError { code: "audio_devices" })
     }
     #[cfg(target_os = "macos")]
     {
@@ -904,8 +904,8 @@ async fn dictionary_request(
             // Only the lock is worth a handshake. Every other failure is about
             // the request itself and would fail again with sessions released.
             #[cfg(target_os = "windows")]
-            if matches!(&first, Err(reason) if reason == "dictionary maintenance busy") {
-                if dictionary_maintenance_handshake("DictionaryQuiesce") {
+            if matches!(&first, Err(reason) if reason == "dictionary maintenance busy")
+                && dictionary_maintenance_handshake("DictionaryQuiesce") {
                     let retried = msime_host_api::dictionary_request_json(&bytes);
                     // Resume whatever happened: leaving the IME without
                     // sessions because an import failed would be worse than
@@ -915,10 +915,9 @@ async fn dictionary_request(
                         code: dictionary_error_code(&reason),
                     });
                 }
-            }
-            return first.map_err(|reason| CommandError {
+            first.map_err(|reason| CommandError {
                 code: dictionary_error_code(&reason),
-            });
+            })
         }
     })
     .await
@@ -1251,13 +1250,13 @@ struct HostActionError {
 fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        const pipe_name: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+        const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
         let payload: Vec<u8> = "RestartServer"
             .encode_utf16()
             .flat_map(|unit| unit.to_le_bytes())
             .collect();
         for attempt in 0..5 {
-            match fs::OpenOptions::new().write(true).open(pipe_name) {
+            match fs::OpenOptions::new().write(true).open(PIPE_NAME) {
                 Ok(mut pipe) => {
                     return pipe.write_all(&payload).map_err(|_| HostActionError {
                         code: "unavailable",
@@ -2798,7 +2797,7 @@ async fn submit_handwriting_candidate(
         let _ = (&app, &typing_statistics);
         msime_client_core::panels::validate_candidate(&candidate)
             .map_err(|_| HostActionError { code: "invalid_text" })?;
-        return send_panel_text_windows(&state, &candidate);
+        send_panel_text_windows(&state, &candidate)
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
@@ -2900,7 +2899,7 @@ async fn send_voice_text(
             })?;
         let store = store.inner().clone();
         let statistics = typing_statistics.0.clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let mode = store
                 .load()
                 .map_err(|_| HostActionError {
@@ -2933,7 +2932,7 @@ async fn send_voice_text(
         .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?;
+        })?
     }
     #[cfg(target_os = "linux")]
     {

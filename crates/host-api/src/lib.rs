@@ -4501,7 +4501,7 @@ mod tests {
         assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
 
         for preceding in [u32::from('0'), u32::from('a'), u32::from('Z')] {
-            for punctuation in [b',', b'.', b':'] {
+            for punctuation in *b",.:" {
                 let result = read(msime_client_punctuation_with_context(
                     handle,
                     punctuation,
@@ -4557,8 +4557,10 @@ mod tests {
             .as_str()
             .is_some_and(|value| value.ends_with('，')));
 
-        let mut preferences = Preferences::default();
-        preferences.smart_punctuation = false;
+        let preferences = Preferences {
+            smart_punctuation: false,
+            ..Preferences::default()
+        };
         assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
         assert_eq!(
             read(msime_client_punctuation_with_context(

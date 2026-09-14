@@ -65,7 +65,7 @@ pub fn recognize(strokes: &[Stroke]) -> Result<Vec<String>, InkError> {
     if strokes.is_empty() || strokes.iter().all(|stroke| stroke.len() < 2) {
         return Err(InkError::EmptyInput);
     }
-    recognize_inner(strokes).unwrap_or_else(|error| Err(error))
+    recognize_inner(strokes).unwrap_or_else(Err)
 }
 
 fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {

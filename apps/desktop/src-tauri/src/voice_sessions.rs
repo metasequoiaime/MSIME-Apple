@@ -1,3 +1,9 @@
+// Recording is begun and retired by the Unix-socket provider path. The Windows
+// build reaches this only to stop and cancel, so begin, active, finish and the
+// fields they fill are genuinely dead there - silencing it per platform rather
+// than crate-wide keeps a real dead-code warning visible instead of buried.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
