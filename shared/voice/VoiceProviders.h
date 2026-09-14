@@ -9,6 +9,7 @@
 #include <vector>
 
 namespace msime::windows {
+std::string transcription_language(std::string_view provider, std::string_view language);
 std::string normalize_voice_provider(std::string_view provider);
 std::string default_asr_endpoint(std::string_view provider);
 std::string default_asr_model(std::string_view provider);
@@ -32,6 +33,7 @@ std::string polish_cloud_text(
     const std::shared_ptr<std::atomic_bool> &cancelled);
 }
 namespace msime::voice {
+using windows::transcription_language;
 using windows::normalize_voice_provider;
 using windows::default_asr_endpoint;
 using windows::default_asr_model;

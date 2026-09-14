@@ -32,6 +32,20 @@ std::string normalize_voice_provider(std::string_view provider) {
   return result.empty() ? "doubao" : result;
 }
 
+std::string transcription_language(std::string_view provider, std::string_view language) {
+  if (normalize_voice_provider(provider) == "siliconflow")
+    return {};
+  auto normalized = lower(language);
+  if (normalized == "auto")
+    return {};
+  // Shared panels use locale tags (zh-CN, en-US); transcription requests
+  // use their language component, not the regional or script subtag.
+  const auto separator = normalized.find_first_of("-_");
+  if (separator != std::string::npos)
+    normalized.resize(separator);
+  return normalized;
+}
+
 std::string default_asr_endpoint(std::string_view provider) {
   const auto id = normalize_voice_provider(provider);
   if (id == "openai")
@@ -158,11 +172,7 @@ std::string recognize_cloud_asr(
       (metasequoia::voice::maximum_encoded_audio_bytes - 44) / 2;
   const auto wav = metasequoia::voice::WavWriter::create_wav(
       *audio, metasequoia::voice::sample_rate, upload_sample_limit);
-  const auto request_language = id == "siliconflow"
-                                    ? std::string_view{}
-                                    : language == "zh-cn" ? std::string_view{"zh"}
-                                    : language == "en" ? std::string_view{"en"}
-                                                         : language;
+  const auto request_language = transcription_language(id, language);
   const auto payload = metasequoia::voice::make_transcription_request(
       std::string_view(reinterpret_cast<const char *>(wav.data()), wav.size()),
       model, request_language);
