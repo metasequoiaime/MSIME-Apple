@@ -66,6 +66,20 @@ int main()
     Require(!metasequoia::mac::TranslationQueryForCandidate(emoji).has_value(),
             "An emoji candidate requested a gloss.");
 
+    // 只有含汉字的候选能联网翻译。拼音缓冲和纯 ASCII 串送上去既拿不到有意义的释义(生产库里
+    // `bag→bag`、`for→for` 这类占了 44 行),又把用户的原始按键序列发给第三方服务商 —— 其中一条是
+    // `cun` 再按一个 t 拼成的英文脏词,原样进了共享缓存。
+    Require(metasequoia::mac::CandidateSupportsOnlineGloss(chinese), "A Chinese candidate was refused online gloss.");
+    for (const char *raw : {"cun", "cunt", "bag", "for", "zip", "ti", "err", "OpenAI", "123"})
+    {
+        WordItem buffered{"", raw, 1};
+        Require(!metasequoia::mac::CandidateSupportsOnlineGloss(buffered),
+                "An ASCII candidate was sent to the online translator.");
+    }
+    Require(!metasequoia::mac::CandidateSupportsOnlineGloss(emoji), "An emoji candidate was sent to the translator.");
+    Require(!metasequoia::mac::CandidateSupportsOnlineGloss(english),
+            "An English dictionary candidate was sent to the online translator instead of using local ECDICT.");
+
     const auto path = MakeGlossDatabase();
     EnglishDictionary dictionary(path.string(), false);
     Require(metasequoia::mac::LookupCandidateGloss(dictionary, *chineseQuery) == "metasequoia; dawn redwood",
