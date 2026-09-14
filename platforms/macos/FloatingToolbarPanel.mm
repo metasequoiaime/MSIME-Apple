@@ -187,6 +187,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     BOOL _hasHostSkin;
     msime::mac::SkinTokens _lightSkin;
     msime::mac::SkinTokens _darkSkin;
+    BOOL _hasHostToolbarSkin;
+    msime::mac::SkinTokens _lightToolbarSkin;
+    msime::mac::SkinTokens _darkToolbarSkin;
 }
 
 + (instancetype)sharedPanel
@@ -218,8 +221,11 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     self.hidesOnDeactivate = NO;
     self.becomesKeyOnlyIfNeeded = YES;
     self.movableByWindowBackground = YES;
-    self.collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    // Keep the toolbar on ordinary Spaces without opting it into another
+    // app's full-screen Space. Candidate and panel windows remain auxiliary;
+    // the toolbar itself should disappear while a full-screen app owns the
+    // display, matching the Windows foreground policy.
+    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces;
     [self setFrameAutosaveName:kToolbarFrameAutosaveName];
     // The autosave name only writes the frame out; a programmatically created window has to read it back itself, and
     // force: is required because this panel is borderless and therefore not resizable.
@@ -370,6 +376,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [self applySkin];
 }
 
+- (void)applyLightToolbarSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark
+{
+    _lightToolbarSkin = light;
+    _darkToolbarSkin = dark;
+    _hasHostToolbarSkin = YES;
+    [self applySkin];
+}
+
 - (void)applySkin
 {
     if (_inputModeButton == nil || _settingsButton == nil)
@@ -377,8 +391,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         return;
     }
     const BOOL dark = MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance);
-    const auto tokens = _hasHostSkin ? (dark ? _darkSkin : _lightSkin)
-        : MetasequoiaResolveStoredCandidateSkin(dark).tokens;
+    const auto tokens = _hasHostToolbarSkin ? (dark ? _darkToolbarSkin : _lightToolbarSkin)
+        : (_hasHostSkin ? (dark ? _darkSkin : _lightSkin) : MetasequoiaResolveStoredCandidateSkin(dark).tokens);
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);

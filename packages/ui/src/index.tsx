@@ -744,6 +744,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
   const androidPlatform = client.host?.platform === "android";
+  // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
+  // explaining where to change it.
+  const windowsPlatform = client.host?.platform === "windows";
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -1664,6 +1667,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <span className="section-title">{label}</span>
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
+          {windowsPlatform && <div className="shortcut-system-guide">
+            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
+            <small>Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 / 非输入法切换”的按键顺序：</small>
+            <ol>
+              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
+              <li>选择“高级键盘设置” → “输入语言热键”。</li>
+              <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
+              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
+            </ol>
+            <small>不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。</small>
+          </div>}
         </div>}
         {showPanelShortcuts && <div className="section" role="group" aria-label="面板快捷键">
           <div className="section-title">面板快捷键</div>
@@ -1682,6 +1696,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             {(draft.navigation ?? defaultNavigation).tab && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Shift+Tab / Tab</kbd></div>}
             {(draft.navigation ?? defaultNavigation).page_up_down && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Page Up / Page Down</kbd></div>}
             {(draft.navigation ?? defaultNavigation).arrows && <div className="shortcut-row"><span>移动候选项</span><kbd>↑ / ↓</kbd></div>}
+            <div className="shortcut-row"><span>移动到当前候选页首 / 尾</span><kbd>Home / End</kbd></div>
             <div className="shortcut-row"><span>编辑输入串</span><kbd>← / → / Backspace</kbd></div>
             <div className="shortcut-row"><span>提交原始输入 / 取消输入</span><kbd>Enter / Esc</kbd></div>
           </div>
@@ -1742,9 +1757,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(androidPlatform ? androidPrivacyUrl : privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
         </div>
         {!androidPlatform && <div className="section" role="group" aria-label="诊断日志">
-          <label className="section-header"><span className="section-title">Server 端日志<small>排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。</small></span><input aria-label="Server 端日志" className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
-          <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">{linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}<small>{linuxPlatform ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。" : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}</small></span><input aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"} className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
+          {!linuxPlatform && <><div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label></>}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">

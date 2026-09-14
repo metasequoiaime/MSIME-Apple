@@ -145,11 +145,13 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos
             ),
-            // Only the IBus host consumes the shared keybindings so far; a
-            // host flips this once it does. The Windows TIP still reads the
-            // legacy config.toml for the CN/EN and 简繁 hotkeys, so exposing
-            // them there would save values that never take effect.
-            mode_switch_shortcuts: platform == HostPlatform::Linux,
+            // The IBus host consumes these directly. The Windows Server now
+            // mirrors them into the shared config.toml the TIP reads at
+            // activation, so the toggles take effect there too.
+            mode_switch_shortcuts: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
             // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
             panel_shortcuts: matches!(
                 platform,
@@ -547,9 +549,9 @@ mod tests {
         // choice is real there.
         assert!(windows.ime_mode_scope);
         assert!(windows.panel_windows);
-        // These stay false until the Windows host actually consumes them;
-        // showing the controls earlier would offer settings that do nothing.
-        assert!(!windows.mode_switch_shortcuts);
+        // The Server mirrors these into the shared config.toml the TIP reads,
+        // so the controls offer settings that actually take effect.
+        assert!(windows.mode_switch_shortcuts);
         assert!(windows.floating_toolbar && windows.floating_toolbar_appearance);
         assert!(windows.candidate_font_controls);
         assert!(windows.candidate_selection_appearance);
@@ -566,9 +568,9 @@ mod tests {
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
-        // The CN/EN and 简繁 hotkeys stay hidden: the TIP still reads them from
-        // the legacy config.toml, so the toggles would save and do nothing.
-        assert!(!windows.mode_switch_shortcuts);
+        // The CN/EN and 简繁 hotkeys are editable now: the Server mirrors them
+        // into the config.toml the TIP reads, so the toggles take effect.
+        assert!(windows.mode_switch_shortcuts);
         assert!(windows.system_fonts);
 
         let android = HostCapabilities::for_platform(HostPlatform::Android);

@@ -65,6 +65,8 @@ int main() {
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        assert((panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
+        assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) == 0);
         [panel applyThemePreferences:@{}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
@@ -102,6 +104,17 @@ int main() {
         dark.surface = {0.3, 0.1, 0.2, 1};
         [panel applyLightSkin:light darkSkin:dark];
         assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(dark.surface)]);
+
+        // Candidate card colors and toolbar colors are separate host inputs.
+        // A toolbar theme change must continue using the toolbar palette after
+        // the candidate palette has been supplied.
+        msime::mac::SkinTokens toolbarLight = light;
+        msime::mac::SkinTokens toolbarDark = dark;
+        toolbarLight.surface = {0.2, 0.4, 0.6, 1};
+        toolbarDark.surface = {0.6, 0.2, 0.4, 1};
+        [panel applyLightToolbarSkin:toolbarLight darkSkin:toolbarDark];
+        [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+        assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.surface)]);
 
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
         NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");

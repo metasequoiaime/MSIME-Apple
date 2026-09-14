@@ -1,6 +1,8 @@
 #include "FloatingToolbarWindow.h"
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarIcons.h"
+#include "ToolbarLayout.h"
+#include "WindowShadow.h"
 #include "IconFont.h"
 #include <algorithm>
 #include <stdexcept>
@@ -12,21 +14,9 @@ namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar";
 constexpr int kWidth = 732;
 constexpr int kHeight = 52;
-constexpr float kLeadingWidth = 28.0f;
-constexpr float kCellWidth = 72.0f;
 int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
-}
-// One device-independent unit in physical pixels. Every toolbar measurement -
-// painted cells, the hit test and the window's own size - goes through this, or
-// they round apart: dpi_scale(window, 1) is 2 at 144 dpi where the true factor
-// is 1.5, so a grid built from it is a third wider than one built by scaling
-// the whole quantity.
-float toolbar_unit(HWND window, double scale) {
-  const UINT dpi = GetDpiForWindow(window);
-  return static_cast<float>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI) /
-         static_cast<float>(USER_DEFAULT_SCREEN_DPI) * static_cast<float>(scale);
 }
 bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
@@ -97,10 +87,9 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     shown_character_set_ = character_set;
     RECT work{};
     // With no position of its own the toolbar follows the focused window's
-    // monitor. Once it has one - dragged or restored from the config - it
-    // stays on whichever screen that position is on, because clamping it
-    // against the foreground window's monitor would drag it back across the
-    // desktop.
+    // monitor. Once it has one - dragged or restored from the config - it stays
+    // on whichever screen that position is on, because clamping it against the
+    // foreground window's monitor would drag it back across the desktop.
     const HMONITOR monitor =
         dragged_position_
             ? MonitorFromPoint(*dragged_position_, MONITOR_DEFAULTTONEAREST)
@@ -110,14 +99,14 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const float unit = toolbar_unit(window_, scale_);
-    const int width = static_cast<int>(
-        (kLeadingWidth + kCellWidth * static_cast<float>(slots(items_).size()) + 8.0f) * unit);
-    const int height = static_cast<int>(static_cast<float>(kHeight) * unit);
+    const auto metrics = toolbar_metrics(static_cast<double>(font_size_));
+    const int width = dpi_scale(
+        window_, static_cast<int>(
+                     toolbar_window_width(slots(items_).size(), metrics) *
+                     scale_));
+    const int height = dpi_scale(
+        window_, static_cast<int>(toolbar_window_height(metrics) * scale_));
     const int margin = dpi_scale(window_, 20);
-    // The remembered position, not the live window rect, is what survives a
-    // restart: WM_MOVE keeps it current and the config restores it through
-    // set_position before the first refresh.
     FloatingToolbarPlacementInput placement;
     placement.width = width;
     placement.height = height;
@@ -126,6 +115,9 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     placement.work_top = work.top;
     placement.work_right = work.right;
     placement.work_bottom = work.bottom;
+    // The remembered position, not the live window rect, is what survives a
+    // restart: WM_MOVE keeps it current and the config restores it through
+    // set_position before the first refresh.
     placement.placed = dragged_position_.has_value();
     if (dragged_position_) {
       placement.current_x = dragged_position_->x;
@@ -167,7 +159,9 @@ void FloatingToolbarWindow::paint() {
     PAINTSTRUCT &state;
     ~End() { EndPaint(window, &state); }
   } end{window_, state};
-  if (!device_.EnsureForWindow(window_))
+  // Composition rather than an hwnd target: the shadow falls outside the bar,
+  // so the window has to carry per-pixel alpha where it is nothing but shadow.
+  if (!device_.EnsureForComposition(window_))
     throw std::runtime_error("Toolbar device unavailable");
   auto *target = device_.GetRenderTarget();
   if (!target)
@@ -179,31 +173,40 @@ void FloatingToolbarWindow::paint() {
       throw std::runtime_error("Toolbar brush unavailable");
     return created;
   };
-  const float unit = toolbar_unit(window_, scale_);
+  const float unit = static_cast<float>(dpi_scale(window_, 1)) * static_cast<float>(scale_);
   auto *format = device_.GetTextFormat(
       L"Segoe UI", static_cast<float>(font_size_) * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)
     throw std::runtime_error("Toolbar text format unavailable");
-  const auto size = target->GetSize();
+  const auto bar = toolbar_metrics(static_cast<double>(font_size_));
+  const auto card = toolbar_card(slots(items_).size(), bar);
+  const D2D1_RECT_F card_rect{
+      static_cast<float>(card.left) * unit, static_cast<float>(card.top) * unit,
+      static_cast<float>(card.right) * unit,
+      static_cast<float>(card.bottom) * unit};
   target->BeginDraw();
-  target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
-                             palette_.surface.b, palette_.surface.a));
+  // Transparent, not the surface colour: everything outside the bar is either
+  // shadow or the desktop showing through.
+  target->Clear(D2D1::ColorF(0, 0.0f));
+  draw_window_shadow(target, card_rect, palette_.radius * unit,
+                     static_cast<float>(bar.shadow.scale));
   const float inset = palette_.border_width * unit / 2.0f;
-  target->DrawRoundedRectangle(
-      {{inset, inset, size.width - inset, size.height - inset}, palette_.radius * unit,
-       palette_.radius * unit},
-      brush(palette_.border), palette_.border_width * unit);
+  const D2D1_ROUNDED_RECT body{{card_rect.left + inset, card_rect.top + inset,
+                                card_rect.right - inset,
+                                card_rect.bottom - inset},
+                               palette_.radius * unit, palette_.radius * unit};
+  target->FillRoundedRectangle(body, brush(palette_.surface));
+  target->DrawRoundedRectangle(body, brush(palette_.border),
+                               palette_.border_width * unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
     auto *factory = device_.GetDWriteFactory();
     const wchar_t *icon_family = icon_font_family(factory);
-    // Each button's two-way mode, in slot order - language, fullwidth,
-    // punctuation, character set, emoji, screen keyboard, settings,
-    // handwriting, voice, about, hide. An absent state means the Server has
-    // not reported it, and the icon shows a question mark rather than
-    // asserting a mode the user is not actually in.
+    // Each button's two-way mode, in slot order. An absent state means the
+    // Server has not reported it, and the icon shows a question mark rather
+    // than asserting a mode the user is not actually in.
     const std::optional<bool> states[] = {
         value->chinese,
         value->fullwidth,
@@ -212,23 +215,31 @@ void FloatingToolbarWindow::paint() {
         std::nullopt, std::nullopt, std::nullopt,
         std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
+    const auto layout = toolbar_metrics(static_cast<double>(font_size_));
     // The drag strip and the divider that separates it from the buttons. The
     // strip is the only part that drags, so it has to be visible; upstream
-    // draws it in the accent colour.
-    const float handle_left = (kLeadingWidth / 2.0f - 1.0f) * unit;
-    const D2D1_ROUNDED_RECT handle{
-        {handle_left, 14.0f * unit, handle_left + 2.0f * unit, 38.0f * unit},
-        1.0f * unit, 1.0f * unit};
+    // draws it in the accent colour. Both follow the bar height so they stay
+    // centred when the icon size changes.
+    const auto height = static_cast<float>(layout.height);
+    const float top = card_rect.top;
+    const float handle_left = card_rect.left + 3.0f * unit;
+    const D2D1_ROUNDED_RECT handle{{handle_left, top + height * 0.269f * unit,
+                                    handle_left + 2.0f * unit,
+                                    top + height * 0.731f * unit},
+                                   1.0f * unit, 1.0f * unit};
     target->FillRoundedRectangle(handle, brush(palette_.accent));
-    target->DrawLine({(kLeadingWidth - 4.0f) * unit, 12.0f * unit},
-                     {(kLeadingWidth - 4.0f) * unit, 40.0f * unit},
+    const float divider =
+        card_rect.left + static_cast<float>(layout.handle - 1.0) * unit;
+    target->DrawLine({divider, top + height * 0.231f * unit},
+                     {divider, top + height * 0.769f * unit},
                      brush(palette_.border), 1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
-      const D2D1_RECT_F cell{
-          (kLeadingWidth + static_cast<float>(i) * kCellWidth) * unit, 8.0f * unit,
-          (kLeadingWidth + (static_cast<float>(i) + 1.0f) * kCellWidth) * unit,
-          44.0f * unit};
+      const auto box = toolbar_cell(i, layout);
+      const D2D1_RECT_F cell{static_cast<float>(box.left) * unit,
+                             static_cast<float>(box.top) * unit,
+                             static_cast<float>(box.right) * unit,
+                             static_cast<float>(box.bottom) * unit};
       // Hover and press fills, so a button looks like one. Pressed is drawn
       // with the selected colour rather than a darker hover, matching the card.
       if (hovered_ == i) {
@@ -261,11 +272,26 @@ void FloatingToolbarWindow::paint() {
         continue;
       target->DrawText(drawn_text, length, cell_format, cell,
                        brush(palette_.text));
+      // Dedicated English underlines its "En". Upstream insets the line by a
+      // twelfth of the cell and floors both the offset and the stroke, so it
+      // stays a visible line rather than thinning away at small icon sizes.
+      if (icon.underline && !glyph) {
+        const float size = static_cast<float>(font_size_) * unit;
+        const float side = (cell.right - cell.left) * 0.08f;
+        const float y = cell.bottom - (std::max)(2.0f * unit, size * 0.12f);
+        target->DrawLine({cell.left + side, y}, {cell.right - side, y},
+                         brush(palette_.text),
+                         (std::max)(1.0f * unit, size * 0.06f));
+      }
     }
   }
   const HRESULT drawn = target->EndDraw();
+  // A composition swap chain only reaches the screen once it is presented.
+  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
+    throw std::runtime_error("Toolbar presentation failed");
   if (drawn == D2DERR_RECREATE_TARGET) {
     device_.DiscardTarget();
+    InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
@@ -308,46 +334,49 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           self->position_changed_(*self->dragged_position_);
       }
       return 0;
-    case WM_NCHITTEST: {
-      POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
-      ScreenToClient(window, &point);
-      return point.x >= 0 &&
-                     point.x < static_cast<int>(kLeadingWidth * toolbar_unit(window, self->scale_))
-                 ? HTCAPTION
-                 : HTCLIENT;
-    }
-    case WM_LBUTTONDOWN:
-      // The drag strip hit tests as HTCAPTION above, so a press that reaches
-      // here is on a button. Show it pressed until the release is handled.
+    case WM_LBUTTONDOWN: {
+      // Only the strip left of the first button drags. Treating the whole
+      // window as a caption meant a press on a button entered the system move
+      // loop, and the click below only ran for whatever button-up survived it.
+      const int unit = dpi_scale(window, 1);
+      const auto drag = toolbar_metrics(static_cast<double>(self->font_size_));
+      if (toolbar_is_drag_strip(
+              static_cast<double>(GET_X_LPARAM(l)) / unit, drag)) {
+        ReleaseCapture();
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        return 0;
+      }
+      // Pressing a button shows it pressed until the release is handled.
       self->pressed_ = self->hovered_;
       if (self->pressed_)
         InvalidateRect(window, nullptr, FALSE);
       return 0;
+    }
     case WM_SETCURSOR:
       // Show the move cursor over the drag strip only, so the buttons keep the
-      // ordinary arrow and the strip advertises what it does. WM_NCHITTEST
-      // above is what decides where the strip ends.
-      if (LOWORD(l) == HTCAPTION) {
-        SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
-        return TRUE;
+      // ordinary arrow and the strip advertises what it does.
+      if (LOWORD(l) == HTCLIENT) {
+        POINT cursor{};
+        RECT bounds{};
+        if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
+            GetClientRect(window, &bounds) &&
+            toolbar_is_drag_strip(
+                static_cast<double>(cursor.x) / dpi_scale(window, 1),
+                toolbar_metrics(static_cast<double>(self->font_size_)))) {
+          SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+          return TRUE;
+        }
       }
       break;
     case WM_MOUSEMOVE: {
       // Hover feedback needs to know where the pointer is; without tracking,
       // the buttons gave no sign that they were buttons at all.
       const int x = GET_X_LPARAM(l);
+      const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
-      // The same grid the release below hits against, or the highlight sits on
-      // a different button than the one the click would act on.
-      const float unit = toolbar_unit(window, self->scale_);
-      const int leading = static_cast<int>(kLeadingWidth * unit);
-      const int cell = static_cast<int>(kCellWidth * unit);
-      std::optional<size_t> hovered;
-      if (x >= leading && x < leading + static_cast<int>(cell * active.size())) {
-        const size_t position = static_cast<size_t>((x - leading) / cell);
-        if (position < active.size())
-          hovered = position;
-      }
+      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto hovered = toolbar_button_at(
+          static_cast<double>(x) / unit, active.size(), layout);
       if (hovered != self->hovered_) {
         self->hovered_ = hovered;
         InvalidateRect(window, nullptr, FALSE);
@@ -376,14 +405,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       }
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
+      const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
-      const float unit = toolbar_unit(window, self->scale_);
-      const int leading = static_cast<int>(kLeadingWidth * unit);
-      const int cell = static_cast<int>(kCellWidth * unit);
-      if (value && x >= leading &&
-          x < leading + static_cast<int>(cell * active.size())) {
-        const size_t position = static_cast<size_t>((x - leading) / cell);
-        if (position >= active.size()) return 0;
+      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto position_at =
+          toolbar_button_at(static_cast<double>(x) / unit, active.size(), layout);
+      if (value && position_at) {
+        const size_t position = *position_at;
         const int slot = active[position];
         if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
         else if (slot == 1) self->click_(ModeClick{
@@ -414,7 +442,12 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       return 0;
     }
     case WM_NCLBUTTONDOWN:
-      return DefWindowProcW(window, message, w, l);
+      if (w == HTCLIENT || w == HTCAPTION) {
+        ReleaseCapture();
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        return 0;
+      }
+      break;
   }} catch (...) { self->failed_ = true; self->hide(); return 0; }
   return DefWindowProcW(window, message, w, l);
 }

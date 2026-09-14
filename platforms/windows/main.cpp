@@ -9,6 +9,7 @@
 #include "FullscreenForeground.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WatchdogPolicy.h"
@@ -338,6 +339,62 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
   return config;
 }
+
+// Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
+//
+// These four do not ride the worker pipe: the TIP reads them straight off disk
+// at activation. Without this the settings toggles would save and do nothing,
+// which is why they were hidden on Windows. Writing is best effort - a config
+// we cannot update costs the user their hotkey choice, never the IME.
+void publish_switch_language_keybindings(const nlohmann::json &preferences) {
+  // The same folder the TIP resolves, through the known-folder API rather than
+  // the environment variable so a redirected profile still lands in one place.
+  PWSTR app_data = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &app_data)))
+    return;
+  const std::filesystem::path path =
+      std::filesystem::path(app_data) / L"metasequoiaime" / L"config.toml";
+  CoTaskMemFree(app_data);
+  const auto bindings =
+      preferences.value("keybindings", nlohmann::json::object());
+  msime::windows::SwitchLanguageKeybindings values;
+  values.shift = bindings.value("switch_language_shift", true);
+  values.ctrl = bindings.value("switch_language_ctrl", false);
+  values.ctrl_alt_space = bindings.value("switch_language_ctrl_alt_space", true);
+  values.character_set_ctrl_shift_f =
+      bindings.value("toggle_character_set_ctrl_shift_f", true);
+  try {
+    std::string existing;
+    {
+      std::ifstream input(path, std::ios::binary);
+      if (input)
+        existing.assign(std::istreambuf_iterator<char>(input),
+                        std::istreambuf_iterator<char>());
+    }
+    const auto updated = msime::windows::update_keybindings(existing, values);
+    if (updated == existing)
+      return;
+    std::error_code ignored;
+    std::filesystem::create_directories(path.parent_path(), ignored);
+    // Write beside the target and rename over it: a crash mid-write must not
+    // leave the user with a truncated config the TIP then reads as defaults.
+    const auto temporary = std::filesystem::path(path).concat(L".new");
+    {
+      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+      if (!output)
+        return;
+      output.write(updated.data(),
+                   static_cast<std::streamsize>(updated.size()));
+      if (!output)
+        return;
+    }
+    std::filesystem::rename(temporary, path, ignored);
+    if (ignored)
+      std::filesystem::remove(temporary, ignored);
+  } catch (const std::exception &) {
+    // A read-only or roaming profile is the user's business, not a fatal error.
+  }
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -503,6 +560,12 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
             .value("enabled", true));
+    // The Engine's own English mode, which the toolbar marks with an
+    // underlined "En". Published like the rest rather than read once, or the
+    // button would only follow the setting across a restart.
+    auto dedicated_english = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("default_ime_mode", std::string("chinese")) == "english");
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -521,8 +584,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light, toolbar_light, menu_light,
-         mode_scope_global, tsf_config,
+         toolbar_enabled, dedicated_english, voice_light, toolbar_light,
+         menu_light, mode_scope_global, tsf_config,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -581,6 +644,11 @@ int wmain(int argc, wchar_t **argv) {
               preferences.value("floating_toolbar", nlohmann::json::object());
           toolbar_enabled->store(toolbar_preferences.value("enabled", true),
                                  std::memory_order_release);
+          dedicated_english->store(
+              preferences.value("default_ime_mode", std::string("chinese")) ==
+                  "english",
+              std::memory_order_release);
+          publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.enabled = input.value("enabled", true);
@@ -1086,12 +1154,15 @@ int wmain(int argc, wchar_t **argv) {
                                     decision.push_chinese ? WorkerMode::Chinese
                                                           : WorkerMode::English);
       }
-      // The language button shows 'A' while Caps Lock is on and 日 in Japanese
-      // mode, so it has to follow both. Showing 中 with Caps Lock on tells the
-      // user the wrong thing about what the next letter key will do.
+      // The language button shows 'A' while Caps Lock is on, 日 in Japanese
+      // mode and an underlined "En" in the Engine's own English mode, so it
+      // has to follow all three. Showing 中 with Caps Lock on tells the user
+      // the wrong thing about what the next letter key will do.
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);
+        language.dedicated_english =
+            dedicated_english->load(std::memory_order_acquire);
         {
           std::lock_guard<std::mutex> lock(*tsf_config_mutex);
           language.japanese = tsf_config->japanese_input_mode;

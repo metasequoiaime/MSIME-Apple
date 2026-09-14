@@ -1,5 +1,7 @@
 # Linux IBus 预览宿主
 
+候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
+
 ## 生成 Linux 安装包
 
 在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。该选项默认关闭，不启用 CI。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
@@ -97,6 +99,8 @@ Windows 配置中的 `candidate_arrow_navigation` 兼容名称也会映射到共
 Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工具栏”入口，不创建脱离输入上下文的伪悬浮窗口。启用后，菜单按偏好显示中英文模式、独立英文输入模式、全角字符、中文标点、繁体输出、Emoji、屏幕键盘和设置动作；模式动作复用当前 IBus 会话，面板动作通过 `msime-client-settings` 启动已有 Tauri 面板，并把当前输入目标交给面板保存。关闭工具栏或单独关闭组件后，入口会在配置热重载时同步隐藏。
 
 ## 构建与运行
+
+IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。
 
 候选辅助文本在页码后展示 Engine 快照提供的本地模式标签（U+、日期时间、短语、Emoji、颜文字、简拼、EN、日文）。普通或未知模式不附加标签，取消组合或没有候选时隐藏辅助文本；不从预编辑前缀推断模式。
 
@@ -199,6 +203,8 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
+
+Linux 关于页的“IBus 宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 宿主在偏好目录写入仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
 
 ## Windows parity gaps
 

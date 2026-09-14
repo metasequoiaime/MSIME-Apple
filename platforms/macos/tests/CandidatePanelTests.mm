@@ -1,6 +1,10 @@
 #import "../CandidatePanel.h"
 #import "../CandidateSkinAppearance.h"
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
+#include <unistd.h>
 
 static void Require(bool condition, const char *message)
 {
@@ -31,6 +35,31 @@ int main()
     @autoreleasepool
     {
         [NSApplication sharedApplication];
+        char temporary[] = "/tmp/msime-candidate-panel-XXXXXX";
+        Require(mkdtemp(temporary) != nullptr, "Failed to create candidate panel fixture directory.");
+        const std::filesystem::path fixtureRoot = std::filesystem::path(temporary) / "Library" / "Application Support" /
+                                                   "app.msime.client.preview" / "skins" / "wide-card";
+        std::filesystem::create_directories(fixtureRoot);
+        std::ofstream manifest(fixtureRoot / "skin.toml");
+        manifest << R"toml(schema_version = 1
+id = "wide-card"
+name = "Wide Card"
+version = "1"
+base = "fluent"
+[supports]
+layouts = ["vertical"]
+themes = ["light", "dark"]
+[candidate_window]
+min_width_dip = 240
+[candidate_window.decoration]
+top_inset_dip = 0
+width_dip = 0
+)toml";
+        Require(static_cast<bool>(manifest), "Failed to write candidate panel skin fixture.");
+        manifest.close();
+        const char *oldHome = std::getenv("HOME");
+        const std::string savedHome = oldHome == nullptr ? std::string() : std::string(oldHome);
+        Require(setenv("HOME", temporary, 1) == 0, "Failed to isolate candidate panel skin root.");
         MetasequoiaSetStoredCandidateSkin(@"fluent");
         MetasequoiaCandidatePanel *panel = [MetasequoiaCandidatePanel new];
         CandidatePanelTestDelegate *delegate = [CandidatePanelTestDelegate new];
@@ -111,5 +140,25 @@ int main()
         Require(!panel.isVisible, "An invalid caret displayed a misplaced candidate window.");
         [panel setCandidateData:@[]];
         Require(!panel.isVisible && panel.selectedCandidate == NSNotFound, "Empty data retained a visible selection.");
+        MetasequoiaSetStoredCandidateSkin(@"wide-card");
+        panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
+        [panel setCandidateData:@[ [[NSAttributedString alloc] initWithString:@"短"] ,
+                                   [[NSAttributedString alloc] initWithString:@"窄"] ]];
+        NSButton *wideButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+                wideButton = (NSButton *)view;
+        Require(wideButton != nil, "The wide-card candidate was not rendered.");
+        const CGFloat cardWidth = panel.window.contentView.bounds.size.width;
+        const CGFloat contentInset = MetasequoiaResolveStoredCandidateSkin(NO).tokens.pad;
+        Require(cardWidth >= 240.0 && wideButton.frame.size.width >= cardWidth - 2.0 * contentInset - 0.5,
+                "Vertical candidate highlighting did not fill the final card width.");
+        Require(NSMaxX(wideButton.frame) >= cardWidth - contentInset - 0.5,
+                "Vertical candidate row did not reach the card's content edge.");
+        [panel hide];
+        MetasequoiaSetStoredCandidateSkin(@"fluent");
+        if (savedHome.empty()) unsetenv("HOME");
+        else setenv("HOME", savedHome.c_str(), 1);
+        std::filesystem::remove_all(temporary);
     }
 }

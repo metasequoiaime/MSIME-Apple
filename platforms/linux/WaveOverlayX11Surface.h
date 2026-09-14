@@ -38,6 +38,9 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   unsigned long background_ = 0;
   unsigned long foreground_ = 0;
   unsigned long accent_ = 0;
+  unsigned long light_background_ = 0;
+  unsigned long light_foreground_ = 0;
+  unsigned long light_accent_ = 0;
   bool visible_ = false;
   ActionHandler action_handler_;
   WaveOverlayModel::Action pressed_action_ = WaveOverlayModel::Action::Confirm;

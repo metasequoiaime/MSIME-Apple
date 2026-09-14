@@ -45,4 +45,13 @@ int main() {
   assert(!msime_voice_stream_inline_enabled(true, "doubao", "ctrl_v"));
   assert(!msime_voice_stream_inline_enabled(true, "openai"));
   assert(!msime_voice_stream_inline_enabled(false, "doubao"));
+  assert(!msime_voice_overlay_light_theme("follow", "dark", false));
+  assert(msime_voice_overlay_light_theme("follow", "light", true));
+  assert(!msime_voice_overlay_light_theme("follow", "system", true));
+  assert(msime_voice_overlay_light_theme("follow", "system", false));
+  assert(msime_voice_overlay_light_theme("light", "dark", true));
+  assert(!msime_voice_overlay_light_theme("dark", "light", false));
+  model.light_theme = true;
+  model.reset();
+  assert(model.light_theme);
 }
