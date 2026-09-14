@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
@@ -246,6 +246,31 @@ impl TypingStatisticsStore {
             .persist(self.path())
             .map(|_| ())
             .map_err(|error| TypingStatisticsError::Io(error.error))
+    }
+
+    /// Moves a valid legacy statistics document into this store without
+    /// replacing a document already created by the shared host.
+    pub fn migrate_from(
+        &self,
+        legacy_directory: impl AsRef<Path>,
+    ) -> Result<bool, TypingStatisticsError> {
+        let legacy_directory = legacy_directory.as_ref();
+        if legacy_directory == self.directory {
+            return Ok(false);
+        }
+        let _destination_lock = self.lock()?;
+        if self.path().try_exists()? {
+            return Ok(false);
+        }
+
+        let legacy = Self::new(legacy_directory);
+        let _legacy_lock = legacy.lock()?;
+        if self.path().try_exists()? || !legacy.path().try_exists()? {
+            return Ok(false);
+        }
+        let _ = legacy.read_locked()?;
+        fs::rename(legacy.path(), self.path())?;
+        Ok(true)
     }
 
     pub fn load(&self) -> Result<TypingStatistics, TypingStatisticsError> {
@@ -503,6 +528,28 @@ mod tests {
         assert!(!reset.enabled);
         assert_eq!(reset.total, 0);
         assert!(reset.days.is_empty());
+    }
+
+    #[test]
+    fn moves_a_valid_legacy_store_without_replacing_shared_statistics() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = TypingStatisticsStore::new(root.path());
+        legacy
+            .record("old", TypingSource::English, "2026-09-07")
+            .unwrap();
+        let shared_directory = root.path().join("MSIME");
+        let shared = TypingStatisticsStore::new(&shared_directory);
+
+        assert!(shared.migrate_from(root.path()).unwrap());
+        assert!(!root.path().join("typing-statistics.json").exists());
+        assert_eq!(shared.load().unwrap().total, 3);
+
+        legacy
+            .record("legacy", TypingSource::English, "2026-09-08")
+            .unwrap();
+        assert!(!shared.migrate_from(root.path()).unwrap());
+        assert_eq!(shared.load().unwrap().total, 3);
+        assert_eq!(legacy.load().unwrap().total, 6);
     }
 
     #[test]

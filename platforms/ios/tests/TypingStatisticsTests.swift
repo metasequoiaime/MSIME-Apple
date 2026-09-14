@@ -111,4 +111,27 @@ final class TypingStatisticsTests: XCTestCase {
     }
     XCTAssertNotNil(lastWritten)
   }
+
+  func testMovesLegacyAppGroupStatisticsIntoTheSharedTauriStateDirectory() throws {
+    let container = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-migration-\(UUID().uuidString)")
+    let sharedState = container.appendingPathComponent("MSIME", isDirectory: true)
+    try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: container) }
+
+    let legacy = TypingStatisticsStore(directory: container)
+    try legacy.record("迁移", source: .quanpin)
+    let store = TypingStatisticsStore(directory: sharedState, legacyDirectory: container)
+    guard case .ready = store.availability() else {
+      return XCTFail("Legacy statistics should be reported before the first migration read.")
+    }
+    let snapshot = try store.load()
+
+    XCTAssertEqual(snapshot.total, 2)
+    XCTAssertEqual(snapshot.detail.sources["quanpin"], 2)
+    XCTAssertTrue(FileManager.default.fileExists(
+      atPath: sharedState.appendingPathComponent("typing-statistics.json").path))
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: container.appendingPathComponent("typing-statistics.json").path))
+  }
 }

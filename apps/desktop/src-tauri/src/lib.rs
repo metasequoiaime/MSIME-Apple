@@ -4067,7 +4067,14 @@ pub fn run() {
                 app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
             ));
             app.manage(keyboard_skin_trials);
-            app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
+            let typing_statistics = TypingStatisticsStore::new(&directory);
+            #[cfg(target_os = "ios")]
+            if directory.file_name() == Some(std::ffi::OsStr::new("MSIME")) {
+                if let Some(legacy_directory) = directory.parent() {
+                    let _ = typing_statistics.migrate_from(legacy_directory);
+                }
+            }
+            app.manage(TypingStatisticsState(typing_statistics));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));

@@ -113,14 +113,23 @@ struct TypingStatistics: Codable {
 // file serializes extension/app processes, including reset and enable/disable transactions.
 struct TypingStatisticsStore {
   let directory: URL?
+  private let legacyDirectory: URL?
 
-  init(directory: URL? = FileManager.default.containerURL(
-    forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
+  init() {
+    let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    directory = container?.appendingPathComponent("MSIME", isDirectory: true)
+    legacyDirectory = container
+  }
+
+  init(directory: URL?, legacyDirectory: URL? = nil) {
     self.directory = directory
+    self.legacyDirectory = legacyDirectory
   }
 
   private func transaction<T>(write: Bool, _ body: (inout TypingStatistics) -> T) throws -> T {
     guard let directory else { throw CocoaError(.fileNoSuchFile) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let lockURL = directory.appendingPathComponent("typing-statistics.lock")
     let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
@@ -128,6 +137,7 @@ struct TypingStatisticsStore {
     guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
     defer { flock(descriptor, LOCK_UN) }
     let url = directory.appendingPathComponent("typing-statistics.json")
+    try migrateLegacyFileIfNeeded(to: url)
     var value = TypingStatistics()
     if FileManager.default.fileExists(atPath: url.path) {
       value = try JSONDecoder().decode(TypingStatistics.self, from: Data(contentsOf: url))
@@ -135,6 +145,26 @@ struct TypingStatisticsStore {
     let result = body(&value)
     if write { try JSONEncoder().encode(value).write(to: url, options: .atomic) }
     return result
+  }
+
+  private func migrateLegacyFileIfNeeded(to destination: URL) throws {
+    guard !FileManager.default.fileExists(atPath: destination.path),
+          let legacyDirectory,
+          legacyDirectory.standardizedFileURL != directory?.standardizedFileURL else { return }
+    let source = legacyDirectory.appendingPathComponent("typing-statistics.json")
+    guard FileManager.default.fileExists(atPath: source.path) else { return }
+
+    let legacyLockURL = legacyDirectory.appendingPathComponent("typing-statistics.lock")
+    let descriptor = open(legacyLockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
+    defer { flock(descriptor, LOCK_UN) }
+
+    guard !FileManager.default.fileExists(atPath: destination.path),
+          FileManager.default.fileExists(atPath: source.path) else { return }
+    _ = try JSONDecoder().decode(TypingStatistics.self, from: Data(contentsOf: source))
+    try FileManager.default.moveItem(at: source, to: destination)
   }
 
   func load() throws -> TypingStatistics {
@@ -153,10 +183,15 @@ struct TypingStatisticsStore {
   func availability() -> Availability {
     guard let directory else { return .containerUnavailable }
     let url = directory.appendingPathComponent("typing-statistics.json")
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
-      return .neverWritten
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) {
+      return .ready(lastWritten: attributes[.modificationDate] as? Date)
     }
-    return .ready(lastWritten: attributes[.modificationDate] as? Date)
+    if let legacyDirectory,
+       let attributes = try? FileManager.default.attributesOfItem(
+         atPath: legacyDirectory.appendingPathComponent("typing-statistics.json").path) {
+      return .ready(lastWritten: attributes[.modificationDate] as? Date)
+    }
+    return .neverWritten
   }
 
   func record(_ text: String, source: TypingSource = .unknown, at date: Date = Date(), calendar: Calendar = .current) throws {
