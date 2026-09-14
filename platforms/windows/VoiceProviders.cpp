@@ -78,6 +78,14 @@ std::string default_polish_model(std::string_view provider) {
 bool voice_endpoint_is_websocket(std::string_view endpoint) {
   return endpoint.rfind("wss://", 0) == 0 || endpoint.rfind("ws://", 0) == 0;
 }
+std::string resolved_asr_endpoint(std::string_view provider,
+                                  std::string_view configured_endpoint) {
+  const bool doubao = is_doubao_asr_provider(provider);
+  if (configured_endpoint.empty() ||
+      (voice_endpoint_is_websocket(configured_endpoint) != doubao))
+    return default_asr_endpoint(provider);
+  return std::string(configured_endpoint);
+}
 bool is_doubao_asr_provider(std::string_view provider) {
   // The provider id decides, and only the provider id. This used to also treat
   // any wss:// endpoint as Doubao, which inverted the relationship: the shipped

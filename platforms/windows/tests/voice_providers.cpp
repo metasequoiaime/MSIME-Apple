@@ -50,6 +50,11 @@ int main() {
     // an OpenAI user look like a Doubao user - that sent their token to
     // ByteDance. Provider and endpoint now disagree, and the caller detects it.
     const auto stale = default_asr_endpoint("doubao");
+    require(resolved_asr_endpoint("openai", stale) == default_asr_endpoint("openai"));
+    require(resolved_asr_endpoint("doubao", default_asr_endpoint("openai")) ==
+            default_asr_endpoint("doubao"));
+    require(resolved_asr_endpoint("openai", "https://example.invalid/asr") ==
+            "https://example.invalid/asr");
     require(voice_endpoint_is_websocket(stale) != is_doubao_asr_provider("openai"));
     // And the reverse: Doubao selected with an HTTPS endpoint left behind.
     require(voice_endpoint_is_websocket(default_asr_endpoint("openai")) !=

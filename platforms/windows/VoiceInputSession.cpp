@@ -169,12 +169,7 @@ bool VoiceInputSession::start() {
   // Doubao speaks websocket and the others speak HTTPS, so the scheme is a
   // sufficient test, and existing installs with a stale endpoint are repaired
   // here rather than only for users who re-pick the provider in settings.
-  const bool mismatched =
-      !config.endpoint.empty() &&
-      voice_endpoint_is_websocket(config.endpoint) != doubao;
-  const auto endpoint = (config.endpoint.empty() || mismatched)
-                            ? default_asr_endpoint(config.asr_provider)
-                            : config.endpoint;
+  const auto endpoint = resolved_asr_endpoint(config.asr_provider, config.endpoint);
   const auto model = config.model.empty()
                          ? default_asr_model(config.asr_provider)
                          : config.model;
@@ -427,9 +422,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
         return;
       }
     } else {
-      const auto endpoint = config.endpoint.empty()
-                                ? default_asr_endpoint(config.asr_provider)
-                                : config.endpoint;
+      const auto endpoint = resolved_asr_endpoint(config.asr_provider, config.endpoint);
       const auto model = config.model.empty()
                              ? default_asr_model(config.asr_provider)
                              : config.model;
