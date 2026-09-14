@@ -19,6 +19,10 @@
 }
 @end
 
+// 序号和候选词之间的间距。测量和绘制必须用同一个数 —— 分叉过一次:布局按 5 预留、同行绘制按 6 画,
+// 助记码注解就被裁掉 1pt,而本机字体度量和 CI 差的那点正好被断言的 0.5 容差吃掉,只有 CI 会红。
+static const CGFloat kCandidateNumberGap = 6.0;
+
 @interface MetasequoiaCandidateButton : NSButton
 @property(nonatomic) BOOL candidateHighlighted;
 @property(nonatomic, copy) NSColor *fillColor;
@@ -109,7 +113,7 @@
         CGFloat y = self.bounds.size.height - 6.0 - wordSize.height;
         if (number.length > 0)
             [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-        const CGFloat wordX = textLeft + (number.length > 0 ? numberSize.width + 5.0 : 0.0);
+        const CGFloat wordX = textLeft + (number.length > 0 ? numberSize.width + kCandidateNumberGap : 0.0);
         [word drawInRect:NSMakeRect(wordX, y, MAX(0.0, self.bounds.size.width - wordX - 8.0), wordSize.height)
             withAttributes:titleAttributes];
         // 两行释义的位置固定,空着也占 —— 模型是几秒后才回的,等结果到了再长高会让整条候选条当场跳一下。
@@ -132,7 +136,7 @@
     const CGFloat y = (self.bounds.size.height - wordSize.height) / 2;
     if (number.length > 0)
         [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-    CGFloat x = textLeft + (number.length > 0 ? numberSize.width + 6.0 : 0.0);
+    CGFloat x = textLeft + (number.length > 0 ? numberSize.width + kCandidateNumberGap : 0.0);
     const CGFloat rightEdge = self.bounds.size.width - 8.0;
     const CGFloat wordWidth = MIN(wordSize.width, MAX(0.0, rightEdge - x));
     [word drawInRect:NSMakeRect(x, y, wordWidth, wordSize.height) withAttributes:titleAttributes];
@@ -364,7 +368,7 @@
         NSString *translation = MetasequoiaCandidateTranslation(_data[index]);
         NSString *secondary = MetasequoiaCandidateSecondaryTranslation(_data[index]);
         const CGFloat headWidth =
-            [number sizeWithAttributes:measure].width + 5.0 + [word sizeWithAttributes:measure].width;
+            [number sizeWithAttributes:measure].width + kCandidateNumberGap + [word sizeWithAttributes:measure].width;
         const CGFloat primaryWidth =
             translation.length > 0 ? [translation sizeWithAttributes:primaryMeasure].width : 0.0;
         const CGFloat secondaryWidth =
