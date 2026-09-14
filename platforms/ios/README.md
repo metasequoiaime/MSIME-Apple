@@ -2,6 +2,8 @@
 
 `MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。语音录制由 App 的 Swift `AVAudioEngine` 宿主管理，键盘扩展不直接使用桌面音频采集桥接。
 
+键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
+
 ## 开发构建
 
 先初始化固定的 Engine gitlink 与递归子模块，并准备包含 iOS 版 Boost 的依赖前缀：

@@ -14,6 +14,9 @@ use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
     TouchKeyboardLayout,
 };
+use msime_client_core::punctuation::{
+    route as punctuation_route, PunctuationContext, PunctuationRoute,
+};
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::VoiceSessionState;
@@ -1859,6 +1862,65 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
 #[no_mangle]
 pub extern "C" fn msime_client_punctuation(handle: u64, ascii: u8) -> *mut c_char {
     dispatch(handle, Action::Punctuation(ascii))
+}
+
+/// Resolve punctuation using the platform editor's immediately preceding
+/// Unicode scalar. Zero means that no preceding scalar is available. Only the
+/// scalar value crosses the host boundary; document text is never retained.
+#[no_mangle]
+pub extern "C" fn msime_client_punctuation_with_context(
+    handle: u64,
+    ascii: u8,
+    preceding: u32,
+) -> *mut c_char {
+    if !ascii.is_ascii_punctuation() {
+        return response(|| Err("invalid punctuation".into()));
+    }
+    let preceding = if preceding == 0 {
+        None
+    } else {
+        match char::from_u32(preceding) {
+            Some(value) => Some(value),
+            None => return response(|| Err("invalid preceding character".into())),
+        }
+    };
+    let action = SESSIONS.with(|sessions| {
+        let sessions = sessions
+            .try_borrow()
+            .map_err(|_| "reentrant host call".to_owned())?;
+        let session = sessions
+            .get(&handle)
+            .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
+        let view = session.runtime.view();
+        let lock = match session.punctuation_lock_override {
+            Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
+            Some(2) => msime_client_core::preferences::PunctuationLock::English,
+            Some(_) => msime_client_core::preferences::PunctuationLock::Follow,
+            None => session.applied.punctuation_lock,
+        };
+        let route = punctuation_route(PunctuationContext {
+            character: ascii,
+            preceding,
+            host_context_available: !session.english_mode
+                && !view.dedicated_english
+                && view.local_mode == "none"
+                && view.scheme != 3,
+            has_composition: !session.runtime.is_idle(),
+            chinese_punctuation: session
+                .punctuation_override
+                .unwrap_or(session.applied.chinese_punctuation),
+            smart_punctuation: session.applied.smart_punctuation,
+            lock,
+        });
+        Ok(match route {
+            PunctuationRoute::Engine => Action::Punctuation(ascii),
+            PunctuationRoute::Ascii => Action::PunctuationAscii(ascii),
+        })
+    });
+    match action {
+        Ok(action) => dispatch(handle, action),
+        Err(error) => response(|| Err(error)),
+    }
 }
 
 /// Notify Engine that a host-emitted paired closing mark completed the opening.
@@ -4424,6 +4486,95 @@ mod tests {
             read(msime_client_destroy(handle));
             assert_eq!(read(msime_client_punctuation(handle, b','))["ok"], false);
         }
+    }
+
+    #[test]
+    fn contextual_punctuation_respects_editor_context_preferences_and_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+
+        for preceding in [u32::from('0'), u32::from('a'), u32::from('Z')] {
+            for punctuation in [b',', b'.', b':'] {
+                let result = read(msime_client_punctuation_with_context(
+                    handle,
+                    punctuation,
+                    preceding,
+                ));
+                assert_eq!(result["ok"], true);
+                assert_eq!(result["value"]["handled"], false);
+            }
+        }
+        for preceding in [0, u32::from('中'), u32::from(' ')] {
+            let result = read(msime_client_punctuation_with_context(
+                handle, b',', preceding,
+            ));
+            assert_eq!(result["value"]["commit"], "，");
+        }
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                handle,
+                b'?',
+                u32::from('a')
+            ))["value"]["commit"],
+            "？"
+        );
+
+        read(msime_client_set_punctuation_lock(handle, 1));
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                handle,
+                b',',
+                u32::from('a')
+            ))["value"]["commit"],
+            "，"
+        );
+        read(msime_client_set_punctuation_lock(handle, 2));
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                handle,
+                b',',
+                u32::from('中')
+            ))["value"]["handled"],
+            false
+        );
+        read(msime_client_set_punctuation_lock(handle, 0));
+
+        read(msime_client_character(handle, b'n', false));
+        read(msime_client_character(handle, b'i', false));
+        let composed = read(msime_client_punctuation_with_context(
+            handle,
+            b',',
+            u32::from('a'),
+        ));
+        assert!(composed["value"]["commit"]
+            .as_str()
+            .is_some_and(|value| value.ends_with('，')));
+
+        let mut preferences = Preferences::default();
+        preferences.smart_punctuation = false;
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                handle,
+                b'.',
+                u32::from('7')
+            ))["value"]["commit"],
+            "。"
+        );
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                handle,
+                b'a',
+                u32::from('7')
+            ))["ok"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_punctuation_with_context(handle, b',', 0xd800))["ok"],
+            false
+        );
+        read(msime_client_destroy(handle));
     }
 
     #[test]

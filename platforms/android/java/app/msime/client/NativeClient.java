@@ -98,6 +98,15 @@ public final class NativeClient {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return text(characterRaw(session, ascii, shift));
     }
+    public static String punctuationWithContext(long session, int ascii, int precedingCodePoint) {
+        if (ascii < 0 || ascii > 127 || !SmartPunctuationContext.isAsciiPunctuation((char) ascii))
+            throw new IllegalArgumentException("Engine punctuation must be ASCII punctuation");
+        if (!Character.isValidCodePoint(precedingCodePoint)
+                || (precedingCodePoint >= Character.MIN_SURROGATE
+                    && precedingCodePoint <= Character.MAX_SURROGATE))
+            throw new IllegalArgumentException("Preceding character must be a Unicode scalar");
+        return text(punctuationWithContextRaw(session, ascii, precedingCodePoint));
+    }
     public static String command(long session, int command) { return text(commandRaw(session, command)); }
     public static String select(long session, long generation, long index) {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
@@ -155,6 +164,8 @@ public final class NativeClient {
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
+    private static native byte[] punctuationWithContextRaw(long session, int ascii,
+        int precedingCodePoint);
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);
     private static native byte[] selectAnyCandidateRaw(long session, long generation, long index);

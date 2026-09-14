@@ -69,6 +69,17 @@ public final class NativeSmoke {
             success(englishCommit);
             if (!englishCommit.contains("\"commit\":\"H\"")) throw new AssertionError(englishCommit);
             success(NativeClient.setEnglishMode(handle, false));
+            String smartAscii = NativeClient.punctuationWithContext(handle, ',', 'A');
+            success(smartAscii);
+            if (!smartAscii.contains("\"handled\":false")) throw new AssertionError(smartAscii);
+            String smartChinese = NativeClient.punctuationWithContext(handle, ',', '中');
+            success(smartChinese);
+            if (!smartChinese.contains("\"commit\":\"，\"")) throw new AssertionError(smartChinese);
+            success(NativeClient.character(handle, 'n', false));
+            success(NativeClient.character(handle, 'i', false));
+            String composedPunctuation = NativeClient.punctuationWithContext(handle, ',', 'A');
+            success(composedPunctuation);
+            if (!composedPunctuation.contains("，\"")) throw new AssertionError(composedPunctuation);
             String nineKey = NativeClient.setNineKeyMode(handle, true);
             success(nineKey);
             if (!nineKey.contains("\"nine_key\":true")) throw new AssertionError(nineKey);
@@ -107,7 +118,7 @@ public final class NativeSmoke {
             if (!punctuation.contains("\"handled\":false")) throw new AssertionError(punctuation);
             success(NativeClient.destroy(handle));
             if (!NativeClient.view(handle).contains("\"ok\":false")) throw new AssertionError("stale handle accepted");
-            System.out.println("JNI consumer: English mode, nine-key, UTF-8 paths, preferences CAS and input commit passed");
+            System.out.println("JNI consumer: English mode, smart punctuation, nine-key, UTF-8 paths, preferences CAS and input commit passed");
         } finally {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);

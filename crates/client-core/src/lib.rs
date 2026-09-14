@@ -20,6 +20,7 @@ pub mod keyboard_skin_trial;
 pub mod panels;
 pub mod personal_dictionary;
 pub mod preferences;
+pub mod punctuation;
 pub mod resources;
 pub mod skin_catalog;
 pub mod translation;
