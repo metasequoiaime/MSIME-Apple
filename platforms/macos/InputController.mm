@@ -658,7 +658,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     return _candidateAnchorValid ? _candidateAnchorCaret : reported;
 }
-- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _voicePermissionToken = nil; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
+- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _voicePermissionToken = nil; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; [_voiceOverlay dismissFailure]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
     _preferenceLoadState.reset();
     [self applySharedToolbarPreferences:notification.userInfo];
@@ -951,6 +951,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)applyDoubaoFinalText:(NSString *)text request:(MSIMEDoubaoVoiceRequest *)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
+        if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
         if (result) { _doubaoVoiceMarked = NO; [self apply:result]; }
     }
@@ -972,6 +973,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_voiceCueRecording) return;
     _voiceCueRecording = NO;
     if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, NO)) [_voiceCuePlayer playStopCue];
+}
+- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
+    _voicePermissionToken = nil; _voiceHoldShortcut.reset();
+    [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
+    if (_voiceService.active) [_voiceService cancelWithError:nil];
+    [_voiceAudioMuter restore]; [self voiceCaptureDidEnd];
+    if (!_activeClient) return;
+    if (!_voiceOverlay) _voiceOverlay = [MSIMEVoiceWaveOverlay new];
+    [_voiceOverlay showFailure:failure];
 }
 - (void)cancelDoubaoVoiceInput {
     if (!_doubaoVoiceRequest) return;
@@ -997,6 +1007,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *finished = request && _activeClient && _session ? [_session command:MSIME_FINISH_COMPOSITION error:&error] : nil;
     if (!finished) {
         [request cancel]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider];
         return NO;
     }
     [self apply:finished];
@@ -1015,8 +1026,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEInputController *controller = weakSelf;
         MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
         if (!controller || !liveRequest || controller->_doubaoVoiceRequest != liveRequest) return;
-        if (failure || ![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
+        if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
         if (controller->_doubaoFinalReceived) return;
+        if (failure) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
         if (!final) {
             if (controller->_doubaoVoiceInline && text) {
                 [(id<MSIMETextClient>)controller->_doubaoVoiceClient setMarkedText:text selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
@@ -1041,7 +1053,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             [weakSelf applyDoubaoFinalText:!polishError && polished.length ? polished : text request:liveRequest];
         } error:nil]) return;
         [controller applyDoubaoFinalText:text request:liveRequest];
-    } error:&error]) { [self cancelDoubaoVoiceInput]; return NO; }
+    } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider]; return NO; }
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
         MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
@@ -1056,10 +1068,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_doubaoVoiceRequest != liveRequest) return;
             if (controller->_doubaoFinalReceived) return;
-            if (!sent) [controller cancelDoubaoVoiceInput];
+            if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
+            if (!sent) [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
             else if (!controller->_doubaoVoiceProcessing) [controller->_voiceOverlay setInputLevel:level];
         });
-    } deviceUID:device error:&error]) { [self cancelDoubaoVoiceInput]; return NO; }
+    } deviceUID:device error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return NO; }
     [self voiceCaptureDidStart];
     return YES;
 }
@@ -1073,7 +1086,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (!tail || error || (tail.length && ![_doubaoVoiceRequest appendPCM:tail error:&error]) ||
-        ![_doubaoVoiceRequest finishWithError:&error]) [self cancelDoubaoVoiceInput];
+        ![_doubaoVoiceRequest finishWithError:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider];
 }
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     return [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:error];
@@ -1095,6 +1108,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEHTTPVoiceRequest *request = [self makeHTTPVoiceRequest:options error:&error];
     if (!request || !_activeClient || !_session) {
         [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider];
         return NO;
     }
     _httpVoiceRequest = request;
@@ -1124,8 +1138,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     } deviceUID:device failure:^(NSError *failure) {
         (void)failure;
         MSIMEInputController *controller = weakSelf;
-        if (controller && controller->_httpVoiceRequest == request) [controller cancelHTTPVoiceInput];
-    } error:&error]) { [self cancelHTTPVoiceInput]; return NO; }
+        if (!controller || controller->_httpVoiceRequest != request) return;
+        if (controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+            controller->_voiceGeneration != controller->_httpVoiceGeneration) { [controller cancelHTTPVoiceInput]; return; }
+        [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
+    } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return NO; }
     [self voiceCaptureDidStart];
     return YES;
 }
@@ -1139,7 +1156,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_voiceAudioMuter restore];
     [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
-    if (!pcm.length || error) { [self cancelHTTPVoiceInput]; return; }
+    if (!pcm.length || error) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return; }
     MSIMEClientSession *session = _httpVoiceSession;
     id client = _httpVoiceClient;
     const uint64_t generation = _httpVoiceGeneration;
@@ -1147,6 +1164,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (![request recognizePCM:pcm completion:^(NSString *text, NSError *failure) {
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_httpVoiceRequest != request) return;
+        if (controller->_activeClient != client || controller->_session != session ||
+            controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
+        if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech]; return; }
         if (!failure && text.length && controller->_activeClient == client &&
             controller->_session == session && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
@@ -1155,7 +1175,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (result) [controller apply:result];
         }
         [controller cancelHTTPVoiceInput];
-    } error:&error]) [self cancelHTTPVoiceInput];
+    } error:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider];
 }
 - (BOOL)ownsLiveVoiceToken:(id)token {
     return token && token == _liveVoiceToken && _activeClient == _liveVoiceClient &&
@@ -1175,10 +1195,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
 }
+- (void)expireLiveVoice:(id)token {
+    if ([self ownsLiveVoiceToken:token]) [self reportVoiceFailure:MSIMEVoiceFailureTimeout];
+    else if (token && _liveVoiceToken == token) [self cancelLiveVoiceInput];
+}
 - (id)beginLiveVoiceWithOptions:(NSDictionary *)options socket:(NSString *)socket {
     NSDictionary *finished = _session && _activeClient ? [_session command:MSIME_FINISH_COMPOSITION error:nil] : nil;
     if (!finished) {
         MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay, socket, _voiceGeneration);
+        [self reportVoiceFailure:MSIMEVoiceFailureSession];
         return nil;
     }
     [self apply:finished];
@@ -1192,14 +1217,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id token = _liveVoiceToken;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        MSIMEInputController *controller = weakSelf;
-        if (controller && controller->_liveVoiceToken == token) [controller cancelLiveVoiceInput];
+        [weakSelf expireLiveVoice:token];
     });
     return token;
 }
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
     if ([self ownsLiveVoiceToken:token]) {
+        if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
         if (result) { _liveVoiceMarked = NO; [self apply:result]; }
     }
@@ -1256,8 +1281,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id token = _liveVoiceToken;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        MSIMEInputController *controller = weakSelf;
-        if (controller && controller->_liveVoiceToken == token) [controller cancelLiveVoiceInput];
+        [weakSelf expireLiveVoice:token];
     });
 }
 - (void)finishVoiceInputForDisable {
@@ -1283,9 +1307,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         // Consume before resuming: Speech may chain a microphone request, and
         // duplicate callbacks must not consume that request or toggle capture.
         controller->_voicePermissionToken = nil;
-        if (!granted || !resume || controller->_activeClient != client || controller->_session != session ||
+        if (controller->_activeClient != client || controller->_session != session ||
             controller->_voiceService != service || controller->_voiceGeneration != generation ||
             ![provider isEqual:([NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"")]) return;
+        if (!granted) { [controller reportVoiceFailure:speech ? MSIMEVoiceFailureSpeechPermission : MSIMEVoiceFailureMicrophonePermission]; return; }
+        if (!resume) return;
         [controller toggleVoiceInput:nil];
     };
     if (speech) [_voiceService requestSpeechPermission:completion];
@@ -1302,7 +1328,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (!_activeClient) return;
     if (!_session) [self prepareSession];
-    if (!_session) return;
+    if (!_session) { [self reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
     if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
@@ -1316,7 +1342,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
         NSError *error = nil;
-        if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
+        if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
@@ -1338,7 +1364,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 } error:&providerError];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     MSIMEInputController *live = weakSelf;
-                    if (live && live->_liveVoiceToken == token) [live cancelLiveVoiceInput];
+                    if ([live ownsLiveVoiceToken:token]) [live reportVoiceFailure:MSIMEVoiceFailureProvider];
+                    else if (live && live->_liveVoiceToken == token) [live cancelLiveVoiceInput];
                 });
             });
             return;
@@ -1349,7 +1376,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!token) return;
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             [weakSelf applyLiveVoiceText:text final:final token:token];
-        } error:&error]) { [controller cancelLiveVoiceInput]; return; }
+        } error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
         NSString *deviceUID = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
             const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : NULL;
@@ -1359,7 +1386,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 MSIMEInputController *liveController = weakSelf;
                 if ([liveController ownsLiveVoiceToken:token]) [liveController->_voiceOverlay setInputLevel:level];
             });
-        } deviceUID:deviceUID error:&error]) { [controller cancelLiveVoiceInput]; return; }
+        } deviceUID:deviceUID error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureCapture]; return; }
         [controller voiceCaptureDidStart];
     };
     // A permission sheet can outlive the physical hold. Require a fresh hold
@@ -1426,6 +1453,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
     if (_activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
@@ -1702,9 +1730,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
-    if (!sender) { _voicePermissionToken = nil; _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
+    if (!sender) { _voicePermissionToken = nil; [_voiceOverlay dismissFailure]; _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        [_voiceOverlay dismissFailure];
         _voicePermissionToken = nil;
         _voiceHoldShortcut.reset();
         [self cancelLiveVoiceInput];
@@ -1722,6 +1751,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
     NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
+    if (event.type == NSEventTypeKeyDown && event.keyCode == 53) [_voiceOverlay dismissFailure];
     if (_voicePermissionToken && event.type == NSEventTypeKeyDown && event.keyCode == 53) {
         _voicePermissionToken = nil; _voiceHoldShortcut.reset(); _modifierTap.reset(); return YES;
     }

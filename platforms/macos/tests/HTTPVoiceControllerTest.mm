@@ -55,9 +55,13 @@
 
 @interface HTTPOverlayFixture : NSObject
 @property NSUInteger phase;
+@property NSUInteger failure;
+@property NSUInteger failures;
 @end
 @implementation HTTPOverlayFixture
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
+- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 @end
 
@@ -119,6 +123,7 @@ int main() {
         capture.failStart = YES;
         const auto beforeFailure = cues.starts;
         assert(![controller startHTTPVoiceInputWithOptions:@{}]);
+        assert(overlay.failure == MSIMEVoiceFailureCapture);
         assert(cues.starts == beforeFailure && cues.stops == beforeFailure);
         assert(controller.requestFixture.cancellations == 1);
         capture.failStart = NO;
@@ -126,11 +131,31 @@ int main() {
         void (^oldFailure)(NSError *) = capture.failure;
         oldFailure([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         assert(!capture.active && controller.requestFixture.cancellations == 1 && !controller.requestFixture.submitted);
+        assert(overlay.failure == MSIMEVoiceFailureCapture);
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         oldFailure([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         assert(capture.active && controller.requestFixture.cancellations == 0);
         [controller cancelHTTPVoiceInput];
         assert(cues.starts == cues.stops);
+        const NSUInteger beforeErrors = overlay.failures;
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1
+            userInfo:@{NSLocalizedDescriptionKey:@"synthetic detail must not be presented"}]);
+        assert(overlay.failure == MSIMEVoiceFailureProvider && overlay.failures == beforeErrors + 1 && !capture.active);
+        controller.requestFixture.completion(nil, nil);
+        assert(overlay.failures == beforeErrors + 1);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        controller.requestFixture.completion(@"", nil);
+        assert(overlay.failure == MSIMEVoiceFailureNoSpeech && !capture.active);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        [controller setValue:[NSObject new] forKey:@"activeClient"];
+        const NSUInteger beforeStale = overlay.failures;
+        controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
+        assert(overlay.failures == beforeStale && !capture.active);
+        [controller setValue:client forKey:@"activeClient"];
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

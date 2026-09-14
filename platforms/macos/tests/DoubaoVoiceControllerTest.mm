@@ -43,6 +43,8 @@
 
 @interface DoubaoPresentationFixture : NSObject
 @property NSUInteger phase;
+@property NSUInteger failure;
+@property NSUInteger failures;
 - (void)setListening:(BOOL)listening;
 - (void)setProcessing:(BOOL)polishing;
 - (void)setInputLevel:(float)level;
@@ -50,7 +52,9 @@
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
+- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)setInputLevel:(float)level { (void)level; }
 - (void)restore {}
@@ -125,6 +129,9 @@ int main() {
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
         assert(session);
         DoubaoControllerFixture *controller = [DoubaoControllerFixture alloc];
+        DoubaoPresentationFixture *presentation = [DoubaoPresentationFixture new];
+        [controller setValue:presentation forKey:@"voiceOverlay"];
+        [controller setValue:presentation forKey:@"voiceAudioMuter"];
         MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
         [controller setValue:cues forKey:@"voiceCuePlayer"];
         NSUserDefaults *cueDefaults = NSUserDefaults.standardUserDefaults;
@@ -176,10 +183,12 @@ int main() {
         capture.failStart = YES;
         const auto beforeFailure = cues.starts;
         assert(!Start(controller, capture, session, YES) && !capture.active);
+        assert(presentation.failure == MSIMEVoiceFailureCapture);
         assert(cues.starts == beforeFailure && cues.stops == beforeFailure);
         capture.failStart = NO;
         controller.failRequest = YES;
         assert(!Start(controller, capture, session, YES) && !capture.active);
+        assert(presentation.failure == MSIMEVoiceFailureProvider);
         controller.failRequest = NO;
         assert(Start(controller, capture, session, YES));
         controller.fixture.failAppend = YES;
@@ -190,9 +199,6 @@ int main() {
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
         [defaults setVolatileDomain:@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
-        DoubaoPresentationFixture *presentation = [DoubaoPresentationFixture new];
-        [controller setValue:presentation forKey:@"voiceOverlay"];
-        [controller setValue:presentation forKey:@"voiceAudioMuter"];
         assert([controller usesNativeDoubaoVoice] && ![controller usesNativeHTTPVoice]);
         assert([session setFocused:YES error:nil]);
         assert([session typeASCII:'U' shift:YES error:nil]);
@@ -213,10 +219,12 @@ int main() {
         capture.chunk([NSMutableData dataWithLength:32], nil); // A queued send failure after the server final is obsolete.
         controller.fixture.result(@"unpolished", YES, nil);
         controller.fixture.result(@"duplicate final", YES, nil);
+        controller.fixture.result(nil, YES, [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         Pump();
         assert(capture.finishes == beforePolishCaptureStops + 1 && controller.fixture.finishes == 0);
         assert(client.commits.count == 2 && controller.polishFixture.submissions == 1);
         assert([[controller valueForKey:@"voiceOverlay"] phase] == 3);
+        assert(presentation.failure == 0);
         controller.polishFixture.completion(@"synthetic polished", nil);
         assert(client.commits.count == 3 && [client.commits.lastObject isEqual:@"synthetic polished"]);
         assert([[controller valueForKey:@"voiceOverlay"] phase] == 0);

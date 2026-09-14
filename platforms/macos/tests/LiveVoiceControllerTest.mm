@@ -42,12 +42,16 @@
 @end
 @interface LivePresentationFixture : NSObject
 @property NSUInteger phase;
+@property NSUInteger failure;
+@property NSUInteger failures;
 - (void)setListening:(BOOL)listening;
 - (void)setProcessing:(BOOL)polishing;
 - (void)restore;
 @end
 @implementation LivePresentationFixture
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
+- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)restore {}
 @end
@@ -158,6 +162,17 @@ int main(int argc, char **) {
             assert(presentation.phase == 0); // Late progress cannot reopen a completed session.
             assert(client.commits.count == 1 && [client.commits[0] isEqual:@"socket final"]);
             assert(cues.starts == 1 && cues.stops == 1);
+            session.providerDone = dispatch_semaphore_create(0);
+            session.providerStarted = NO;
+            [controller toggleVoiceInput:nil];
+            deadline = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!session.providerStarted && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            assert(session.providerStarted && capture.active);
+            dispatch_semaphore_signal(session.providerDone); // Provider exits without a final result.
+            while (capture.active && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            assert(!capture.active && presentation.failure == MSIMEVoiceFailureProvider);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
@@ -278,6 +293,7 @@ int main(int argc, char **) {
         const auto failureStarts = cues.starts, failureStops = cues.stops;
         capture.failCapture = YES;
         [controller toggleVoiceInput:nil];
+        assert(presentation.failure == MSIMEVoiceFailureCapture);
         assert(!capture.active && cues.starts == failureStarts && cues.stops == failureStops);
         capture.failCapture = NO;
         // Exercise all shared sound switches at the actual capture entry/exit.
@@ -413,6 +429,7 @@ int main(int argc, char **) {
         [controller applySharedToolbarPreferences:@{@"voice_input": @{@"asr_provider": @"system"}}];
         assert([controller valueForKey:@"voicePermissionToken"] == pending); // Unchanged reload.
         microphonePermission(NO); assert(![controller valueForKey:@"voicePermissionToken"]);
+        assert(presentation.failure == MSIMEVoiceFailureMicrophonePermission);
         [controller toggleVoiceInput:nil];
         void (^newPermission)(BOOL) = capture.permission;
         microphonePermission(YES); assert(!capture.active && [controller valueForKey:@"voicePermissionToken"]);
@@ -469,6 +486,32 @@ int main(int argc, char **) {
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
         assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
         [controller cancelLiveVoiceInput];
+        [controller setValue:client forKey:@"activeClient"];
+        capture.needsSpeechPermission = YES;
+        [controller toggleVoiceInput:nil];
+        capture.speechPermission(NO);
+        assert(presentation.failure == MSIMEVoiceFailureSpeechPermission && !capture.active);
+        [controller handleEvent:key(53, 0, NSEventTypeKeyDown) client:client];
+        assert(presentation.failure == 0);
+        capture.needsSpeechPermission = NO;
+        [controller toggleVoiceInput:nil];
+        id expired = [controller valueForKey:@"liveVoiceToken"];
+        [controller expireLiveVoice:expired];
+        assert(presentation.failure == MSIMEVoiceFailureTimeout && !capture.active);
+        [controller toggleVoiceInput:nil];
+        const NSUInteger beforeExpired = presentation.failures;
+        [controller expireLiveVoice:expired];
+        assert(capture.active && presentation.failures == beforeExpired);
+        capture.transcript(@"", YES);
+        assert(presentation.failure == MSIMEVoiceFailureNoSpeech && !capture.active);
+        [controller voiceProviderSettingsChanged:nil];
+        assert(presentation.failure == 0);
+        capture.needsMicrophonePermission = YES;
+        [controller toggleVoiceInput:nil];
+        const NSUInteger beforeDenied = presentation.failures;
+        [controller setValue:nextClient forKey:@"activeClient"];
+        capture.permission(NO);
+        assert(presentation.failures == beforeDenied);
         [controller setValue:client forKey:@"activeClient"];
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);

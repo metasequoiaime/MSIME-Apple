@@ -1,6 +1,12 @@
 #import "../VoiceWaveOverlay.h"
 #include <cassert>
 
+@interface BriefFailureOverlay : MSIMEVoiceWaveOverlay
+@end
+@implementation BriefFailureOverlay
+- (NSTimeInterval)failureDisplayDuration { return 0.02; }
+@end
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -40,6 +46,24 @@ int main(int argc, char **argv) {
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         [panel setListening:NO];
         assert(!panel.visible && !panel.statusText.length);
+        for (NSUInteger failure = MSIMEVoiceFailureMicrophonePermission; failure <= MSIMEVoiceFailureSession; ++failure) {
+            [panel showFailure:(MSIMEVoiceFailure)failure];
+            assert(panel.visible && panel.statusText.length);
+            CGFloat textWidth = [panel.statusText sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width;
+            assert(textWidth <= panel.contentView.bounds.size.width - 42);
+            assert([panel.contentView.accessibilityLabel isEqual:panel.statusText]);
+            [panel dismissFailure]; assert(!panel.visible);
+        }
+        BriefFailureOverlay *brief = [BriefFailureOverlay new];
+        [brief showFailure:MSIMEVoiceFailureCapture];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        assert(!brief.visible);
+        [brief showFailure:MSIMEVoiceFailureProvider];
+        [brief setListening:YES];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        assert(brief.visible && [brief.statusText isEqual:@"正在录音…"]);
+        [brief dismissFailure]; assert(brief.visible);
+        [brief setListening:NO];
         [panel setListening:YES];
         assert([panel.statusText isEqual:@"正在录音…"]);
         [panel setListening:NO];
