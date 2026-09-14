@@ -14,6 +14,8 @@ param(
     [string]$ServerReleaseDirectory = '',
     # Tauri release binary; relative overrides are resolved against RepoRoot.
     [string]$DesktopExecutable = 'target/release/msime-desktop.exe',
+    # Exact files from resources/desktop-dictionary.lock.json; full packages only.
+    [string]$DesktopResourcesDirectory = 'target/desktop-resources',
     [string]$Tsf32ReleaseDirectory = '',
     [string]$Tsf64ReleaseDirectory = '',
     # THIRD_PARTY_NOTICES.txt used to sit next to the tip's sources. In the consolidated repository
@@ -177,6 +179,16 @@ $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
 
+$desktopResources = @()
+if (-not $Light) {
+    $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
+        $DesktopResourcesDirectory
+    } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
+    $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
+        -SourceDirectory $resourceSource `
+        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'))
+}
+
 if ($Light) {
     Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，只刷新 TSF、Server、HTML。'
     New-Item -ItemType Directory -Path $targetAppData -Force | Out-Null
@@ -231,6 +243,24 @@ Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
 # Match ShellSurfaces.h, independent of Cargo/Tauri's build artifact filename.
 Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $targetServer 'msime-client-settings.exe') -Force
+# Inno recursively installs server_exe under Program Files. Keep these verified
+# read-only sources separate from legacy app_data and per-user writable state.
+$targetResources = Join-Path $targetServer 'resources'
+if ($Light -and (Test-Path -LiteralPath $targetResources)) {
+    # Do not inherit a stale bundle from a reused native build directory.
+    Remove-Item -LiteralPath $targetResources -Recurse -Force
+}
+if (-not $Light) {
+    Reset-Directory -LiteralPath $targetResources
+    foreach ($resource in $desktopResources) {
+        Copy-Item -LiteralPath $resource -Destination $targetResources
+    }
+    # Recheck the staged bytes too: a changing source must not produce a package
+    # that only passed its preflight hash check.
+    $null = & (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
+        -SourceDirectory $targetResources `
+        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json')
+}
 # Both package modes replace Server output. Copy model resources afterwards,
 # otherwise Reset-Directory silently removes them from an otherwise valid package.
 if ($hasHandwritingModel) {

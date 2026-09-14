@@ -10,6 +10,7 @@ try {
     $installer = Join-Path $fixture 'installer'
     New-Item -ItemType Directory -Force -Path $installer | Out-Null
     Copy-Item (Join-Path $PSScriptRoot '../Prepare-PackageFiles.ps1') $installer
+    Copy-Item (Join-Path $PSScriptRoot '../Get-VerifiedDesktopResources.ps1') $installer
     Copy-Item (Join-Path $PSScriptRoot '../msime_setup.iss') $installer
     Copy-Item (Join-Path $PSScriptRoot '../config.default.toml') $installer
     Copy-Item (Join-Path $PSScriptRoot '../assets') $installer -Recurse
@@ -52,7 +53,42 @@ try {
     $english = Join-Path $fixture 'MetasequoiaImeDict/out/english.db'
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
+    $artifacts = @(
+        foreach ($name in @('msime.db', 'english.db', 'others.db', 'dict_japanese.dat',
+                            'mozc_dictionary_oss_README.txt', 'dictionary-manifest.json')) {
+            Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name"
+            $path = Join-Path $fixture "target/desktop-resources/$name"
+            @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
+        }
+    )
+    Write-Fixture 'resources/desktop-dictionary.lock.json' (@{
+        source_commit = ('a' * 40); artifacts = $artifacts
+    } | ConvertTo-Json -Depth 5)
+    Write-Fixture 'target/desktop-resources/unlisted-private-file.txt' 'synthetic excluded data'
+    Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'
+    foreach ($artifact in $artifacts) {
+        $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
+        if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
+    }
+    if (Test-Path (Join-Path $installer 'server_exe/resources/unlisted-private-file.txt')) {
+        throw 'Packaged an unlisted resource'
+    }
+    if (Test-Path (Join-Path $installer 'server_exe/resources/stale.txt')) {
+        throw 'Packaged unverified native build resources'
+    }
+    $pinned = Join-Path $fixture 'target/desktop-resources/msime.db'
+    $originalPinned = [IO.File]::ReadAllText($pinned)
+    foreach ($bad in @('short', ('x' * $originalPinned.Length))) {
+        [IO.File]::WriteAllText($pinned, $bad)
+        $rejected = $false
+        try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $true }
+        if (-not $rejected) { throw 'Invalid pinned resource accepted' }
+        if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/resources/msime.db')) -ne $originalPinned) {
+            throw 'Failed resource preflight damaged previous staging'
+        }
+    }
+    [IO.File]::WriteAllText($pinned, $originalPinned)
     foreach ($file in @('app_data/html/webview2/shared/runtime.js', 'app_data/dictionary-manifest.json',
                          'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
@@ -100,6 +136,7 @@ try {
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
+    if (Test-Path (Join-Path $installer 'server_exe/resources')) { throw 'Light package unexpectedly carries dictionaries' }
     Write-Fixture 'custom build/shell.exe' 'synthetic alternate shell'
     foreach ($shellPath in @('custom build/shell.exe', (Join-Path $fixture 'custom build/shell.exe'))) {
         & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable $shellPath
