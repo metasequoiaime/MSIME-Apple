@@ -689,7 +689,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.closeKeyboardPicker()
         self?.showKeyboardVoice()
       },
-      UIMenu(title: "按键反馈", options: .displayInline, children: [
+      UIMenu(title: "键盘设置", options: .displayInline, children: [
         UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
           state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
@@ -703,6 +703,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
             self?.prepareKeyFeedback()
           }
+          self?.updateShortcutButtons()
+        },
+        UIAction(title: "全角输入", image: UIImage(systemName: "character.cursor.ibeam"),
+          state: KeyboardLayoutPreference.fullWidthInputEnabled ? .on : .off) { [weak self] _ in
+          KeyboardLayoutPreference.fullWidthInputEnabled = !KeyboardLayoutPreference.fullWidthInputEnabled
           self?.updateShortcutButtons()
         },
       ]),
@@ -994,7 +999,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
-      insertOwnText(output)
+      insertDirectText(output)
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
         lastShiftTapTime = nil
@@ -1006,7 +1011,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
-      insertOwnText(symbol)
+      insertDirectText(symbol)
       return
     }
 
@@ -1025,7 +1030,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // commit a first-page candidate the user cannot see.
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
-        insertOwnText(symbol)
+        insertDirectText(symbol)
       }
       render(snapshot)
       return
@@ -1042,7 +1047,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let punctuation = KeyboardPunctuationContext.engineInput(
       for: symbol, japanese: inputScheme.isJapanese) else {
       render(session.finishComposition())
-      insertOwnText(symbol)
+      insertDirectText(symbol)
       return
     }
     let preceding = KeyboardPunctuationContext.precedingScalar(
@@ -1057,7 +1062,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // finish_composition — the leading candidate. commitRaw committed the raw pinyin letters
     // instead, so typing "nihao" then "@" produced "nihao@" rather than "你好@".
     render(session.finishComposition())
-    insertOwnText(punctuation)
+    insertDirectText(punctuation)
   }
 
   private func synchronizeInputContext() {
@@ -1862,7 +1867,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
-      insertOwnText(" ")
+      insertDirectText(" ")
     }
     render(snapshot)
   }
@@ -1902,6 +1907,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     pendingOwnEdits += 1
     textDocumentProxy.insertText(text)
     recordTypingStatistics(text, source: source ?? typingSource)
+  }
+
+  private func insertDirectText(_ text: String, source: TypingSource? = nil) {
+    insertOwnText(
+      FullWidthInputPolicy.output(text, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
+      source: source)
   }
 
   // Swallowing this left the settings screen showing zeros with nothing to explain them, which is

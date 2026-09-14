@@ -34,6 +34,7 @@ enum KeyboardLayoutPreference {
   static let keySpacingKey = "keyboard.spacing.keys"
   static let rowSpacingKey = "keyboard.spacing.rows"
   static let voiceShortcutKey = "keyboard.shortcut.voice"
+  static let fullWidthInputKey = "keyboard.input.fullWidth"
   // Old presets supply upgrade defaults only. Key placement no longer depends on them.
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: selected.keySpacing, range: 3...6) }
@@ -47,6 +48,10 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
     set { defaults.set(newValue, forKey: voiceShortcutKey) }
   }
+  static var fullWidthInputEnabled: Bool {
+    get { defaults.bool(forKey: fullWidthInputKey) }
+    set { defaults.set(newValue, forKey: fullWidthInputKey) }
+  }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
@@ -55,6 +60,27 @@ enum KeyboardLayoutPreference {
   static var selected: KeyboardLayoutPreset {
     get { KeyboardLayoutPreset(rawValue: defaults.string(forKey: key) ?? "") ?? .msime }
     set { defaults.set(newValue.rawValue, forKey: key) }
+  }
+}
+
+/// Converts only text emitted directly by the keyboard host. Engine candidates, handwriting,
+/// Japanese conversion, local tools and service results must keep their original identity.
+enum FullWidthInputPolicy {
+  static func output(_ text: String, enabled: Bool) -> String {
+    guard enabled, !text.isEmpty else { return text }
+    var result = ""
+    result.unicodeScalars.reserveCapacity(text.unicodeScalars.count)
+    for scalar in text.unicodeScalars {
+      let value = scalar.value
+      if value == 0x20 {
+        result.unicodeScalars.append("\u{3000}")
+      } else if (0x21...0x7E).contains(value), let converted = UnicodeScalar(value + 0xFEE0) {
+        result.unicodeScalars.append(converted)
+      } else {
+        result.unicodeScalars.append(scalar)
+      }
+    }
+    return result
   }
 }
 

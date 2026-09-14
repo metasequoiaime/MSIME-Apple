@@ -84,12 +84,13 @@ final class KeyboardMorePickerView: UIView {
       row.distribution = .fillEqually
       for action in actions[index..<min(index + columns, actions.count)] {
         let active = action.state == .on
-        let state = menu.title == "按键反馈" ? (active ? "已开启" : "已关闭")
+        let reportsToggle = ["按键反馈", "键盘设置"].contains(menu.title)
+        let state = reportsToggle ? (active ? "已开启" : "已关闭")
           : (["振动强度", "键盘布局"].contains(menu.title) ? (active ? "已选中" : "点击选择") : "点击打开")
         let card = KeyboardKeyButton()
         var configuration = UIButton.Configuration.filled()
         configuration.title = action.title
-        configuration.subtitle = menu.title == "按键反馈" ? state : nil
+        configuration.subtitle = reportsToggle ? state : nil
         configuration.image = action.image
         configuration.imagePlacement = .leading
         configuration.imagePadding = 10

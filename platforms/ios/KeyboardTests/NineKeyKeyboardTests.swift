@@ -8,7 +8,8 @@ final class NineKeyKeyboardTests: XCTestCase {
   // whatever the app group was left holding. See InputSchemeTestSupport.
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.key, KeyboardLayoutPreference.keySpacingKey,
-    KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey]
+    KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey,
+    KeyboardLayoutPreference.fullWidthInputKey]
   override func tearDown() {
     for key in preferenceKeys {
       if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
@@ -461,7 +462,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      for title in ["剪贴板历史", "AI 润色", "语音结果", "按键音", "按键振动", "日期时间", "Unicode 码点"] {
+      for title in ["剪贴板历史", "AI 润色", "语音结果", "全角输入", "按键音", "按键振动", "日期时间", "Unicode 码点"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
         XCTAssertEqual(card.bounds.height, 48)
@@ -491,6 +492,28 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
     }
+  }
+
+  func testFullWidthInputConvertsOnlyDirectPrintableASCIIAndPreservesComposition() throws {
+    XCTAssertFalse(KeyboardLayoutPreference.fullWidthInputEnabled)
+    XCTAssertEqual(FullWidthInputPolicy.output(" A!~9", enabled: true), "　Ａ！～９")
+    XCTAssertEqual(FullWidthInputPolicy.output("中文，🙂\n", enabled: true), "中文，🙂\n")
+    XCTAssertEqual(FullWidthInputPolicy.output(" A!~9", enabled: false), " A!~9")
+
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+    letter.sendActions(for: .primaryActionTriggered)
+    let preedit = try button("preeditButton", in: controller).configuration?.title
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
+    try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(KeyboardLayoutPreference.fullWidthInputEnabled)
+    XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已开启")
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
   }
 
   func testSchemePickerUsesCurrentSkinPalette() throws {
