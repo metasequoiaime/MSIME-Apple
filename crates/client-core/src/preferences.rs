@@ -377,6 +377,17 @@ pub struct Preferences {
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
     pub diagnostic_log: DiagnosticLogPreferences,
+    /// Accepted for compatibility, and deliberately not honoured.
+    ///
+    /// The reference offers Direct2D or WebView2 for the candidate window,
+    /// toolbar and tray menu because it carries both renderers. This client
+    /// draws those three natively with Direct2D and has no second renderer to
+    /// switch to, so no host reads this and no settings page offers it -
+    /// a control here would be a choice with one outcome.
+    ///
+    /// It cannot simply be deleted: `Preferences` denies unknown fields, so
+    /// dropping it would make every saved document that contains it fail to
+    /// parse.
     #[serde(default)]
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
