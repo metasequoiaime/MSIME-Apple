@@ -385,6 +385,11 @@ char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
                                          const uint8_t *resources,
                                          size_t resources_length);
+/* Shared Doubao authentication policy. Input (max 32768 bytes):
+ * {auth_mode,app_id,token,resource_id}; absent mode supports legacy documents.
+ * Response value: {headers:[[name,value],...]}. Contains credentials: never
+ * log/persist the response; release with msime_client_string_free. */
+char *msime_client_doubao_auth_headers(const uint8_t *request, size_t length);
 /* Linux voice adapter. The user-owned socket captures audio and runs ASR,
  * returning {text}; the query contains language and the active generation. */
 char *msime_client_voice_provider_request(const uint8_t *query,

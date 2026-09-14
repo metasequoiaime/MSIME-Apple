@@ -17,7 +17,7 @@ class DoubaoAsrClient
   public:
     using TranscriptCallback = std::function<void(const std::string &)>;
 
-    DoubaoAsrClient(std::string endpoint, std::string app_key, std::string access_key, std::string resource_id,
+    DoubaoAsrClient(std::string endpoint, std::string auth_mode, std::string app_key, std::string access_key, std::string resource_id,
                     bool enable_itn, bool enable_punc, bool enable_ddc, std::string boosting_table_id,
                     TranscriptCallback transcript_callback = {});
     ~DoubaoAsrClient();
@@ -35,6 +35,7 @@ class DoubaoAsrClient
     void Run();
 
     std::string endpoint_;
+    std::string auth_mode_;
     std::string app_key_;
     std::string access_key_;
     std::string resource_id_;

@@ -39,6 +39,7 @@ struct VoiceInputConfig {
   std::string model;
   std::string token;
   std::string app_key;
+  std::string doubao_auth_mode;
   std::string resource_id;
   bool enable_itn = true;
   bool enable_punc = true;

@@ -1,4 +1,5 @@
 #include "DoubaoAsrClient.h"
+#include "../../shared/voice/DoubaoAuth.h"
 
 #include <nlohmann/json.hpp>
 #include <windows.h>
@@ -8,9 +9,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <iomanip>
-#include <random>
-#include <sstream>
 #include <utility>
 
 namespace
@@ -42,25 +40,6 @@ std::wstring Utf8ToWide(const std::string &value)
     std::wstring result(static_cast<std::size_t>(size), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size);
     return result;
-}
-
-std::string MakeRequestId()
-{
-    std::array<std::uint8_t, 16> bytes{};
-    std::random_device random;
-    for (auto &byte : bytes)
-        byte = static_cast<std::uint8_t>(random());
-    bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0f) | 0x40);
-    bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3f) | 0x80);
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0');
-    for (std::size_t i = 0; i < bytes.size(); ++i)
-    {
-        if (i == 4 || i == 6 || i == 8 || i == 10)
-            stream << '-';
-        stream << std::setw(2) << static_cast<unsigned>(bytes[i]);
-    }
-    return stream.str();
 }
 
 void AppendBigEndian32(std::vector<std::uint8_t> &output, std::int32_t value)
@@ -239,9 +218,12 @@ bool ReceiveMessage(HINTERNET websocket, std::vector<std::uint8_t> &message)
     }
 }
 
-HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &app_key, const std::string &access_key,
+HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &auth_mode, const std::string &app_key, const std::string &access_key,
                            const std::string &resource_id, WinHttpHandle &session, WinHttpHandle &connection)
 {
+    const auto auth = msime::voice::doubao_auth_headers(auth_mode, app_key, access_key, resource_id);
+    if (!auth)
+        return nullptr;
     std::string crackable_endpoint = endpoint;
     if (crackable_endpoint.rfind("wss://", 0) == 0)
         crackable_endpoint.replace(0, 6, "https://");
@@ -271,20 +253,7 @@ HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &app_k
         return nullptr;
     if (!WinHttpSetOption(request.value, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0))
         return nullptr;
-    std::wstring headers;
-    if (app_key.empty())
-    {
-        // New console: one API Key.
-        headers = L"X-Api-Key: " + Utf8ToWide(access_key) + L"\r\n";
-    }
-    else
-    {
-        // Legacy console: App ID/App Key plus Access Token. Secret Key is not used.
-        headers = L"X-Api-App-Key: " + Utf8ToWide(app_key) + L"\r\n" + L"X-Api-Access-Key: " + Utf8ToWide(access_key) +
-                  L"\r\n";
-    }
-    headers += L"X-Api-Resource-Id: " + Utf8ToWide(resource_id) + L"\r\n" + L"X-Api-Request-Id: " +
-               Utf8ToWide(MakeRequestId()) + L"\r\n";
+    const std::wstring headers = Utf8ToWide(*auth);
     if (!WinHttpAddRequestHeaders(request.value, headers.c_str(), static_cast<DWORD>(-1),
                                   WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE) ||
         !WinHttpSendRequest(request.value, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
@@ -294,10 +263,10 @@ HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &app_k
 }
 } // namespace
 
-DoubaoAsrClient::DoubaoAsrClient(std::string endpoint, std::string app_key, std::string access_key,
+DoubaoAsrClient::DoubaoAsrClient(std::string endpoint, std::string auth_mode, std::string app_key, std::string access_key,
                                  std::string resource_id, bool enable_itn, bool enable_punc, bool enable_ddc,
                                  std::string boosting_table_id, TranscriptCallback transcript_callback)
-    : endpoint_(std::move(endpoint)), app_key_(std::move(app_key)), access_key_(std::move(access_key)),
+    : endpoint_(std::move(endpoint)), auth_mode_(std::move(auth_mode)), app_key_(std::move(app_key)), access_key_(std::move(access_key)),
       resource_id_(std::move(resource_id)), enable_itn_(enable_itn), enable_punc_(enable_punc), enable_ddc_(enable_ddc),
       boosting_table_id_(std::move(boosting_table_id)), transcript_callback_(std::move(transcript_callback))
 {
@@ -387,11 +356,11 @@ void DoubaoAsrClient::Run()
 {
     WinHttpHandle session;
     WinHttpHandle connection;
-    WinHttpHandle websocket(ConnectWebSocket(endpoint_, app_key_, access_key_, resource_id_, session, connection));
+    WinHttpHandle websocket(ConnectWebSocket(endpoint_, auth_mode_, app_key_, access_key_, resource_id_, session, connection));
     if (!websocket.value)
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
-        error_ = "无法连接豆包语音识别。请检查 App ID、Access Token 和接口地址。";
+        error_ = "无法连接豆包语音识别。请检查鉴权方式、凭据、资源 ID 和接口地址。";
         return;
     }
 

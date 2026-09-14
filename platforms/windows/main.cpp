@@ -156,7 +156,7 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
     throw std::runtime_error("Configuration document oversized");
   const auto temporary = path.wstring() + L".tmp";
   {
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    std::ofstream output(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
     if (!output) throw std::runtime_error("Configuration temporary file unavailable");
     output.write(document.data(), static_cast<std::streamsize>(document.size()));
     output.flush();
@@ -678,6 +678,7 @@ int wmain(int argc, wchar_t **argv) {
           next.token = provider_token(input, "asr_tokens", "asr_token",
                                       next.asr_provider);
           next.app_key = input.value("asr_app_key", std::string{});
+          next.doubao_auth_mode = input.value("doubao_auth_mode", std::string{});
           next.resource_id = input.value("asr_resource_id", std::string{});
           next.enable_itn = input.value("doubao_enable_itn", true);
           next.enable_punc = input.value("doubao_enable_punc", true);
