@@ -4292,7 +4292,7 @@ pub fn run() {
             #[cfg(not(target_os = "ios"))]
             let custom_skin_directory = directory.clone();
             app.manage(CustomSkinLibraryStore::new(custom_skin_directory));
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_os = "ios"))]
             app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
                 app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
             ));
@@ -4627,6 +4627,42 @@ pub fn run() {
             ios_account::account_preferences_upload,
             #[cfg(target_os = "ios")]
             ios_account::account_preferences_apply,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_list,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_detail,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_download,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_rate,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_publish,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_unpublish,
+            #[cfg(target_os = "ios")]
+            ios_account::community_skin_finish_trial,
+            #[cfg(target_os = "ios")]
+            ios_account::ai_skin_generate,
+            #[cfg(target_os = "ios")]
+            ios_account::ai_skin_cancel,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_list,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_detail,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_publish,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_apply,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_save,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_rate,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_unpublish,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_store_reply,
+            #[cfg(target_os = "ios")]
+            ios_account::community_resource_remove_reply,
             #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]

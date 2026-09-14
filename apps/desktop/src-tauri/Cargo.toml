@@ -22,7 +22,7 @@ tempfile.workspace = true
 sha2 = "0.10"
 time = { version = "0.3", features = ["local-offset"] }
 
-[target.'cfg(target_os = "android")'.dependencies]
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 uuid = "1"
 
 [target.'cfg(target_os = "ios")'.dependencies]

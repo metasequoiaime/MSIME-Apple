@@ -238,6 +238,33 @@ class IOSProjectConfigTests(unittest.TestCase):
         )
         self.assertIn('code: "invalid_cloud_dictionary"', account)
 
+    def test_ios_community_services_use_shared_backend_and_tauri_ui(self):
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+
+        for symbol in [
+            "ios_account::community_skin_list",
+            "ios_account::community_skin_download",
+            "ios_account::ai_skin_generate",
+            "ios_account::community_resource_list",
+            "ios_account::community_resource_apply",
+        ]:
+            self.assertIn(symbol, rust_entry)
+        for symbol in [
+            "BackendCommunitySkinService",
+            "BackendCommunityResourceService",
+            "BackendAiSkinService",
+            "pub async fn community_skin_list",
+            "pub async fn ai_skin_generate",
+            "pub async fn community_resource_list",
+            "CommunityResourceLibraryStore",
+        ]:
+            self.assertIn(symbol, account)
+        self.assertIn("communitySkins:", desktop_entry)
+        self.assertIn("communityResources:", desktop_entry)
+        self.assertIn("aiSkins:", desktop_entry)
+
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("revision: a83e2b2f196e3fa9605cb21c7d3b82652205c279", project)

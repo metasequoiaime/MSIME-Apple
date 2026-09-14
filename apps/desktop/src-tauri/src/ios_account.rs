@@ -17,11 +17,37 @@ use msime_client_core::account::{
     SavedAccountSession,
 };
 #[cfg(target_os = "ios")]
+use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+#[cfg(target_os = "ios")]
 use msime_client_core::cloud_dictionary::DictionaryKind;
+#[cfg(target_os = "ios")]
+use msime_client_core::community_resource::{
+    BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
+    CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
+    CommunityResourcePublication, CommunityResourceScope,
+};
+#[cfg(target_os = "ios")]
+use msime_client_core::community_resource_library::{
+    CommunityResourceLibraryError, CommunityResourceLibraryStore,
+};
+#[cfg(target_os = "ios")]
+use msime_client_core::community_skin::{
+    BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
+};
+#[cfg(target_os = "ios")]
+use msime_client_core::custom_skin_library::{
+    CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
+};
+#[cfg(target_os = "ios")]
+use msime_client_core::keyboard_skin_trial::{
+    KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
+};
 #[cfg(target_os = "ios")]
 use msime_client_core::preferences::PreferencesStore;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
+#[cfg(target_os = "ios")]
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "ios")]
 use std::sync::Arc;
 #[cfg(target_os = "ios")]
@@ -184,11 +210,22 @@ impl<R: Runtime> AccountSessionStorage for IosAccountStorage<R> {
 
 #[cfg(target_os = "ios")]
 type Session = BackendAccountSession<BackendAccountClient, IosAccountStorage<Wry>>;
+#[cfg(target_os = "ios")]
+type CommunityService = BackendCommunitySkinService<BackendAccountClient, IosAccountStorage<Wry>>;
+#[cfg(target_os = "ios")]
+type CommunityResourceService =
+    BackendCommunityResourceService<BackendAccountClient, IosAccountStorage<Wry>>;
+#[cfg(target_os = "ios")]
+type AiSkinService = BackendAiSkinService<BackendAccountClient, IosAccountStorage<Wry>>;
 
 #[cfg(target_os = "ios")]
 pub struct AccountState {
     session: Arc<Session>,
     platform: MobilePlatform<Wry>,
+    community: Arc<CommunityService>,
+    resources: Arc<CommunityResourceService>,
+    ai_skin: Arc<AiSkinService>,
+    ai_skin_requests: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
 }
 
 #[cfg(target_os = "ios")]
@@ -199,12 +236,29 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
         .inner()
         .clone();
     let client = BackendAccountClient::new()?;
+    let session = Arc::new(BackendAccountSession::new(
+        client.clone(),
+        IosAccountStorage(platform.clone()),
+    ));
+    let community = Arc::new(BackendCommunitySkinService::new(
+        client,
+        Arc::clone(&session),
+    ));
+    let resources = Arc::new(BackendCommunityResourceService::new(
+        BackendAccountClient::new()?,
+        Arc::clone(&session),
+    ));
+    let ai_skin = Arc::new(BackendAiSkinService::new(
+        BackendAccountClient::new()?,
+        Arc::clone(&session),
+    ));
     app.manage(AccountState {
-        session: Arc::new(BackendAccountSession::new(
-            client,
-            IosAccountStorage(platform.clone()),
-        )),
+        session,
         platform,
+        community,
+        resources,
+        ai_skin,
+        ai_skin_requests: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     });
     Ok(())
 }
@@ -342,6 +396,475 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
     call(state, |session| session.forget()).await
+}
+
+#[cfg(target_os = "ios")]
+fn community_error(error: AccountError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            AccountError::Invalid => "community_invalid",
+            AccountError::Unauthorized => "community_unauthorized",
+            AccountError::Forbidden => "community_forbidden",
+            AccountError::NotFound => "community_not_found",
+            AccountError::RateLimited => "community_rate_limited",
+            AccountError::Cancelled => "community_cancelled",
+            AccountError::Storage => "community_storage",
+            AccountError::Conflict => "community_conflict",
+            AccountError::Unavailable => "community_unavailable",
+        },
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn ai_skin_error(error: AiSkinError) -> super::CommandError {
+    let code = match error {
+        AiSkinError::Cancelled => "ai_skin_cancelled",
+        AiSkinError::InvalidResponse => "ai_skin_invalid",
+        AiSkinError::Account(error) => error.code(),
+    };
+    super::CommandError { code }
+}
+
+#[cfg(target_os = "ios")]
+fn valid_ai_skin_request_id(value: &str) -> bool {
+    (1..=96).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiSkinProgress {
+    request_id: String,
+    completed: usize,
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn ai_skin_generate(
+    app: tauri::AppHandle<Wry>,
+    state: State<'_, AccountState>,
+    request_id: String,
+    prompt: String,
+) -> Result<Vec<AiSkinProposal>, super::CommandError> {
+    if !valid_ai_skin_request_id(&request_id) {
+        return Err(super::CommandError {
+            code: "ai_skin_invalid",
+        });
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut requests = state
+            .ai_skin_requests
+            .lock()
+            .map_err(|_| super::CommandError {
+                code: "ai_skin_unavailable",
+            })?;
+        if requests
+            .insert(request_id.clone(), Arc::clone(&cancelled))
+            .is_some()
+        {
+            return Err(super::CommandError {
+                code: "ai_skin_busy",
+            });
+        }
+    }
+    let service = Arc::clone(&state.ai_skin);
+    let progress_app = app.clone();
+    let progress_request_id = request_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        service.generate(&prompt, &cancelled, move |completed| {
+            let _ = tauri::Emitter::emit(
+                &progress_app,
+                "ai-skin-progress",
+                AiSkinProgress {
+                    request_id: progress_request_id.clone(),
+                    completed,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_skin_unavailable",
+    })?
+    .map_err(ai_skin_error);
+    if let Ok(mut requests) = state.ai_skin_requests.lock() {
+        requests.remove(&request_id);
+    }
+    result
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn ai_skin_cancel(
+    state: State<'_, AccountState>,
+    request_id: String,
+) -> Result<(), super::CommandError> {
+    if !valid_ai_skin_request_id(&request_id) {
+        return Err(super::CommandError {
+            code: "ai_skin_invalid",
+        });
+    }
+    let requests = state
+        .ai_skin_requests
+        .lock()
+        .map_err(|_| super::CommandError {
+            code: "ai_skin_unavailable",
+        })?;
+    if let Some(cancelled) = requests.get(&request_id) {
+        cancelled.store(true, Ordering::Release);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "ios")]
+async fn community_call<T, F>(
+    state: State<'_, AccountState>,
+    operation: F,
+) -> Result<T, super::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&CommunityService) -> Result<T, AccountError> + Send + 'static,
+{
+    let service = Arc::clone(&state.community);
+    tauri::async_runtime::spawn_blocking(move || operation(&service))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_unavailable",
+        })?
+        .map_err(community_error)
+}
+
+#[cfg(target_os = "ios")]
+fn custom_skin_error(error: CustomSkinLibraryError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            CustomSkinLibraryError::Full => "community_skin_library_full",
+            CustomSkinLibraryError::InvalidName => "community_skin_invalid_name",
+            CustomSkinLibraryError::DuplicateName => "community_skin_duplicate_name",
+            CustomSkinLibraryError::NotFound => "community_skin_not_found",
+            CustomSkinLibraryError::Json(_) | CustomSkinLibraryError::Invalid => {
+                "community_skin_library_format"
+            }
+            CustomSkinLibraryError::Io(_) => "community_storage",
+        },
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn trial_error(error: KeyboardSkinTrialError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            KeyboardSkinTrialError::Io(_) | KeyboardSkinTrialError::Preferences(_) => {
+                "community_storage"
+            }
+            KeyboardSkinTrialError::Json(_) | KeyboardSkinTrialError::Invalid => {
+                "community_trial_format"
+            }
+        },
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn resource_library_error(error: CommunityResourceLibraryError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            CommunityResourceLibraryError::Io(_) => "community_storage",
+            CommunityResourceLibraryError::Json(_) | CommunityResourceLibraryError::Invalid => {
+                "community_resource_library_format"
+            }
+        },
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunitySkinDownloadResponse {
+    skin: SavedTouchKeyboardSkin,
+    trial: KeyboardSkinTrial,
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_list(
+    state: State<'_, AccountState>,
+    offset: usize,
+    search: String,
+) -> Result<CommunitySkinPage, super::CommandError> {
+    community_call(state, move |service| service.list(offset, &search)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_detail(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<CommunitySkin, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.detail(id)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_download(
+    state: State<'_, AccountState>,
+    library: State<'_, CustomSkinLibraryStore>,
+    trials: State<'_, KeyboardSkinTrialStore>,
+    id: String,
+    name: String,
+) -> Result<CommunitySkinDownloadResponse, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    let service = Arc::clone(&state.community);
+    let library = library.inner().clone();
+    let trials = trials.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let design = service.download(id).map_err(community_error)?;
+        let (trial, _) = trials.begin(&name, design.clone()).map_err(trial_error)?;
+        let skin = match library.import_download(id, &name, design) {
+            Ok(skin) => skin,
+            Err(error) => {
+                let _ = trials.finish(trial.id, false);
+                return Err(custom_skin_error(error));
+            }
+        };
+        Ok(CommunitySkinDownloadResponse { skin, trial })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "community_unavailable",
+    })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_rate(
+    state: State<'_, AccountState>,
+    id: String,
+    stars: u8,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.rate(id, stars)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_publish(
+    state: State<'_, AccountState>,
+    id: String,
+    name: String,
+    description: String,
+    design: msime_client_core::preferences::TouchKeyboardSkinDesign,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| {
+        service.publish(id, &name, &description, &design)
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_unpublish(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.unpublish(id)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_skin_finish_trial(
+    trials: State<'_, KeyboardSkinTrialStore>,
+    id: String,
+    keep: bool,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    let trials = trials.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
+        .map_err(trial_error)
+}
+
+#[cfg(target_os = "ios")]
+fn resource_scope(value: &str) -> Result<CommunityResourceScope, super::CommandError> {
+    match value {
+        "" => Ok(CommunityResourceScope::All),
+        "mine" => Ok(CommunityResourceScope::Mine),
+        "saved" => Ok(CommunityResourceScope::Saved),
+        _ => Err(super::CommandError {
+            code: "community_invalid",
+        }),
+    }
+}
+
+#[cfg(target_os = "ios")]
+async fn resource_call<T, F>(
+    state: State<'_, AccountState>,
+    operation: F,
+) -> Result<T, super::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&CommunityResourceService) -> Result<T, AccountError> + Send + 'static,
+{
+    let service = Arc::clone(&state.resources);
+    tauri::async_runtime::spawn_blocking(move || operation(&service))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_unavailable",
+        })?
+        .map_err(community_error)
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_list(
+    state: State<'_, AccountState>,
+    kind: CommunityResourceKind,
+    scope: String,
+    search: String,
+    offset: usize,
+) -> Result<CommunityResourcePage, super::CommandError> {
+    let scope = resource_scope(&scope)?;
+    resource_call(state, move |service| {
+        service.list(kind, scope, &search, offset)
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_detail(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<CommunityResource, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| service.detail(id)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_publish(
+    state: State<'_, AccountState>,
+    id: String,
+    kind: CommunityResourceKind,
+    name: String,
+    description: String,
+    content: CommunityResourceContent,
+    revision: u32,
+) -> Result<CommunityResourcePublication, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| {
+        service.publish(id, kind, &name, &description, &content, revision)
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_apply(
+    state: State<'_, AccountState>,
+    id: String,
+    resource_revision: u32,
+) -> Result<CommunityResourceApplication, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| service.apply(id, resource_revision)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_save(
+    state: State<'_, AccountState>,
+    id: String,
+    saved: bool,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| service.save(id, saved)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_rate(
+    state: State<'_, AccountState>,
+    id: String,
+    stars: u8,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| service.rate(id, stars)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_unpublish(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| service.delete(id)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_store_reply(
+    library: State<'_, CommunityResourceLibraryStore>,
+    item: CommunityResource,
+) -> Result<(), super::CommandError> {
+    let library = library.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || library.save_reply(item))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
+        .map_err(resource_library_error)
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn community_resource_remove_reply(
+    library: State<'_, CommunityResourceLibraryStore>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    let library = library.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || library.remove(id))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
+        .map_err(resource_library_error)
 }
 
 #[cfg(target_os = "ios")]
