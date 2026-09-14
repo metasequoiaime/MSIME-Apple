@@ -690,7 +690,24 @@ async fn test_api_credential(
             code: "unavailable",
         })?;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        let _ = runtime;
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            msime_client_core::credential_test::test_chat(
+                &service,
+                &config,
+                &msime_client_core::credential_test::HttpsProbeTransport,
+            )
+        })
+        .await
+        .map_err(|_| CommandError { code: "unavailable" })?;
+        Ok(msime_input_runtime::CredentialTestResult {
+            ok: result.ok,
+            message: result.message,
+        })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (runtime, service, config);
         Err(CommandError {

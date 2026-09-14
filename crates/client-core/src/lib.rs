@@ -7,6 +7,7 @@ pub mod clipboard;
 pub mod cloud;
 pub mod cloud_dictionary;
 pub mod cloud_transport;
+pub mod credential_test;
 pub mod doubao_frame;
 pub mod community_resource;
 pub mod community_resource_library;
