@@ -1,0 +1,34 @@
+# Known failing tests, as of this file's last update.
+#
+# verify-local.sh compares each run against this list and reports only names
+# that are NOT here. With ~20 long-standing failures a bare pass/fail number
+# says nothing; the question before a merge is whether this change broke
+# something that worked.
+#
+# Every line here is debt, not an exemption. Delete a line when its test is
+# fixed - never add one to silence a regression you just introduced.
+#
+# Several desktop entries are flaky and fail only in some runs, so this list is
+# the union of several runs rather than a snapshot of one.
+desktop src/dictionary-safety.test.tsx > a confirmed delete reloads the page the user was reading
+desktop src/dictionary-safety.test.tsx > deleting an entry asks first and does nothing when declined
+desktop src/dictionary-safety.test.tsx > deleting the only row on a later page steps back instead of showing nothing
+desktop src/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
+desktop src/font-catalog.test.tsx > search loads once, selects with keyboard without saving, and filters duplicate fallbacks
+desktop src/settings.test.tsx > Android touch scheme selection, fallback, last-visible guard and save payload match Apple
+desktop src/settings.test.tsx > automatic color swatch follows candidate theme without persisting a color override
+desktop src/settings.test.tsx > candidate text colour loads, previews, saves and resets to theme
+desktop src/settings.test.tsx > clipboard history defaults off, clears when disabled, and saves independently
+desktop src/settings.test.tsx > cloud candidates panel uses canonical pinyin and manages ranking and fixed positions
+desktop src/settings.test.tsx > complete candidate and preedit font sizes load, preview independently and save
+desktop src/settings.test.tsx > emoji panel searches, copies items, tracks recent use and reads clipboard history
+desktop src/settings.test.tsx > offline candidate gloss is host-enabled, defaults off and persists
+desktop src/settings.test.tsx > screen keyboard Shift key faces match punctuation and preserve virtual keys
+desktop src/settings.test.tsx > screen keyboard sends every digit as an unmodified IME selection key
+desktop src/settings.test.tsx > voice panel requests recognition and submits the bounded result
+msime-client-core translation_store::tests::concurrent_replacement_never_exposes_partial_records
+native voice_audio_contract
+native voice_capture_lifetime
+native voice_doubao_protocol
+native voice_http_contract
+native windows-server
