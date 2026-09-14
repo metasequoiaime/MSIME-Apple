@@ -247,9 +247,12 @@ hotkey_hold_space_lock = true
 # ASR 服务: doubao | openai | siliconflow | groq
 # openai / siliconflow / groq 均走 OpenAI 兼容的 /v1/audio/transcriptions。
 asr_provider = "doubao"
-# 豆包旧版控制台鉴权：App ID + Access Token（Secret Key 不使用）
-# 新版控制台使用单 API Key 时，将 asr_app_key 留空并把 API Key 填入 asr_token。
+# 豆包鉴权方式: api_key | legacy
+#   api_key：新版控制台，只需一个 API Key，填入 asr_token 即可，asr_app_key 不使用。
+#   legacy：旧版控制台，App ID + Access Token（Secret Key 不使用），两项都要填。
+# 留空表示自动判断：asr_app_key 填了真实值就按 legacy，否则按 api_key。
 # 请自行填写各提供商的密钥，不要把真实密钥写进仓库。
+doubao_auth_mode = "api_key"
 asr_app_key = "<YOUR_ASR_APP_KEY>"
 asr_token = "FAKESECRET_k4l5m6n7o8p9q0r1s2t3"
 # 每个 ASR 提供商单独保存 Token，切换提供商只改当前使用哪一份，不会互相覆盖。

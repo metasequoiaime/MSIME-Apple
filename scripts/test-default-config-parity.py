@@ -28,3 +28,19 @@ assert windows_minimum_prefix == shared_minimum_prefix, (
 )
 
 print(f"Windows mixed-input minimum prefix matches the shared default: {shared_minimum_prefix}")
+
+voice_auth_default = re.search(
+    r'impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*"([^"]+)"\.into\(\)',
+    core_source,
+    re.DOTALL,
+)
+assert voice_auth_default, "VoiceInputPreferences Doubao auth default was not found"
+
+shared_voice_auth_mode = voice_auth_default.group(1)
+windows_voice_auth_mode = windows_defaults["voice_input"]["doubao_auth_mode"]
+assert windows_voice_auth_mode == shared_voice_auth_mode, (
+    "Windows doubao_auth_mode does not match VoiceInputPreferences::default(): "
+    f"{windows_voice_auth_mode} != {shared_voice_auth_mode}"
+)
+
+print(f"Windows Doubao auth mode matches the shared default: {shared_voice_auth_mode}")
