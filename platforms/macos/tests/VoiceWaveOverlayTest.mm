@@ -24,6 +24,12 @@ int main(int argc, char **argv) {
         // Synthetic levels exercise the main-queue update without microphone access.
         [panel setListening:YES];
         assert([panel.statusText isEqual:@"正在录音…"]);
+        NSMutableString *preview = [@"合成预览文本，仅用于测试。\nEnglish preview · 日本語 · 🙂" mutableCopy];
+        [panel setTranscript:preview];
+        [preview appendString:@"changed outside the overlay"];
+        assert(![panel.transcriptText containsString:@"changed outside"]);
+        assert(panel.frame.size.width >= 380 && panel.frame.size.height == 180);
+        assert(!panel.ignoresMouseEvents && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         for (NSNumber *level in @[@0, @0.5, @1]) {
             [panel setInputLevel:level.floatValue];
         }
@@ -37,6 +43,7 @@ int main(int argc, char **argv) {
         assert([[panel.contentView valueForKey:@"level"] floatValue] == 0);
         [panel setProcessing:YES];
         assert(panel.visible && [panel.statusText isEqual:@"正在润色…"]);
+        assert([panel.transcriptText containsString:@"合成预览"]);
         assert([panel.contentView.accessibilityLabel isEqual:panel.statusText]);
         if (argc == 2) {
             NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
@@ -44,10 +51,23 @@ int main(int argc, char **argv) {
             assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);
         }
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        NSString *longPreview = [@"合成滚动文本\n" stringByPaddingToLength:5000 withString:@"合成滚动文本\n" startingAtIndex:0];
+        [panel setTranscript:longPreview];
+        NSScrollView *scroll = [panel valueForKey:@"transcriptScroll"];
+        assert([panel.transcriptText isEqual:longPreview] && scroll.documentVisibleRect.origin.y > 0);
+        assert(![(NSTextView *)scroll.documentView isEditable] && ![(NSTextView *)scroll.documentView isSelectable]);
+        [panel setTranscript:[@"x" stringByPaddingToLength:65537 withString:@"x" startingAtIndex:0]];
+        assert([panel.transcriptText isEqual:longPreview]);
         [panel setListening:NO];
         assert(!panel.visible && !panel.statusText.length);
+        assert(!panel.transcriptText.length && panel.ignoresMouseEvents && panel.frame.size.height == 44);
+        [panel setTranscript:@"late preview"];
+        assert(!panel.visible && !panel.transcriptText.length);
         for (NSUInteger failure = MSIMEVoiceFailureMicrophonePermission; failure <= MSIMEVoiceFailureSession; ++failure) {
+            [panel setListening:YES]; [panel setTranscript:@"synthetic discard on failure"];
             [panel showFailure:(MSIMEVoiceFailure)failure];
+            [panel setTranscript:@"late preview during failure"];
+            assert(!panel.transcriptText.length);
             assert(panel.visible && panel.statusText.length);
             CGFloat textWidth = [panel.statusText sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width;
             assert(textWidth <= panel.contentView.bounds.size.width - 42);

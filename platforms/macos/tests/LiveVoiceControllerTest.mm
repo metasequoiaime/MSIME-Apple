@@ -41,6 +41,7 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+@property(copy) NSString *preview;
 @property NSUInteger phase;
 @property NSUInteger failure;
 @property NSUInteger failures;
@@ -49,8 +50,9 @@
 - (void)restore;
 @end
 @implementation LivePresentationFixture
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
+- (void)setTranscript:(NSString *)text { self.preview = text; }
+- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)restore {}
@@ -164,15 +166,21 @@ int main(int argc, char **) {
             assert(cues.starts == 1 && cues.stops == 1);
             session.providerDone = dispatch_semaphore_create(0);
             session.providerStarted = NO;
+            voiceArguments[@"MSIMEClientVoiceStreamInlinePreedit"] = @NO;
+            [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
             [controller toggleVoiceInput:nil];
             deadline = [NSDate dateWithTimeIntervalSinceNow:3];
             while (!session.providerStarted && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(session.providerStarted && capture.active);
+            session.providerUpdate(@"synthetic socket preview", NO);
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+            assert([presentation.preview isEqual:@"synthetic socket preview"] && !client.marked.length);
             dispatch_semaphore_signal(session.providerDone); // Provider exits without a final result.
             while (capture.active && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(!capture.active && presentation.failure == MSIMEVoiceFailureProvider);
+            assert(!presentation.preview.length);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
@@ -181,6 +189,7 @@ int main(int argc, char **) {
         assert(cues.starts == 1 && cues.stops == 0);
         void (^first)(NSString *, BOOL) = capture.transcript;
         first(@"synthetic partial", NO);
+        assert(!presentation.preview.length); // Inline mode does not duplicate client text.
         assert(client.commits.count == 0 && [client.marked isEqual:@"synthetic partial"]);
         NSUInteger cancelled = capture.transcriptionStops;
         [controller toggleVoiceInput:nil];
@@ -206,9 +215,16 @@ int main(int argc, char **) {
         [controller setValue:@(generation) forKey:@"voiceGeneration"];
         id token = [controller beginLiveVoiceWithOptions:@{@"stream": @NO} socket:@"/tmp/synthetic-live.sock"];
         [controller applyLiveVoiceText:@"hidden partial" final:NO token:token]; assert(!client.marked.length);
+        assert([presentation.preview isEqual:@"hidden partial"]);
+        [controller applyLiveVoiceText:[@"x" stringByPaddingToLength:65537 withString:@"x" startingAtIndex:0] final:NO token:token];
+        assert([presentation.preview isEqual:@"hidden partial"]);
         [controller finishLiveVoiceInput]; assert(capture.active);
+        assert([presentation.preview isEqual:@"hidden partial"]);
         [controller applyLiveVoiceText:@"socket final" final:YES token:token];
         assert(client.commits.count == 2 && [client.commits.lastObject isEqual:@"socket final"]);
+        assert(!presentation.preview.length);
+        [controller applyLiveVoiceText:@"stale preview" final:NO token:token];
+        assert(!presentation.preview.length);
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
         while ((!session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -513,6 +529,19 @@ int main(int argc, char **) {
         capture.permission(NO);
         assert(presentation.failures == beforeDenied);
         [controller setValue:client forKey:@"activeClient"];
+        capture.needsMicrophonePermission = NO;
+        controller.usePolishFixture = YES;
+        voiceArguments[@"MSIMEClientVoiceStreamInlinePreedit"] = @NO;
+        voiceArguments[@"MSIMEClientVoicePolishText"] = @YES;
+        voiceArguments[@"MSIMEClientVoicePolishToken"] = @"fixture-only";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller toggleVoiceInput:nil];
+        capture.transcript(@"synthetic overlay partial", NO);
+        assert([presentation.preview isEqual:@"synthetic overlay partial"] && !client.marked.length);
+        capture.transcript(@"synthetic overlay final", YES);
+        assert([presentation.preview isEqual:@"synthetic overlay final"] && presentation.phase == 3);
+        controller.polishFixture.completion(@"synthetic overlay polished", nil);
+        assert(!presentation.preview.length && !capture.active);
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

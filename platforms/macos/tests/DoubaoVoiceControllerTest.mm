@@ -42,6 +42,7 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+@property(copy) NSString *preview;
 @property NSUInteger phase;
 @property NSUInteger failure;
 @property NSUInteger failures;
@@ -52,8 +53,9 @@
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
+- (void)setTranscript:(NSString *)text { self.preview = text; }
+- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)setInputLevel:(float)level { (void)level; }
@@ -146,6 +148,7 @@ int main() {
         assert(cues.starts == 1 && cues.stops == 0);
         DoubaoRequestFixture *request = controller.fixture;
         request.result(@"synthetic partial", NO, nil);
+        assert(!presentation.preview.length);
         assert([client.marked isEqual:@"synthetic partial"] && client.commits.count == 0);
         capture.chunk([NSMutableData dataWithLength:32], nil);
         [controller finishVoiceInputForDisable];
@@ -160,7 +163,9 @@ int main() {
         assert(Start(controller, capture, session, NO));
         controller.fixture.result(@"hidden partial", NO, nil);
         assert(!client.marked.length);
+        assert([presentation.preview isEqual:@"hidden partial"]);
         [controller cancelDoubaoVoiceInput];
+        assert(!presentation.preview.length);
         assert(Start(controller, capture, session, YES));
         request = controller.fixture;
         request.result(@"cancelled partial", NO, nil);
@@ -213,7 +218,7 @@ int main() {
         assert(!capture.active);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
         controller.usePolishFixture = YES;
-        assert(Start(controller, capture, session, YES));
+        assert(Start(controller, capture, session, NO));
         const auto beforePolishCaptureStops = capture.finishes;
         controller.fixture.failAppend = YES;
         capture.chunk([NSMutableData dataWithLength:32], nil); // A queued send failure after the server final is obsolete.
@@ -224,10 +229,12 @@ int main() {
         assert(capture.finishes == beforePolishCaptureStops + 1 && controller.fixture.finishes == 0);
         assert(client.commits.count == 2 && controller.polishFixture.submissions == 1);
         assert([[controller valueForKey:@"voiceOverlay"] phase] == 3);
+        assert([presentation.preview isEqual:@"unpolished"] && !client.marked.length);
         assert(presentation.failure == 0);
         controller.polishFixture.completion(@"synthetic polished", nil);
         assert(client.commits.count == 3 && [client.commits.lastObject isEqual:@"synthetic polished"]);
         assert([[controller valueForKey:@"voiceOverlay"] phase] == 0);
+        assert(!presentation.preview.length);
         assert(Start(controller, capture, session, YES));
         controller.fixture.result(@"cancelled polish", YES, nil);
         DoubaoPolishFixture *oldPolish = controller.polishFixture;
