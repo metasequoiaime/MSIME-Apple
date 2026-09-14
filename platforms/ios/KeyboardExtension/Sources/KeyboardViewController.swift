@@ -68,6 +68,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let shortcutBar = UIStackView()
   private var candidateContent: UIStackView?
   private let scriptShortcut = UIButton()
+  private let emojiShortcut = UIButton()
   private let skinShortcut = UIButton()
   private let layoutShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
@@ -80,6 +81,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
   private var candidatePanelGeneration: UInt64?
+  private var emojiPicker: KeyboardEmojiPickerView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -599,16 +601,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ?? UIImage(systemName: "leaf.fill")
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
-    for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    for button in shortcuts {
       shortcutBar.addArrangedSubview(button)
-      if button !== schemeButton {
-        button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
-      }
+    }
+    for button in shortcuts where button !== schemeButton {
+      button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
     }
     container.addSubview(shortcutBar)
     NSLayoutConstraint.activate([
-      shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
-      shortcutBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
+      shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      shortcutBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
       // The shortcut bar stands in for the candidates, so it takes their row rather than the
       // composition's; the composition line stays reserved either way and nothing shifts when a
       // composition starts.
@@ -625,6 +628,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
+    emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() },
+                            for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
@@ -663,12 +668,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       scriptShortcut.isEnabled = true
       scriptShortcut.accessibilityValue = nil
     }
+    configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
     moreMenu = UIMenu(children: [
+      UIAction(title: "表情", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
+        self?.showEmojiPicker()
+      },
       UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
         self?.showClipboardHistory()
       },
@@ -2365,6 +2374,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: picker)
   }
 
+  private func showEmojiPicker() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    guard let resources = session.candidateGlossResources(), !resources.isEmpty else {
+      showDiagnostic("表情目录尚未就绪")
+      return
+    }
+    // Browsing is a separate input surface. Finish any pinyin first so selecting an Emoji cannot
+    // reorder it ahead of text that was already composed.
+    render(session.finishComposition())
+    let picker = KeyboardEmojiPickerView(
+      resources: resources,
+      onInsert: { [weak self] emoji in self?.insertOwnText(emoji, source: .local) },
+      onDelete: { [weak self] in self?.deleteOwnBackward() },
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
+    picker.accessibilityViewIsModal = true
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    emojiPicker = picker
+    UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2445,10 +2482,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       clipboardPanel = nil
       UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
     }
-    guard let picker = skinPicker else { return }
-    picker.removeFromSuperview()
-    skinPicker = nil
-    UIAccessibility.post(notification: .screenChanged, argument: skinShortcut)
+    if let picker = emojiPicker {
+      picker.removeFromSuperview()
+      emojiPicker = nil
+      UIAccessibility.post(notification: .screenChanged, argument: emojiShortcut)
+    }
+    if let picker = skinPicker {
+      picker.removeFromSuperview()
+      skinPicker = nil
+      UIAccessibility.post(notification: .screenChanged, argument: skinShortcut)
+    }
   }
 
   private func applyKeyboardSkin() {
