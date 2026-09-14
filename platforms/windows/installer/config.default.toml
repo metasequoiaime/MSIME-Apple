@@ -103,6 +103,8 @@ font = "Noto Sans SC"
 english_font = "Segoe UI"
 # 缺省字体，如果系统中没有找到指定字体，则使用缺省字体
 default_font = "Microsoft YaHei"
+# 主字体缺字时依次使用这些补充字体，最后回落到系统字体；[] 表示仅使用系统回落。
+fallback_fonts = ["Noto Sans SC", "Microsoft YaHei"]
 # 字体大小（px），可选：12–32
 font_size = 18
 # 候选窗口顶部预编辑字号（px），可选：12–32

@@ -44,3 +44,21 @@ assert windows_voice_auth_mode == shared_voice_auth_mode, (
 )
 
 print(f"Windows Doubao auth mode matches the shared default: {shared_voice_auth_mode}")
+
+fallback_fonts_default = re.search(
+    r"fn default_candidate_fallback_fonts\(\)\s*->\s*Vec<String>\s*\{(.*?)\}",
+    core_source,
+    re.DOTALL,
+)
+assert fallback_fonts_default, "candidate fallback font defaults were not found"
+
+shared_fallback_fonts = re.findall(
+    r'"([^"]+)"\.to_owned\(\)', fallback_fonts_default.group(1)
+)
+windows_fallback_fonts = windows_defaults["appearance"]["fallback_fonts"]
+assert windows_fallback_fonts == shared_fallback_fonts, (
+    "Windows fallback_fonts do not match the shared candidate font defaults: "
+    f"{windows_fallback_fonts} != {shared_fallback_fonts}"
+)
+
+print(f"Windows fallback fonts match the shared defaults: {shared_fallback_fonts}")
