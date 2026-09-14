@@ -1405,6 +1405,25 @@ static NSString *MetasequoiaGlossCachePath(void)
     return path;
 }
 
+// 一次最多联网翻几个候选。原来是整页九个 —— 而用户最终只会选其中一个,剩下八个的译文既费上游调用量,
+// 又污染所有人共用的服务端缓存。生产库实测:752 行里只有 16 行(2.13%)被命中过,48% 是「吋 忖 洊 皴
+// 邨」这类没人会选的单字。
+//
+// 本机 ECDICT 查一整页是 0.03 毫秒且常用词命中 8/9,所以排在后面的候选大多仍有离线释义;联网这条路
+// 只补最前面几个和用户实际停留的那个。
+static constexpr NSUInteger kCandidateTranslationOnlineLimit = 3;
+
+// 该不该把这个候选送去联网翻译。候选本身合不合适由 CandidateSupportsOnlineGloss 判断(含汉字才送,
+// 理由见那里);这里只加位置这一层:前几个,外加用户当前停留的那个。
+static BOOL MetasequoiaCandidateWantsOnlineGloss(const WordItem &candidate, NSUInteger index,
+                                                 const std::optional<size_t> &highlighted)
+{
+    if (!metasequoia::mac::CandidateSupportsOnlineGloss(candidate))
+        return NO;
+    return index < kCandidateTranslationOnlineLimit ||
+           (highlighted.has_value() && *highlighted == static_cast<size_t>(index));
+}
+
 // 把网络回来的释义写进引擎的持久缓存,下次开机就不用再问一遍。
 //
 // 只写目标语言是英文的那份:引擎那张表是 en_zh_glosses / zh_en_glosses 两个方向,没有语言维度。日语
@@ -1419,7 +1438,7 @@ static void MetasequoiaPersistOnlineGloss(EnglishDictionary *dictionary, NSStrin
     if (dictionary == nullptr || word.length == 0 || gloss.length == 0 || ![language isEqualToString:@"EN"])
         return;
     const std::string text = word.UTF8String != nullptr ? word.UTF8String : "";
-    if (HelpcodeUtils::count_han_chars(text) == 0)
+    if (!metasequoia::mac::CandidateSupportsOnlineGloss(WordItem{"", text, 0}))
         return;
     (void)dictionary->cache_gloss(true, text, gloss.UTF8String);
 }
@@ -1488,10 +1507,12 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
-    // 一页有几格就问几个词。原本写死 5,而一页最多九格,后四个候选于是永远没有释义。
     const NSUInteger pageSize = metasequoia::mac::NormalizeCandidatePageSize(
         static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidatePageSize]));
     const NSUInteger limit = MIN(pageSize, snapshot.candidates.size());
+    // 当前高亮的候选总是要问,即使它排在联网上限之外 —— 用方向键停在第七个上时,下一次 debounce 要
+    // 把它带上。live_selected_index 会在候选列表重建后失效,拿到的不会是过期的下标。
+    const auto highlighted = _candidateSelection.live_selected_index(snapshot);
     if (provider == metasequoia::mac::CandidateTranslationProvider::AccountModel)
     {
         // One request for the whole page: a model keeps a page consistent when it sees it at once,
@@ -1500,7 +1521,10 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
         NSMutableString *signature = [NSMutableString stringWithString:language];
         for (NSUInteger i = 0; i < limit; ++i)
         {
+            if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i], i, highlighted))
+                continue;
             NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
+            // 签名只包含真正会问的词。否则移动高亮不会改变签名,新选中的那个候选永远等不到请求。
             [signature appendFormat:@"|%@", word];
             if (MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]] == nil)
                 [pending addObject:word];
@@ -1531,6 +1555,8 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     }
     for (NSUInteger i = 0; i < limit; ++i)
     {
+        if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i], i, highlighted))
+            continue;
         NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
         NSString *key = [NSString stringWithFormat:@"%@|%@", language, word];
         if (MetasequoiaSharedTranslationCache()[key] != nil)
