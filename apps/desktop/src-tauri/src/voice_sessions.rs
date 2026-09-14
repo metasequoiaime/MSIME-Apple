@@ -45,6 +45,18 @@ impl VoiceSessions {
             .cloned()
     }
 
+    /// Stop recording without invalidating the session. The provider may
+    /// still deliver its bounded final result; cancellation is the operation
+    /// that retires the generation.
+    pub fn stop(&self, request_id: &str) -> Option<VoiceSession> {
+        let state = self.0.lock().ok()?;
+        state
+            .active
+            .as_ref()
+            .filter(|session| session.request_id == request_id)
+            .cloned()
+    }
+
     pub fn finish(&self, generation: u64) {
         if let Ok(mut state) = self.0.lock() {
             if state
@@ -126,5 +138,15 @@ mod tests {
         let second = state.begin("second".into(), first.path).unwrap();
         assert_eq!(state.cancel(None).unwrap().generation, second.generation);
         assert!(state.cancel(None).is_none());
+    }
+
+    #[test]
+    fn stop_keeps_generation_active_for_final_result() {
+        let state = VoiceSessions::default();
+        let first = state.begin("first".into(), "/fixture/provider.sock".into()).unwrap();
+        let stopped = state.stop("first").unwrap();
+        assert_eq!(stopped.generation, first.generation);
+        assert!(!stopped.cancelled.load(Ordering::Relaxed));
+        assert!(state.active("first").is_some());
     }
 }

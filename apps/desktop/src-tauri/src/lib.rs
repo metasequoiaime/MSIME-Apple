@@ -1030,7 +1030,7 @@ async fn load_emoji_catalog(
     })?
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 struct HostActionError {
     code: &'static str,
 }
@@ -2528,9 +2528,8 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
     }
     #[cfg(not(unix))]
     {
-        // Windows capture is owned by the native session/Server boundary.
-        // Keep stop idempotent while that bridge is not active in this build.
-        let _ = (app, request_id);
+        let sessions = app.state::<voice_sessions::VoiceSessions>();
+        let _ = sessions.stop(&request_id);
         Ok(())
     }
 }
