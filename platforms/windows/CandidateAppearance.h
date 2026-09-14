@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateThemeSettings.h"
 #include <algorithm>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -25,9 +26,8 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
                : std::string(fallback);
   };
   nlohmann::json appearance{{"skin_directory", (state / "skins").u8string()}};
-  const auto theme = text("theme", "dark");
-  appearance["dark_theme"] =
-      theme == "light" ? false : theme == "system" ? system_dark : true;
+  appearance["dark_theme"] = candidate_theme_dark(
+      candidate_theme_values(preferences), system_dark);
   appearance["layout"] =
       text("candidate_layout", "vertical") == "horizontal" ? "horizontal"
                                                            : "vertical";

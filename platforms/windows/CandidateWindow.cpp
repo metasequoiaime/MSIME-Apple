@@ -237,6 +237,13 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
+void CandidateWindow::set_theme_palette(CandidatePalette palette) {
+  // The freshly resolved palette contains the current text override. Do not
+  // let the constructor's old COLORREF mask it after changing or clearing it.
+  text_color_.reset();
+  set_palette(std::move(palette));
+  invalidate_geometry();
+}
 bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
   if (!settings.valid())
     return false;

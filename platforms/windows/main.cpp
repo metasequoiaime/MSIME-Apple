@@ -574,6 +574,7 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
     auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
+    auto candidate_theme = std::make_shared<CandidateThemeMailbox>();
     auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
         CandidateLayoutSettings{config.horizontal_candidates,
                                 config.candidate_show_preedit}.encode());
@@ -598,9 +599,10 @@ int wmain(int argc, wchar_t **argv) {
          toolbar_enabled, dedicated_english, follow_cursor, voice_light, candidate_fonts,
          toolbar_light, menu_light, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
-         tsf_config_dirty](const PreferenceSnapshot &snapshot) {
+         tsf_config_dirty, candidate_theme](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
+          candidate_theme->publish(preferences);
           if (auto fonts = candidate_font_settings(preferences))
             candidate_fonts->publish(snapshot.revision(), std::move(*fonts));
           if (auto layout = candidate_layout_settings(preferences))
@@ -898,6 +900,12 @@ int wmain(int argc, wchar_t **argv) {
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(resolved_palette);
+    auto current_candidate_theme = candidate_theme_values(
+        prepared.at("value").at("preferences"));
+    bool candidate_theme_dirty = true;
+    bool candidate_dark_applied = config.dark_theme;
+    bool candidate_horizontal_applied = config.horizontal_candidates;
+    uint64_t candidate_theme_check_at = 0;
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
@@ -1168,8 +1176,38 @@ int wmain(int argc, wchar_t **argv) {
                                                              request->request));
       if (auto fonts = candidate_fonts->take())
         candidates.set_fonts(*fonts);
-      candidates.set_layout(CandidateLayoutSettings::decode(
-          candidate_layout->load(std::memory_order_acquire)));
+      const auto next_candidate_layout = CandidateLayoutSettings::decode(
+          candidate_layout->load(std::memory_order_acquire));
+      candidates.set_layout(next_candidate_layout);
+      if (auto theme = candidate_theme->take()) {
+        if (*theme != current_candidate_theme) {
+          current_candidate_theme = std::move(*theme);
+          candidate_theme_dirty = true;
+        }
+      }
+      const bool candidate_horizontal = next_candidate_layout.horizontal;
+      const auto theme_now = GetTickCount64();
+      if (candidate_theme_dirty || candidate_horizontal != candidate_horizontal_applied ||
+          theme_now >= candidate_theme_check_at) {
+        candidate_theme_check_at = theme_now + 500;
+        const bool dark = candidate_theme_dark(current_candidate_theme,
+                                                system_prefers_dark());
+        if (candidate_theme_dirty || dark != candidate_dark_applied ||
+            candidate_horizontal != candidate_horizontal_applied) {
+          auto theme_config = config;
+          theme_config.dark_theme = dark;
+          theme_config.horizontal_candidates = candidate_horizontal;
+          auto next_palette = candidate_theme_palette(resolve_palette(theme_config),
+                                                        current_candidate_theme);
+          if (config.candidate_selected_bar)
+            next_palette.show_selected_bar = *config.candidate_selected_bar;
+          candidates.set_theme_palette(next_palette);
+          modes.set_palette(next_palette);
+          candidate_dark_applied = dark;
+          candidate_horizontal_applied = candidate_horizontal;
+          candidate_theme_dirty = false;
+        }
+      }
       candidates.refresh();
       modes.refresh();
       // The settings page may have published a new value since the last pass.
