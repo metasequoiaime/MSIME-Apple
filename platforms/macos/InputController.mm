@@ -2006,7 +2006,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             // In temporary Japanese mode '-' and '=' are composition input (the
             // Windows TSF path gives these keys to the engine as well). Do not
             // consume them as candidate paging shortcuts while the panel is up.
-            if ([_view["local_mode"] isEqual:@"temporary_japanese"] &&
+            if ([_view[@"local_mode"] isEqual:@"temporary_japanese"] &&
                 (character == '-' || character == '=')) {
                 // Fall through to the normal engine dispatch below.
             } else {
