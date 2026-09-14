@@ -790,6 +790,13 @@ static void TestPairedPunctuationPreferences() {
     [defaults removePersistentDomainForName:suite];
 }
 
+static void TestPairedPunctuationHostExclusion() {
+    assert(MSIMEPairedPunctuationExcludedBundleIdentifier(@"com.microsoft.Excel"));
+    assert(MSIMEPairedPunctuationExcludedBundleIdentifier(@"COM.MICROSOFT.EXCEL"));
+    assert(!MSIMEPairedPunctuationExcludedBundleIdentifier(@"com.apple.TextEdit"));
+    assert(!MSIMEPairedPunctuationExcludedBundleIdentifier(nil));
+}
+
 static void TestMixedInputPreferences() {
     NSString *suite = [@"msime.mixed-input." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -3569,6 +3576,7 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
+        TestPairedPunctuationHostExclusion();
         TestMixedInputPreferences();
         TestCharacterSetShortcut(defaults, appearance);
         TestDedicatedEnglish(appearance);

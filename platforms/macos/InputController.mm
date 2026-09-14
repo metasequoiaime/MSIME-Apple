@@ -106,6 +106,14 @@ static BOOL MSIMEPunctuationToggle(NSEvent *event) {
     const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
     return event.keyCode == 47 && (event.modifierFlags & modifiers) == NSEventModifierFlagControl;
 }
+static BOOL MSIMEPairedPunctuationExcludedBundleIdentifier(NSString *identifier) {
+    if (![identifier isKindOfClass:NSString.class]) return NO;
+    return [identifier caseInsensitiveCompare:@"com.microsoft.Excel"] == NSOrderedSame;
+}
+static BOOL MSIMEPairedPunctuationExcludedHost(void) {
+    NSRunningApplication *app = NSWorkspace.sharedWorkspace.frontmostApplication;
+    return MSIMEPairedPunctuationExcludedBundleIdentifier(app.bundleIdentifier);
+}
 static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
     for (NSString *key in @[@"session", @"generation", @"index"])
@@ -770,7 +778,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_session) return;
     NSDictionary *view = [_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil];
     if (view) [self apply:@{@"view":view}];
-    view = [_session setPairedPunctuationEnabled:_appearance.pairedPunctuation error:nil];
+    view = [_session setPairedPunctuationEnabled:_appearance.pairedPunctuation && !MSIMEPairedPunctuationExcludedHost() error:nil];
     if (view) [self apply:@{@"view":view}];
     view = [_session setPunctuationLock:_appearance.punctuationLock error:nil];
     if (view) [self apply:@{@"view":view}];
