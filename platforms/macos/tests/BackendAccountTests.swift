@@ -110,6 +110,28 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(try Data(contentsOf: destination) == replacement)
     try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
   }
+  /// 匿名账号在本机文件里,不在钥匙串。设置页原来只问钥匙串,于是装完自动开的账号在这一页根本不存在 ——
+  /// 页面劝用户去登录一个他已经有的账号,而候选旁的译文一直在正常出现。
+  @MainActor static func anonymousFallback(client: BackendAccountClient) async throws {
+    let keychain = MemoryCredentials(), local = MemoryCredentials()
+    let anonymous = BackendAccountSession(api: client, storage: local)
+    try await anonymous.signIn(challenge: "synthetic-challenge", credential: "123456")
+    try require(try local.load() != nil && (try keychain.load()) == nil)
+
+    var discarded = false
+    let model = MacAccountModel(client: client, account: BackendAccountSession(api: client, storage: keychain),
+                                anonymousAccount: anonymous, discardAnonymous: { discarded = true })
+    model.load(); try await finished(model)
+    try require(model.user?.id == "synthetic-user" && model.anonymous)
+
+    // 绑定走的是同一条登录路径,结果落在钥匙串;本机那份匿名凭据绑完就该丢掉,否则下次启动会被
+    // 当成另一个可用会话。
+    model.target = "synthetic@example.invalid"; model.requestCode(); try await finished(model)
+    model.code = "123456"; model.codeLogin(); try await finished(model)
+    try require(!model.anonymous && discarded)
+    try require(try keychain.load() != nil && (try local.load()) == nil)
+  }
+
   @MainActor static func main() async throws {
     try await fileTransfer()
     let configuration = URLSessionConfiguration.ephemeral
@@ -117,7 +139,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let client = BackendAccountClient(configuration: configuration)
     let storage = MemoryCredentials()
     let session = BackendAccountSession(api: client, storage: storage)
-    let model = MacAccountModel(client: client, account: session)
+    let model = MacAccountModel(client: client, account: session,
+                                anonymousAccount: BackendAccountSession(api: client, storage: MemoryCredentials()),
+                                discardAnonymous: {})
     model.load(); try await finished(model)
     try require(model.providers["email"] == true && model.user == nil)
     model.channel = "phone"; model.target = "+10000000000"
@@ -174,6 +198,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user == nil && storage.load() == nil)
     model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
     try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
+    try await anonymousFallback(client: client)
     print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
   }
 }
