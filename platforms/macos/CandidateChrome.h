@@ -11,12 +11,17 @@
 @property(nonatomic) BOOL translationBelow;
 @property(nonatomic) CGFloat translationRowHeight;
 @property(nonatomic, copy) NSColor *fillColor;
+@property(nonatomic, copy) NSColor *hoverColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
+@property(nonatomic) BOOL candidateHovered;
 @end
 @implementation MSIMECandidateButton
+{
+    NSTrackingArea *_candidateTrackingArea;
+}
 - (BOOL)acceptsFirstResponder
 {
     return NO;
@@ -26,14 +31,40 @@
     (void)event;
     return YES;
 }
+- (void)updateTrackingAreas
+{
+    if (_candidateTrackingArea != nil)
+        [self removeTrackingArea:_candidateTrackingArea];
+    _candidateTrackingArea = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_candidateTrackingArea];
+    [super updateTrackingAreas];
+}
+- (void)mouseEntered:(NSEvent *)event
+{
+    (void)event;
+    self.candidateHovered = YES;
+    self.needsDisplay = YES;
+}
+- (void)mouseExited:(NSEvent *)event
+{
+    (void)event;
+    self.candidateHovered = NO;
+    self.needsDisplay = YES;
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     if (self.tag < 0) { [super drawRect:dirtyRect]; return; }
     (void)dirtyRect;
     NSRectClip(self.bounds);
-    if (self.candidateHighlighted && self.fillColor.alphaComponent > 0.01)
+    NSColor *background = self.candidateHighlighted ? self.fillColor
+                                                     : (self.candidateHovered ? self.hoverColor : nil);
+    if (background != nil && background.alphaComponent > 0.01)
     {
-        [self.fillColor setFill];
+        [background setFill];
         [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:6 yRadius:6] fill];
     }
     if (self.candidateHighlighted && self.showSelectedBar)

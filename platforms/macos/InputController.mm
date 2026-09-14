@@ -1679,6 +1679,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
+        button.hoverColor = SkinColor(tokens.hover);
         button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
         button.translationColor = [button.titleColor colorWithAlphaComponent:0.65];
         // Windows fixed-position span overrides candidate text, not its number.
