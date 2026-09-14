@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SurfaceTheme, ThemeMode } from "./index";
 
-export function useCandidatePreviewTheme(mode: ThemeMode = "dark", surface: SurfaceTheme = "follow"): "dark" | "light" {
+export function useCandidatePreviewTheme(mode: ThemeMode = "system", surface: SurfaceTheme = "follow"): "dark" | "light" {
   const [systemLight, setSystemLight] = useState(false);
   useEffect(() => {
     if (mode !== "system" || surface !== "follow" || typeof window.matchMedia !== "function") return;

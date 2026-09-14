@@ -11,7 +11,7 @@ import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 export function AppearanceCandidatePreview({ preferences, scan, readImage, active = true, revision = 0 }: {
   preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; active?: boolean; revision?: number;
 }) {
-  const skin = preferences.candidate_skin ?? "fluent";
+  const skin = preferences.candidate_skin ?? "willow_green";
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
   const builtin = ["fluent", "wechat", "graphite", "willow_green"].includes(skin);
   const schemeHelpcode = preferences.scheme === "quanpin" ? preferences.quanpin_helpcode : preferences.shuangpin_helpcode;
