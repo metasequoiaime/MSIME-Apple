@@ -132,6 +132,7 @@ std::string normalize_clipboard_text(std::string text) {
 }
 ClipboardHistory::ClipboardHistory(std::filesystem::path store) : store_(std::move(store)) {}
 std::vector<std::string> ClipboardHistory::load() const {
+  if (!enabled_) return {};
   StoreLock lock(store_); return lock ? read_store(store_) : std::vector<std::string>{};
 }
 bool ClipboardHistory::add(std::string text) {

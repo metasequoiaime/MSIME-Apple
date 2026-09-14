@@ -18,7 +18,9 @@ public:
   bool add(std::string text);
   bool remove(const std::string &text);
   bool clear();
-  void set_enabled(bool enabled) { enabled_.store(enabled); if (!enabled) clear(); }
+  // Preference notifications may be stale. Shared settings writers own
+  // deletion under the preferences/history locks; this is only a local gate.
+  void set_enabled(bool enabled) { enabled_.store(enabled); }
   bool enabled() const { return enabled_.load(); }
 private:
   std::filesystem::path store_;

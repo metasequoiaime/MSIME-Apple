@@ -50,6 +50,11 @@ int main() {
     const auto disabled = mailbox.snapshot();
     require(disabled && !disabled->enabled && disabled->items.empty());
     require(!history.add("synthetic-disabled"));
+    // A delayed disabled notification is only a local capture gate. It must
+    // not delete records written after another settings host re-enabled capture.
+    history.set_enabled(false);
+    history.set_enabled(true);
+    require(history.load() == std::vector<std::string>{"synthetic-alpha"});
     mailbox.clear();
     require(!mailbox.snapshot());
     std::cout << "Clipboard storage/presentation linkage passed\n";
