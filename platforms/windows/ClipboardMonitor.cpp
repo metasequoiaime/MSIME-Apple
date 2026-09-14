@@ -44,18 +44,23 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
     // process replaces the contents between the two checks; leaving the
     // clipboard open there broke Ctrl+C and Ctrl+V in every application on the
     // desktop until this process exited.
-    struct ClipboardScope {
-      ~ClipboardScope() { CloseClipboard(); }
-    } scope;
     std::wstring value;
-    if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
-      auto data = GetClipboardData(CF_UNICODETEXT);
-      const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
-      if (text) {
-        value = text;
-        GlobalUnlock(data);
+    {
+      struct ClipboardScope {
+        ~ClipboardScope() { CloseClipboard(); }
+      } scope;
+      if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        auto data = GetClipboardData(CF_UNICODETEXT);
+        const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
+        if (text) {
+          value = text;
+          GlobalUnlock(data);
+        }
       }
     }
+    // Do not hold the system clipboard while conversion or the shared writer
+    // waits for disk/preferences locks. Other applications must remain able
+    // to copy and paste during persistence.
     monitor->sequence_ = sequence;
     // The callback owns persistence through client-core. Writing the legacy
     // string-array archive here would discard Tauri's structured entries.
