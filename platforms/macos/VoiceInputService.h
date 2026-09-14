@@ -11,6 +11,10 @@ typedef void (^MSIMEVoiceAudioBuffer)(AVAudioPCMBuffer *);
 - (BOOL)cancelWithError:(NSError **)error;
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString * _Nullable)deviceUID error:(NSError **)error;
 - (void)stopMicrophoneCapture;
+// Main-thread lifecycle; raw buffers are converted on the capture callback.
+// Finish stops capture and returns one immutable recording; cancel discards it.
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString * _Nullable)deviceUID error:(NSError **)error;
+- (NSData * _Nullable)finishPCMRecordingWithError:(NSError **)error;
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error;
 - (void)stopTranscription;
 - (AVAuthorizationStatus)microphoneAuthorizationStatus;

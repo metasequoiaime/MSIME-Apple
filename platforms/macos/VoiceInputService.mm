@@ -1,12 +1,40 @@
 #import "VoiceInputService.h"
+#import "VoicePCMBuffer.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
-@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; }
+@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return [SFSpeechRecognizer authorizationStatus]; }
 - (void)requestSpeechPermission:(void (^)(BOOL))completion { [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) { dispatch_async(dispatch_get_main_queue(), ^{ completion(status == SFSpeechRecognizerAuthorizationStatusAuthorized); }); }]; }
 - (BOOL)isActive { return _active; }
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)deviceUID error:(NSError **)error {
+    if (_pcmRecording || _audioEngine || _speechTask) {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:4
+            userInfo:@{NSLocalizedDescriptionKey: @"录音已在进行中"}];
+        return NO;
+    }
+    MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
+    _pcmRecording = recording;
+    // Capture this recording, not the mutable service slot: a late callback
+    // after stop/cancel must never append to a successor recording.
+    BOOL started = [self startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
+        if ([recording append:buffer error:nil]) handler(buffer);
+    } deviceUID:deviceUID error:error];
+    if (!started) { [recording cancel]; _pcmRecording = nil; }
+    return started;
+}
+- (NSData *)finishPCMRecordingWithError:(NSError **)error {
+    MSIMEVoicePCMBuffer *recording = _pcmRecording;
+    if (!recording) {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:5
+            userInfo:@{NSLocalizedDescriptionKey: @"没有可提交的录音"}];
+        return nil;
+    }
+    _pcmRecording = nil;
+    [self stopMicrophoneCapture];
+    return [recording finishWithError:error];
+}
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)bufferHandler deviceUID:(NSString *)deviceUID error:(NSError **)error {
     if ([self microphoneAuthorizationStatus] != AVAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:1 userInfo:@{NSLocalizedDescriptionKey: @"麦克风权限未授权"}]; return NO; }
     if (_audioEngine) return YES;
@@ -68,7 +96,7 @@
 }
 - (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; }
 - (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; _session = session; _active = YES; if (generation) *generation = [result[@"generation"] unsignedLongLongValue]; return YES; }
-- (BOOL)cancelWithError:(NSError **)error { if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
+- (BOOL)cancelWithError:(NSError **)error { [_pcmRecording cancel]; _pcmRecording = nil; if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion { MSIMEClientSession *session = _session; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ NSError *error = nil; NSDictionary *result = [session applyVoiceText:text generation:generation error:&error]; dispatch_async(dispatch_get_main_queue(), ^{ completion(result, error); }); }); }
-- (void)dealloc { [self stopMicrophoneCapture]; [self stopTranscription]; }
+- (void)dealloc { [_pcmRecording cancel]; [self stopMicrophoneCapture]; [self stopTranscription]; }
 @end
