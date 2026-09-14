@@ -52,7 +52,9 @@
 @end
 
 bool MSIMEShouldRegisterInputSource(int argc, const char *argv[]) {
-    return argc == 2 && argv && argv[1] && std::strcmp(argv[1], "--register-input-source") == 0;
+    return argc == 2 && argv && argv[1] &&
+        (std::strcmp(argv[1], "--register-input-source") == 0 ||
+         std::strcmp(argv[1], "--reregister-input-source") == 0);
 }
 
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar) {

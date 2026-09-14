@@ -71,6 +71,9 @@ int main()
         const char *unknownArguments[] = {"MetasequoiaIME", "--unknown"};
         require(MSIMEShouldRegisterInputSource(2, registrationArguments),
                 "The registration command was not recognized.");
+        const char *reregistrationArguments[] = {"MetasequoiaIME", "--reregister-input-source"};
+        require(MSIMEShouldRegisterInputSource(2, reregistrationArguments),
+                "The re-registration command was not recognized.");
         require(!MSIMEShouldRegisterInputSource(1, ordinaryArguments),
                 "Ordinary InputMethodKit startup was treated as registration.");
         require(!MSIMEShouldRegisterInputSource(2, unknownArguments),
