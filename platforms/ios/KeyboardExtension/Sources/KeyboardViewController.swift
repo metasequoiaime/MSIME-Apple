@@ -58,6 +58,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
+  private var candidatePanelGeneration: UInt64?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -103,6 +104,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
+  private var visibleCandidatePageCount = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
@@ -1495,36 +1497,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     playInputClick()
-    let panel = KeyboardCandidatePanelView(
-      candidates: visibleCandidates, preedit: visiblePreedit,
-      annotations: visibleCandidates.indices.map { candidateAnnotation(at: $0) },
-      display: { [weak self] in self?.chineseOutput($0) ?? $0 },
-      onSelect: { [weak self] index in
-        guard let self else { return }
-        closeKeyboardPicker()
-        playInputClick()
-        render(session.selectCandidate(at: UInt(index)))
-      },
-      onClose: { [weak self] in self?.closeKeyboardPicker() })
-    panel.accessibilityViewIsModal = true
-    panel.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(panel)
-    NSLayoutConstraint.activate([
-      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.topAnchor.constraint(equalTo: view.topAnchor),
-      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-    ])
-    candidatePanel = panel
-    UIAccessibility.post(notification: .screenChanged, argument: panel)
+    do {
+      let snapshot = try CandidatePanelSnapshot.decode(session.allCandidates())
+      guard !snapshot.entries.isEmpty else { return }
+      let indexes = snapshot.entries.map(\.index)
+      let generation = snapshot.generation
+      let panel = KeyboardCandidatePanelView(
+        candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
+        annotations: snapshot.entries.map {
+          candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+        },
+        display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+        onSelect: { [weak self] index in
+          guard let self, indexes.indices.contains(index) else { return }
+          closeKeyboardPicker()
+          playInputClick()
+          render(session.selectCandidate(generation: generation, globalIndex: indexes[index]))
+        },
+        onClose: { [weak self] in self?.closeKeyboardPicker() })
+      panel.accessibilityViewIsModal = true
+      panel.translatesAutoresizingMaskIntoConstraints = false
+      view.addSubview(panel)
+      NSLayoutConstraint.activate([
+        panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        panel.topAnchor.constraint(equalTo: view.topAnchor),
+        panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ])
+      candidatePanel = panel
+      candidatePanelGeneration = generation
+      UIAccessibility.post(notification: .screenChanged, argument: panel)
+    } catch {
+      showDiagnostic("候选列表暂不可用")
+    }
   }
 
   private func updateExpandControl() {
     // Offered whenever the strip is not already showing everything. Paging by nine used to be the
     // only way past the ninth candidate, which left the tail of a 351-candidate answer thirty-nine
     // taps away; the panel shows the whole list at once instead.
-    expandCandidatesButton.isHidden =
-      visibleCandidates.count <= Self.candidatePageSize || visibleDiagnostic != nil
+    expandCandidatesButton.isHidden = visibleCandidatePageCount <= 1 || visibleDiagnostic != nil
   }
 
   // The engine's local input modes open on a capital carried with a shift-only modifier, which this
@@ -1903,9 +1915,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
+                         candidatePageCount: snapshot.candidatePageCount,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
-    candidatePanel?.updateAnnotations(
-      visibleCandidates.indices.map { candidateAnnotation(at: $0) })
+    refreshCandidatePanelAnnotations()
     updateSpellingStrip()
     scheduleCandidateGlosses()
   }
@@ -1933,6 +1945,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
+                                    candidatePageCount: Int = 0,
                                     answeredByPinyinFallback: Bool = false) {
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
@@ -1941,6 +1954,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidates = candidates
     visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
+    visibleCandidatePageCount = candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
@@ -1977,25 +1991,43 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
-    let hint = wubiCodeHint(at: index)
+    let code = visibleCandidateCodes.indices.contains(index) ? visibleCandidateCodes[index] : ""
+    let gloss = visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : ""
+    return candidateAnnotation(code: code, gloss: gloss, typed: visiblePreedit)
+  }
+
+  private func candidateAnnotation(
+    code: String, gloss: String, typed: String
+  ) -> KeyboardCandidateAnnotation {
+    let hint = wubiCodeHint(code: code, typed: typed)
     if !hint.isEmpty {
       return KeyboardCandidateAnnotation(
         text: hint, accessibilityDescription: "还需输入 \(hint)")
     }
-    guard CandidateGlossPreference.enabled,
-          visibleCandidateGlosses.indices.contains(index),
-          !visibleCandidateGlosses[index].isEmpty else { return .none }
-    let gloss = visibleCandidateGlosses[index]
+    guard CandidateGlossPreference.enabled, !gloss.isEmpty else { return .none }
     return KeyboardCandidateAnnotation(
       text: gloss, accessibilityDescription: "英文释义：\(gloss)")
   }
 
-  private func wubiCodeHint(at index: Int) -> String {
-    guard inputScheme == .wubi, !session.isInLocalMode, WubiCodeHintPreference.isEnabled,
-          visibleCandidateCodes.indices.contains(index) else { return "" }
+  private func wubiCodeHint(code: String, typed: String) -> String {
+    guard inputScheme == .wubi, !session.isInLocalMode,
+          WubiCodeHintPreference.isEnabled else { return "" }
     return WubiCodeHintPreference.hint(
-      code: visibleCandidateCodes[index], typed: visiblePreedit,
+      code: code, typed: typed,
       answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)
+  }
+
+  private func refreshCandidatePanelAnnotations() {
+    guard let panel = candidatePanel, let generation = candidatePanelGeneration else { return }
+    guard let value = try? session.allCandidates(),
+          let snapshot = try? CandidatePanelSnapshot.decode(value),
+          snapshot.generation == generation else {
+      closeKeyboardPicker()
+      return
+    }
+    panel.updateAnnotations(snapshot.entries.map {
+      candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+    })
   }
 
   /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
@@ -2012,8 +2044,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         visibleCandidateGlosses = []
         if hadVisibleGlosses { renderCandidateStrip() }
       }
-      candidatePanel?.updateAnnotations(
-        visibleCandidates.indices.map { candidateAnnotation(at: $0) })
+      refreshCandidatePanelAnnotations()
       return
     }
     do {
@@ -2374,6 +2405,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let panel = candidatePanel {
       panel.removeFromSuperview()
       candidatePanel = nil
+      candidatePanelGeneration = nil
       UIAccessibility.post(notification: .screenChanged, argument: expandCandidatesButton)
     }
     if let picker = layoutPicker {

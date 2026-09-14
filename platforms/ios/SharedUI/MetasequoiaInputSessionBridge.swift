@@ -66,12 +66,13 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
+  let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
-       answeredByPinyinFallback: Bool = false,
+       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil) {
     self.isHandled = isHandled
     self.commitText = commitText
@@ -79,6 +80,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
+    self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
   }
@@ -149,7 +151,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           let identity = rows[Int(index)]["id"] as? [String: Any],
           let generation = identity["generation"] as? NSNumber,
           let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
-    return dispatch { msimeClientSelect(handle, generation.uint64Value, globalIndex.uintValue) }
+    return selectCandidate(
+      generation: generation.uint64Value, globalIndex: globalIndex.uint64Value)
+  }
+
+  func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
+    guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    return dispatch { msimeClientSelect(handle, generation, index) }
   }
 
   func allCandidates() throws -> [String: Any] {
@@ -461,6 +469,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
+      candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String)
   }
