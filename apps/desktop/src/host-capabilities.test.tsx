@@ -106,6 +106,32 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
 });
 
+test("Linux number-row selection follows its capability and saves through shared preferences", async () => {
+  const save = vi.fn(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  mount({
+    host: capabilities({ platform: "linux", number_row_selection: true }),
+    save,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  const toggle = screen.getByLabelText("数字键选词") as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
+  expect(screen.getByText("Space", { selector: "kbd" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    number_row_selection: false,
+  });
+
+  cleanup();
+  mount({ host: capabilities({ platform: "windows", number_row_selection: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.queryByLabelText("数字键选词")).toBeNull();
+});
+
 test("the restart action needs both the capability and an injected handler", async () => {
   const withoutHandler = mount({ host: capabilities({ platform: "linux", restart_input_method: true }) });
   await screen.findByRole("button", { name: "保存设置" });

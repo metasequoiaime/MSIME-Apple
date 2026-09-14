@@ -182,6 +182,7 @@ export interface HostCapabilities {
   floating_toolbar_components: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
+  number_row_selection?: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
   candidate_row_colors: boolean;
@@ -251,6 +252,7 @@ export type Preferences = {
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   wubi_mixed_pinyin?: boolean;
   candidate_page_size: number;
+  number_row_selection?: boolean;
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
@@ -782,6 +784,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
+  const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
   const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
   const showFloatingToolbar = host ? host.floating_toolbar : true;
   // An IBus property menu has no scale or icon size to apply, but it can
@@ -1898,8 +1901,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section shortcut-section">
           <div className="section-title">候选操作</div>
           <small>输入和选取候选词时使用</small>
+          {showNumberRowSelection && <label className="section-header"><span className="section-title">数字键选词<small>关闭后，候选窗口显示时数字键仍交给当前应用。</small></span><input aria-label="数字键选词" className="toggle" type="checkbox" checked={draft.number_row_selection ?? true} onChange={event => setDraft({ ...draft, number_row_selection: event.target.checked })} /></label>}
           <div className="shortcut-list">
-            <div className="shortcut-row"><span>选择候选</span><kbd>Space 或 1–9</kbd></div>
+            <div className="shortcut-row"><span>选择候选</span><kbd>Space{(draft.number_row_selection ?? true) ? " 或 1–9" : ""}</kbd></div>
             {(draft.navigation ?? defaultNavigation).minus_equal && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>- / =</kbd></div>}
             {(draft.navigation ?? defaultNavigation).comma_period && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>, / .</kbd></div>}
             {(draft.navigation ?? defaultNavigation).tab && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Shift+Tab / Tab</kbd></div>}

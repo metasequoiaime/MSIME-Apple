@@ -756,6 +756,36 @@ int main(int argc, char **argv) {
       }
       return false;
     };
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "NumberRowSelection", PROP_STATE_UNCHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return !preferences.value("number_row_selection", true);
+            }),
+            "Number-row selection disable was not persisted");
+    phrase();
+    const auto number_row_commit = seen.committed;
+    require(!key(IBUS_1) && seen.committed == number_row_commit &&
+                seen.preedit == "nihao" && seen.lookup_visible,
+            "Disabled number-row selection did not release the digit");
+    invoke("Reset");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    phrase();
+    require(!key(IBUS_1) && seen.committed == number_row_commit,
+            "Disabled number-row selection did not survive refocus");
+    invoke("Reset");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "NumberRowSelection", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("number_row_selection", false);
+            }),
+            "Number-row selection restore was not persisted");
+    phrase();
+    const auto first_numbered_candidate = seen.candidates.front();
+    require(key(IBUS_1) &&
+                seen.committed == number_row_commit + first_numbered_candidate,
+            "Restored number-row selection did not select the candidate");
+    seen.committed.clear();
     invoke("Reset");
     require(!seen.autocorrect_transposition && !seen.autocorrect_neighbor,
             "Legacy autocorrect unexpectedly enabled granular menu defaults");

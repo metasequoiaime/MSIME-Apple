@@ -433,6 +433,11 @@ pub struct Preferences {
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
     pub candidate_page_size: u8,
+    /// Linux IBus can release the number row to the application while a
+    /// candidate list is visible. Other hosts preserve this preference even
+    /// when their native candidate presenter does not expose the switch.
+    #[serde(default = "enabled_by_default")]
+    pub number_row_selection: bool,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_preedit_font_size")]
@@ -1093,6 +1098,7 @@ impl Default for Preferences {
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_preedit_uses_raw: true,
             candidate_page_size: 6,
+            number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_preedit_font_size(),
             candidate_text_color: None,
@@ -2637,6 +2643,33 @@ mod tests {
         fs::write(store.path(), &bytes).unwrap();
         assert!(store.save(1, Preferences::default()).is_err());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn number_row_selection_defaults_on_and_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("number_row_selection");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().unwrap().preferences.number_row_selection);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    number_row_selection: false,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert!(!saved.preferences.number_row_selection);
+        assert_eq!(store.load().unwrap(), saved);
     }
 
     #[test]

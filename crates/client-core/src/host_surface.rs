@@ -104,6 +104,10 @@ pub struct HostCapabilities {
     pub mode_switch_shortcuts: bool,
     /// The desktop environment forwards a shortcut that opens a shared panel.
     pub panel_shortcuts: bool,
+    /// The host can let the user release number-row candidate selection back
+    /// to the focused application.
+    #[serde(default)]
+    pub number_row_selection: bool,
     /// The host can enumerate audio capture devices for voice input.
     pub voice_capture_devices: bool,
     /// The host can apply candidate font family, fallback family and size preferences.
@@ -175,6 +179,7 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows
             ),
+            number_row_selection: platform == HostPlatform::Linux,
             voice_capture_devices: matches!(
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
@@ -568,6 +573,7 @@ mod tests {
         assert!(!linux.floating_toolbar_appearance);
         assert!(linux.floating_toolbar_components);
         assert!(linux.panel_shortcuts);
+        assert!(linux.number_row_selection);
         assert!(linux.voice_capture_devices);
         assert!(!linux.candidate_font_controls);
         assert!(linux.candidate_row_colors);
@@ -576,6 +582,7 @@ mod tests {
         assert!(!linux.candidate_follow_cursor);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
+        assert!(!windows.number_row_selection);
         assert!(windows.restart_input_method);
         // Windows keeps a cross-application CN/EN authority, so the scope
         // choice is real there.
