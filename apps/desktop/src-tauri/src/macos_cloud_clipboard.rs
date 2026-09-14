@@ -31,6 +31,7 @@ impl CloudState {
                         CloudClipboardError::Invalid => "invalid",
                         CloudClipboardError::Unavailable => "unavailable",
                         CloudClipboardError::OutcomeUnknown => "outcome_unknown",
+                        CloudClipboardError::Conflict => "conflict",
                     },
                 })
         })

@@ -23,6 +23,9 @@ int main(int argc, const char *argv[]) {
         Class clipboard = NSClassFromString(@"MSIMEBackendCloudClipboardProvider");
         assert(clipboard && [clipboard respondsToSelector:NSSelectorFromString(@"prepareWithCompletion:")]);
         assert([clipboard instancesRespondToSelector:NSSelectorFromString(@"request:completion:")]);
+        Class dictionary = NSClassFromString(@"MSIMEBackendCloudDictionaryProvider");
+        assert(dictionary && [dictionary respondsToSelector:NSSelectorFromString(@"prepareWithCompletion:")]);
+        assert([dictionary instancesRespondToSelector:NSSelectorFromString(@"request:completion:")]);
         // Objective-C classes remain registered; retain the library for process lifetime.
     }
     return 0;

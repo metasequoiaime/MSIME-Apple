@@ -1686,6 +1686,15 @@ test("cloud clipboard discards stale history after provider access fails", async
   expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
 });
 
+test("cloud dictionary clears old account entries when refresh fails", async () => {
+  const request = vi.fn().mockResolvedValueOnce({ entries: [{ id: "a".repeat(64), kind: "pinyin", code: "he", word: "合成词条", weight: 1, revision: 17 }], has_more: true, offset: 0 }).mockRejectedValue(new Error("unavailable"));
+  render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("合成词条");
+  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  await waitFor(() => expect(screen.queryByText("合成词条")).toBeNull());
+  expect((screen.getByRole("button", { name: "下一页" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test("cloud dictionary panel supports paging and CRUD actions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {

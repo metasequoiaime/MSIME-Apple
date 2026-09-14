@@ -16,6 +16,19 @@ endif()
 add_subdirectory(../../shared/voice shared-voice)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)
+add_executable(desktop-account-cancellation-test tests/DesktopAccountCancellationTest.mm DesktopCloudClipboard.mm DesktopInputSession.mm)
+target_compile_options(desktop-account-cancellation-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(desktop-account-cancellation-test PRIVATE "-framework AppKit")
+add_test(NAME desktop-account-cancellation COMMAND desktop-account-cancellation-test)
+set_tests_properties(desktop-account-cancellation PROPERTIES TIMEOUT 10)
+add_executable(desktop-cloud-dictionary-interop-test tests/DesktopCloudDictionaryInteropTest.mm DesktopCloudClipboard.mm DesktopInputSession.mm)
+target_compile_options(desktop-cloud-dictionary-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(desktop-cloud-dictionary-interop-test PRIVATE "-framework AppKit")
+set(MSIME_CLOUD_DICTIONARY_PROBE "" CACHE FILEPATH "Optional Cargo cloud_dictionary_probe executable")
+if(MSIME_CLOUD_DICTIONARY_PROBE)
+  add_test(NAME desktop-cloud-dictionary-interop COMMAND desktop-cloud-dictionary-interop-test "${MSIME_CLOUD_DICTIONARY_PROBE}")
+  set_tests_properties(desktop-cloud-dictionary-interop PROPERTIES TIMEOUT 25)
+endif()
 add_executable(desktop-cloud-clipboard-interop-test tests/DesktopCloudClipboardInteropTest.mm DesktopCloudClipboard.mm DesktopInputSession.mm)
 target_compile_options(desktop-cloud-clipboard-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-cloud-clipboard-interop-test PRIVATE "-framework AppKit")
@@ -79,6 +92,19 @@ if(MSIME_OPTIONS_FILE)
   set_source_files_properties("${MSIME_OPTIONS_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 include(ClipboardTests.cmake)
+set(MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES
+  ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
+  ../../shared/backend/BackendDictionaryClient.swift ../../shared/backend/BackendCandidateClient.swift
+  BackendCloudDictionaryProvider.swift tests/DesktopCloudDictionaryProviderTest.swift)
+list(TRANSFORM MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test"
+  DEPENDS ${MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES} VERBATIM)
+add_custom_target(desktop-dictionary-provider-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test")
+add_test(NAME desktop-dictionary-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test")
+set_tests_properties(desktop-dictionary-provider PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES
   ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
   ../../shared/backend/BackendClipboardClient.swift BackendCloudClipboardProvider.swift

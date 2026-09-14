@@ -1104,7 +1104,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   async function load(revision: number, nextOffset: number, nextSearch: string, nextKind: CloudDictionaryKind) {
-    const result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch });
+    let result;
+    try { result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch }); }
+    catch (error) {
+      if (revision === refreshRevision.current) { setEntries([]); setHasMore(false); setForm(null); }
+      throw error;
+    }
     if (revision !== refreshRevision.current) return;
     setEntries(cloudDictionaryEntries(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);

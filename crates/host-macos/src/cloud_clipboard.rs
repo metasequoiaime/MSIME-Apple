@@ -11,6 +11,7 @@ pub enum CloudClipboardError {
     Invalid,
     Unavailable,
     OutcomeUnknown,
+    Conflict,
 }
 
 #[derive(Deserialize)]
@@ -40,8 +41,26 @@ impl CloudClipboardSession {
     }
 
     pub fn request(&self, action: &Value) -> Result<Value, CloudClipboardError> {
+        self.request_bounded(action, 64 * 1024, Duration::from_secs(40))
+    }
+
+    pub fn request_dictionary(&self, action: &Value) -> Result<Value, CloudClipboardError> {
+        let timeout = if action["operation"] == "export" {
+            610
+        } else {
+            40
+        };
+        self.request_bounded(action, 512 * 1024, Duration::from_secs(timeout))
+    }
+
+    fn request_bounded(
+        &self,
+        action: &Value,
+        maximum: usize,
+        timeout: Duration,
+    ) -> Result<Value, CloudClipboardError> {
         let bytes = serde_json::to_vec(action).map_err(|_| CloudClipboardError::Invalid)?;
-        if !action.is_object() || bytes.len() > 64 * 1024 {
+        if !action.is_object() || bytes.len() > maximum {
             return Err(CloudClipboardError::Invalid);
         }
         let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)
@@ -56,7 +75,7 @@ impl CloudClipboardSession {
             return Err(CloudClipboardError::Unavailable);
         }
         stream
-            .set_read_timeout(Some(Duration::from_secs(40)))
+            .set_read_timeout(Some(timeout))
             .map_err(|_| CloudClipboardError::Unavailable)?;
         stream
             .set_write_timeout(Some(Duration::from_secs(5)))
@@ -86,7 +105,11 @@ impl CloudClipboardSession {
         let result: Value =
             serde_json::from_slice(&response).map_err(|_| CloudClipboardError::OutcomeUnknown)?;
         if result.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(CloudClipboardError::Unavailable);
+            return Err(if result["ok"] == false && result["error"] == "conflict" {
+                CloudClipboardError::Conflict
+            } else {
+                CloudClipboardError::Unavailable
+            });
         }
         result
             .get("value")

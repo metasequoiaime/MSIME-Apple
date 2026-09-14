@@ -54,10 +54,15 @@ struct Reply {
     pid_t _peer;
     BOOL (^_valid)(void);
     std::atomic<bool> _stopped;
+    BOOL _dictionary;
 }
 - (instancetype)initWithProvider:(id<MSIMEDesktopCloudClipboardProvider>)provider {
+    return [self initWithProvider:provider dictionary:NO];
+}
+- (instancetype)initWithProvider:(id<MSIMEDesktopCloudClipboardProvider>)provider dictionary:(BOOL)dictionary {
     if (!(self = [super init])) return nil;
     _stopped.store(false);
+    _dictionary = dictionary;
     if (!provider) return nil;
     char directory[] = "/tmp/msime-cloud-XXXXXX";
     if (!mkdtemp(directory)) return nil;
@@ -74,7 +79,7 @@ struct Reply {
     fcntl(listener, F_SETFD, FD_CLOEXEC);
     _provider = provider;
     NSData *configuration = [NSJSONSerialization dataWithJSONObject:@{@"version":@1, @"path":path, @"host_pid":@(getpid())} options:0 error:nil];
-    _launchEnvironment = @{@"MSIME_CLIENT_CLOUD_CLIPBOARD_SESSION":[[NSString alloc] initWithData:configuration encoding:NSUTF8StringEncoding]};
+    _launchEnvironment = @{dictionary ? @"MSIME_CLIENT_CLOUD_DICTIONARY_SESSION" : @"MSIME_CLIENT_CLOUD_CLIPBOARD_SESSION":[[NSString alloc] initWithData:configuration encoding:NSUTF8StringEncoding]};
     _queue = dispatch_queue_create("app.msime.cloud-clipboard-session", DISPATCH_QUEUE_SERIAL);
     _source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, listener, 0, _queue);
     dispatch_source_set_cancel_handler(_source, ^{ close(listener); unlink(path.fileSystemRepresentation); rmdir(root.fileSystemRepresentation); });
@@ -124,7 +129,7 @@ struct Reply {
     if (!Read(fd, &length, sizeof(length), deadline)) return;
     length = ntohl(length);
     if (!length) { [self stop]; return; }
-    if (length > requestLimit) return;
+    if (length > (_dictionary ? 512 * 1024 : requestLimit)) return;
     NSMutableData *body = [NSMutableData dataWithLength:length];
     if (!Read(fd, body.mutableBytes, length, deadline)) return;
     char extra; if (recv(fd, &extra, 1, 0) != 0) return;
@@ -140,7 +145,12 @@ struct Reply {
             dispatch_semaphore_signal(reply->done);
         }];
     });
-    bool completed = dispatch_semaphore_wait(reply->done, dispatch_time(DISPATCH_TIME_NOW, 35 * NSEC_PER_SEC)) == 0;
+    const double responseDeadline = NSProcessInfo.processInfo.systemUptime +
+        (_dictionary && [request[@"operation"] isEqual:@"export"] ? 605 : 35);
+    bool completed = false;
+    while (!_stopped.load() && valid() && NSProcessInfo.processInfo.systemUptime < responseDeadline) {
+        if (dispatch_semaphore_wait(reply->done, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10)) == 0) { completed = true; break; }
+    }
     reply->live.store(false);
     if (!completed) { dispatch_async(dispatch_get_main_queue(), ^{ [reply->progress cancel]; }); return; }
     if (_stopped.load() || !valid() || !reply->data.length || reply->data.length > responseLimit) return;
@@ -158,6 +168,19 @@ struct Reply {
 
 void MSIMEOpenDesktopCloudClipboard(NSString *optionsPath, NSWorkspace *workspace, dispatch_block_t fallback) {
     MSIMEOpenDesktopCloudClipboardWithInput(optionsPath, workspace, nil, fallback);
+}
+
+void MSIMEOpenDesktopCloudDictionary(NSString *optionsPath, NSWorkspace *workspace, dispatch_block_t fallback) {
+    Class bridge = NSClassFromString(@"MSIMEBackendCloudDictionaryProvider");
+    if (![bridge respondsToSelector:@selector(prepareWithCompletion:)]) { fallback(); return; }
+    [(Class<MSIMEDesktopCloudClipboardPreparing>)bridge prepareWithCompletion:^(id<MSIMEDesktopCloudClipboardProvider> provider) {
+        if (!provider) { fallback(); return; }
+        MSIMEDesktopCloudClipboardSession *session = [[MSIMEDesktopCloudClipboardSession alloc] initWithProvider:provider dictionary:YES];
+        if (!session) { fallback(); return; }
+        MSIMEOpenDesktopRouteWithContext(@"cloud-dictionary", optionsPath, session.launchEnvironment, workspace,
+            ^(NSRunningApplication *application) { [session authorizePID:application.processIdentifier stillValid:^BOOL { return !application.terminated; }]; },
+            ^{ [session stop]; fallback(); });
+    }];
 }
 
 void MSIMEOpenDesktopCloudClipboardWithInput(NSString *optionsPath, NSWorkspace *workspace,

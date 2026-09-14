@@ -4,6 +4,8 @@ use msime_client_core::panels::KeyboardInputRequest;
 pub mod panel_session;
 #[cfg(target_os = "macos")]
 pub mod cloud_clipboard;
+#[cfg(target_os = "macos")]
+pub mod cloud_dictionary;
 
 /// Keeps WebKit detached while a desktop adapter changes a window's class.
 /// Main-thread-only; dropping restores the view and its window observations.
