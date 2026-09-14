@@ -2,7 +2,9 @@
 
 `MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。语音录制由 App 的 Swift `AVAudioEngine` 宿主管理，键盘扩展不直接使用桌面音频采集桥接。
 
-共享 Tauri/React 设置宿主已生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 16 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。当前切片先证明共享 WebView/Rust App 可独立构建，后续再把键盘扩展嵌入该宿主并迁移剩余 iOS 原生服务；在嵌入完成前，既有 `MSIMEClient.xcodeproj` 仍是键盘扩展的构建入口。
+共享 Tauri/React 设置宿主生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 16 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
+
+Tauri App 现直接依赖并嵌入既有 `MSIMEKeyboardExtension` target。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 仍使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。既有 `MSIMEClient.xcodeproj` 暂时保留为原生测试和剩余 SwiftUI 设置页面的构建入口，后续页面迁移不再建立第二份键盘实现。
 
 键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
 
@@ -25,7 +27,10 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 ```sh
 git submodule update --init --recursive
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+rustup component add llvm-tools
 ```
+
+Xcode 27 的 SwiftPM 会把静态库中的 `@_cdecl` 导出内部化；当前 `swift-rs` 构建桥会使用 `llvm-tools` 中的 `llvm-objcopy` 恢复应用 package 的符号。仓库同时固定到上游 PR #79 的提交 `a83e2b2f196e3fa9605cb21c7d3b82652205c279`，使传递嵌入的 SwiftRs runtime 导出在优化构建中保持公开。缺少该组件或移除补丁时，Tauri iOS Rust 动态库会在链接阶段报告 Swift 桥符号未定义。
 
 词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把允许的六个运行资源复制到 `target/ios/EngineResources`：
 
@@ -53,3 +58,13 @@ MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
 ```
 
 真机产物把最后一个参数改为 `device`。无签名构建只验证源码、链接和 bundle 内容，不代表键盘扩展已经安装、授权或完成真机宿主验证。
+
+共享 Tauri iOS 工程的 CocoaPods workspace 与 `Pods` 目录只为真机 ML Kit 构建生成，不提交到仓库；模拟器从干净的 XcodeGen 工程直接构建 fallback。真机目标需要先安装锁定的 CocoaPods 依赖，然后从 Tauri CLI 启动构建；CLI 会为 Xcode 中的 Rust 构建脚本建立本地控制通道，因此不要直接用独立的 `xcodebuild` 命令代替：
+
+```sh
+cd apps/desktop/src-tauri/gen/apple
+pod install --deployment
+cd ../../../../..
+MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
+  pnpm --filter @msime/desktop tauri ios build --target aarch64 --no-sign --ci
+```
