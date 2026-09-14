@@ -103,6 +103,26 @@ resolve_palette(const msime::windows::PreviewConfig &config) {
     return builtin;
   }
 }
+msime::windows::CandidateSkinAssets
+resolve_skin_assets(const msime::windows::PreviewConfig &config) {
+  if (config.skin_directory.empty() || config.skin_id.empty() ||
+      msime::windows::candidate_builtin_skin(config.skin_id))
+    return {};
+  try {
+    const auto root = config.skin_directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+        msime_client_skin_catalog(reinterpret_cast<const uint8_t *>(root.data()),
+                                  root.size()), msime_client_string_free);
+    if (owned) {
+      const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
+      if (!catalog.is_discarded() && catalog.value("ok", false))
+        return msime::windows::candidate_skin_assets(
+            catalog.at("value"), config.skin_id, config.skin_directory);
+    }
+  } catch (const std::exception &) {
+  }
+  return {};
+}
 std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
@@ -848,29 +868,9 @@ int wmain(int argc, wchar_t **argv) {
     const auto palette = resolve_palette(config);
     // An external package may ask for a wider card than the font implies; the
     // artwork is drawn against that width.
-    double skin_min_width = 0.0;
-    msime::windows::CandidateSkinDecoration skin_decoration;
-    if (!config.skin_directory.empty() && !config.skin_id.empty() &&
-        !msime::windows::candidate_builtin_skin(config.skin_id)) {
-      try {
-        const auto root = config.skin_directory.u8string();
-        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-            msime_client_skin_catalog(
-                reinterpret_cast<const uint8_t *>(root.data()), root.size()),
-            msime_client_string_free);
-        if (owned) {
-          const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
-          if (!catalog.is_discarded() && catalog.value("ok", false)) {
-            skin_min_width = msime::windows::candidate_skin_min_width(
-                catalog.at("value"), config.skin_id);
-            skin_decoration = msime::windows::candidate_skin_decoration(
-                catalog.at("value"), config.skin_id, config.skin_directory);
-          }
-        }
-      } catch (const std::exception &) {
-        skin_min_width = 0.0;
-      }
-    }
+    const auto skin_assets = resolve_skin_assets(config);
+    const double skin_min_width = skin_assets.min_width;
+    const auto &skin_decoration = skin_assets.decoration;
     auto resolved_palette = palette;
     if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
         config.candidate_number_color != "none")
@@ -905,6 +905,7 @@ int wmain(int argc, wchar_t **argv) {
     bool candidate_theme_dirty = true;
     bool candidate_dark_applied = config.dark_theme;
     bool candidate_horizontal_applied = config.horizontal_candidates;
+    std::string candidate_skin_applied = config.skin_id;
     uint64_t candidate_theme_check_at = 0;
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
@@ -912,6 +913,7 @@ int wmain(int argc, wchar_t **argv) {
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     // The toolbar draws from the skin's own accent, not the card's overrides.
     bool toolbar_dark_applied = !toolbar_light->load(std::memory_order_acquire);
+    std::string toolbar_skin_applied = config.skin_id;
     toolbar.set_palette(
         toolbar_palette(config.skin_id, toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
@@ -1016,6 +1018,7 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return toolbar_visible; });
     // The menu follows its own theme and the active skin, like the toolbar.
     bool menu_dark_applied = !menu_light->load(std::memory_order_acquire);
+    std::string menu_skin_applied = config.skin_id;
     tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
@@ -1195,6 +1198,8 @@ int wmain(int argc, wchar_t **argv) {
         if (candidate_theme_dirty || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
           auto theme_config = config;
+          theme_config.skin_id = current_candidate_theme.value(
+              "candidate_skin", candidate_skin_applied);
           theme_config.dark_theme = dark;
           theme_config.horizontal_candidates = candidate_horizontal;
           auto next_palette = candidate_theme_palette(resolve_palette(theme_config),
@@ -1202,6 +1207,13 @@ int wmain(int argc, wchar_t **argv) {
           if (config.candidate_selected_bar)
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
+          if (theme_config.skin_id != candidate_skin_applied) {
+            const auto assets = resolve_skin_assets(theme_config);
+            candidates.set_skin_min_width(assets.min_width);
+            candidates.set_skin_decoration(assets.decoration.image,
+                assets.decoration.top_dip, assets.decoration.width_dip);
+            candidate_skin_applied = theme_config.skin_id;
+          }
           modes.set_palette(next_palette);
           candidate_dark_applied = dark;
           candidate_horizontal_applied = candidate_horizontal;
@@ -1214,14 +1226,16 @@ int wmain(int argc, wchar_t **argv) {
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
       if (const bool dark = !menu_light->load(std::memory_order_acquire);
-          dark != menu_dark_applied) {
+          dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
         menu_dark_applied = dark;
-        tray.set_palette(candidate_builtin_palette(config.skin_id, dark));
+        menu_skin_applied = candidate_skin_applied;
+        tray.set_palette(candidate_builtin_palette(menu_skin_applied, dark));
       }
       if (const bool dark = !toolbar_light->load(std::memory_order_acquire);
-          dark != toolbar_dark_applied) {
+          dark != toolbar_dark_applied || toolbar_skin_applied != candidate_skin_applied) {
         toolbar_dark_applied = dark;
-        toolbar.set_palette(toolbar_palette(config.skin_id, dark));
+        toolbar_skin_applied = candidate_skin_applied;
+        toolbar.set_palette(toolbar_palette(toolbar_skin_applied, dark));
       }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago

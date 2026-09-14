@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidatePalette.h"
+#include "CandidateSkinAssets.h"
 #include <mutex>
 #include <nlohmann/json.hpp>
 
@@ -7,6 +8,12 @@ namespace msime::windows {
 inline nlohmann::json
 candidate_theme_values(const nlohmann::json &preferences) {
   nlohmann::json result = nlohmann::json::object();
+  if (preferences.contains("candidate_skin") &&
+      preferences.at("candidate_skin").is_string()) {
+    const auto id = preferences.at("candidate_skin").get<std::string>();
+    if (valid_candidate_skin_id(id))
+      result["candidate_skin"] = id;
+  }
   for (const char *key : {"theme", "candidate_theme", "candidate_text_color",
                           "candidate_number_color", "candidate_surface_color",
                           "candidate_border_color", "candidate_selected_color",
