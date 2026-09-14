@@ -23,6 +23,8 @@ struct Configuration {
     host_pid: i32,
     target_pid: i32,
     target_started: f64,
+    #[serde(default)]
+    clipboard: bool,
 }
 
 /// Does not implement Debug: paths and process identity stay out of logs/UI.
@@ -32,6 +34,10 @@ pub struct PanelSession {
 }
 
 impl PanelSession {
+    pub fn accepts_clipboard(&self) -> bool {
+        self.configuration.clipboard
+    }
+
     pub fn is_used(&self) -> bool {
         self.submitted.load(Ordering::Acquire)
     }
@@ -104,7 +110,9 @@ impl PanelSession {
     }
 
     pub fn submit(&self, text: &str) -> Result<(), SessionError> {
-        if text.is_empty() || text.len() > 4096 || text.contains('\0') {
+        if self.accepts_clipboard() {
+            validate_clipboard_text(text)?;
+        } else if text.is_empty() || text.len() > 4096 || text.contains('\0') {
             return Err(SessionError::Invalid);
         }
         if self.submitted.load(Ordering::Acquire) {
@@ -135,6 +143,19 @@ impl PanelSession {
             _ => Err(SessionError::OutcomeUnknown),
         }
     }
+}
+
+pub fn validate_clipboard_text(text: &str) -> Result<(), SessionError> {
+    if text.is_empty()
+        || text.len() > 12_000
+        || text.encode_utf16().count() > 4_000
+        || text
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return Err(SessionError::Invalid);
+    }
+    Ok(())
 }
 
 pub(crate) fn peer_matches(stream: &UnixStream, expected: i32) -> bool {
@@ -172,6 +193,57 @@ pub(crate) fn peer_matches(stream: &UnixStream, expected: i32) -> bool {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
+    #[test]
+    fn clipboard_contract_counts_utf16_and_keeps_multiline_text() {
+        for text in [
+            "中".repeat(4000),
+            "😀".repeat(2000),
+            "中".repeat(3997) + "\r\n\t",
+        ] {
+            assert_eq!(validate_clipboard_text(&text), Ok(()));
+        }
+        for text in [
+            "".into(),
+            "a".repeat(4001),
+            "😀".repeat(2001),
+            "synthetic\0".into(),
+            "synthetic\u{1b}".into(),
+        ] {
+            assert_eq!(validate_clipboard_text(&text), Err(SessionError::Invalid));
+        }
+    }
+
+    #[test]
+    fn clipboard_sessions_use_large_frames_without_changing_candidate_limits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("input.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut config: serde_json::Value =
+            serde_json::from_str(&configuration(&path, std::process::id())).unwrap();
+        config["clipboard"] = true.into();
+        let session = PanelSession::parse(&config.to_string()).unwrap();
+        assert!(session.accepts_clipboard());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            assert_eq!(u32::from_be_bytes(bytes[..4].try_into().unwrap()), 12000);
+            assert_eq!(&bytes[4..], "中".repeat(4000).as_bytes());
+            stream.write_all(&[0]).unwrap();
+        });
+        assert_eq!(
+            session.submit(&"a".repeat(4001)),
+            Err(SessionError::Invalid)
+        );
+        assert!(!session.is_used());
+        assert_eq!(session.submit(&"中".repeat(4000)), Ok(()));
+        assert_eq!(
+            session.submit("synthetic-duplicate"),
+            Err(SessionError::Rejected)
+        );
+        server.join().unwrap();
+    }
+
     fn configuration(path: &Path, pid: u32) -> String {
         serde_json::json!({"version":1,"path":path,"host_pid":pid,"target_pid":123,"target_started":42.0}).to_string()
     }

@@ -1,5 +1,6 @@
 #import "DesktopCloudClipboard.h"
 #import "DesktopSettingsLauncher.h"
+#import "DesktopInputSession.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
@@ -83,6 +84,8 @@ struct Reply {
         if (!session || session->_stopped.load()) return;
         int fd = accept(listener, nullptr, nullptr);
         if (fd < 0) return;
+        const int flags = fcntl(fd, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) != 0) { close(fd); return; }
         fcntl(fd, F_SETFD, FD_CLOEXEC);
         timeval timeout{5, 0}; int noSignal = 1;
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -154,14 +157,24 @@ struct Reply {
 @end
 
 void MSIMEOpenDesktopCloudClipboard(NSString *optionsPath, NSWorkspace *workspace, dispatch_block_t fallback) {
+    MSIMEOpenDesktopCloudClipboardWithInput(optionsPath, workspace, nil, fallback);
+}
+
+void MSIMEOpenDesktopCloudClipboardWithInput(NSString *optionsPath, NSWorkspace *workspace,
+    MSIMEDesktopInputSession *inputSession, dispatch_block_t fallback) {
     Class bridge = NSClassFromString(@"MSIMEBackendCloudClipboardProvider");
     if (![bridge respondsToSelector:@selector(prepareWithCompletion:)]) { fallback(); return; }
     [(Class<MSIMEDesktopCloudClipboardPreparing>)bridge prepareWithCompletion:^(id<MSIMEDesktopCloudClipboardProvider> provider) {
         if (!provider) { fallback(); return; }
         MSIMEDesktopCloudClipboardSession *session = [[MSIMEDesktopCloudClipboardSession alloc] initWithProvider:provider];
         if (!session) { fallback(); return; }
-        MSIMEOpenDesktopRouteWithContext(@"cloud-clipboard", optionsPath, session.launchEnvironment, workspace,
-            ^(NSRunningApplication *application) { [session authorizePID:application.processIdentifier stillValid:^BOOL { return !application.terminated; }]; },
+        NSMutableDictionary *environment = [session.launchEnvironment mutableCopy];
+        if (inputSession) [environment addEntriesFromDictionary:inputSession.launchEnvironment];
+        MSIMEOpenDesktopRouteWithContext(@"cloud-clipboard", optionsPath, environment, workspace,
+            ^(NSRunningApplication *application) {
+                [session authorizePID:application.processIdentifier stillValid:^BOOL { return !application.terminated; }];
+                [inputSession authorizePID:application.processIdentifier stillValid:^BOOL { return !application.terminated; }];
+            },
             ^{ [session stop]; fallback(); });
     }];
 }

@@ -1028,7 +1028,12 @@ async fn cloud_clipboard_request(
 }
 
 #[tauri::command]
-fn cloud_clipboard_can_send_text() -> bool {
+fn cloud_clipboard_can_send_text(app: tauri::AppHandle, window: tauri::WebviewWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::can_submit_clipboard(&app, window.label());
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, window);
+    #[cfg(not(target_os = "macos"))]
     cfg!(any(target_os = "linux", target_os = "windows"))
 }
 

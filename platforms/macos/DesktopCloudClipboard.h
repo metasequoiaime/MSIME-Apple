@@ -1,5 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
+@class MSIMEDesktopInputSession;
 
 @protocol MSIMEDesktopCloudClipboardProvider
 - (NSProgress *)request:(NSDictionary *)request completion:(void (^)(NSDictionary *))completion;
@@ -13,3 +14,5 @@
 @end
 
 void MSIMEOpenDesktopCloudClipboard(NSString *optionsPath, NSWorkspace *workspace, dispatch_block_t fallback);
+void MSIMEOpenDesktopCloudClipboardWithInput(NSString *optionsPath, NSWorkspace *workspace,
+    MSIMEDesktopInputSession *inputSession, dispatch_block_t fallback);

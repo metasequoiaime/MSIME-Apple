@@ -3,7 +3,8 @@
 The native IMK menu launches the Tauri cloud clipboard surface while the existing
 Swift account actor remains the sole owner of account credentials and refreshes.
 Signed-out and failed launches retain the native clipboard window fallback.
-This increment provides cloud data operations and local copy, not IMK text input.
+When the menu belongs to an active IMK client, it also captures a one-shot input
+session before launching the panel. Standalone launches retain local copy.
 
 ## Boundaries
 
@@ -44,12 +45,18 @@ and `desktop-cloud-provider-test-build`; run `ctest -R desktop-cloud`.
 
 ## Follow-ups
 
-Cloud clipboard submission still needs a captured IMK client session supporting
-the full multiline text contract. The existing emoji/handwriting candidate
-transport is intentionally unchanged. Standalone Tauri account integration is
-also separate. Builds and synthetic transport tests do not establish installed
+The shared panel queries native input capability; only the launching clipboard
+route with an unused clipboard-type input session may submit. The native helper
+passes both the account and input endpoints to the same authorized child process.
+Submission hides the panel, restores the captured application and waits for the
+exact IMK client to acknowledge insertion. Text is limited to 4000 UTF-16 units,
+including CR/LF/tab; candidate sessions retain their original limits. Lost
+acknowledgements are never retried. See `DesktopInputSession.md` for the contract.
+
+Standalone Tauri account/input-session integration remains separate. Builds and
+synthetic transport tests do not establish installed
 IMK/live-editor integration or live cloud-account behavior.
 
 Reference baseline: MSIME-Windows default branch `develop` at
-`bc5e86fa6d809036c142d209900fdc014614d7b0`; Engine gitlink
+`cb534a97fd19bc9656645a7baa4ee019487279a8`; Engine gitlink
 `f0d212c8a90dac2f70d48a5a149e4f71080b4e7b`.

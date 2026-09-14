@@ -27,15 +27,19 @@ import Foundation
     _ = try await provider.execute(["operation":"delete", "id":String(repeating: "a", count: 64)])
     _ = try await provider.execute(["operation":"set_enabled", "enabled":false])
     assert(api.calls == 4)
+    _ = try await provider.execute(["operation":"add", "text":"👩‍💻"])
+    assert(api.uploaded == "👩‍💻")
+    _ = try await provider.execute(["operation":"list", "search":"👩‍💻"])
     for request: NSDictionary in [
       ["operation":"add", "text":String(repeating: "界", count: 4001)],
       ["operation":"add", "text":"synthetic\0"], ["operation":"list", "search":"bad\n"],
+      ["operation":"add", "text":"synthetic\u{0085}"],
       ["operation":"delete", "id":"bad/id"], ["operation":"set_enabled", "enabled":1],
       ["operation":"token"],
     ] {
       do { _ = try await provider.execute(request); assertionFailure("invalid action accepted") } catch { }
     }
-    assert(api.calls == 4)
+    assert(api.calls == 6)
     var identities = 0
     let changed = BackendCloudClipboardProvider(client: api, credentials: {
       identities += 1

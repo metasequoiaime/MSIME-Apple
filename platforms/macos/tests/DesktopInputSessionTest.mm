@@ -10,13 +10,13 @@
 #include <vector>
 
 static void Check(std::vector<unsigned char> body, uint32_t declared, bool authorized,
-                  bool accept, bool expectedCall, int expectedResponse) {
+                  bool accept, bool expectedCall, int expectedResponse, bool clipboard = false, bool fragmented = false) {
     __block unsigned calls = 0;
     MSIMEDesktopInputSession *session = [[MSIMEDesktopInputSession alloc]
-        initWithTargetPID:getpid() launchTime:42 handler:^(NSString *text, double deadline,
+        initWithTargetPID:getpid() launchTime:42 clipboard:clipboard handler:^(NSString *text, double deadline,
                                                         MSIMEPanelTextCompletion completion) {
             assert(NSThread.isMainThread);
-            assert([text isEqualToString:@"synthetic"]);
+            assert([text isEqualToString:[[NSString alloc] initWithBytes:body.data() length:body.size() encoding:NSUTF8StringEncoding]]);
             assert(deadline > NSProcessInfo.processInfo.systemUptime);
             ++calls;
             completion(accept);
@@ -46,10 +46,13 @@ static void Check(std::vector<unsigned char> body, uint32_t declared, bool autho
             uint32_t length = htonl(declared);
             // An unauthorized peer may be closed before it can write.
             (void)send(fd, &length, sizeof(length), 0);
+            if (fragmented) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             if (!body.empty()) (void)send(fd, body.data(), body.size(), 0);
             shutdown(fd, SHUT_WR);
             unsigned char response = 255;
             ssize_t count = recv(fd, &response, 1, 0);
+            if (expectedResponse >= 0 && (count != 1 || response != expectedResponse))
+                fprintf(stderr, "synthetic frame declared=%u clipboard=%d response=%d count=%zd\n", declared, clipboard, response, count);
             if (expectedResponse < 0) assert(count <= 0);
             else assert(count == 1 && response == expectedResponse);
             close(fd);
@@ -81,5 +84,21 @@ int main() {
         Check({0}, 1, true, true, false, -1);
         Check(text, 8, true, true, false, -1); // Trailing bytes.
         Check(text, 10, true, true, false, -1); // Truncated frame.
+        Check(text, 9, true, true, true, 0, true);
+        Check({}, 12001, true, true, false, 1, true);
+        Check(std::vector<unsigned char>(4001, 'a'), 4001, true, true, false, 1, true);
+        Check({'a','\n','\r','\t'}, 4, true, true, true, 0, true);
+        Check({'a',0x1b}, 2, true, true, false, 1, true);
+        Check({0xff}, 1, true, true, false, -1, true);
+        std::vector<unsigned char> cjk;
+        for (int i = 0; i < 4000; ++i) cjk.insert(cjk.end(), {0xe4, 0xb8, 0xad});
+        Check(cjk, 12000, true, true, true, 0, true);
+        Check(cjk, 12000, true, true, true, 0, true, true);
+        Check(text, 9, true, true, true, 0, false, true);
+        NSData *joinedEmoji = [@"👩‍💻" dataUsingEncoding:NSUTF8StringEncoding];
+        const auto *emojiBytes = static_cast<const unsigned char *>(joinedEmoji.bytes);
+        Check(std::vector<unsigned char>(emojiBytes, emojiBytes + joinedEmoji.length), uint32_t(joinedEmoji.length), true, true, true, 0, true);
+        Check({0xc2, 0x85}, 2, true, true, false, 1, true);
+        Check({}, 12000, true, true, false, 1); // Candidate sessions reject the oversized header.
     }
 }

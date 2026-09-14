@@ -7,6 +7,7 @@ typedef void (^MSIMEPanelTextHandler)(NSString *text, double deadline, MSIMEPane
 // One menu presentation, one confirmed submission. Never persists input.
 @interface MSIMEDesktopInputSession : NSObject
 - (instancetype)initWithTargetPID:(pid_t)pid launchTime:(double)launched handler:(MSIMEPanelTextHandler)handler;
+- (instancetype)initWithTargetPID:(pid_t)pid launchTime:(double)launched clipboard:(BOOL)clipboard handler:(MSIMEPanelTextHandler)handler;
 @property(nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *launchEnvironment;
 - (void)authorizePID:(pid_t)pid stillValid:(BOOL (^)(void))valid;
 - (BOOL)isAuthorizedPeerAlive;

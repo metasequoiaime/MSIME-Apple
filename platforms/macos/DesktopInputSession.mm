@@ -39,10 +39,15 @@ struct Submission {
     pid_t _peer;
     BOOL (^_peerValid)(void);
     std::atomic<bool> _stopped;
+    BOOL _clipboard;
 }
 - (instancetype)initWithTargetPID:(pid_t)pid launchTime:(double)launched handler:(MSIMEPanelTextHandler)handler {
+    return [self initWithTargetPID:pid launchTime:launched clipboard:NO handler:handler];
+}
+- (instancetype)initWithTargetPID:(pid_t)pid launchTime:(double)launched clipboard:(BOOL)clipboard handler:(MSIMEPanelTextHandler)handler {
     if (!(self = [super init])) return nil;
     _stopped.store(false);
+    _clipboard = clipboard;
     if (pid <= 0 || !std::isfinite(launched) || launched <= 0 || !handler) return nil;
     char directory[] = "/tmp/msime-panel-XXXXXX";
     if (!mkdtemp(directory)) return nil;
@@ -61,10 +66,12 @@ struct Submission {
     }
     fcntl(listener, F_SETFD, FD_CLOEXEC);
     _handler = [handler copy];
-    NSData *data = [NSJSONSerialization dataWithJSONObject:@{
+    NSMutableDictionary *configuration = [@{
         @"version":@1, @"path":_path, @"host_pid":@(getpid()),
         @"target_pid":@(pid), @"target_started":@(launched)
-    } options:0 error:nil];
+    } mutableCopy];
+    if (clipboard) configuration[@"clipboard"] = @YES;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:configuration options:0 error:nil];
     _launchEnvironment = @{@"MSIME_CLIENT_PANEL_SESSION":[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]};
     _queue = dispatch_queue_create("app.msime.panel-input", DISPATCH_QUEUE_SERIAL);
     _source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, listener, 0, _queue);
@@ -78,6 +85,10 @@ struct Submission {
         if (!session || session->_stopped.load()) return;
         const int fd = accept(listener, nullptr, nullptr);
         if (fd < 0) return;
+        // Darwin inherits O_NONBLOCK from the listener. Framed reads must wait
+        // for later chunks, bounded by SO_RCVTIMEO, rather than fail on EAGAIN.
+        const int flags = fcntl(fd, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) != 0) { close(fd); return; }
         fcntl(fd, F_SETFD, FD_CLOEXEC);
         timeval timeout{3, 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -111,13 +122,24 @@ struct Submission {
     if (!ReadAll(fd, &length, sizeof(length))) return;
     length = ntohl(length);
     if (!length) { [self stop]; return; }
-    if (length > limit) { const char failure = 1; send(fd, &failure, 1, 0); return; }
+    if (length > (_clipboard ? 12000 : limit)) { const char failure = 1; send(fd, &failure, 1, 0); return; }
     NSMutableData *body = [NSMutableData dataWithLength:length];
     if (!ReadAll(fd, body.mutableBytes, length)) return;
     char extra;
     if (recv(fd, &extra, 1, 0) != 0 || memchr(body.bytes, 0, length)) return;
     NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
     if (!text.length || _stopped.load() || !valid()) return;
+    if (_clipboard) {
+        // Match Unicode Cc, as Rust char::is_control does. Foundation's broader
+        // control set also includes format scalars such as emoji ZWJ.
+        NSMutableCharacterSet *forbidden = [NSMutableCharacterSet new];
+        [forbidden addCharactersInRange:NSMakeRange(0, 32)];
+        [forbidden addCharactersInRange:NSMakeRange(127, 33)];
+        [forbidden removeCharactersInString:@"\n\r\t"];
+        if (text.length > 4000 || [text rangeOfCharacterFromSet:forbidden].location != NSNotFound) {
+            const char failure = 1; send(fd, &failure, 1, 0); return;
+        }
+    }
     auto submission = std::make_shared<Submission>();
     const double deadline = NSProcessInfo.processInfo.systemUptime + 2;
     dispatch_async(dispatch_get_main_queue(), ^{

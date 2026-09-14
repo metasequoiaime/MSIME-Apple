@@ -63,13 +63,13 @@ pub(crate) async fn submit(
     if !owns_input_panel(super::requested_surface_route(), window.label()) {
         return Err(error(SessionError::Unavailable));
     }
-    msime_client_core::panels::validate_candidate(&text)
-        .map_err(|_| error(SessionError::Invalid))?;
     let state = app.state::<PanelState>();
     let session = state
         .session
         .clone()
         .ok_or_else(|| error(SessionError::Unavailable))?;
+    let clipboard = super::requested_surface_route() == Some(SurfaceRoute::CloudClipboard);
+    validate_submission(&session, clipboard, &text).map_err(error)?;
     if session.is_used()
         || state
             .lifecycle
@@ -151,12 +151,75 @@ fn error(error: SessionError) -> HostActionError {
 }
 
 fn owns_input_panel(route: Option<SurfaceRoute>, label: &str) -> bool {
-    startup_panel(route).is_some_and(|panel| panel.label == label)
+    startup_panel(route)
+        .or_else(|| super::macos_cloud_clipboard::startup_panel(route))
+        .is_some_and(|panel| panel.label == label)
+}
+
+fn validate_submission(
+    session: &PanelSession,
+    clipboard: bool,
+    text: &str,
+) -> Result<(), SessionError> {
+    if clipboard != session.accepts_clipboard() {
+        return Err(SessionError::Rejected);
+    }
+    if clipboard {
+        msime_host_macos::panel_session::validate_clipboard_text(text)
+    } else {
+        msime_client_core::panels::validate_candidate(text).map_err(|_| SessionError::Invalid)
+    }
+}
+
+pub(crate) fn can_submit_clipboard(app: &tauri::AppHandle, label: &str) -> bool {
+    let state = app.state::<PanelState>();
+    super::requested_surface_route() == Some(SurfaceRoute::CloudClipboard)
+        && owns_input_panel(super::requested_surface_route(), label)
+        && state.lifecycle.load(Ordering::Acquire) == 0
+        && state
+            .session
+            .as_ref()
+            .is_some_and(|session| session.accepts_clipboard() && !session.is_used())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn clipboard_route_and_session_type_are_both_required_for_multiline_submission() {
+        let make = |clipboard| {
+            PanelSession::parse(&serde_json::json!({"version":1,"path":"/tmp/synthetic.sock","host_pid":1,"target_pid":2,"target_started":42,"clipboard":clipboard}).to_string()).unwrap()
+        };
+        let clipboard = make(true);
+        let candidate = make(false);
+        let text = "中".repeat(3997) + "\n\r\t";
+        assert!(owns_input_panel(
+            Some(SurfaceRoute::CloudClipboard),
+            "cloud-clipboard-panel"
+        ));
+        for label in ["emoji-panel", "handwriting-panel", "main"] {
+            assert!(!owns_input_panel(Some(SurfaceRoute::CloudClipboard), label));
+        }
+        assert!(!owns_input_panel(
+            Some(SurfaceRoute::Emoji),
+            "cloud-clipboard-panel"
+        ));
+        assert_eq!(validate_submission(&clipboard, true, &text), Ok(()));
+        assert_eq!(
+            validate_submission(&candidate, true, &text),
+            Err(SessionError::Rejected)
+        );
+        assert_eq!(
+            validate_submission(&clipboard, false, "synthetic"),
+            Err(SessionError::Rejected)
+        );
+        assert_eq!(
+            validate_submission(&candidate, false, &text),
+            Err(SessionError::Invalid)
+        );
+        assert_eq!(validate_submission(&candidate, false, "合成"), Ok(()));
+    }
+
     #[test]
     fn handwriting_uses_shared_startup_and_cannot_consume_another_panels_session() {
         let route = Some(SurfaceRoute::Handwriting);

@@ -856,6 +856,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
 }
 - (void)showCloudClipboard:(id)sender {
+    NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (_activeClient && application &&
+        application.processIdentifier != NSProcessInfo.processInfo.processIdentifier &&
+        MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) {
+        [self showSharedTextTool:@"cloud-clipboard" options:[self runtimeOptions] bridge:nil];
+        return;
+    }
     MSIMEOpenDesktopCloudClipboard(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{
         if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [self showAccount:sender];
     });
@@ -922,6 +929,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     MSIMEDesktopInputSession *inputSession = [[MSIMEDesktopInputSession alloc]
         initWithTargetPID:application.processIdentifier launchTime:application.launchDate.timeIntervalSince1970
+        clipboard:[route isEqualToString:@"cloud-clipboard"]
         handler:^(NSString *text, double deadline, MSIMEPanelTextCompletion completion) {
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_emojiReturn.generation != token || controller->_desktopEmojiCompletion) {
@@ -939,11 +947,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [inputSession stop];
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_emojiReturn.generation != token) return;
-        if ([route isEqualToString:@"handwriting"])
+        if ([route isEqualToString:@"cloud-clipboard"]) {
+            controller->_emojiReturn.discard(token);
+            if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [controller showAccount:nil];
+        } else if ([route isEqualToString:@"handwriting"])
             [shared performSelector:@selector(showHandwritingWithSelectionAttempt:) withObject:selection];
         else [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:) withObject:options withObject:selection];
     };
     if (!inputSession) { fallback(); return; }
+    if ([route isEqualToString:@"cloud-clipboard"]) {
+        MSIMEOpenDesktopCloudClipboardWithInput(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, inputSession, fallback);
+        return;
+    }
     MSIMEOpenDesktopRouteWithContext(route, MSIMERuntimeOptionsPath(), inputSession.launchEnvironment,
         NSWorkspace.sharedWorkspace, ^(NSRunningApplication *peer) {
             [inputSession authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];

@@ -35,11 +35,11 @@ final class BackendCloudClipboardProvider: NSObject {
       switch value["operation"] as? String {
       case "list":
         let search = value["search"] as? String ?? ""
-        guard search.utf8.count <= 1024, !search.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { throw BackendAccountClient.Failure(status: 400) }
+        guard search.utf8.count <= 1024, !search.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else { throw BackendAccountClient.Failure(status: 400) }
         self = .list(search)
       case "add":
         guard let text = value["text"] as? String, !text.isEmpty, text.utf16.count <= 4000,
-              !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && ![10, 13, 9].contains($0.value) }) else { throw BackendAccountClient.Failure(status: 400) }
+              !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && ![10, 13, 9].contains($0.value) }) else { throw BackendAccountClient.Failure(status: 400) }
         self = .add(text)
       case "delete":
         guard let id = value["id"] as? String, id.utf8.count == 64,
