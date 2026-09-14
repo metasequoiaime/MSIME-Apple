@@ -2086,7 +2086,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                    ? *s.scheme_override == "japanese"
                                    : configured.at("preferences").value("scheme", "") == "japanese";
   const bool english_candidates = s.english_override.value_or(
-      configured.at("preferences").at("mixed_input").value("english", false));
+      configured.at("preferences").at("mixed_input").value("english", true));
   const bool emoji_candidates = s.emoji_override.value_or(
       configured.at("preferences").at("mixed_input").value("emoji", true));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
@@ -2835,7 +2835,7 @@ void sync_global_input_mode(IBusEngine *engine) {
   for (const auto &[name, label, key, fallback] : {
            std::tuple<const char *, const char *, const char *, bool>{
                "EnglishCandidates", "英文候选", "english", true},
-           {"EmojiCandidates", "Emoji候选", "emoji", false},
+           {"EmojiCandidates", "Emoji候选", "emoji", true},
            {"KaomojiCandidates", "颜文字候选", "kaomoji", false}}) {
     const auto &override_value = std::string(key) == "english"
                                      ? s.english_override
@@ -4403,7 +4403,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "EnglishCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.english_override.value_or(
-              configured.at("preferences").at("mixed_input").value("english", false)) == enabled)
+              configured.at("preferences").at("mixed_input").value("english", true)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});

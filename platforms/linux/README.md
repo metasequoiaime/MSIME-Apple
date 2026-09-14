@@ -114,7 +114,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。候选字体族、字号和回退字体仍由桌面 panel 的字体栈控制。
 
-中英混输默认在预编辑达到 5 个字母后显示英文候选，并默认补充 Emoji 候选，与 Windows 基线一致；颜文字混输仍默认关闭。用户仍可在设置中选择 1–8 个字符并分别切换 Emoji/颜文字，显式配置优先于默认值。
+中英混输默认在预编辑达到 5 个字母后显示英文候选，并默认补充 Emoji 候选，与 Windows 基线一致；旧宿主选项缺少英文或 Emoji 混输字段时也保持开启，颜文字混输仍默认关闭。用户仍可在设置中选择 1–8 个字符并分别切换 Emoji/颜文字，显式配置优先于默认值。
 
 新建共享偏好使用 Windows `develop` 的候选外观基线：跟随系统明暗、杨柳青皮肤、每页 6 项、18px 候选文字、15px 候选预编辑，以及 `Noto Sans SC` / `Microsoft YaHei` 字体回退栈。Linux IBus 只应用 panel 协议可表达的主题、皮肤色和页大小；字体继续由桌面 panel 管理，但 Tauri 设置与预览保留完整共享配置。已有偏好文件和显式宿主选项不被默认值覆盖。
 
