@@ -361,6 +361,10 @@ pub struct Preferences {
     pub voice_theme: SettingsTheme,
     #[serde(default)]
     pub emoji_theme: SettingsTheme,
+    /// The tray and candidate context menus. Windows draws its own, so this is
+    /// the one surface override the client was missing.
+    #[serde(default)]
+    pub menu_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -1013,6 +1017,7 @@ impl Default for Preferences {
             handwriting_theme: SettingsTheme::default(),
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
+            menu_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),

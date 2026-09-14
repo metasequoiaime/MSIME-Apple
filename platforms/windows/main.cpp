@@ -446,6 +446,20 @@ int wmain(int argc, wchar_t **argv) {
     // of the candidate card: toolbar_theme is honoured on macOS and in the
     // settings preview but was ignored by the Windows surface, which simply
     // took the card's palette.
+    // The tray and candidate context menus. Windows draws its own menus, so
+    // this override only ever mattered here, and it was the one surface theme
+    // the client did not have.
+    auto menu_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("menu_theme", std::string("follow"));
+      if (theme == "light")
+        return true;
+      if (theme == "dark")
+        return false;
+      const auto global = stored.value("theme", std::string("dark"));
+      return global == "light" ||
+             (global == "system" && !system_prefers_dark());
+    }());
     auto toolbar_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("toolbar_theme", std::string("follow"));
@@ -486,7 +500,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light, toolbar_light, tsf_config, tsf_config_mutex,
+         toolbar_enabled, voice_light, toolbar_light, menu_light, tsf_config,
+         tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -495,6 +510,17 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          {
+            const auto theme =
+                preferences.value("menu_theme", std::string("follow"));
+            const auto global = preferences.value("theme", std::string("dark"));
+            menu_light->store(
+                theme == "light" ||
+                    (theme != "dark" &&
+                     (global == "light" ||
+                      (global == "system" && !system_prefers_dark()))),
+                std::memory_order_release);
+          }
           {
             const auto theme =
                 preferences.value("toolbar_theme", std::string("follow"));
@@ -824,7 +850,9 @@ int wmain(int argc, wchar_t **argv) {
           return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
-    tray.set_palette(resolved_palette);
+    // The menu follows its own theme and the active skin, like the toolbar.
+    bool menu_dark_applied = !menu_light->load(std::memory_order_acquire);
+    tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
     std::atomic<bool> caps_lock{(GetKeyState(VK_CAPITAL) & 1) != 0};
@@ -939,6 +967,11 @@ int wmain(int argc, wchar_t **argv) {
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+      if (const bool dark = !menu_light->load(std::memory_order_acquire);
+          dark != menu_dark_applied) {
+        menu_dark_applied = dark;
+        tray.set_palette(candidate_builtin_palette(config.skin_id, dark));
+      }
       if (const bool dark = !toolbar_light->load(std::memory_order_acquire);
           dark != toolbar_dark_applied) {
         toolbar_dark_applied = dark;
