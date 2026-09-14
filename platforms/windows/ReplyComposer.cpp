@@ -390,12 +390,13 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     return basic;
   // basic_key checked pending/route/style and left unsupported keys untouched.
   const auto current = session.view();
-  if (!session.input_enabled() || current.at("local_mode") == "unknown" ||
-      current.at("editing_text").get<std::string>().empty())
+  if (!session.input_enabled() || current.at("local_mode") == "unknown")
     return std::nullopt;
   if (candidate_punctuation(packet, bindings))
     return dispatch(session, packet, epoch, ReplyPath::Punctuation,
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+  if (current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
   return navigate(session, packet, epoch, bindings);
 }
 } // namespace msime::windows
