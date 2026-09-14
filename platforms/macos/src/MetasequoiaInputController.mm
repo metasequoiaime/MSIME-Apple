@@ -330,15 +330,12 @@ static NSHashTable *LiveDictionaryControllers()
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
-    EnglishDictionary *glossCache = [self translationDictionary];
     for (NSString *word in (hasPrimary ? translations : @{}))
     {
         NSString *translation = translations[word];
+        // 到达只进内存。落盘要等这个词真的被上屏 —— 见 applyResult: 里的 persistCommittedGloss:。
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
-        {
             MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
-            MetasequoiaPersistOnlineGloss(glossCache, language, word, translation);
-        }
     }
     NSDictionary<NSString *, NSString *> *secondaryTranslations = secondaryArriving;
     const NSInteger secondaryIndex = MetasequoiaSecondaryTranslationLanguageIndex();
@@ -1066,6 +1063,9 @@ static NSHashTable *LiveDictionaryControllers()
             [self traditionalChineseOutputActive] && metasequoia::mac::ScriptConversionAppliesToLocalMode(localMode);
         NSString *commit = MetasequoiaChineseOutputString(MetasequoiaStringFromUtf8(*result.commit), traditionalOutput);
         [client insertText:commit replacementRange:replacementRange];
+        // 落盘的唯一时机:用户真的把这个词打出去了。用未经繁简转换的原文做键 —— 缓存和引擎词库都按
+        // 简体索引,转换只影响上屏显示。
+        [self persistCommittedGloss:MetasequoiaStringFromUtf8(*result.commit)];
         _candidateSelection.reset();
         if (_sessionSnapshot.preedit.empty())
         {
@@ -1443,6 +1443,29 @@ static void MetasequoiaPersistOnlineGloss(EnglishDictionary *dictionary, NSStrin
     (void)dictionary->cache_gloss(true, text, gloss.UTF8String);
 }
 
+// 只把用户真正上屏的词写进持久缓存。
+//
+// 整页候选联网取回来是为了**显示**,显示用进程内的 MetasequoiaSharedTranslationCache 就够了。之前
+// 到达即落盘,等于把用户没选的候选也存下来 —— 生产库里因此堆着「但是在」「都坐」「存了起来」这类
+// 组字中途的片段,以及「次 此 大 打 级 集 几」这类没人会专门去查的单字,实测 98% 的条目一次都没被
+// 命中过。上屏是唯一可靠的「用户真的要了这个词」的信号。
+//
+// 内存缓存里没有就什么都不做:说明这个词的释义是离线词库给的(那本来就在 english.db 里),或者压根
+// 没取到。
+- (void)persistCommittedGloss:(NSString *)word
+{
+    if (word.length == 0)
+        return;
+    const auto &languageEntry =
+        metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
+            @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
+    NSString *language = @(languageEntry.code);
+    NSString *gloss = MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]];
+    if (gloss.length == 0)
+        return;
+    MetasequoiaPersistOnlineGloss([self translationDictionary], language, word, gloss);
+}
+
 static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedSecondaryTranslationCache(void)
 {
     static NSMutableDictionary<NSString *, NSString *> *cache;
@@ -1569,9 +1592,8 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
             MetasequoiaInputController *strongSelf = weakSelf;
             if (!strongSelf || error || !text.length || !strongSelf->_session)
                 return;
-            // 同上:词条缓存与代际无关,晚到也照收。
+            // 同上:词条缓存与代际无关,晚到也照收。同样只进内存,落盘等上屏。
             MetasequoiaSharedTranslationCache()[key] = text;
-            MetasequoiaPersistOnlineGloss([strongSelf translationDictionary], language, word, text);
             if (!strongSelf->_sessionSnapshot.preedit.empty())
                 [strongSelf rebuildCandidatePanelPreservingSelection:YES];
           });
