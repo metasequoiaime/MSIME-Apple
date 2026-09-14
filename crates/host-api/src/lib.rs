@@ -3391,7 +3391,12 @@ mod tests {
         };
         assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
         assert_eq!(read(msime_client_view(handle)), before);
-        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.mixed_english));
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let options = &sessions[&handle].options;
+            assert!(options.mixed_english && options.mixed_emoji);
+            assert!(!options.mixed_kaomoji);
+        });
         read(msime_client_command(handle, 3));
         SESSIONS.with(|sessions| {
             let sessions = sessions.borrow();

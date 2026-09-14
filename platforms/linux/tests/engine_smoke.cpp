@@ -1461,6 +1461,7 @@ int main(int argc, char **argv) {
       preferences["learning"] = true;
       preferences["frequency"]["mode"] = "pin";
       preferences["frequency"]["trigger_count"] = 1;
+      preferences["mixed_input"]["emoji"] = false;
       preferences["candidate_text_color"] = "#abcdef";
       auto snapshot = nlohmann::json{{"format_version", 1},
                                      {"revision", revision},
