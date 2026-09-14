@@ -1,7 +1,7 @@
 #import "VoiceInputService.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
-@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; }
+@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return [SFSpeechRecognizer authorizationStatus]; }
@@ -51,10 +51,22 @@
     _recognizer = [[SFSpeechRecognizer alloc] initWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:language ?: @"zh-CN"]];
     _speechRequest = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
     __weak MSIMEVoiceInputService *weakSelf = self;
-    _speechTask = [_recognizer recognitionTaskWithRequest:_speechRequest resultHandler:^(SFSpeechRecognitionResult *result, NSError *recognitionError) { if (result) handler(result.bestTranscription.formattedString, result.isFinal); if (recognitionError || result.isFinal) [weakSelf stopTranscription]; }];
+    const uint64_t generation = _transcriptionGeneration;
+    _speechTask = [_recognizer recognitionTaskWithRequest:_speechRequest resultHandler:^(SFSpeechRecognitionResult *result, NSError *recognitionError) {
+        // Speech can deliver a queued result after cancellation. Serialize with
+        // host lifecycle operations and never let an old task affect its successor.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEVoiceInputService *service = weakSelf;
+            if (!service || service->_transcriptionGeneration != generation) return;
+            if (result) handler(result.bestTranscription.formattedString, result.isFinal);
+            // The handler may itself stop or replace the recognition task.
+            if (service->_transcriptionGeneration == generation && (recognitionError || result.isFinal))
+                [service stopTranscription];
+        });
+    }];
     return _speechTask != nil;
 }
-- (void)stopTranscription { [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; }
+- (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; }
 - (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; _session = session; _active = YES; if (generation) *generation = [result[@"generation"] unsignedLongLongValue]; return YES; }
 - (BOOL)cancelWithError:(NSError **)error { if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion { MSIMEClientSession *session = _session; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ NSError *error = nil; NSDictionary *result = [session applyVoiceText:text generation:generation error:&error]; dispatch_async(dispatch_get_main_queue(), ^{ completion(result, error); }); }); }
