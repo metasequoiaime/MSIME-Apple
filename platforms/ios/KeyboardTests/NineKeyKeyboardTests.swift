@@ -462,19 +462,38 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      for title in ["剪贴板历史", "AI 润色", "语音结果", "全角输入", "按键音", "按键振动", "日期时间", "Unicode 码点"] {
+      for title in ["表情", "剪贴板历史", "AI 润色", "语音结果", "本地输入", "键盘设置"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
         XCTAssertEqual(card.bounds.height, 48)
         XCTAssertEqual(card.configuration?.imagePlacement, .leading)
+        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height)
       }
       let back = try button("closeMorePicker", in: controller)
       XCTAssertEqual(back.configuration?.title, "返回")
       XCTAssertEqual(back.accessibilityLabel, "返回键盘")
       XCTAssertGreaterThanOrEqual(back.bounds.height, 44)
       XCTAssertLessThan(back.frame.midX, panel.bounds.midX)
+
+      try button("moreCard-本地输入", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      for title in ["返回工具", "日期时间", "Unicode 码点"] {
+        let card = try button("moreCard-" + title, in: controller)
+        XCTAssertGreaterThan(card.bounds.width, 140)
+        XCTAssertEqual(card.bounds.height, 48)
+      }
+      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertNotNil(try button("moreCard-键盘设置", in: controller))
+
+      try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
       let feedback = try button("moreCard-按键振动", in: controller)
       XCTAssertLessThanOrEqual(feedback.convert(feedback.bounds, to: panel).maxY, panel.bounds.height)
+      for title in ["返回工具", "按键音", "按键振动", "全角输入", "振动强度"] {
+        let card = try button("moreCard-" + title, in: controller)
+        XCTAssertEqual(card.bounds.height, 48)
+        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height)
+      }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
       })
@@ -485,9 +504,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       try button("moreCard-按键音", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(KeyboardFeedbackPreference.soundEnabled)
       XCTAssertEqual(try button("moreCard-按键音", in: controller).accessibilityValue, "已关闭")
-      try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertNil(panel.superview)
-      more.sendActions(for: .primaryActionTriggered)
+      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
       try button("moreCard-AI 润色", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
@@ -509,6 +526,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     letter.sendActions(for: .primaryActionTriggered)
     let preedit = try button("preeditButton", in: controller).configuration?.title
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
     try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(KeyboardLayoutPreference.fullWidthInputEnabled)
