@@ -2,6 +2,7 @@
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
 #include "CandidateGlossLayout.h"
+#include "InputBehaviorPreferences.h"
 #include "StringConversion.h"
 
 #include <cmath>
@@ -363,12 +364,9 @@ static const CGFloat kCandidateNumberGap = 6.0;
     const CGFloat secondaryLine = ceil(secondaryFont.ascender - secondaryFont.descender + secondaryFont.leading);
     // 释义一律占位,有没有内容都一样高 —— 模型几秒后才回,等结果到了再长高会让面板当场跳一下。竖排的
     // 释义在同一行,所以行高不变,变的是宽度。
-    BOOL glossesAnywhere = NO;
-    for (NSUInteger index = 0; index < _data.count; ++index)
-        if (MetasequoiaCandidateTranslation(_data[index]).length > 0 ||
-            MetasequoiaCandidateSecondaryTranslation(_data[index]).length > 0)
-            glossesAnywhere = YES;
-    const BOOL stacked = !vertical && glossesAnywhere;
+    // 只要开着释义就留位置,不看这一页有没有内容。原来按「有没有释义」决定留不留,结果第一次组字时
+    // 模型还没回来、一条都没有,于是不留 —— 几秒后答案到了面板才长高,正是预留想避免的那一跳。
+    const BOOL stacked = !vertical && MetasequoiaInputFlag(@"candidateTranslation", YES);
     const CGFloat rowHeight = stacked ? wordLine + primaryLine + secondaryLine + 12.0 : wordLine + 12.0;
     for (NSUInteger index = 0; index < _data.count; ++index)
     {

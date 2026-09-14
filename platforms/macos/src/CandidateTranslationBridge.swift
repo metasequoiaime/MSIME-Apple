@@ -29,33 +29,63 @@ enum CandidateTranslationBridge {
                         generation: UInt64) {
     guard !words.isEmpty, !languageName.isEmpty else { return }
     Task {
-      do {
-        let token = try await anyAccessToken()
-        let model = try await resolveModel(token: token)
-        let reply = try await client.chat(
-          messages: prompt(words: words, languageName: languageName,
-                           secondaryLanguageName: secondaryLanguageName),
-          model: model, token: token)
-        let (primary, secondary) = parse(reply: reply, words: words,
-                                         wantsSecondary: !secondaryLanguageName.isEmpty)
-        guard !primary.isEmpty || !secondary.isEmpty else { return }
-        await MainActor.run {
-          NotificationCenter.default.post(name: notification, object: nil,
-                                          userInfo: ["generation": generation, "translations": primary,
-                                                     "secondaryTranslations": secondary])
+      let messages = prompt(words: words, languageName: languageName,
+                            secondaryLanguageName: secondaryLanguageName)
+      // 最多换一次模型。上游坏掉的那个会被记下,这一进程后面不再选它。
+      for attempt in 0..<2 {
+        do {
+          let token = try await anyAccessToken()
+          let model = try await resolveModel(token: token)
+          do {
+            let reply = try await client.chat(messages: messages, model: model, token: token)
+            let (primary, secondary) = parse(reply: reply, words: words,
+                                             wantsSecondary: !secondaryLanguageName.isEmpty)
+            guard !primary.isEmpty || !secondary.isEmpty else { return }
+            await MainActor.run {
+              NotificationCenter.default.post(name: notification, object: nil,
+                                              userInfo: ["generation": generation, "translations": primary,
+                                                         "secondaryTranslations": secondary])
+            }
+            return
+          } catch {
+            // 模型本身答不了才换;取不到 token 是另一回事,交给外层。
+            if attempt == 0 { reject(model) } else { return }
+          }
+        } catch {
+          // Signed out or offline. The strip simply stays as it is; a candidate window is the wrong
+          // place to report a failed request.
+          return
         }
-      } catch {
-        // Signed out, offline, or a model that would not answer in the shape asked for. The strip
-        // simply stays as it is; a candidate window is the wrong place to report a failed request.
       }
     }
   }
 
+  // 按实测选,不跟随目录的 default_model。九个词两种语言,同一段提示词,一次性账号三轮:
+  //   MiniMax-M3         2.7s   prompt×0.15 completion×4
+  //   gpt-5.6-luna      30.4s   prompt×0.1  completion×6   ← 目录的 default_model,推理模型
+  //   deepseek-v4-flash 25.2s   prompt×0.15 completion×4
+  //   glm-5.3-flash / deepseek-v4-pro   上游 502
+  // 释义是输出远多于输入的活,completion 单价说了算,所以最快的那个同时也比默认的便宜。
+  private static let preferredModels = ["MiniMax-M3", "gpt-5.6-luna", "deepseek-v4-flash"]
+
+  // 目录里有不等于能用:glm-5.3-flash 在目录里,请求却一路 502。选中的模型缓存一整个进程,所以
+  // 一次失败必须能换下一个,否则一个上游故障就让释义永久失效。
+  private static var rejected: Set<String> = []
+
   private static func resolveModel(token: String) async throws -> String {
     if let cachedModel { return cachedModel }
     let catalog = try await client.chatModels(token: token)
-    cachedModel = catalog.default_model
-    return catalog.default_model
+    let available = Set(catalog.data.map(\.id))
+    let chosen = preferredModels.first { available.contains($0) && !rejected.contains($0) }
+      ?? catalog.data.map(\.id).first { !rejected.contains($0) }
+      ?? catalog.default_model
+    cachedModel = chosen
+    return chosen
+  }
+
+  private static func reject(_ model: String) {
+    rejected.insert(model)
+    cachedModel = nil
   }
 
   // The model is asked for an object keyed by the words themselves, so a reply that drops or
