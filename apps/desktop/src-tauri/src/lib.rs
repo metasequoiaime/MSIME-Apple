@@ -12,6 +12,8 @@ mod macos_launch;
 mod macos_keyboard;
 #[cfg(target_os = "macos")]
 mod macos_panel_session;
+#[cfg(any(target_os = "macos", test))]
+mod macos_handwriting;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 mod desktop_preferences_monitor;
 
@@ -2438,6 +2440,18 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from))
         .or_else(|| {
+            #[cfg(target_os = "macos")]
+            {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|executable| macos_handwriting::bundled_model(&executable))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                None
+            }
+        })
+        .or_else(|| {
             discover_packaged_file(
                 "msime-client/handwriting/handwriting-zh_CN.model",
                 "handwriting/handwriting-zh_CN.model",
@@ -2824,10 +2838,12 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
 #[tauri::command]
 async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     typing_statistics: tauri::State<'_, TypingStatisticsState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
+    let _ = (&window, &typing_statistics, &state);
     #[cfg(target_os = "linux")]
     {
         msime_client_core::panels::validate_candidate(&candidate)
@@ -2852,7 +2868,9 @@ async fn submit_handwriting_candidate(
             .map_err(|_| HostActionError { code: "invalid_text" })?;
         send_panel_text_windows(&state, &candidate)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit(app, window, candidate).await;
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (app, state, candidate);
         Err(HostActionError {
@@ -3448,7 +3466,7 @@ fn close_panel(
         let _ = cancel_voice(app.clone(), None);
     }
     #[cfg(target_os = "macos")]
-    if label == "emoji-panel" {
+    if matches!(label.as_str(), "emoji-panel" | "handwriting-panel") {
         let window = app.get_webview_window(&label)
             .ok_or(HostActionError { code: "unavailable" })?;
         return macos_panel_session::close(&app, window);

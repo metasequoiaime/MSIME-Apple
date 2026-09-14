@@ -31,6 +31,16 @@ final class BackendWindowBridge: NSObject {
   @objc func showSnapshot(forAccountID accountID: String) { show("snapshot", accountID: accountID, title: "词库快照", size: NSSize(width: 560, height: 460)) { MacCloudSnapshotView(accountID: accountID) } }
   @objc func showSettings(forAccountID accountID: String) { show("settings", accountID: accountID, title: "桌面设置同步", size: NSSize(width: 540, height: 520)) { MacCloudSettingsView(accountID: accountID) } }
   @objc func showHandwriting() { show("handwriting", accountID: "local", title: "水杉手写识别板", size: NSSize(width: 640, height: 460)) { MacHandwritingToolView() } }
+  @objc func showHandwriting(selectionAttempt selection: @escaping (String) -> Bool) {
+    weak var presented: NSWindowController?
+    presented = show("handwriting", accountID: UUID().uuidString, title: "水杉手写识别板", size: NSSize(width: 640, height: 460)) {
+      MacHandwritingToolView(onCandidate: { text in
+        let accepted = selection(text)
+        if accepted { presented?.close() }
+        return accepted
+      })
+    }
+  }
   @objc func showEmoji(withOptions options: NSDictionary, selectionAttempt selection: @escaping (String) -> Bool) {
     weak var presented: NSWindowController?
     // Each presentation binds a new target; never reuse an older selection closure.

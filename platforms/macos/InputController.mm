@@ -864,17 +864,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     (void)sender;
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
-    if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
-    MSIMEOpenDesktopRoute(@"handwriting", NSWorkspace.sharedWorkspace, ^{ [shared performSelector:@selector(showHandwriting)]; });
+    if (![shared respondsToSelector:@selector(showHandwritingWithSelectionAttempt:)]) { [self showAccount:nil]; return; }
+    if (!_activeClient) {
+        MSIMEOpenDesktopRoute(@"handwriting", NSWorkspace.sharedWorkspace, ^{ [shared performSelector:@selector(showHandwriting)]; });
+        return;
+    }
+    [self showSharedTextTool:@"handwriting" options:[self runtimeOptions] bridge:shared];
 }
 - (void)showEmoji:(id)sender {
     (void)sender;
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
+    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
+    [self showSharedTextTool:@"emoji" options:options bridge:shared];
+}
+- (void)showSharedTextTool:(NSString *)route options:(NSDictionary *)options bridge:(id)shared {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
-    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
-        ![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
+    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return;
     if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
     [_desktopInputSession stop];
     _desktopInputSession = nil;
@@ -929,10 +936,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _desktopInputSession = inputSession;
     dispatch_block_t fallback = ^{
         [inputSession stop];
-        [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:) withObject:options withObject:selection];
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_emojiReturn.generation != token) return;
+        if ([route isEqualToString:@"handwriting"])
+            [shared performSelector:@selector(showHandwritingWithSelectionAttempt:) withObject:selection];
+        else [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:) withObject:options withObject:selection];
     };
     if (!inputSession) { fallback(); return; }
-    MSIMEOpenDesktopRouteWithContext(@"emoji", MSIMERuntimeOptionsPath(), inputSession.launchEnvironment,
+    MSIMEOpenDesktopRouteWithContext(route, MSIMERuntimeOptionsPath(), inputSession.launchEnvironment,
         NSWorkspace.sharedWorkspace, ^(NSRunningApplication *peer) {
             [inputSession authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];
         }, fallback);

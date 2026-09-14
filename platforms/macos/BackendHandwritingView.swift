@@ -106,6 +106,7 @@ struct MacHandwritingCanvasView: View {
   @Binding var strokes: [MacInkStroke]
   var onSubmit: ([MacInkStroke]) -> Void
   var candidates: [String] = []
+  var candidateAction = "复制"
   var onCandidate: (String) -> Void = { text in NotificationCenter.default.post(name: .msimeHandwritingCandidateSelected, object: nil, userInfo: ["text": text]) }
   var body: some View {
     VStack(spacing: 8) {
@@ -118,7 +119,7 @@ struct MacHandwritingCanvasView: View {
               Button(candidate) { onCandidate(candidate) }.font(.system(size: 24)).frame(maxWidth: .infinity, minHeight: 52)
             }
           }
-          Text(candidates.isEmpty ? "在左侧书写，松开鼠标后自动识别" : "点击候选结果即可复制")
+          Text(candidates.isEmpty ? "在左侧书写，松开鼠标后自动识别" : "点击候选结果即可\(candidateAction)")
             .font(.footnote).foregroundStyle(.secondary)
         }
       }
@@ -131,6 +132,7 @@ extension Notification.Name { static let msimeHandwritingCandidateSelected = Not
 
 /// Own the window's presentation state separately from the reusable ink canvas.
 struct MacHandwritingToolView: View {
+  var onCandidate: ((String) -> Bool)?
   @State private var strokes: [MacInkStroke] = []
   @State private var candidates: [String] = []
   @State private var socketPath = ""
@@ -141,7 +143,14 @@ struct MacHandwritingToolView: View {
     VStack(alignment: .leading, spacing: 12) {
       Text("水杉手写识别板").font(.headline)
       TextField("provider socket 路径（可选，留空使用 Apple Vision）", text: $socketPath).disabled(busy)
-      MacHandwritingCanvasView(strokes: $strokes, onSubmit: recognize, candidates: candidates)
+      MacHandwritingCanvasView(strokes: $strokes, onSubmit: recognize, candidates: candidates, candidateAction: onCandidate == nil ? "复制" : "输入", onCandidate: { text in
+        if let onCandidate {
+          if !onCandidate(text) { message = "原输入位置已失效，请返回编辑器后重新打开手写板。" }
+        } else {
+          NSPasteboard.general.clearContents()
+          message = NSPasteboard.general.setString(text, forType: .string) ? "已复制" : "复制失败，请重试。"
+        }
+      })
         .disabled(busy)
       if busy { ProgressView("正在识别…") }
       if let message { Text(message).foregroundStyle(.secondary) }

@@ -10,7 +10,7 @@ int main(int argc, const char *argv[]) {
         assert(bridge && [bridge respondsToSelector:NSSelectorFromString(@"shared")]);
         for (NSString *selector in @[@"showDictionaryForAccountID:", @"showClipboardForAccountID:",
                                     @"showSnapshotForAccountID:", @"showSettingsForAccountID:",
-                                    @"showCommunityResourcesForAccountID:", @"showHandwriting",
+                                    @"showCommunityResourcesForAccountID:", @"showHandwriting", @"showHandwritingWithSelectionAttempt:",
                                     @"showEmojiWithOptions:selectionAttempt:", @"applyEmojiPreferences:",
                                     @"showEmojiDeliveryFailure", @"startClipboardCaptureWithOptions:",
                                     @"stopClipboardCapture"]) {

@@ -31,7 +31,9 @@ impl PanelState {
 }
 
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
-    route.filter(|route| *route == SurfaceRoute::Emoji)?.panel()
+    route
+        .filter(|route| matches!(route, SurfaceRoute::Emoji | SurfaceRoute::Handwriting))?
+        .panel()
 }
 
 pub(crate) fn prepare_windows(
@@ -58,7 +60,7 @@ pub(crate) async fn submit(
     window: tauri::WebviewWindow,
     text: String,
 ) -> Result<(), HostActionError> {
-    if window.label() != "emoji-panel" {
+    if !owns_input_panel(super::requested_surface_route(), window.label()) {
         return Err(error(SessionError::Unavailable));
     }
     msime_client_core::panels::validate_candidate(&text)
@@ -112,6 +114,11 @@ pub(crate) fn close(
     app: &tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<(), HostActionError> {
+    if !owns_input_panel(super::requested_surface_route(), window.label()) {
+        return window
+            .destroy()
+            .map_err(|_| error(SessionError::Unavailable));
+    }
     let state = app.state::<PanelState>();
     if state
         .lifecycle
@@ -143,9 +150,33 @@ fn error(error: SessionError) -> HostActionError {
     }
 }
 
+fn owns_input_panel(route: Option<SurfaceRoute>, label: &str) -> bool {
+    startup_panel(route).is_some_and(|panel| panel.label == label)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn handwriting_uses_shared_startup_and_cannot_consume_another_panels_session() {
+        let route = Some(SurfaceRoute::Handwriting);
+        assert_eq!(startup_panel(route).unwrap().label, "handwriting-panel");
+        assert!(owns_input_panel(route, "handwriting-panel"));
+        assert!(!owns_input_panel(route, "emoji-panel"));
+        assert!(!owns_input_panel(
+            Some(SurfaceRoute::Emoji),
+            "handwriting-panel"
+        ));
+        assert!(!owns_input_panel(None, "handwriting-panel"));
+        let mut windows = vec![tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            visible: true,
+            focus: true,
+            ..Default::default()
+        }];
+        prepare_windows(&mut windows, route);
+        assert!(!windows[0].visible && !windows[0].focus);
+    }
     #[test]
     fn emoji_startup_uses_shared_route_and_hides_only_settings() {
         let route = SurfaceRoute::parse("emoji").ok();
