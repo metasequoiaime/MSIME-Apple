@@ -85,7 +85,7 @@ int main() {
         failWrite = YES;
         [muter restore]; assert(muted[100] == 1);
         selected = 200;
-        assert([muter mute:nil] && muted[200] == 0);
+        assert(![muter mute:nil] && muted[200] == 0);
         failWrite = NO;
         [muter restore]; assert(muted[100] == 0 && muted[200] == 0);
         selected = 100;

@@ -525,5 +525,10 @@ target_compile_options(voice-audio-muter-test PRIVATE -fobjc-arc -Wall -Wextra -
 target_link_libraries(voice-audio-muter-test PRIVATE "-framework Foundation" "-framework CoreAudio")
 add_test(NAME voice-audio-muter COMMAND voice-audio-muter-test)
 
+add_executable(voice-mute-recovery-test tests/VoiceMuteRecoveryTest.mm VoiceAudioMuter.mm)
+target_compile_options(voice-mute-recovery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-mute-recovery-test PRIVATE "-framework Foundation" "-framework CoreAudio")
+add_test(NAME voice-mute-recovery COMMAND voice-mute-recovery-test)
+
 target_sources(MSIMEClientInputMethod PRIVATE VoiceAudioMuter.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreAudio")

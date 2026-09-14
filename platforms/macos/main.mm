@@ -4,6 +4,7 @@
 #import "PreferencesWindowController.h"
 #import "RuntimeOptions.h"
 #import "AppearancePreferences.h"
+#import "VoiceAudioMuter.h"
 #include <cstring>
 #include <dlfcn.h>
 
@@ -35,6 +36,9 @@ int main(int argc, const char *argv[]) {
             [NSApp run];
             return 0;
         }
+        // Recover a prior crashed capture before accepting new IMK sessions.
+        // A running owner holds the journal lock, so this cannot undo its mute.
+        [[[MSIMEVoiceAudioMuter alloc] init] restore];
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:@"MSIMEClientPreviewConnection" bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
         __attribute__((objc_precise_lifetime)) MSIMEInputSourceMonitor *sourceMonitor =
