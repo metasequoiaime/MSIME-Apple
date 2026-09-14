@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace msime::linux_host {
@@ -64,6 +65,21 @@ inline CandidateBuiltinPalette candidate_builtin_palette(std::string_view skin,
 inline std::uint32_t candidate_builtin_accent(std::string_view skin,
                                               bool dark) {
   return candidate_builtin_palette(skin, dark).accent;
+}
+
+// IBus auxiliary text has no native caret geometry. When the displayed
+// candidate preedit is the Engine's ASCII editing text, a plain-text marker is
+// the least surprising Linux equivalent of the Windows candidate caret. Do
+// not guess when the host has transformed the displayed text or the offset is
+// invalid.
+inline std::string candidate_preedit_with_caret(std::string_view preedit,
+                                                std::string_view editing,
+                                                std::size_t caret) {
+  std::string result(preedit);
+  if (preedit.empty() || preedit != editing || caret > preedit.size())
+    return result;
+  result.insert(caret, "|");
+  return result;
 }
 
 } // namespace msime::linux_host

@@ -28,14 +28,13 @@ use msime_client_core::typing_statistics::{
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
-use tauri::Emitter;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -156,21 +155,21 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
 struct DictionaryHostOptions {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     path: PathBuf,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     document: Arc<Value>,
 }
 
 impl DictionaryHostOptions {
     fn snapshot(&self) -> Result<Value, CommandError> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
             // Keep the installer-selected path separate from the IBus runtime
             // path; deployments can supply different files for these roles.
             read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
         {
             Ok((*self.document).clone())
         }
@@ -397,9 +396,9 @@ impl RuntimeOptionsState {
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         let mut document = document;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Some(path) = self.path.as_ref() {
             *document = read_runtime_options(path)?;
         }
@@ -407,7 +406,7 @@ impl RuntimeOptionsState {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
     let document: Value = serde_json::from_slice(&fs::read(path)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -512,7 +511,7 @@ async fn save_preferences(
         if !snapshot.preferences.clipboard_history {
             store.clear_disabled_clipboard_history().map_err(CommandError::from)?;
         }
-        sync_linux_runtime_options(&runtime, &snapshot.preferences)
+        sync_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
         Ok(snapshot)
     })
@@ -545,11 +544,11 @@ async fn mutate_custom_skin_library(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-fn sync_linux_runtime_options(
+fn sync_runtime_options(
     runtime: &RuntimeOptionsState,
     preferences: &Preferences,
 ) -> Result<(), std::io::Error> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let Some(path) = runtime.path.as_ref() else {
             return Ok(());
@@ -568,7 +567,7 @@ fn sync_linux_runtime_options(
         atomic_write(path, &bytes)?;
         *document = current;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = (runtime, preferences);
     }
@@ -614,7 +613,7 @@ fn start_desktop_preferences_monitor(
         });
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
@@ -2050,6 +2049,36 @@ async fn recognize_handwriting(
         })?;
         return Ok(result);
     }
+    // Windows ships a recognizer with the language pack, and it is the only one
+    // a stock machine has: the packaged Engine model is optional in the
+    // installer. Try it first, and fall through to the model when Windows has
+    // no Chinese handwriting feature installed.
+    #[cfg(windows)]
+    {
+        let strokes: Vec<msime_host_windows::ink::Stroke> = query
+            .strokes
+            .iter()
+            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+            .collect();
+        let recognized =
+            tauri::async_runtime::spawn_blocking(move || msime_host_windows::ink::recognize(&strokes))
+                .await
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        match recognized {
+            Ok(candidates) if !candidates.is_empty() => {
+                let result = HandwritingRecognitionResult { candidates };
+                result.validate().map_err(|_| HostActionError {
+                    code: "invalid_stroke",
+                })?;
+                return Ok(result);
+            }
+            // Recognized nothing, or Windows has no Chinese recognizer. Either
+            // way the packaged model below is still worth asking.
+            _ => {}
+        }
+    }
     let Some(model) = model else {
         return Err(HostActionError {
             code: "unavailable",
@@ -2489,7 +2518,18 @@ async fn submit_handwriting_candidate(
         )
         .await;
     }
-    #[cfg(not(target_os = "linux"))]
+    // Recognition without a way to commit is half a panel: Windows could
+    // produce candidates and then refuse to insert the one the user picked.
+    #[cfg(target_os = "windows")]
+    {
+        // Windows panels inject through the host rather than the runtime, so
+        // they do not pass through the typing counter, matching send_text.
+        let _ = (&app, &typing_statistics);
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text_windows(&state, &candidate);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, candidate);
         Err(HostActionError {
@@ -3530,43 +3570,46 @@ pub fn run() {
             {
                 let linger = DesktopSettingsLinger::default();
                 app.manage(linger.clone());
-                app.on_window_event(move |window, event| {
-                    if window.label() != "main" {
-                        return;
-                    }
-                    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
-                        return;
-                    };
-                    if linger.quitting.load(Ordering::Acquire) {
-                        return;
-                    }
-                    api.prevent_close();
-                    let generation = linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = window.hide();
-                    let app = window.app_handle().clone();
-                    let linger = linger.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(10 * 60));
-                        let timer_app = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if linger
-                                .generation
-                                .compare_exchange(
-                                    generation,
-                                    generation + 1,
-                                    Ordering::AcqRel,
-                                    Ordering::Acquire,
-                                )
-                                .is_ok()
-                            {
-                                linger.quitting.store(true, Ordering::Release);
-                                if let Some(window) = timer_app.get_webview_window("main") {
-                                    let _ = window.close();
+                // The handler belongs to the window: App has no on_window_event,
+                // and the label check this replaces only ever admitted "main".
+                if let Some(main) = app.get_webview_window("main") {
+                    let window = main.clone();
+                    main.on_window_event(move |event| {
+                        let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                            return;
+                        };
+                        if linger.quitting.load(Ordering::Acquire) {
+                            return;
+                        }
+                        api.prevent_close();
+                        let generation =
+                            linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                        let _ = window.hide();
+                        let app = window.app_handle().clone();
+                        let linger = linger.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(10 * 60));
+                            let timer_app = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if linger
+                                    .generation
+                                    .compare_exchange(
+                                        generation,
+                                        generation + 1,
+                                        Ordering::AcqRel,
+                                        Ordering::Acquire,
+                                    )
+                                    .is_ok()
+                                {
+                                    linger.quitting.store(true, Ordering::Release);
+                                    if let Some(window) = timer_app.get_webview_window("main") {
+                                        let _ = window.close();
+                                    }
                                 }
-                            }
+                            });
                         });
                     });
-                });
+                }
             }
             #[cfg(unix)]
             app.manage(voice_sessions::VoiceSessions::default());
@@ -3590,18 +3633,41 @@ pub fn run() {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
                         .to_string()
                 })?;
-            let host_options = fs::read_to_string(&host_options_path)
-                .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
-            let host_document: Value = serde_json::from_str(&host_options)
-                .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?;
+            let host_document: Value = {
+                #[cfg(target_os = "android")]
+                {
+                    match fs::read_to_string(&host_options_path) {
+                        Ok(host_options) => serde_json::from_str(&host_options)
+                            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            // The Tauri shell owns the first-run guide. Before the
+                            // native bootstrap publishes HostOptions, keep the
+                            // managed states valid while resource-backed commands
+                            // correctly fail closed until preparation completes.
+                            serde_json::json!({
+                                "resources": "",
+                                "state_root": app.path().app_data_dir()?.join("files/bootstrap/state"),
+                            })
+                        }
+                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    let host_options = fs::read_to_string(&host_options_path)
+                        .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
+                    serde_json::from_str(&host_options)
+                        .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?
+                }
+            };
             let runtime_path = std::env::var_os("MSIME_IBUS_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
             app.manage(DictionaryHostOptions {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 path: host_options_path,
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
                 document: Arc::new(host_document.clone()),
             });
             app.manage(RuntimeOptionsState {
@@ -3700,6 +3766,18 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "android")]
+            android_account::android_open_input_method_settings,
+            #[cfg(target_os = "android")]
+            android_account::android_show_input_method_picker,
+            #[cfg(target_os = "android")]
+            android_account::android_bootstrap_status,
+            #[cfg(target_os = "android")]
+            android_account::android_prepare_bootstrap,
+            #[cfg(target_os = "android")]
+            android_account::ai_models,
+            #[cfg(target_os = "android")]
+            android_account::ai_test,
+            #[cfg(target_os = "android")]
             android_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
@@ -3707,6 +3785,10 @@ pub fn run() {
             android_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
+            #[cfg(target_os = "android")]
+            android_account::account_chat_models,
+            #[cfg(target_os = "android")]
+            android_account::account_chat,
             #[cfg(target_os = "android")]
             android_account::account_rename,
             #[cfg(target_os = "android")]
@@ -4046,7 +4128,7 @@ themes = ['light']
         };
         let mut preferences = Preferences::default();
         preferences.candidate_page_size = 9;
-        sync_linux_runtime_options(&state, &preferences).unwrap();
+        sync_runtime_options(&state, &preferences).unwrap();
         let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(updated["preferences"]["candidate_page_size"], 9);
     }

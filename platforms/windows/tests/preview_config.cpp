@@ -91,6 +91,17 @@ int main() {
         {"character_set", false}, {"punctuation", true}, {"fullwidth", false},
         {"emoji", true}, {"screen_keyboard", true}, {"settings", false}};
     document["floating_toolbar_items"] = toolbar_items;
+    document["floating_toolbar_x"] = 120;
+    document["floating_toolbar_y"] = -40;
+    const auto configured_position = PreviewConfig::parse(document.dump());
+    require(configured_position.floating_toolbar_x == 120 &&
+            configured_position.floating_toolbar_y == -40);
+    auto invalid_position = document;
+    invalid_position["floating_toolbar_x"] = 32768;
+    reject(invalid_position);
+    invalid_position = document;
+    invalid_position["floating_toolbar_y"] = -32769;
+    reject(invalid_position);
     const auto configured_items = PreviewConfig::parse(document.dump());
     require(!configured_items.floating_toolbar_items[0] &&
             configured_items.floating_toolbar_items[1] &&

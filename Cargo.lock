@@ -2340,6 +2340,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
@@ -2380,6 +2381,9 @@ dependencies = [
 name = "msime-host-windows"
 version = "0.1.0"
 dependencies = [
+ "windows",
+ "windows-collections",
+ "windows-numerics",
  "windows-sys 0.59.0",
 ]
 

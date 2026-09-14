@@ -386,6 +386,9 @@ pub struct Preferences {
     /// `None` preserves the default-on behavior without rewriting legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wubi_code_hint: Option<bool>,
+    /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
+    #[serde(default)]
+    pub wubi_mixed_pinyin: bool,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
@@ -515,11 +518,13 @@ pub struct VoiceInputPreferences {
     pub commit_mode: String,
     #[serde(default)]
     pub asr_provider: String,
-    /// Doubao console generation: api_key (new console) or legacy (App ID + Access Token).
-    #[serde(default = "default_doubao_auth_mode")]
-    pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_app_key: String,
+    /// Doubao authentication mode (`api_key` or `legacy`). Empty preserves
+    /// compatibility with older files and lets each host infer the mode from
+    /// the stored App ID.
+    #[serde(default)]
+    pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_token: String,
     /// One recognition token per provider id.
@@ -596,8 +601,8 @@ impl Default for VoiceInputPreferences {
             capture_device: String::new(),
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
-            doubao_auth_mode: "api_key".into(),
             asr_app_key: String::new(),
+            doubao_auth_mode: "api_key".into(),
             asr_token: String::new(),
             asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
@@ -990,10 +995,6 @@ fn enabled_by_default() -> bool {
     true
 }
 
-fn default_doubao_auth_mode() -> String {
-    "api_key".into()
-}
-
 fn default_candidate_font_size() -> u8 {
     16
 }
@@ -1047,6 +1048,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,
+            wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
             custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
@@ -1730,23 +1732,20 @@ mod tests {
     }
 
     #[test]
-    fn doubao_auth_mode_defaults_and_round_trips() {
+    fn doubao_auth_mode_defaults_and_roundtrips() {
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
-        assert_eq!(value["voice_input"]["doubao_auth_mode"], "api_key");
         value["voice_input"]
             .as_object_mut()
             .unwrap()
             .remove("doubao_auth_mode");
         let restored: Preferences = serde_json::from_value(value).unwrap();
-        assert_eq!(restored.voice_input.doubao_auth_mode, "api_key");
+        assert_eq!(restored.voice_input.doubao_auth_mode, "");
 
-        let mut preferences = Preferences::default();
-        preferences.voice_input.doubao_auth_mode = "legacy".into();
-        let restored: Preferences = serde_json::from_value(
-            serde_json::to_value(preferences).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(restored.voice_input.doubao_auth_mode, "legacy");
+        let mut explicit = Preferences::default();
+        explicit.voice_input.doubao_auth_mode = "legacy".into();
+        let roundtripped: Preferences =
+            serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
+        assert_eq!(roundtripped.voice_input.doubao_auth_mode, "legacy");
     }
 
     #[test]
@@ -1892,6 +1891,29 @@ mod tests {
             !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
                 .unwrap()
                 .wubi_code_hint_enabled()
+        );
+    }
+
+    #[test]
+    fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
+        let defaults = Preferences::default();
+        assert!(!defaults.wubi_mixed_pinyin);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("wubi_mixed_pinyin");
+        assert!(
+            !serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .wubi_mixed_pinyin
+        );
+
+        let enabled = Preferences {
+            wubi_mixed_pinyin: true,
+            ..defaults
+        };
+        assert!(
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+                .unwrap()
+                .wubi_mixed_pinyin
         );
     }
 

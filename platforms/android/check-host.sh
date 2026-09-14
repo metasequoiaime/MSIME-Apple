@@ -13,12 +13,17 @@ if [[ ! -f "$android_jar" ]]; then
 fi
 output_dir=$(mktemp -d)
 trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$output_dir" -name "*.class" -delete; find "$output_dir" -depth -type d -empty -delete' EXIT
+if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/app/msime/client/MSIMEInputService.java"; then
+  echo "Android input service must not use unmapped command 9" >&2
+  exit 1
+fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root"/platforms/android/java/app/msime/client/*.java \
   "$repo_root/platforms/android/tests/EditorSmoke.java" \
   "$repo_root/platforms/android/tests/EditorContextSnapshotSmoke.java" \
   "$repo_root/platforms/android/tests/PreferencesSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/LetterKeyFacePolicySmoke.java" \
   "$repo_root/platforms/android/tests/ReturnKeyActionSmoke.java" \
   "$repo_root/platforms/android/tests/SpaceCursorMovementSmoke.java" \
   "$repo_root/platforms/android/tests/EnglishCapitalizationPolicySmoke.java" \
@@ -26,6 +31,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/ChineseHelpcodePolicySmoke.java" \
   "$repo_root/platforms/android/tests/MicrosoftShuangpinKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/ChineseOutputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/FullWidthInputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardGeometrySmoke.java" \
   "$repo_root/platforms/android/tests/VoiceResultStoreSmoke.java" \
@@ -40,18 +46,24 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/KeyboardSchemeSmoke.java" \
   "$repo_root/platforms/android/tests/NineKeyLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/JapaneseNineKeyLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/JapaneseNineKeyActionsSmoke.java" \
+  "$repo_root/platforms/android/tests/JapaneseVariantPolicySmoke.java" \
   "$repo_root/platforms/android/tests/HandwritingContractSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateAppearanceSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateGlossModelSmoke.java" \
   "$repo_root/platforms/android/tests/WubiCodeHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/ChineseSymbolFacesSmoke.java" \
+  "$repo_root/platforms/android/tests/ShuangpinKeyHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/CandidatePanelSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateManagementSmoke.java" \
-  "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java"
+  "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/DictionarySnapshotQueueSmoke.java" \
+  "$repo_root/platforms/android/tests/DiagnosticPolicySmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
+java -cp "$output_dir" LetterKeyFacePolicySmoke
 java -cp "$output_dir" ReturnKeyActionSmoke
 java -cp "$output_dir" SpaceCursorMovementSmoke
 java -cp "$output_dir" EnglishCapitalizationPolicySmoke
@@ -59,6 +71,7 @@ java -cp "$output_dir" EnglishLetterCaseStateSmoke
 java -cp "$output_dir" app.msime.client.test.ChineseHelpcodePolicySmoke
 java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
 java -cp "$output_dir" ChineseOutputPolicySmoke
+java -cp "$output_dir" FullWidthInputPolicySmoke
 java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
@@ -73,14 +86,19 @@ java -cp "$output_dir" LocalInputModeSmoke
 java -cp "$output_dir" KeyboardSchemeSmoke
 java -cp "$output_dir" NineKeyLayoutSmoke
 java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
+java -cp "$output_dir" JapaneseNineKeyActionsSmoke
+java -cp "$output_dir" JapaneseVariantPolicySmoke
 java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke
 java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke
+java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
 java -cp "$output_dir" CandidatePanelSmoke
 java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
+java -cp "$output_dir" DictionarySnapshotQueueSmoke
+java -cp "$output_dir" DiagnosticPolicySmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
   --manifest "$repo_root/platforms/android/AndroidManifest.xml" \

@@ -157,7 +157,7 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
-  expect(screen.getByText("当前宿主的 IBus 候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
   expect(screen.getByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeTruthy();
 });
 
