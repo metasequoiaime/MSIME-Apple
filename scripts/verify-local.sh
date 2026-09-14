@@ -44,6 +44,10 @@ done
 # build fails in a way that looks like a code error but is not.
 : "${MSIME_VCPKG_PREFIX:=E:/msime-runner/vcpkg-tool/installed/x64-windows-static-md}"
 : "${MSIME_NATIVE_BUILD:=target/win-full}"
+# The pipe-only configuration builds the protocol tests without the Rust host
+# library. It is a separate CMake configuration, so nothing in the ordinary
+# build covers it - and a configuration nobody runs is one that rots.
+: "${MSIME_PIPE_BUILD:=target/windows-pipe}"
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
 export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
@@ -101,6 +105,20 @@ else
   echo "skipped: $MSIME_NATIVE_BUILD not configured"
 fi
 
+note "compile: pipe-only configuration"
+# Cheap: no Rust library, no vcpkg dependencies, just the protocol tests.
+if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=ON      >/dev/null 2>&1; then
+  if cmake --build "$MSIME_PIPE_BUILD" --config Debug >/dev/null 2>&1; then
+    echo "pipe-only: builds"
+  else
+    fail "pipe-only build"
+    cmake --build "$MSIME_PIPE_BUILD" --config Debug 2>&1 |
+      grep -Ei "error C[0-9]|error LNK" | head -5
+  fi
+else
+  fail "pipe-only configure"
+fi
+
 if [ "$quick" -eq 1 ]; then
   echo
   if [ "$failed" -eq 0 ]; then
@@ -144,6 +162,17 @@ else
   echo "skipped: $MSIME_NATIVE_BUILD not configured"
 fi
 
+note "pipe-only tests"
+if [ -d "$MSIME_PIPE_BUILD" ]; then
+  ctest --test-dir "$MSIME_PIPE_BUILD" -C Debug 2>&1 |
+    grep -E "\*\*\*(Failed|Not Run|Timeout)" |
+    sed 's/.*Test *#[0-9]*: *//' | sed 's/[. ]*\*\*\*.*//' |
+    sed 's#^#pipe #' > "$collected.pipe" || true
+  compare "pipe-only tests" "$collected.pipe"
+else
+  echo "skipped: $MSIME_PIPE_BUILD not configured"
+fi
+
 note "typescript"
 if [ -x apps/desktop/node_modules/.bin/tsc ]; then
   (cd apps/desktop && ./node_modules/.bin/tsc --noEmit -p tsconfig.json) || fail "tsc"
@@ -158,7 +187,7 @@ else
 fi
 
 if [ "$update" -eq 1 ]; then
-  cat "$collected".rust "$collected".native "$collected".ts 2>/dev/null | sort -u > "$baseline"
+  cat "$collected".rust "$collected".native "$collected".pipe "$collected".ts     2>/dev/null | sort -u > "$baseline"
   echo
   echo "baseline rewritten: $(wc -l < "$baseline") known failures"
   exit 0
