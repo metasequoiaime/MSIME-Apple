@@ -356,7 +356,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   const kaomoji = screen.getByRole("checkbox", { name: /^颜文字混输/ }) as HTMLInputElement;
   const threshold = screen.getByLabelText("触发字符数") as HTMLSelectElement;
   expect(english.checked).toBe(true);
-  expect(emoji.checked).toBe(false);
+  expect(emoji.checked).toBe(true);
   expect(kaomoji.checked).toBe(false);
   expect(threshold.value).toBe("5");
   expect(threshold.options.length).toBe(8);
@@ -368,7 +368,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   fireEvent.click(kaomoji);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, mixed_input: { english: false, minimum_prefix: 8, emoji: true, kaomoji: true } });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, mixed_input: { english: false, minimum_prefix: 8, emoji: false, kaomoji: true } });
 });
 
 test("traditional Chinese output toggle persists", async () => {
