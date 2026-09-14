@@ -47,6 +47,11 @@ private func msimeClientCandidateGlossRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
   _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_emoji_catalog_request")
+private func msimeClientEmojiCatalogRequest(
+  _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
+  _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_apply_translations")
 private func msimeClientApplyTranslations(
   _ session: UInt64, _ generation: UInt64,
@@ -206,6 +211,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
           resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
         guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+        return dictionary
+      }
+    }
+  }
+
+  /// Reads one bounded page from the verified packaged Emoji catalog. This has no live-session
+  /// dependency and is safe to invoke from the keyboard's serial catalog worker.
+  static func emojiCatalog(request: Data, resources: String) throws -> [String: Any] {
+    let resourceData = Data(resources.utf8)
+    guard !request.isEmpty, request.count <= 16_384,
+          NSString(string: resources).isAbsolutePath, resourceData.count <= 4096 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return try request.withUnsafeBytes { requestBytes in
+      try resourceData.withUnsafeBytes { resourceBytes in
+        let value = try decode(msimeClientEmojiCatalogRequest(
+          requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
+          resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
+        guard let dictionary = value as? [String: Any] else {
+          throw InputBridgeFailure.invalidResponse
+        }
         return dictionary
       }
     }

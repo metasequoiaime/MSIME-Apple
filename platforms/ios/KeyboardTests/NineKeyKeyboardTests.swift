@@ -447,8 +447,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
-      let skinIndex = try XCTUnwrap(toolbar.arrangedSubviews.firstIndex(of: button("skinShortcut", in: controller)))
-      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("layoutShortcut", in: controller)))
+      XCTAssertEqual(toolbar.arrangedSubviews.compactMap(\.accessibilityIdentifier), [
+        "moreShortcut", "layoutShortcut", "scriptShortcut", "emojiShortcut",
+        "skinShortcut", "schemeButton", "dismissShortcut",
+      ])
       for item in toolbar.arrangedSubviews {
         XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
@@ -719,7 +721,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "emojiShortcut",
+                 "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
@@ -833,11 +836,11 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
-            XCTAssertGreaterThanOrEqual(selector.bounds.width, 50)
+            XCTAssertGreaterThanOrEqual(selector.bounds.width, 44)
             XCTAssertNil(selector.configuration?.title)
             XCTAssertNotNil(selector.configuration?.image)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["layoutShortcut", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["layoutShortcut", "scriptShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }
             if width == 320 {

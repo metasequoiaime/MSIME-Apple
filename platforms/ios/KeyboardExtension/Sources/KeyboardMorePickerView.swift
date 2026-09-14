@@ -77,7 +77,7 @@ final class KeyboardMorePickerView: UIView {
     }
     let actions = menu.children.compactMap { $0 as? UIAction }
     let skin = KeyboardSkinPreference.selected
-    let columns = menu.title.isEmpty ? 1 : (menu.title == "振动强度" ? 3 : 2)
+    let columns = menu.title.isEmpty ? 2 : (menu.title == "振动强度" ? 3 : 2)
     for index in stride(from: 0, to: actions.count, by: columns) {
       let row = UIStackView()
       row.spacing = 8
