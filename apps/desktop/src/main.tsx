@@ -290,9 +290,15 @@ function DesktopSettings() {
             host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon, home: {
-            openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
-          } } : {}),
+          ...(host.platform === "ios" ? { appIcon,
+            openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
+            home: {
+              openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
+            },
+          } : {}),
+          ...(host.platform === "android" ? {
+            openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
+          } : {}),
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),

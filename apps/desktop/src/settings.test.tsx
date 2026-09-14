@@ -722,7 +722,7 @@ test("iOS clipboard history follows keyboard permission instead of the desktop p
   expect(await screen.findByText("synthetic mobile")).toBeDefined();
   expect(screen.queryByRole("checkbox", { name: "剪贴板管理" })).toBeNull();
   expect(screen.queryByRole("button", { name: "从系统剪贴板同步" })).toBeNull();
-  expect(screen.getByText(/允许完全访问/)).toBeDefined();
+  expect(screen.getAllByText(/允许完全访问/).length).toBeGreaterThan(0);
 });
 
 test("dictionary manager queries, edits and removes Engine entries", async () => {
@@ -1478,6 +1478,31 @@ test("Android help and about pages use mobile instructions and project links", a
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+});
+
+test("iOS help opens keyboard settings and feedback builds a visible report", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    openSystemKeyboardSettings, copyText,
+    host: { platform: "ios" } as HostCapabilities,
+  }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText("允许完全访问")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开系统键盘设置" }));
+  await waitFor(() => expect(openSystemKeyboardSettings).toHaveBeenCalledOnce());
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), { target: { value: "候选词不对" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), { target: { value: "synthetic repro" } });
+  fireEvent.click(screen.getByRole("button", { name: "复制报告" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith(expect.stringContaining("候选词不对")));
+  fireEvent.click(screen.getByRole("button", { name: "在 GitHub 提交" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")));
+  expect(new URL(openExternalUrl.mock.calls.at(-1)?.[0] ?? "").searchParams.get("body")).toContain("synthetic repro");
 });
 
 test("macOS support pages use client project and privacy links", async () => {

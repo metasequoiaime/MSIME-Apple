@@ -597,6 +597,8 @@ export interface SettingsClient {
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
+  /** Mobile hosts can open the platform keyboard/input-method settings. */
+  openSystemKeyboardSettings?: () => Promise<void>;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
   openVoice?: () => Promise<void>;
@@ -832,6 +834,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         : iosPlatform
           ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
           : "为现代 Windows 桌面体验打造的开放中文输入法。";
+  const mobilePlatform = iosPlatform || androidPlatform;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -844,6 +847,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
   const [currentAppVersion, setCurrentAppVersion] = useState(fallbackAppVersion);
   const [feedbackCopied, setFeedbackCopied] = useState(false);
+  const [feedbackKind, setFeedbackKind] = useState("功能异常");
+  const [feedbackDetail, setFeedbackDetail] = useState("");
+  const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
   const [phraseBusy, setPhraseBusy] = useState(false);
@@ -871,6 +877,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     signature: string; busy: boolean; ok?: boolean; message: string;
   }>>>({});
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
+  const supportDiagnostics = [
+    `水杉 IME ${currentAppVersion}`,
+    `平台：${host?.platform ?? (androidPlatform ? "android" : iosPlatform ? "ios" : "desktop")}`,
+    typeof navigator === "undefined" ? "" : `User-Agent：${navigator.userAgent.slice(0, 256)}`,
+  ].filter(Boolean).join("\n");
+  const feedbackReport = `### 类型\n${feedbackKind}\n\n### 描述\n${feedbackDetail}\n\n### 环境\n${supportDiagnostics}\n`;
+  const submitFeedback = () => {
+    if (!client.openExternalUrl) return;
+    const body = feedbackReport.slice(0, 4000);
+    const query = new URLSearchParams({ title: feedbackKind, body });
+    void client.openExternalUrl(`${platformIssuesUrl}/new?${query.toString()}`);
+  };
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -1939,7 +1957,11 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
         <div className="section document-page help-document">
           <p>{platformHelpIntro}</p>
-          <div className="document-subsection"><div className="section-title">快速上手</div><p>{platformQuickStart}</p></div>
+          <div className="document-subsection"><div className="section-title">快速上手</div><p>{platformQuickStart}</p>
+            {mobilePlatform && client.openSystemKeyboardSettings && <button type="button" className="secondary" onClick={() => void client.openSystemKeyboardSettings!()}>{iosPlatform ? "打开系统键盘设置" : "打开系统输入法设置"}</button>}
+          </div>
+          {iosPlatform && <div className="document-subsection"><div className="section-title">允许完全访问</div><p>打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。</p></div>}
+          {androidPlatform && <div className="document-subsection"><div className="section-title">输入权限</div><p>Android 的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。</p></div>}
           <div className="document-subsection"><div className="section-title">基本功能</div>
             <p>支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右 2.0、首右 plus 和小鹤。</p>
             <p>{platformNetworkDescription}</p>
@@ -2127,6 +2149,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
         <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
+        {mobilePlatform && <div className="section feedback-report" aria-label="问题报告">
+          <div className="section-title">提交可复现的问题<small>报告只在你点击按钮时生成，不会读取或上传输入历史。</small></div>
+          <label className="section-header"><span className="section-title">类型</span><select aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value)}><option>功能异常</option><option>候选词不对</option><option>功能建议</option><option>其他</option></select></label>
+          <label className="section-title">描述<textarea aria-label="反馈描述" maxLength={4000} value={feedbackDetail} onChange={event => setFeedbackDetail(event.target.value)} placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。" rows={6} /></label>
+          <div className="document-note"><strong>会一起附上的信息</strong><span className="feedback-diagnostics">{supportDiagnostics}</span></div>
+          <div className="service-action-row">
+            {client.copyText && <button type="button" className="secondary" onClick={() => void client.copyText!(feedbackReport).then(() => { setFeedbackReportCopied(true); window.setTimeout(() => setFeedbackReportCopied(false), 1600); })}>{feedbackReportCopied ? "已复制报告" : "复制报告"}</button>}
+            {client.openExternalUrl && <button type="button" className="secondary" onClick={submitFeedback}>在 GitHub 提交</button>}
+          </div>
+          <small>提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。</small>
+        </div>}
         <div className="feedback-list">
           <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><code>{platformIssuesUrl.replace("https://", "")}</code></div><button type="button" className="secondary" onClick={() => void openExternalUrl(platformIssuesUrl)}>查看 Issues</button></div>
           <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><button type="button" className="secondary" onClick={() => { if (!client.copyText) return; void client.copyText("829919142").then(() => { setFeedbackCopied(true); window.setTimeout(() => setFeedbackCopied(false), 1600); }); }}>{feedbackCopied ? "已复制" : "复制群号"}</button></div>
