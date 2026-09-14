@@ -48,7 +48,7 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 mod skin_directory;
 #[cfg(any(target_os = "windows", test))]
 mod voice_output;
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "windows"))]
 mod voice_sessions;
 use msime_host_api::system_fonts;
 
