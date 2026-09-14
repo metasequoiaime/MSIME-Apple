@@ -63,7 +63,11 @@ $clientNativeBin = Join-Path $RepoRoot 'target\windows-full\x64\bin'
 if (-not $ServerReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
     $serverRelease = $clientNativeBin
 }
-$desktopSource = if ([IO.Path]::IsPathRooted($DesktopExecutable)) {
+$stagedDesktop = Join-Path $serverRelease 'msime-client-settings.exe'
+$desktopSource = if (-not $PSBoundParameters.ContainsKey('DesktopExecutable') -and
+    (Test-Path -LiteralPath $stagedDesktop -PathType Leaf)) {
+    $stagedDesktop
+} elseif ([IO.Path]::IsPathRooted($DesktopExecutable)) {
     $DesktopExecutable
 } else {
     Join-Path $RepoRoot $DesktopExecutable
@@ -263,6 +267,14 @@ Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
 # Match ShellSurfaces.h, independent of Cargo/Tauri's build artifact filename.
 Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $targetServer 'msime-client-settings.exe') -Force
+# An explicit shell override must not inherit a PDB from the native shell that
+# was copied with Server output. Only stage symbols beside the chosen source.
+$targetDesktopPdb = Join-Path $targetServer 'msime-client-settings.pdb'
+if (Test-Path -LiteralPath $targetDesktopPdb) { Remove-Item -LiteralPath $targetDesktopPdb -Force }
+$desktopPdbSource = [IO.Path]::ChangeExtension($desktopSource, '.pdb')
+if (Test-Path -LiteralPath $desktopPdbSource -PathType Leaf) {
+    Copy-Item -LiteralPath $desktopPdbSource -Destination $targetDesktopPdb
+}
 # Inno recursively installs server_exe under Program Files. Keep these verified
 # read-only sources separate from legacy app_data and per-user writable state.
 $targetResources = Join-Path $targetServer 'resources'

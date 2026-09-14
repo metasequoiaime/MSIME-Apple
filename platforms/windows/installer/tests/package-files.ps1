@@ -186,12 +186,31 @@ try {
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources')) { throw 'Light package unexpectedly carries dictionaries' }
     Write-Fixture 'custom build/shell.exe' 'synthetic alternate shell'
+    Write-Fixture 'server/build-release/bin/Release/msime-client-settings.exe' 'synthetic native shell'
+    Write-Fixture 'server/build-release/bin/Release/msime-client-settings.pdb' 'synthetic native symbols'
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light
+    if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.exe')) -ne 'synthetic native shell') {
+        throw 'Native output shell did not take precedence over old Cargo output'
+    }
+    Remove-Item -LiteralPath $desktop
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light
+    if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.pdb')) -ne 'synthetic native symbols') {
+        throw 'Native shell symbols were not packaged'
+    }
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable 'target/release/msime-desktop.exe' }
+    catch { $rejected = $_.Exception.Message -match 'Tauri' }
+    if (-not $rejected) { throw 'Missing explicit shell silently fell back to native output' }
+    [IO.File]::WriteAllText($desktop, 'fixture')
     foreach ($shellPath in @('custom build/shell.exe', (Join-Path $fixture 'custom build/shell.exe'))) {
         & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable $shellPath
         if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.exe')) -ne 'synthetic alternate shell') {
             throw 'Explicit Tauri shell path was not packaged'
         }
         if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Shell override replaced dictionary data' }
+        if (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.pdb')) {
+            throw 'Explicit shell inherited unrelated native symbols'
+        }
     }
     foreach ($name in @('handwriting-zh_CN.model', 'HandwritingModel-LICENSE.txt', 'provenance.json')) {
         if (-not (Test-Path (Join-Path $installer "server_exe/handwriting/$name"))) {

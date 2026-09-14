@@ -20,7 +20,12 @@ Native outputs go to `target/windows-full/<arch>/bin`. Rust release artifacts
 remain under the explicit target triple, with debug information enabled;
 native CMake uses RelWithDebInfo. The x64 dictionary replay executable and PDB
 are copied beside Server. Tauri is built for x64 without bundling, typechecked,
-and staged as `msime-client-settings.exe` in the x64 bin directory.
+and staged as `msime-client-settings.exe` in the x64 bin directory. Its PDB is
+required and renamed to `msime-client-settings.pdb`; missing or ambiguous desktop
+symbol outputs fail the build. Packaging prefers this staged shell when no
+`DesktopExecutable` override is supplied, falling back to the old Cargo path
+only when it is absent. An explicit override never silently falls back and never
+inherits the default shell's unrelated symbols.
 
 Every native command exit status is checked immediately. The caller's directory,
 dependency prefix, Cargo target directory and release-debug setting are restored

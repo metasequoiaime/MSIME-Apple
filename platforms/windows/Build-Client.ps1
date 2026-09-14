@@ -73,6 +73,14 @@ try {
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
         (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
         (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.exe'))
+    # Rust/toolchain output can use the normalized crate name for the PDB.
+    # Require one unambiguous symbol file rather than accepting stale symbols.
+    $desktopPdbs = @('msime_desktop.pdb', 'msime-desktop.pdb') |
+        ForEach-Object { Join-Path $env:CARGO_TARGET_DIR "x86_64-pc-windows-msvc/release/$_" } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    if (@($desktopPdbs).Count -ne 1) { throw 'Expected one Tauri desktop PDB output' }
+    Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($desktopPdbs)[0],
+        (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.pdb'))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }

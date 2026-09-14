@@ -8,6 +8,9 @@ $originalTarget = $env:CARGO_TARGET_DIR
 $originalDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
 . (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 try {
+    $desktopSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_desktop.pdb'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $desktopSymbols) | Out-Null
+    [IO.File]::WriteAllText($desktopSymbols, 'synthetic symbols')
     foreach ($arch in @('x86', 'x64')) {
         foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
             Write-PEFixture (Join-Path $fixture "target/windows-full/$arch/bin/$dll") $arch dll
@@ -45,8 +48,11 @@ try {
         & (Join-Path $PSScriptRoot '../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 15) { throw "Unexpected build stage count: $count" }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14)) {
+    if ($count -ne 16) { throw "Unexpected build stage count: $count" }
+    if ($global:ClientBuildCalls[15].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-client-settings.pdb')) {
+        throw 'Desktop PDB did not follow staged executable name'
+    }
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
     foreach ($index in @(7, 8, 9, 10)) {
@@ -70,6 +76,19 @@ try {
     }
     $global:ClientBuildCalls.Clear()
     $global:ClientBuildFailAt = 0
+    Remove-Item -LiteralPath $desktopSymbols
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+    catch { $rejected = $_.Exception.Message -eq 'Expected one Tauri desktop PDB output' }
+    if (-not $rejected) { throw 'Missing desktop symbols accepted' }
+    [IO.File]::WriteAllText($desktopSymbols, 'synthetic symbols')
+    $alternateSymbols = Join-Path (Split-Path -Parent $desktopSymbols) 'msime-desktop.pdb'
+    [IO.File]::WriteAllText($alternateSymbols, 'synthetic alternate symbols')
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+    catch { $rejected = $_.Exception.Message -eq 'Expected one Tauri desktop PDB output' }
+    if (-not $rejected) { throw 'Ambiguous desktop symbols accepted' }
+    Remove-Item -LiteralPath $alternateSymbols
     Write-PEFixture (Join-Path $fixture 'target/windows-full/x86/bin/msime_host_api.dll') x64 dll
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
