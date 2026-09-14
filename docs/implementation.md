@@ -18,7 +18,7 @@
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-后续实施优先级由用户最新明确为 **macOS → iOS**；Windows、Android/Linux 暂停新增实施，已合并的功能保留。macOS 先完成 Apple 端功能，再推进 iOS；Windows 继续保留 TSF DLL / Server 的既有进程和协议边界，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
+下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
