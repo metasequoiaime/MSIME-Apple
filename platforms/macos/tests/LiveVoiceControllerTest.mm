@@ -417,6 +417,48 @@ int main(int argc, char **) {
         capture.needsMicrophonePermission = NO;
         microphonePermission(YES);
         assert(!capture.active && [[controller valueForKey:@"voiceGeneration"] isEqual:originalGeneration]);
+        // Exercise the exact block registered with AppKit without installing a
+        // real global monitor or requesting accessibility/microphone access.
+        voiceArguments[@"MSIMEClientVoiceASRProvider"] = @"system";
+        voiceArguments[@"MSIMEClientVoiceHotkeyCtrlF9"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        void (^globalHotkey)(NSEvent *) = [controller globalVoiceHotkeyHandler];
+        NSEvent *ctrlF9 = key(101, NSEventModifierFlagControl, NSEventTypeKeyDown);
+        assert(NSThread.isMainThread);
+        globalHotkey(ctrlF9);
+        assert(capture.active); // Must start before a later focus transition.
+        globalHotkey(ctrlF9);
+        assert([[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        capture.transcript(@"synthetic global final", YES);
+        assert(!capture.active);
+        // Invalid chords and autorepeat must not toggle recording.
+        globalHotkey(key(100, NSEventModifierFlagControl, NSEventTypeKeyDown));
+        globalHotkey(key(101, 0, NSEventTypeKeyDown));
+        for (NSNumber *extra in @[@(NSEventModifierFlagShift), @(NSEventModifierFlagOption), @(NSEventModifierFlagCommand)])
+            globalHotkey(key(101, NSEventModifierFlagControl | extra.unsignedLongLongValue, NSEventTypeKeyDown));
+        globalHotkey([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagControl timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:YES keyCode:101]);
+        assert(!capture.active);
+        for (NSString *setting in @[@"MSIMEClientVoiceEnabled", @"MSIMEClientVoiceHotkeyCtrlF9"]) {
+            voiceArguments[setting] = @NO;
+            [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+            globalHotkey(ctrlF9); assert(!capture.active);
+            voiceArguments[setting] = @YES;
+        }
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller setValue:nil forKey:@"activeClient"];
+        globalHotkey(ctrlF9); assert(!capture.active);
+        [controller setValue:client forKey:@"activeClient"];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+        assert(!capture.active); // No queued gesture leaks into restored focus.
+        globalHotkey(ctrlF9); assert(capture.active);
+        [controller cancelLiveVoiceInput];
+        LiveTextFixture *nextClient = [LiveTextFixture new];
+        [controller setValue:nextClient forKey:@"activeClient"];
+        [controller toggleVoiceInput:nil]; assert(capture.active);
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        [controller cancelLiveVoiceInput];
+        [controller setValue:client forKey:@"activeClient"];
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
