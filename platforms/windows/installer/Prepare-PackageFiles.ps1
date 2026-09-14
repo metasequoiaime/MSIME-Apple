@@ -3,7 +3,7 @@ param(
     [string]$TargetVersion = '0.0.1',
     # This script lives in platforms/windows/installer; resolve the repository
     # root rather than treating platforms/windows as the repository.
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
     # Component paths are relative to RepoRoot and default to the consolidated layout.
     # Historical or custom layouts remain available through explicit overrides.
     [string]$TsfDirectory = 'windows',
