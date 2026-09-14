@@ -383,6 +383,10 @@ static void TestIndependentAssistancePreferences() {
     [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
+    assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:
+        (@{@"schema": @"ziranma", @"show_in_candidate_window": @NO})]);
+    assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:
+        (@{@"schema": @"lantian", @"show_in_candidate_window": @YES})]);
     ModeController *controller = [ModeController alloc];
     [controller setValue:prefs forKey:@"appearance"];
     NSButton *quanpin = (id)PreferenceControl(prefs, @selector(quanpinHelpcodeChanged:));

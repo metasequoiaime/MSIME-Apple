@@ -10,7 +10,7 @@ SwiftUI 设置同步现覆盖 22 个当前宿主偏好：候选皮肤、布局�
 
 原生菜单提供“简体输出”（默认）与“繁体输出”，保存到新宿主的 `MSIMEClientTraditionalOutput` 偏好。按固定 Apple 来源使用 `CFStringTransform` 的 `Simplified-Traditional` 转换候选显示、完整 tooltip 和最终上屏文本；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
 
-候选辅助码后缀按固定 Apple `CandidateDisplay.h` 接入。桥接层复用 Engine 的 `HelpcodeUtils`，按当前会话自身资源目录与辅助码方案加载不可变映射；仅启用辅助码的全拼/双拼普通模式和超级简拼附加后缀，Unicode、日期、快捷短语等合成模式及五笔/日语不附加。共享 JSON 候选新增 `annotation` 字符串，原 `text` 和候选 ID 不变；macOS 测量、按钮和 tooltip 使用原文加后缀，再执行繁体展示转换，上屏仍只提交 Engine 原文。映射缺失时后缀为空，不读取其他会话的全局映射。共享偏好现有延迟应用机制确保组合期间不切换映射；旧宿主无 annotation 字段仍显示原文。
+候选辅助码后缀按固定 Apple `CandidateDisplay.h` 接入。桥接层复用 Engine 的 `HelpcodeUtils`，按当前会话自身资源目录与辅助码方案加载不可变映射；仅启用辅助码的全拼/双拼普通模式和超级简拼附加后缀，Unicode、日期、快捷短语等合成模式及五笔/日语不附加。未提供共享或本地覆盖时按 Windows 基线使用全拼自然码且隐藏、双拼蓝天且显示。共享 JSON 候选新增 `annotation` 字符串，原 `text` 和候选 ID 不变；macOS 测量、按钮和 tooltip 使用原文加后缀，再执行繁体展示转换，上屏仍只提交 Engine 原文。映射缺失时后缀为空，不读取其他会话的全局映射。共享偏好现有延迟应用机制确保组合期间不切换映射；旧宿主无 annotation 字段仍显示原文。
 
 双拼键位提示面板迁自固定 Apple `ShuangpinKeymapPanel.h/.mm`，候选设置中提供开关，默认关闭，保存在新宿主 `MSIMEClientShuangpinKeymap`。开启后仅在有效会话、双拼组词和有效光标时显示；上屏/取消、失活、英文模式或关闭设置时隐藏。保留 620×203 点布局、四套 Engine 权威键位、微软分号键、零声母说明、末尾字母/分号高亮、明暗配色与可访问文本。面板不接受鼠标事件，以非激活浮动窗口显示；位置按上游规则为候选保留间距，避让屏幕边缘。
 

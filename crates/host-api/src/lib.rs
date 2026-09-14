@@ -3814,6 +3814,31 @@ mod tests {
     }
 
     #[test]
+    fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(session.options.helpcode);
+            assert_eq!(session.options.helpcode_schema, "ziranma");
+            assert!(!session.options.show_helpcode);
+        });
+
+        let shuangpin = Preferences {
+            scheme: InputScheme::Shuangpin,
+            ..chinese_preferences()
+        };
+        assert_eq!(update(handle, 1, &shuangpin)["value"]["deferred"], false);
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(session.options.helpcode);
+            assert_eq!(session.options.helpcode_schema, "lantian");
+            assert!(session.options.show_helpcode);
+        });
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn helpcode_settings_switch_independently_after_composition() {
         use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
         let dir = tempfile::tempdir().unwrap();

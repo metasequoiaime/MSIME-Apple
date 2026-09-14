@@ -2,6 +2,7 @@
 #include "KeyRouterAdapter.h"
 #include "ClipboardText.h"
 #include "ChineseTextConversion.h"
+#include "HelpcodeDefaults.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
 #include "WordCharacterBinding.h"
@@ -460,7 +461,8 @@ struct State {
       if (helpcode_schema_override) preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
       show_helpcode_in_candidate_window = preferences.value(
           active_scheme + "_helpcode", Json::object())
-          .value("show_in_candidate_window", true);
+          .value("show_in_candidate_window",
+                 msime::linux_host::default_show_helpcode(active_scheme));
     } else {
       show_helpcode_in_candidate_window = true;
     }
@@ -680,7 +682,8 @@ struct State {
     if (active_scheme == "quanpin" || active_scheme == "shuangpin")
       show_helpcode_in_candidate_window = preferences.value(
           active_scheme + "_helpcode", Json::object())
-          .value("show_in_candidate_window", true);
+          .value("show_in_candidate_window",
+                 msime::linux_host::default_show_helpcode(active_scheme));
     else
       show_helpcode_in_candidate_window = true;
     learning = learning_override.value_or(preferences.value("learning", true));
@@ -2284,7 +2287,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto helpcode_schema_menu = ibus_prop_list_new();
   const auto schema = s.helpcode_schema_override.value_or(
       configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
-          .value("schema", "ziranma"));
+          .value("schema", std::string(msime::linux_host::default_helpcode_schema(
+                               active_scheme))));
   for (const auto &[value, label] : {std::pair{"lantian", "蓝天"},
                                      std::pair{"ziranma", "自然码"},
                                      std::pair{"shouyou2_0", "搜狗 2.0"},
@@ -3950,7 +3954,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       if (s.helpcode_schema_override.value_or(
               configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
-                  .value("schema", "ziranma")) == selected)
+                  .value("schema", std::string(msime::linux_host::default_helpcode_schema(
+                                       active_scheme)))) == selected)
         return;
       if (menu_save_pending || value != PROP_STATE_CHECKED) return;
       const auto directory = configured.value("preferences_directory", std::string{});

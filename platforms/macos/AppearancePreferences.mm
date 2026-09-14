@@ -675,7 +675,9 @@ static BOOL ValidToolbarFontSize(id value) {
     [self refreshControls];
 }
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme {
-    NSMutableDictionary *values = [@{@"schema": @"ziranma", @"show_in_candidate_window": @YES} mutableCopy];
+    BOOL shuangpin = [scheme isEqualToString:@"shuangpin"];
+    NSMutableDictionary *values = [@{@"schema": shuangpin ? @"lantian" : @"ziranma",
+        @"show_in_candidate_window": @(shuangpin)} mutableCopy];
     id stored = [_defaults dictionaryForKey:HelpcodeOptionsKey][scheme];
     if ([stored isKindOfClass:NSDictionary.class])
         for (NSString *key in values.allKeys) if (ValidHelpcodeOption(key, stored[key])) values[key] = stored[key];

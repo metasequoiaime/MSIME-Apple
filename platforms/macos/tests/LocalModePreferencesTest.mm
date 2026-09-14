@@ -92,7 +92,7 @@ int main() {
         assert(buttons[@"unicode"].state == NSControlStateValueOff);
         assert([[prefs sharedPreferencesByMerging:base][@"local_modes"][@"unicode"] isEqual:@NO]);
         [prefs setLocalMode:@"unicode" enabled:YES];
-        NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+        NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
         for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
             NSString *path = [root stringByAppendingPathComponent:name];
             assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);

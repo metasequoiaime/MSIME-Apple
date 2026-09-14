@@ -1,9 +1,15 @@
+#include "HelpcodeDefaults.h"
 #include "NavigationBindings.h"
 #include "WordCharacterBinding.h"
 
 #include <cassert>
 
 int main() {
+  assert(msime::linux_host::default_helpcode_schema("quanpin") == "ziranma");
+  assert(!msime::linux_host::default_show_helpcode("quanpin"));
+  assert(msime::linux_host::default_helpcode_schema("shuangpin") == "lantian");
+  assert(msime::linux_host::default_show_helpcode("shuangpin"));
+
   auto word_character =
       msime::linux_host::WordCharacterBinding::read(nlohmann::json::object());
   assert(word_character.enabled);

@@ -601,16 +601,20 @@ test("helpcode schemes save independently and retain disabled selections", async
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   const quanpin = await screen.findByRole("combobox", { name: "全拼辅助码方案" }) as HTMLSelectElement;
-  expect(quanpin.textContent).toContain("自然码");
+  const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码方案" }) as HTMLSelectElement;
+  const displays = screen.getAllByRole("checkbox", { name: "在候选窗口显示辅助码" }) as HTMLInputElement[];
+  expect(quanpin.value).toBe("ziranma");
+  expect(shuangpin.value).toBe("lantian");
+  expect(displays.map(display => display.checked)).toEqual([true, false]);
   fireEvent.change(quanpin, { target: { value: "xiaohe" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
   expect(quanpin.textContent).toContain("小鹤");
-  fireEvent.change(screen.getByRole("combobox", { name: "双拼辅助码方案" }), { target: { value: "shouyou2_0" } });
+  fireEvent.change(shuangpin, { target: { value: "shouyou2_0" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
-    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: true },
+    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
     shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true } });
 });
 
@@ -1811,7 +1815,7 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(screen.getByRole("combobox", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: true } });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false } });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
 

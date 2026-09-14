@@ -63,7 +63,7 @@ static void TestTencentTranslationHTTPBridge() {
 
 static void TestEngineMaintenance() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"default_ime_mode":@"chinese", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -205,7 +205,7 @@ static void TestEngineEdges(FakeTextClient *client) {
         for (uint8_t edge = 0; edge < 2; ++edge) {
             NSError *error = nil;
             NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
             for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
                 NSString *path = [root stringByAppendingPathComponent:name];
                 assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -240,7 +240,7 @@ static void TestEngineEdges(FakeTextClient *client) {
 
 static void TestEnginePreedit(FakeTextClient *client) {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"shuangpin", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @YES, @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"shuangpin", @"default_ime_mode": @"chinese", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @YES, @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -266,6 +266,7 @@ static void TestEnginePreedit(FakeTextClient *client) {
     for (NSNumber *raw in @[@YES, @NO, @YES]) {
         NSMutableDictionary *preferences = [shared[@"preferences"] mutableCopy];
         preferences[@"scheme"] = @"shuangpin";
+        preferences[@"default_ime_mode"] = @"chinese";
         preferences[@"shuangpin_profile"] = @"microsoft";
         preferences[@"shuangpin_preedit_uses_raw"] = raw;
         NSDictionary *snapshot = @{@"format_version": @1, @"revision": @(++revision), @"preferences": preferences};

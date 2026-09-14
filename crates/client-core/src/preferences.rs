@@ -464,9 +464,9 @@ pub struct Preferences {
     pub quanpin: QuanpinPreferences,
     #[serde(default)]
     pub fuzzy_pinyin: FuzzyPinyinPreferences,
-    #[serde(default)]
+    #[serde(default = "default_quanpin_helpcode")]
     pub quanpin_helpcode: HelpcodePreferences,
-    #[serde(default)]
+    #[serde(default = "default_shuangpin_helpcode")]
     pub shuangpin_helpcode: HelpcodePreferences,
     /// Render and commit Chinese Engine output in Traditional Chinese at the host boundary.
     #[serde(default)]
@@ -1103,8 +1103,8 @@ impl Default for Preferences {
             autocorrect: true,
             quanpin: QuanpinPreferences::default(),
             fuzzy_pinyin: FuzzyPinyinPreferences::default(),
-            quanpin_helpcode: HelpcodePreferences::default(),
-            shuangpin_helpcode: HelpcodePreferences::default(),
+            quanpin_helpcode: default_quanpin_helpcode(),
+            shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
             chinese_punctuation: true,
             smart_punctuation: true,
@@ -1265,6 +1265,22 @@ impl Default for HelpcodePreferences {
             schema: HelpcodeSchema::default(),
             show_in_candidate_window: true,
         }
+    }
+}
+
+fn default_quanpin_helpcode() -> HelpcodePreferences {
+    HelpcodePreferences {
+        enabled: true,
+        schema: HelpcodeSchema::Ziranma,
+        show_in_candidate_window: false,
+    }
+}
+
+fn default_shuangpin_helpcode() -> HelpcodePreferences {
+    HelpcodePreferences {
+        enabled: true,
+        schema: HelpcodeSchema::Lantian,
+        show_in_candidate_window: true,
     }
 }
 
@@ -2192,7 +2208,16 @@ mod tests {
         }
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded, PreferencesSnapshot::default());
+        assert_eq!(
+            loaded.preferences.quanpin_helpcode,
+            default_quanpin_helpcode()
+        );
+        assert_eq!(
+            loaded.preferences.shuangpin_helpcode,
+            default_shuangpin_helpcode()
+        );
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         let preferences = Preferences {
             theme: ThemeMode::Light,
@@ -2845,7 +2870,7 @@ mod tests {
             assert_eq!(store.load().unwrap(), saved);
             assert_eq!(
                 saved.preferences.shuangpin_helpcode,
-                HelpcodePreferences::default()
+                default_shuangpin_helpcode()
             );
         }
         let unknown = fs::read_to_string(store.path())
