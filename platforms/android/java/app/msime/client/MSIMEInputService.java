@@ -206,7 +206,11 @@ public final class MSIMEInputService extends InputMethodService {
     private Integer japaneseConversionIndex;
     private String japaneseConversionEditingText = "";
     private TextView status;
+    private TextView diagnosticView;
     private String message = "MSIME Preview";
+    private String diagnosticMessage = "";
+    private long diagnosticGeneration;
+    private Runnable diagnosticDismissTask;
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
     private boolean fullWidthInput;
@@ -550,6 +554,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void stop(boolean finish) {
         cancelBackspaceRepeat();
+        clearDiagnostic();
         deactivateHandwriting();
         invalidateCandidateGlosses();
         preferencesReloader.stop();
@@ -945,6 +950,8 @@ public final class MSIMEInputService extends InputMethodService {
             throw new JSONException("Editor rejected update");
         }
         view = next;
+        showDiagnostic(result.isNull("diagnostic") ? null
+            : result.optString("diagnostic", ""));
         if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         render();
@@ -1018,6 +1025,33 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | RuntimeException | LinkageError error) {
             // Candidate glosses are optional display state; keep the current Engine view.
         }
+    }
+
+    private void showDiagnostic(String value) {
+        diagnosticGeneration++;
+        if (diagnosticDismissTask != null) {
+            main.removeCallbacks(diagnosticDismissTask);
+            diagnosticDismissTask = null;
+        }
+        diagnosticMessage = InputDiagnosticPolicy.normalize(value);
+        if (diagnosticMessage.isEmpty()) return;
+        long generation = diagnosticGeneration;
+        diagnosticDismissTask = () -> {
+            if (generation != diagnosticGeneration) return;
+            diagnosticMessage = "";
+            diagnosticDismissTask = null;
+            render();
+        };
+        main.postDelayed(diagnosticDismissTask, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    private void clearDiagnostic() {
+        diagnosticGeneration++;
+        if (diagnosticDismissTask != null) {
+            main.removeCallbacks(diagnosticDismissTask);
+            diagnosticDismissTask = null;
+        }
+        diagnosticMessage = "";
     }
 
     private void fail() { stop(false); message = "输入连接失败：仅直接输入"; render(); }
@@ -4968,6 +5002,12 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHeader.addView(exitLocalModeButton, new LinearLayout.LayoutParams(
             pixels(40), LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
+        diagnosticView = new TextView(this);
+        diagnosticView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        diagnosticView.setContentDescription("输入提示");
+        diagnosticView.setVisibility(View.GONE);
+        candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
         nineKeySpellings = new LinearLayout(this);
@@ -5363,8 +5403,15 @@ public final class MSIMEInputService extends InputMethodService {
             exitLocalModeButton.setContentDescription("退出本地模式");
             styleButton(exitLocalModeButton, true);
         }
+        boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
+        if (diagnosticView != null) {
+            diagnosticView.setText(diagnosticMessage);
+            diagnosticView.setContentDescription("提示：" + diagnosticMessage);
+            diagnosticView.setTextColor(Color.parseColor(skin.accent()));
+            diagnosticView.setVisibility(hasDiagnostic ? View.VISIBLE : View.GONE);
+        }
         if (shortcutScroll != null)
-            shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
+            shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
             scriptShortcutButton.setVisibility(View.GONE);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
@@ -5469,20 +5516,26 @@ public final class MSIMEInputService extends InputMethodService {
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         renderNineKeySpellings();
+        if (hasDiagnostic && nineKeySpellingScroll != null)
+            nineKeySpellingScroll.setVisibility(View.GONE);
         scheduleCandidateGlosses();
         if (candidates == null) {
             applySkin();
             return;
         }
         if (horizontalCandidateScroll != null)
-            horizontalCandidateScroll.setVisibility(candidateHorizontal ? View.VISIBLE : View.GONE);
+            horizontalCandidateScroll.setVisibility(
+                candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (verticalCandidateScroll != null)
-            verticalCandidateScroll.setVisibility(candidateHorizontal ? View.GONE : View.VISIBLE);
+            verticalCandidateScroll.setVisibility(
+                !candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
+        if (candidatePaging != null)
+            candidatePaging.setVisibility(hasDiagnostic ? View.GONE : View.VISIBLE);
         if (view == null) {
             closeCandidatePanel();
             applySkin();
@@ -5505,7 +5558,7 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (view.optInt("page_count", 0) > 1 && expandCandidates != null)
+            if (!hasDiagnostic && view.optInt("page_count", 0) > 1 && expandCandidates != null)
                 expandCandidates.setVisibility(View.VISIBLE);
         }
         int visibleSlots = entries == null ? 0 : entries.length();
@@ -5517,6 +5570,7 @@ public final class MSIMEInputService extends InputMethodService {
             button(candidatePaging, "上一页", () -> command(101));
             button(candidatePaging, "下一页", () -> command(100));
         }
+        if (hasDiagnostic) closeCandidatePanel();
         renderExpandedCandidates();
         if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
             renderMoreTools();
