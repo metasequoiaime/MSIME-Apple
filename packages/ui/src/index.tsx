@@ -299,14 +299,14 @@ export type AiAssistantClient = {
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
-  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa";
+  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows";
   capture_device?: string;
   asr_provider?: string;
-  doubao_auth_mode?: "api_key" | "legacy";
   asr_endpoint?: string;
   asr_token?: string;
   asr_tokens?: Record<string, string>;
   asr_app_key?: string;
+  doubao_auth_mode?: "api_key" | "legacy";
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
   hotkey_ctrl_win?: boolean;
@@ -1863,7 +1863,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
-          <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option></select></label>
+          <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">沿用服务设置</option><option value="auto">自动选择</option><option value="pulse">PulseAudio</option><option value="pipewire">PipeWire</option><option value="alsa">ALSA</option><option value="windows">Windows Audio</option></select></label>
           {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
           <label className="section-header"><span className="section-title">麦克风设备<small>填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。</small></span><input aria-label="麦克风设备" maxLength={128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
         </div>}

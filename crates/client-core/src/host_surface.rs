@@ -168,7 +168,10 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows
             ),
-            voice_capture_devices: matches!(platform, HostPlatform::Linux | HostPlatform::Windows),
+            voice_capture_devices: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+            ),
             // Native Windows/macOS candidate windows consume the shared font
             // controls; IBus lookup tables and mobile hosts do not expose them.
             candidate_font_controls: matches!(
@@ -611,6 +614,7 @@ mod tests {
         // Typing statistics were previously gated on a user-agent match.
         assert!(android.typing_statistics);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).typing_statistics);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).voice_capture_devices);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).typing_statistics);
         assert!(linux.fuzzy_pinyin);
         assert!(android.fuzzy_pinyin);
