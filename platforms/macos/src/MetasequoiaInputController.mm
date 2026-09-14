@@ -681,6 +681,12 @@ static NSHashTable *LiveDictionaryControllers()
 
     [self reloadSessionFromPreferences];
     const NSEventModifierFlags modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    // ⌥数字 上屏那一格的第一条释义,⌃数字 上屏第二条。数字键本身仍然选候选词 —— 它是最贵的按键,
+    // 不能拿去买「偶尔想上屏一次译文」这个动作。没有释义就落回下面的通用修饰键处理。
+    if ([self insertGlossForModifiedDigit:event modifiers:modifiers client:sender])
+    {
+        return YES;
+    }
     if ((modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) != 0)
     {
         [self commitLeadingCandidate:sender];
@@ -972,6 +978,45 @@ static NSHashTable *LiveDictionaryControllers()
     {
         [self applyResult:result localMode:localMode client:sender];
     }
+}
+
+// 只认「单独的 ⌥」和「单独的 ⌃」:带上 ⌘ 或 ⇧ 的组合是别人的快捷键,不该被输入法吃掉。
+- (BOOL)insertGlossForModifiedDigit:(NSEvent *)event modifiers:(NSEventModifierFlags)modifiers client:(id)sender
+{
+    if (_session == nullptr || _sessionSnapshot.preedit.empty() || _visibleCandidateData.count == 0)
+    {
+        return NO;
+    }
+    NSString *digits = event.charactersIgnoringModifiers;
+    if (digits.length != 1)
+    {
+        return NO;
+    }
+    const unichar digit = [digits characterAtIndex:0];
+    const int request = metasequoia::mac::CandidateGlossRequestForModifiers(modifiers, digit);
+    if (request == 0)
+    {
+        return NO;
+    }
+    const BOOL wantsSecondary = request == 2;
+    const NSUInteger offset = static_cast<NSUInteger>(digit - '1');
+    if (offset >= _visibleCandidateData.count)
+    {
+        return NO;
+    }
+    NSAttributedString *candidate = _visibleCandidateData[offset];
+    NSString *gloss = wantsSecondary ? MetasequoiaCandidateSecondaryTranslation(candidate)
+                                     : MetasequoiaCandidateTranslation(candidate);
+    if (gloss.length == 0)
+    {
+        return NO;
+    }
+    // 先上屏译文再作废组字:顺序反过来的话,取消会先把预编辑文本撤掉,译文就落在了它原本的位置之前。
+    [sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
+    const auto cancelled = _session->command(metasequoia::Command::Cancel);
+    [self applyResult:cancelled localMode:localMode client:sender];
+    return YES;
 }
 
 // Single source of truth for the traditional-output predicate so the candidate panel and the committed text can never

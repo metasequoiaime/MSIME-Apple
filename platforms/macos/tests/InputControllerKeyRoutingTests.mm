@@ -112,6 +112,19 @@ int main()
                     ControllerKeyAction::Character,
             "Disabled navigation keys must pass through.");
 
+    using metasequoia::mac::CandidateGlossRequestForModifiers;
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption, '3') == 1 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagControl, '3') == 2,
+            "A bare Option or Control digit must ask for a gloss.");
+    require(CandidateGlossRequestForModifiers(0, '3') == 0,
+            "A bare digit still selects the candidate rather than its gloss.");
+    // ⌘ 和 ⇧ 的组合是别人的快捷键,输入法不该吃掉。
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption | NSEventModifierFlagCommand, '3') == 0 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagControl | NSEventModifierFlagShift, '3') == 0,
+            "A digit combined with Command or Shift must not be taken for a gloss.");
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption, '0') == 0 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagOption, 'a') == 0,
+            "Only the digits that select candidates can ask for their glosses.");
     require(NormalizeStoredInputScheme(0) == 0 && NormalizeStoredInputScheme(1) == 1 &&
                 NormalizeStoredInputScheme(2) == 2 && NormalizeStoredInputScheme(99) == 0,
             "The stored input scheme was not normalized safely.");
