@@ -1549,6 +1549,9 @@ int main(int argc, char **argv) {
         {"tab", IBUS_Tab, IBUS_ISO_Left_Tab, false},
         {"page_up_down", IBUS_KP_Page_Down, IBUS_KP_Page_Up, false},
         {"arrows", IBUS_KP_Down, IBUS_KP_Up, true}};
+    // Paging bindings are mutually exclusive with word-to-character. Disable
+    // the latter explicitly now that it follows the enabled Windows default.
+    options["preferences"]["word_character"]["enabled"] = false;
     uint64_t revision = first_external_revision + 2;
     for (const auto &binding : bindings) {
       for (const auto &item : bindings)

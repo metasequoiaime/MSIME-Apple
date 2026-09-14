@@ -7,7 +7,7 @@
 
 namespace msime::linux_host {
 struct WordCharacterBinding {
-  bool enabled = false;
+  bool enabled = true;
   bool minus_equal = false;
 
   static WordCharacterBinding read(const nlohmann::json &preferences) {

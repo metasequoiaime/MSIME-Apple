@@ -547,7 +547,7 @@ test("word-to-character and paging disable each other while preserving the chose
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const word = await screen.findByRole("checkbox", { name: /以词定字/ }) as HTMLInputElement;
   const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
-  expect(word.checked).toBe(false);
+  expect(word.checked).toBe(true);
   expect(minus.disabled).toBe(true);
   fireEvent.click(word);
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
@@ -577,7 +577,9 @@ test("paging defaults match Windows and individual edits persist", async () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "Shift+Tab / Tab" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: true, tab: false, page_up_down: true, arrows: true } });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+    word_character: { enabled: false, keys: "brackets" },
+    navigation: { minus_equal: true, comma_period: true, brackets: true, tab: false, page_up_down: true, arrows: true } });
 });
 
 test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {

@@ -943,11 +943,20 @@ pub enum WordCharacterKeys {
     MinusEqual,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WordCharacterPreferences {
     pub enabled: bool,
     pub keys: WordCharacterKeys,
+}
+
+impl Default for WordCharacterPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            keys: WordCharacterKeys::Brackets,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2510,10 +2519,10 @@ mod tests {
             .remove("word_character");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(
-            store.load().unwrap().preferences.word_character,
-            WordCharacterPreferences::default()
-        );
+        let defaults = store.load().unwrap().preferences.word_character;
+        assert_eq!(defaults, WordCharacterPreferences::default());
+        assert!(defaults.enabled);
+        assert_eq!(defaults.keys, WordCharacterKeys::Brackets);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         for (revision, keys) in [WordCharacterKeys::Brackets, WordCharacterKeys::MinusEqual]
             .into_iter()
@@ -2567,6 +2576,10 @@ mod tests {
         );
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         let preferences = Preferences {
+            word_character: WordCharacterPreferences {
+                enabled: false,
+                keys: WordCharacterKeys::Brackets,
+            },
             navigation: NavigationPreferences {
                 minus_equal: false,
                 comma_period: false,
