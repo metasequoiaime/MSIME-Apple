@@ -1,6 +1,7 @@
 import { createVoiceRecognitionClient } from "./voice-recognition-client";
 import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -35,6 +36,7 @@ const appIcon = {
   set: (style: string) => invoke<{ supported: boolean; selected: string }>("app_icon_set", { style }),
 };
 const client: SettingsClient = {
+  readAppVersion: getVersion,
   resolveFontFamilies: names => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
   readSkinToolbarCss: id => invoke("read_skin_toolbar_stylesheet", { id }),

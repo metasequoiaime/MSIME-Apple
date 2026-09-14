@@ -1519,6 +1519,28 @@ test("Linux offers a validated newer client release", async () => {
   vi.unstubAllGlobals();
 });
 
+test("about page uses the packaged app version for display and update comparison", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      tag_name: "v1.2.0",
+      html_url: "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+    }),
+  }));
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
+    host: { platform: "linux" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("v1.2.0")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("已是最新版本")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
 test("client release validation rejects a release URL outside MSIME-Client", () => {
   expect(validateGitHubRelease({
     tag_name: "v1.2.0",

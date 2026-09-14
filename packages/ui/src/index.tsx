@@ -155,7 +155,7 @@ const windowIcons = {
   restore: new URL("./assets/restore.svg", import.meta.url).href,
   close: new URL("./assets/close.svg", import.meta.url).href,
 };
-const appVersion = "0.1.0";
+const fallbackAppVersion = "0.1.0";
 const releasesPageUrl = "https://github.com/metasequoiaime/MSIME-Windows/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/MSIME-Client/releases";
 const updateManifestUrl = "https://msime.app/update.json";
@@ -594,6 +594,7 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
+  readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
   openScreenKeyboard?: () => Promise<void>;
@@ -804,6 +805,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
+  const [currentAppVersion, setCurrentAppVersion] = useState(fallbackAppVersion);
   const [feedbackCopied, setFeedbackCopied] = useState(false);
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
@@ -855,6 +857,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       });
     }
     return () => { active = false; unsubscribe?.(); };
+  }, [client]);
+  useEffect(() => {
+    let active = true;
+    setCurrentAppVersion(fallbackAppVersion);
+    if (client.readAppVersion) {
+      void client.readAppVersion().then(value => {
+        const version = parseVersion(value);
+        if (active && version) setCurrentAppVersion(version.display);
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
   }, [client]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
@@ -961,7 +974,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       const update = clientHostedPlatform
         ? validateGitHubRelease(manifest as GitHubRelease, platformReleasesPageUrl)
         : validateManifest(manifest as UpdateManifest, platformReleasesPageUrl);
-      const current = parseVersion(appVersion);
+      const current = parseVersion(currentAppVersion);
       if (!update || !current) throw new Error("invalid update manifest");
       if (compareVersions(update.version, current) > 0) {
         setAvailableUpdate(update);
@@ -1900,7 +1913,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
         <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>{androidPlatform ? "为 Android 触屏输入体验打造的开放中文输入法。" : linuxPlatform ? "为 Linux 桌面输入体验打造的开放中文输入法。" : "为现代 Windows 桌面体验打造的开放中文输入法。"}</p></div></div>
         <div className="section about-links">
-          <div className="about-link-row about-version-row"><div><div className="about-link-title">当前版本</div><div className="about-version">v{appVersion}</div>{updateStatus && <p className="about-update-status" role="status">{updateStatus}</p>}</div><button type="button" className="secondary about-update-button" disabled={updateBusy} onClick={() => void checkForUpdate()}>{updateBusy ? "正在检查…" : "检查更新"}</button></div>
+          <div className="about-link-row about-version-row"><div><div className="about-link-title">当前版本</div><div className="about-version">v{currentAppVersion}</div>{updateStatus && <p className="about-update-status" role="status">{updateStatus}</p>}</div><button type="button" className="secondary about-update-button" disabled={updateBusy} onClick={() => void checkForUpdate()}>{updateBusy ? "正在检查…" : "检查更新"}</button></div>
           {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(platformLicenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
         {!linuxPlatform && <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(androidPlatform ? androidPrivacyUrl : privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>}
