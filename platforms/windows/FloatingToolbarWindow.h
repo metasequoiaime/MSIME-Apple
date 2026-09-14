@@ -77,6 +77,10 @@ private:
   std::optional<bool> shown_character_set_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
+  // Pointer feedback. Without these the buttons gave no sign of being buttons.
+  std::optional<size_t> hovered_;
+  std::optional<size_t> pressed_;
+  bool tracking_mouse_ = false;
   // Caps Lock and Japanese input mode, which the language button reflects.
   ToolbarLanguageState language_;
   // True once the toolbar has been positioned. The default corner is only for

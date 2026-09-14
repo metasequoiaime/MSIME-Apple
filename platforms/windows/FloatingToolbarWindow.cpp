@@ -57,6 +57,10 @@ FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
 }
 FloatingToolbarWindow::~FloatingToolbarWindow() { hide(); if (window_) DestroyWindow(window_); }
 void FloatingToolbarWindow::hide() {
+  // A hidden toolbar has no pointer over it; leaving these set would show a
+  // stale highlight the next time it appears.
+  hovered_.reset();
+  pressed_.reset();
   shown_.reset();
   shown_character_set_.reset();
   if (window_) ShowWindow(window_, SW_HIDE);
@@ -187,10 +191,31 @@ void FloatingToolbarWindow::paint() {
         std::nullopt, std::nullopt, std::nullopt,
         std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
+    // The drag strip and the divider that separates it from the buttons. The
+    // strip is the only part that drags, so it has to be visible; upstream
+    // draws it in the accent colour.
+    const float handle_left = 3.0f * unit;
+    const D2D1_ROUNDED_RECT handle{
+        {handle_left, 14.0f * unit, handle_left + 2.0f * unit, 38.0f * unit},
+        1.0f * unit, 1.0f * unit};
+    target->FillRoundedRectangle(handle, brush(palette_.accent));
+    target->DrawLine({7.0f * unit, 12.0f * unit}, {7.0f * unit, 40.0f * unit},
+                     brush(palette_.border), 1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
+      // Hover and press fills, so a button looks like one. Pressed is drawn
+      // with the selected colour rather than a darker hover, matching the card.
+      if (hovered_ == i) {
+        const bool down = pressed_ == i;
+        const D2D1_ROUNDED_RECT fill{{cell.left + 2.0f * unit, cell.top,
+                                      cell.right - 2.0f * unit, cell.bottom},
+                                     palette_.item_radius * unit,
+                                     palette_.item_radius * unit};
+        target->FillRoundedRectangle(
+            fill, brush(down ? palette_.selected : palette_.hover));
+      }
       const auto icon = toolbar_icon(button, states[button], language_);
       // Draw the glyph only when the installed icon font really has it;
       // otherwise the text fallback, which is always readable.
@@ -243,7 +268,12 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (GET_X_LPARAM(l) < 8 * unit) {
         ReleaseCapture();
         SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        return 0;
       }
+      // Pressing a button shows it pressed until the release is handled.
+      self->pressed_ = self->hovered_;
+      if (self->pressed_)
+        InvalidateRect(window, nullptr, FALSE);
       return 0;
     }
     case WM_SETCURSOR:
@@ -260,7 +290,45 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         }
       }
       break;
+    case WM_MOUSEMOVE: {
+      // Hover feedback needs to know where the pointer is; without tracking,
+      // the buttons gave no sign that they were buttons at all.
+      const int x = GET_X_LPARAM(l);
+      const int unit = dpi_scale(window, 1);
+      const auto active = slots(self->items_);
+      std::optional<size_t> hovered;
+      if (x >= 8 * unit &&
+          x < static_cast<int>((8 + 72 * active.size()) * unit)) {
+        const size_t position = static_cast<size_t>((x - 8 * unit) / (72 * unit));
+        if (position < active.size())
+          hovered = position;
+      }
+      if (hovered != self->hovered_) {
+        self->hovered_ = hovered;
+        InvalidateRect(window, nullptr, FALSE);
+      }
+      // Ask for one leave message so the highlight is dropped when the pointer
+      // goes elsewhere; without it the last hovered button stays lit.
+      if (!self->tracking_mouse_) {
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+        self->tracking_mouse_ = TrackMouseEvent(&track) != FALSE;
+      }
+      return 0;
+    }
+    case WM_MOUSELEAVE:
+      self->tracking_mouse_ = false;
+      if (self->hovered_) {
+        self->hovered_.reset();
+        InvalidateRect(window, nullptr, FALSE);
+      }
+      return 0;
     case WM_LBUTTONUP: {
+      // Release always clears the pressed look, whether or not the release
+      // lands on a button - otherwise a press that slid off stays lit.
+      if (self->pressed_) {
+        self->pressed_.reset();
+        InvalidateRect(window, nullptr, FALSE);
+      }
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
       const int unit = dpi_scale(window, 1);
