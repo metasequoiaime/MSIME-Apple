@@ -1,5 +1,5 @@
 extern "C" void MSIMEShowBackendAccount(void);
-// Implemented in CandidateTranslationBridge.swift.
+// Implemented in BackendAccountBridge.swift.
 extern "C" bool MSIMEBackendAccountSignedIn(void);
 
 #import "PreferencesWindowController.h"

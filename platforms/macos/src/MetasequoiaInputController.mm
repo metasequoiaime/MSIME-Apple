@@ -1,8 +1,8 @@
 #import "MetasequoiaInputController.h"
 
-// Implemented in CandidateTranslationBridge.swift.
-extern "C" void MSIMETranslateCandidates(const char *wordsJSON, const char *languageName,
-                                         const char *secondaryLanguageName, unsigned long long generation);
+// Implemented in CandidateGlossClient.swift and BackendAccountBridge.swift.
+extern "C" void MSIMEFetchCandidateGlosses(const char *wordsJSON, const char *primaryCode, const char *secondaryCode,
+                                           unsigned long long generation);
 extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 #import "DictionaryInstaller.h"
@@ -185,8 +185,7 @@ static NSHashTable *LiveDictionaryControllers()
     id<MetasequoiaVoiceService> _voiceService;
     NSUInteger _voiceGeneration;
     id _voiceMouseMonitor;
-    NSMutableDictionary<NSString *, NSString *> *_translationCache;
-    NSMutableDictionary<NSString *, NSString *> *_secondaryTranslationCache;
+
     NSURLSessionDataTask *_translationTask;
     NSUInteger _translationGeneration;
     // 组字期间安静下来才发请求。常驻释义意味着每个候选页都要问一整页的词,而一次组字要敲好几下:
@@ -219,8 +218,6 @@ static NSHashTable *LiveDictionaryControllers()
     if (self != nil)
     {
         _candidatePanel = [MetasequoiaCandidatePanel new];
-        _translationCache = [NSMutableDictionary dictionary];
-        _secondaryTranslationCache = [NSMutableDictionary dictionary];
         _candidatePanel.delegate = self;
         _floatingToolbarPanel = [MetasequoiaFloatingToolbarPanel sharedPanel];
         _shuangpinKeymapPanel = [[MetasequoiaShuangpinKeymapPanel alloc] init];
@@ -316,7 +313,12 @@ static NSHashTable *LiveDictionaryControllers()
 {
     NSDictionary *info = notification.userInfo;
     NSDictionary<NSString *, NSString *> *translations = info[@"translations"];
-    if (![translations isKindOfClass:[NSDictionary class]] || _session == nullptr)
+    NSDictionary<NSString *, NSString *> *secondaryArriving = info[@"secondaryTranslations"];
+    const BOOL hasPrimary = [translations isKindOfClass:[NSDictionary class]];
+    const BOOL hasSecondary = [secondaryArriving isKindOfClass:[NSDictionary class]];
+    // 两种语言是分别发过来的,只带第二条的那批同样要收 —— 原来这里要求 translations 必须在,于是日文
+    // 那条通知整条被丢掉。
+    if ((!hasPrimary && !hasSecondary) || _session == nullptr)
         return;
     // 代际只决定要不要重绘,不决定要不要收下。The cache is keyed by language and word, so a reply that
     // arrives after the next keystroke is still the right gloss for the word it names. Dropping it on
@@ -327,15 +329,15 @@ static NSHashTable *LiveDictionaryControllers()
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
-    for (NSString *word in translations)
+    for (NSString *word in (hasPrimary ? translations : @{}))
     {
         NSString *translation = translations[word];
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
-            _translationCache[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
+            MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
     }
-    NSDictionary<NSString *, NSString *> *secondaryTranslations = info[@"secondaryTranslations"];
+    NSDictionary<NSString *, NSString *> *secondaryTranslations = secondaryArriving;
     const NSInteger secondaryIndex = MetasequoiaSecondaryTranslationLanguageIndex();
-    if (secondaryIndex >= 0 && [secondaryTranslations isKindOfClass:[NSDictionary class]])
+    if (secondaryIndex >= 0 && hasSecondary)
     {
         NSString *secondaryLanguage =
             @(metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondaryIndex)).code);
@@ -344,11 +346,14 @@ static NSHashTable *LiveDictionaryControllers()
             NSString *translation = secondaryTranslations[word];
             if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] &&
                 translation.length)
-                _secondaryTranslationCache[[NSString stringWithFormat:@"%@|%@", secondaryLanguage, word]] = translation;
+                MetasequoiaSharedSecondaryTranslationCache()[
+                    [NSString stringWithFormat:@"%@|%@", secondaryLanguage, word]] = translation;
         }
     }
-    if (!_sessionSnapshot.preedit.empty())
-        [self rebuildCandidatePanelPreservingSelection:YES];
+    // 只让活跃实例重绘,而且用它此刻的会话状态判断,不看这个实例自己那份可能早已过期的快照。
+    MetasequoiaInputController *active = gActiveController;
+    if (active != nil && active->_session != nullptr && !active->_session->snapshot().preedit.empty())
+        [active rebuildCandidatePanelPreservingSelection:YES];
 }
 
 - (void)prepareForLearnedDataReset:(NSNotification *)notification
@@ -490,6 +495,7 @@ static NSHashTable *LiveDictionaryControllers()
 
 - (void)activateServer:(id)sender
 {
+    gActiveController = self;
     [super activateServer:sender];
     // 装完即有账号,不必先去找登录入口。Candidate translation and cloud sync both need one, and every
     // other provider asks for something the user already holds; a fresh install has none of it.
@@ -1268,7 +1274,7 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
                       static_cast<std::size_t>(MetasequoiaInputInteger(
                           @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)))
                       .code);
-            NSString *translation = _translationCache[
+            NSString *translation = MetasequoiaSharedTranslationCache()[
                 [NSString stringWithFormat:@"%@|%@", language, MetasequoiaStringFromUtf8(candidate.word)]];
             // 释义走属性,不拼进显示串。拼接是横排面板还不读这个属性时的将就 —— 面板拿到「苹果 apple」
             // 这样一个标题就没法把释义单独排一行,而叠排的整个意义就是让它独占一行。
@@ -1276,24 +1282,32 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
                 onlineGloss = translation;
         }
         NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
-        if (onlineGloss.length > 0)
-            indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, onlineGloss);
-        // 第二条释义单独挂,不并进显示文本:候选格把它画在自己那一行,而上屏的仍然只是候选词本身。
-        if (secondaryLanguage.length > 0)
-        {
-            NSString *secondary = _secondaryTranslationCache[
-                [NSString stringWithFormat:@"%@|%@", secondaryLanguage, MetasequoiaStringFromUtf8(candidate.word)]];
-            if (secondary.length > 0)
-                indexed = MetasequoiaCandidateStringByAddingSecondaryTranslation(indexed, secondary);
-        }
-        if (glossDictionary != nullptr && onlineGloss.length == 0)
+        // 离线优先。本机词典查一整页九个词是 0.03 毫秒,而模型是 2 秒起步、长尾到 7 秒 —— 组字往往只
+        // 有两三秒,慢的那条根本赶不上。实测常用词(你好/中国/输入法/今天/我们…)离线命中 8/9,没命中的
+        // 基本是「评过、平果、恭恭敬敬」这类没人会选的冷僻候选。所以先查本机,查不到才用网络那份。
+        NSString *offlineGloss = nil;
+        if (glossDictionary != nullptr)
         {
             if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
             {
                 const std::string gloss = metasequoia::mac::LookupCandidateGloss(*glossDictionary, *query);
-                if (!gloss.empty())
-                    indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, MetasequoiaStringFromUtf8(gloss));
+                // ECDICT 对生僻字的「英文释义」常常就是那个字本身(孖→孖、聑→聑)。这种释义等于没有,
+                // 还会占住位置让网络那份不去补,所以把它当作未命中。
+                if (!gloss.empty() && gloss != candidate.word)
+                    offlineGloss = MetasequoiaStringFromUtf8(gloss);
             }
+        }
+        if (offlineGloss.length > 0)
+            indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, offlineGloss);
+        else if (onlineGloss.length > 0)
+            indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, onlineGloss);
+        // 第二条释义单独挂,不并进显示文本:候选格把它画在自己那一行,而上屏的仍然只是候选词本身。
+        if (secondaryLanguage.length > 0)
+        {
+            NSString *secondary = MetasequoiaSharedSecondaryTranslationCache()[
+                [NSString stringWithFormat:@"%@|%@", secondaryLanguage, MetasequoiaStringFromUtf8(candidate.word)]];
+            if (secondary.length > 0)
+                indexed = MetasequoiaCandidateStringByAddingSecondaryTranslation(indexed, secondary);
         }
         [data addObject:indexed];
         [words addObject:MetasequoiaStringFromUtf8(candidate.word)];
@@ -1332,6 +1346,43 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
 
 // 350ms:一个音节敲下来大约 150-250ms,所以这个窗口只在你停下来看候选时才到期 —— 那正是需要
 // 释义的一刻。每次按键重排计时器,中间态一次请求都不发。
+// 释义缓存是进程级的,不是控制器实例的。IMKit 为每个文本输入客户端建一个 MetasequoiaInputController,
+// 一次会话下来有十几个实例;取回释义的那个实例和下一次组字所在的实例往往不是同一个。缓存放在实例上,
+// 结果就是答案散落在一堆已经没有组字的实例里(实测死实例里攒了 29、32 条,正在组字的那个只有 3 条),
+// 而换一个输入框就从零开始 —— 这正是「第一次没有、第二次才有」:第二次恰好还是同一个实例。
+//
+// 键是「语言|词」,与实例无关,所以共享是安全的:任何实例取回的释义对其他实例同样正确。
+// 当前活跃的那个控制器。IMKit 为每个文本输入客户端建一个实例,一次会话下来有十几个,而释义到达时
+// 是广播给所有实例的。原来每个实例各自判断「我的 _sessionSnapshot 是不是空的」来决定要不要重绘,
+// 实测到达那一刻十二个实例全部 preeditLen=0,于是没有任何一个重绘 —— 答案进了缓存却没人画。
+// 只有 activateServer: 点名的那个实例在组字,让它负责重绘。
+static __weak MetasequoiaInputController *gActiveController = nil;
+
+// 这一页要问的词的签名。页面没变就不再发请求 —— 照搬 Windows 的 g_candidate_translation_signature。
+// 原来每次重绘都发,而重绘由按键、翻页、释义到达三处触发,实测同一批词在几秒内被请求两三次,还把后端
+// 每分钟 120 次的限流打满,于是真正需要的那次请求反而被拒。
+static NSString *gCandidateTranslationSignature = nil;
+
+static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedTranslationCache(void)
+{
+    static NSMutableDictionary<NSString *, NSString *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      cache = [NSMutableDictionary dictionary];
+    });
+    return cache;
+}
+
+static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedSecondaryTranslationCache(void)
+{
+    static NSMutableDictionary<NSString *, NSString *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      cache = [NSMutableDictionary dictionary];
+    });
+    return cache;
+}
+
 static const int64_t kCandidateTranslationQuietNanoseconds = 350 * NSEC_PER_MSEC;
 
 // 第二条释义默认关:读日文的人开它值一行,不读的人白白让每格高一截。-1 表示关闭,其余是语言表下标。
@@ -1395,26 +1446,35 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
         // One request for the whole page: a model keeps a page consistent when it sees it at once,
         // and the account pays per call rather than per word.
         NSMutableArray<NSString *> *pending = [NSMutableArray arrayWithCapacity:limit];
+        NSMutableString *signature = [NSMutableString stringWithString:language];
         for (NSUInteger i = 0; i < limit; ++i)
         {
             NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
-            if (_translationCache[[NSString stringWithFormat:@"%@|%@", language, word]] == nil)
+            [signature appendFormat:@"|%@", word];
+            if (MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]] == nil)
                 [pending addObject:word];
         }
         if (pending.count == 0)
+        {
+            gCandidateTranslationSignature = [signature copy];
             return;
+        }
+        // 同一页问过一次就够了。回复没到之前重绘多少次都不该再发。
+        if ([signature isEqualToString:gCandidateTranslationSignature])
+            return;
+        gCandidateTranslationSignature = [signature copy];
         NSData *payload = [NSJSONSerialization dataWithJSONObject:pending options:0 error:nil];
         NSString *wordsJSON =
             payload != nil ? [[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding] : nil;
         if (wordsJSON.length)
         {
             const NSInteger secondary = MetasequoiaSecondaryTranslationLanguageIndex();
-            const char *secondaryName =
+            const char *secondaryCode =
                 secondary >= 0
-                    ? metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondary)).name
+                    ? metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondary)).code
                     : "";
-            MSIMETranslateCandidates(wordsJSON.UTF8String, languageEntry.name, secondaryName,
-                                     static_cast<unsigned long long>(generation));
+            MSIMEFetchCandidateGlosses(wordsJSON.UTF8String, languageEntry.code, secondaryCode,
+                                       static_cast<unsigned long long>(generation));
         }
         return;
     }
@@ -1422,7 +1482,7 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     {
         NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
         NSString *key = [NSString stringWithFormat:@"%@|%@", language, word];
-        if (_translationCache[key] != nil)
+        if (MetasequoiaSharedTranslationCache()[key] != nil)
             continue;
         __weak MetasequoiaInputController *weakSelf = self;
         const bool viaDeepLX = provider == metasequoia::mac::CandidateTranslationProvider::DeepLX;
@@ -1433,7 +1493,7 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
             if (!strongSelf || error || !text.length || !strongSelf->_session)
                 return;
             // 同上:词条缓存与代际无关,晚到也照收。
-            strongSelf->_translationCache[key] = text;
+            MetasequoiaSharedTranslationCache()[key] = text;
             if (!strongSelf->_sessionSnapshot.preedit.empty())
                 [strongSelf rebuildCandidatePanelPreservingSelection:YES];
           });
@@ -1582,6 +1642,8 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
 
 - (void)deactivateServer:(id)sender
 {
+    if (gActiveController == self)
+        gActiveController = nil;
     [self prepareForDeactivation:sender];
     [super deactivateServer:sender];
 }
