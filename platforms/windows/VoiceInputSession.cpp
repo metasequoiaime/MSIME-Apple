@@ -222,7 +222,7 @@ bool VoiceInputSession::start() {
   const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
   if (doubao) {
     auto client = std::make_shared<DoubaoAsrClient>(
-        endpoint, config.app_key, config.token, config.resource_id,
+        endpoint, config.doubao_auth_mode, config.app_key, config.token, config.resource_id,
         config.enable_itn, config.enable_punc, config.enable_ddc,
         config.boosting_table_id,
         [this, lease = *lease, generation, session,

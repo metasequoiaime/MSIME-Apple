@@ -143,23 +143,18 @@ fn response_state(frame: &[u8]) -> Option<bool> {
     Some(last)
 }
 
-fn usable(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 8192
-        && !value.chars().any(char::is_control)
-        && !value.starts_with('<')
-        && !value.chars().all(|c| c == '*')
-}
-
 pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
     let get = |key| config.get(key).and_then(Value::as_str).unwrap_or("").trim();
-    let legacy = get("auth_mode") == "legacy";
+    let headers = crate::doubao_auth::headers(
+        get("auth_mode"),
+        get("app_id"),
+        get("token"),
+        get("resource_id"),
+    );
     let endpoint = get("endpoint");
     let valid = get("provider") == "doubao"
         && matches!(get("auth_mode"), "api_key" | "legacy")
-        && usable(get("token"))
-        && (!legacy || usable(get("app_id")))
-        && usable(get("resource_id"))
+        && headers.is_some()
         && endpoint.len() <= 2048
         && reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
             url.scheme() == "wss"
@@ -174,19 +169,9 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
             message: "请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。".into(),
         };
     }
-    let mut headers = vec![
-        ("x-api-resource-id", get("resource_id").to_owned()),
-        ("x-api-request-id", uuid::Uuid::new_v4().to_string()),
-    ];
-    if legacy {
-        headers.push(("x-api-app-key", get("app_id").to_owned()));
-        headers.push(("x-api-access-key", get("token").to_owned()));
-    } else {
-        headers.push(("x-api-key", get("token").to_owned()));
-    }
     let ok = transport.probe(&ProbeRequest {
         endpoint: endpoint.to_owned(),
-        headers,
+        headers: headers.unwrap_or_default(),
     });
     ProbeResult {
         ok,

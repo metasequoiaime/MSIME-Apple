@@ -11,6 +11,7 @@ pub mod credential_test;
 pub mod credential_asr;
 pub mod credential_doubao;
 pub mod credential_translation;
+pub mod doubao_auth;
 pub mod doubao_frame;
 pub mod community_resource;
 pub mod community_resource_library;

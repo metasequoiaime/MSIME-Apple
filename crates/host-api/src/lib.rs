@@ -40,6 +40,8 @@ use std::ffi::{c_char, CString};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
+mod doubao_auth;
+pub use doubao_auth::msime_client_doubao_auth_headers;
 mod learned_translation;
 mod niutrans_translation;
 mod tencent_translation;
