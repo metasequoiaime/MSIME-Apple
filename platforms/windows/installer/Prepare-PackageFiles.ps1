@@ -99,6 +99,7 @@ if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
     throw "缺少 Tauri 外壳，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
 }
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
+Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
 Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'

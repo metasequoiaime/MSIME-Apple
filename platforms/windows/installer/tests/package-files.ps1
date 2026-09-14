@@ -16,6 +16,8 @@ try {
     foreach ($file in @(
         'server/build-release/bin/Release/MetasequoiaImeServer.exe',
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
+        'server/build-release/bin/Release/MetasequoiaImeWatchdog.exe',
+        'server/build-release/bin/Release/MetasequoiaImeWatchdog.pdb',
         'server/build-release/bin/Release/MetasequoiaImeDictionaryReplay.exe',
         'server/build-release/bin/Release/MetasequoiaImeDictionaryReplay.pdb',
         'server/build-release/bin/Release/MetasequoiaImeServerTests.exe',
@@ -55,6 +57,8 @@ try {
                          'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'server_exe/MetasequoiaImeServer.pdb',
+                         'server_exe/MetasequoiaImeWatchdog.exe',
+                         'server_exe/MetasequoiaImeWatchdog.pdb',
                          'server_exe/MetasequoiaImeDictionaryReplay.pdb',
                          'server_exe/msime-client-settings.exe',
                          'server_exe/handwriting/handwriting-zh_CN.model',
@@ -79,6 +83,13 @@ try {
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
     $database = Join-Path $installer 'app_data/msime.db'
     [IO.File]::WriteAllText($database, 'preserved user data')
+    $watchdog = Join-Path $fixture 'server/build-release/bin/Release/MetasequoiaImeWatchdog.exe'
+    Remove-Item -LiteralPath $watchdog
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light } catch { $rejected = $_.Exception.Message -match 'Watchdog' }
+    if (-not $rejected) { throw 'Missing watchdog was accepted' }
+    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing watchdog damaged previous staging' }
+    [IO.File]::WriteAllText($watchdog, 'fixture')
     $desktop = Join-Path $fixture 'target/release/msime-desktop.exe'
     Remove-Item -LiteralPath $desktop
     $rejected = $false

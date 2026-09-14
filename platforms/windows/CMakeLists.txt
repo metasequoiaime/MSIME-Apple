@@ -573,6 +573,8 @@ if(WIN32)
   set_tests_properties(windows-voice-providers PROPERTIES TIMEOUT 10)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-watchdog WIN32 Watchdog.cpp)
+  # Match the installed logon task and uninstall process-stop contract.
+  set_target_properties(msime-client-watchdog PROPERTIES OUTPUT_NAME MetasequoiaImeWatchdog)
   target_include_directories(msime-client-watchdog PRIVATE .)
   target_link_libraries(msime-client-watchdog PRIVATE shell32 ole32 uuid)
   if(MSVC)
