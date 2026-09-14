@@ -4,6 +4,7 @@
 //
 #define SUBLANG_ENGLISH_US 0x01
 #define LANG_ENGLISH 0x09
+#define VS_VERSION_INFO 1
 #define IDIS_METASEQUOIAIME 12
 #define IDS_DEFAULT_FONT 13
 #define IDS_IME_MODE 20
@@ -21,8 +22,6 @@
 #define IDI_IME_MODE_ON_JP_DARK 32
 #define IDI_IME_MODE_CAP 33
 #define IDI_IME_MODE_CAP_DARK 34
-#define IDR_VERSION2 107
-
 // Next default values for new objects
 //
 #ifdef APSTUDIO_INVOKED

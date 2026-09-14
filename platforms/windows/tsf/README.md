@@ -7,6 +7,11 @@ dependency. Missing paths and directories are rejected before native dependency
 discovery. The linker remains responsible for format, architecture and symbols.
 Portable component tests and the standalone export fixture do not require it.
 
+The DLL version resource uses the standard `VS_VERSION_INFO` identifier, the
+workspace package version with a zero Windows revision, and the actual
+`MetasequoiaImeTsf.dll` output name. The portable CMake tests verify this source
+contract without loading or registering the DLL.
+
 The TIP reads `%LOCALAPPDATA%\MSIME-Client\runtime-options.json`, not legacy
 product state or guessed paths relative to the embedding application.
 

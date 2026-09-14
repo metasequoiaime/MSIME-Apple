@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 enable_testing()
+add_test(NAME msime-tsf-version-resource COMMAND "${CMAKE_COMMAND}"
+  "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/version_resource.cmake")
 add_executable(msime-tsf-client-key-router-test tests/client_key_router.cpp)
 target_compile_features(msime-tsf-client-key-router-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-client-key-router-test PRIVATE . Global IME Header Key)
