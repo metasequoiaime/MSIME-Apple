@@ -722,6 +722,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
+  // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
+  // explaining where to change it.
+  const windowsPlatform = client.host?.platform === "windows";
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -1539,6 +1542,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <span className="section-title">{label}</span>
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
+          {windowsPlatform && <div className="shortcut-system-guide">
+            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
+            <small>Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 / 非输入法切换”的按键顺序：</small>
+            <ol>
+              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
+              <li>选择“高级键盘设置” → “输入语言热键”。</li>
+              <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
+              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
+            </ol>
+            <small>不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。</small>
+          </div>}
         </div>}
         {showPanelShortcuts && <div className="section" role="group" aria-label="面板快捷键">
           <div className="section-title">面板快捷键</div>

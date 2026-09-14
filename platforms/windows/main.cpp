@@ -9,6 +9,7 @@
 #include "FullscreenForeground.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WatchdogPolicy.h"
@@ -324,6 +325,62 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
   return config;
 }
+
+// Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
+//
+// These four do not ride the worker pipe: the TIP reads them straight off disk
+// at activation. Without this the settings toggles would save and do nothing,
+// which is why they were hidden on Windows. Writing is best effort - a config
+// we cannot update costs the user their hotkey choice, never the IME.
+void publish_switch_language_keybindings(const nlohmann::json &preferences) {
+  // The same folder the TIP resolves, through the known-folder API rather than
+  // the environment variable so a redirected profile still lands in one place.
+  PWSTR app_data = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &app_data)))
+    return;
+  const std::filesystem::path path =
+      std::filesystem::path(app_data) / L"metasequoiaime" / L"config.toml";
+  CoTaskMemFree(app_data);
+  const auto bindings =
+      preferences.value("keybindings", nlohmann::json::object());
+  msime::windows::SwitchLanguageKeybindings values;
+  values.shift = bindings.value("switch_language_shift", true);
+  values.ctrl = bindings.value("switch_language_ctrl", false);
+  values.ctrl_alt_space = bindings.value("switch_language_ctrl_alt_space", true);
+  values.character_set_ctrl_shift_f =
+      bindings.value("toggle_character_set_ctrl_shift_f", true);
+  try {
+    std::string existing;
+    {
+      std::ifstream input(path, std::ios::binary);
+      if (input)
+        existing.assign(std::istreambuf_iterator<char>(input),
+                        std::istreambuf_iterator<char>());
+    }
+    const auto updated = msime::windows::update_keybindings(existing, values);
+    if (updated == existing)
+      return;
+    std::error_code ignored;
+    std::filesystem::create_directories(path.parent_path(), ignored);
+    // Write beside the target and rename over it: a crash mid-write must not
+    // leave the user with a truncated config the TIP then reads as defaults.
+    const auto temporary = std::filesystem::path(path).concat(L".new");
+    {
+      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+      if (!output)
+        return;
+      output.write(updated.data(),
+                   static_cast<std::streamsize>(updated.size()));
+      if (!output)
+        return;
+    }
+    std::filesystem::rename(temporary, path, ignored);
+    if (ignored)
+      std::filesystem::remove(temporary, ignored);
+  } catch (const std::exception &) {
+    // A read-only or roaming profile is the user's business, not a fatal error.
+  }
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -577,6 +634,7 @@ int wmain(int argc, wchar_t **argv) {
               preferences.value("default_ime_mode", std::string("chinese")) ==
                   "english",
               std::memory_order_release);
+          publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.enabled = input.value("enabled", true);
