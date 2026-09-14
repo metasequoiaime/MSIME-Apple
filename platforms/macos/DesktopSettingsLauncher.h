@@ -12,6 +12,9 @@ static inline void MSIMEOpenDesktopRouteWithOptions(NSString *route, NSString *o
     if (!url) { fallback(); return; }
     NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
     configuration.arguments = @[[NSString stringWithFormat:@"--route=%@", route]];
+    // The shared keyboard must leave the editor foreground, just like the
+    // native nonactivating NSPanel. Settings pages still activate normally.
+    configuration.activates = ![route isEqualToString:@"keyboard"];
     // LaunchServices does not reliably inherit the input method's environment.
     // Pass only the selected file path, never its credentials or input state.
     if (optionsPath) configuration.environment = @{@"MSIME_CLIENT_HOST_OPTIONS":optionsPath};

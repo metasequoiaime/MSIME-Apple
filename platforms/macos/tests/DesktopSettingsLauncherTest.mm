@@ -33,6 +33,7 @@ int main() {
         MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Appearance, workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=settings:appearance"]]);
         assert(workspace.configuration.createsNewApplicationInstance);
+        assert(workspace.configuration.activates);
         workspace.completion(NSRunningApplication.currentApplication, nil);
         assert(fallbacks == 1);
         MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Voice, workspace, fallback);
@@ -72,5 +73,13 @@ int main() {
         // Existing entry points select exactly the same file as the native host.
         MSIMEOpenDesktopRoute(@"settings:ai", workspace, fallback);
         assert([workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:MSIMERuntimeOptionsPath()]);
+        MSIMEOpenDesktopRoute(@"keyboard", workspace, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=keyboard"]]);
+        assert(!workspace.configuration.activates);
+        assert(workspace.configuration.createsNewApplicationInstance);
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        assert(fallbacks == 3);
+        MSIMEOpenDesktopRoute(@"settings:appearance", workspace, fallback);
+        assert(workspace.configuration.activates);
     }
 }

@@ -8,6 +8,8 @@ mod linux_clipboard;
 mod android_account;
 #[cfg(any(target_os = "macos", test))]
 mod macos_launch;
+#[cfg(any(target_os = "macos", test))]
+mod macos_keyboard;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 mod desktop_preferences_monitor;
 
@@ -2255,7 +2257,25 @@ async fn send_key(
     }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = state;
+        request.validate().map_err(|_| HostActionError { code: "invalid_key" })?;
+        // Only the non-focusable keyboard follows the current editor. Other
+        // panels will use their own captured input-session handoff.
+        if window.label() != "keyboard-panel" {
+            return Err(HostActionError { code: "unavailable" });
+        }
+        let (send, received) = std::sync::mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::send_keyboard_key(&request));
+        }).map_err(|_| HostActionError { code: "unavailable" })?;
+        tauri::async_runtime::spawn_blocking(move || {
+            received.recv().unwrap_or(false).then_some(())
+                .ok_or(HostActionError { code: "unavailable" })
+        }).await.map_err(|_| HostActionError { code: "unavailable" })?
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (app, state, request);
         Err(HostActionError {
@@ -3124,6 +3144,11 @@ fn open_panel_window(
     {
         let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
+            #[cfg(target_os = "macos")]
+            if label == "keyboard-panel" {
+                return macos_keyboard::show(&window)
+                    .map_err(|_| HostActionError { code: "unavailable" });
+            }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some(position) = position {
                 #[cfg(target_os = "linux")]
@@ -3168,6 +3193,11 @@ fn open_panel_window(
             #[cfg(target_os = "linux")]
             let position = visible_panel_position(&window, position, width, height);
             let _ = window.set_position(position);
+        }
+        #[cfg(target_os = "macos")]
+        if label == "keyboard-panel" {
+            return macos_keyboard::show(&window)
+                .map_err(|_| HostActionError { code: "unavailable" });
         }
         window
             .show()
@@ -3403,6 +3433,13 @@ fn close_panel(
     }
     if label == "voice-panel" {
         let _ = cancel_voice(app.clone(), None);
+    }
+    #[cfg(target_os = "macos")]
+    if label == "keyboard-panel" {
+        let window = app.get_webview_window(&label)
+            .ok_or(HostActionError { code: "unavailable" })?;
+        return macos_keyboard::close(&window)
+            .map_err(|_| HostActionError { code: "unavailable" });
     }
     let result = app
         .get_webview_window(&label)
@@ -3863,7 +3900,22 @@ fn ios_host_options_document(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    let mut keyboard_launch_target = macos_keyboard::startup_panel(requested_surface_route())
+        .and_then(|_| msime_host_macos::capture_launch_target());
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "macos")]
+    let context = {
+        let mut context = context;
+        macos_keyboard::prepare_windows(
+            &mut context.config_mut().app.windows,
+            requested_surface_route(),
+        );
+        context
+    };
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(
         |app, args, _cwd| {
@@ -4069,6 +4121,13 @@ pub fn run() {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
             });
+            #[cfg(target_os = "macos")]
+            if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route()) {
+                open_panel_window(
+                    app.handle(), surface.label, surface.query, surface.title,
+                    f64::from(surface.width), f64::from(surface.height), None,
+                ).map_err(|_| "Cannot open requested keyboard panel".to_string())?;
+            }
             // Both desktop hosts launch this shell with the panel their menu
             // named; the IBus property menu and the Windows tray menu are the
             // same contract, so the routes stay in one place.
@@ -4243,8 +4302,25 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::community_resource_remove_reply,
         ])
-        .run(tauri::generate_context!())
-        .expect("client application failed");
+        .build(context)
+        .expect("client application failed")
+        .run(move |_app, _event| {
+            #[cfg(target_os = "macos")]
+            if matches!(_event, tauri::RunEvent::Ready) {
+                if let Some(target) = keyboard_launch_target.take() {
+                    let _ = msime_host_macos::restore_launch_target(target);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if matches!(_event, tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. })
+                && macos_keyboard::startup_panel(requested_surface_route()).is_some()
+                && !_app.webview_windows().values().any(|window| window.is_visible().unwrap_or(true))
+            {
+                // A keyboard-only launcher does not leave an invisible settings
+                // process behind. Other visible panels keep the process alive.
+                _app.exit(0);
+            }
+        });
 }
 
 #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]

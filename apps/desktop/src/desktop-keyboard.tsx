@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
 import { KeyboardPanel, type PanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
 import { useCandidatePreviewTheme } from "../../../packages/ui/src/candidate-preview-theme";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
-type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged">;
+type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
 
 export function DesktopKeyboard({ client, preferences }: { client: PanelClient; preferences: ThemeClient }) {
+  const [platform, setPlatform] = useState<string | undefined>(preferences.host?.platform);
+  useEffect(() => {
+    let active = true;
+    if (preferences.host?.platform) setPlatform(preferences.host.platform);
+    else if (isTauri()) void invoke<{ platform: string }>("host_capabilities")
+      .then(host => { if (active) setPlatform(host.platform); }).catch(() => {});
+    return () => { active = false; };
+  }, [preferences.host?.platform]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   useEffect(() => {
     let active = true;
@@ -34,5 +43,5 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
   const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
   const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
   const voiceShortcut = snapshot?.preferences.touch_voice_shortcut === true;
-  return <KeyboardPanel client={client} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} />;
+  return <KeyboardPanel client={client} platform={platform} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} />;
 }

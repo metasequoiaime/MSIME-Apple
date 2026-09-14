@@ -158,7 +158,7 @@ function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39) || (virtualKey >= 0x60 && virtualKey <= 0x69);
 }
 
-export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean }) {
+export function KeyboardPanel({ client, platform, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false }: { client: PanelClient; platform?: string; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean }) {
   const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
     let saved: string | null = null;
     try { saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null; } catch { /* restricted webviews may deny storage */ }
@@ -176,7 +176,10 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     previousHostLayout.current = layout;
     setActiveLayout(layout);
   }, [layout]);
-  const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
+  const sourceRows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
+  const rows = platform === "macos" ? sourceRows.map(row => row
+    .filter(item => ![0x2c, 0x91, 0x13, 0x2d].includes(item.virtualKey))
+    .map(item => ({ ...item, label: item.label === "Win" ? "Command" : item.label === "Alt" ? "Option" : item.label === "Num Lock" ? "Clear" : item.label }))) : sourceRows;
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
