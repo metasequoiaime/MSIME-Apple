@@ -106,6 +106,8 @@ private:
   std::size_t captured_frames_ = 0;
   std::atomic<bool> capture_overflow_{false};
   std::optional<FocusLease> lease_;
+  std::mutex config_mutex_;
+  std::optional<VoiceInputConfig> active_config_;
   std::mutex doubao_mutex_;
   std::shared_ptr<DoubaoAsrClient> doubao_;
   std::atomic<bool> muted_system_audio_{false};

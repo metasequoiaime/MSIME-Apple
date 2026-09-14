@@ -178,6 +178,10 @@ bool VoiceInputSession::start() {
   if (!config.enabled || config.token.empty() || endpoint.empty() ||
       (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
     return false;
+  {
+    std::lock_guard lock(config_mutex_);
+    active_config_ = config;
+  }
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
     return false;
@@ -308,7 +312,11 @@ void VoiceInputSession::stop() {
   locked_.store(false);
   overlay_.set_listening(false);
   overlay_.set_input_level(0.0f);
-  const auto config = config_provider_();
+  VoiceInputConfig config;
+  {
+    std::lock_guard lock(config_mutex_);
+    config = active_config_ ? *active_config_ : config_provider_();
+  }
   if (muted_system_audio_.exchange(false))
     restore_other_system_audio();
   if (config.sound_enabled && config.end_sound)
@@ -504,6 +512,11 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     }
   }
   release_doubao();
+  {
+    std::lock_guard lock(config_mutex_);
+    if (active_config_ && session_.load() == session)
+      active_config_.reset();
+  }
 }
 
 void VoiceInputSession::cancel() {
@@ -511,7 +524,11 @@ void VoiceInputSession::cancel() {
   cancel_requested_.store(true);
   const auto session = session_.fetch_add(1) + 1;
   locked_.store(false);
-  const auto config = config_provider_();
+  VoiceInputConfig config;
+  {
+    std::lock_guard lock(config_mutex_);
+    config = active_config_ ? *active_config_ : config_provider_();
+  }
   {
     std::lock_guard request_lock(request_mutex_);
     for (const auto &request : request_cancellations_)
@@ -541,6 +558,10 @@ void VoiceInputSession::cancel() {
                     L"", generation);
   }
   clear_overlay();
+  {
+    std::lock_guard lock(config_mutex_);
+    active_config_.reset();
+  }
 }
 
 void VoiceInputSession::lock() {
