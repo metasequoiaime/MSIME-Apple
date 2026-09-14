@@ -21,6 +21,8 @@ pub struct AppIconInfo {
 }
 
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +73,13 @@ impl IosKeyboardPreferences {
     }
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn is_valid_ios_clipboard_text(value: &str) -> bool {
+    !value.is_empty()
+        && value.encode_utf16().count() <= MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS
+        && !value.contains('\0')
+}
+
 #[cfg(target_os = "ios")]
 #[derive(Serialize)]
 struct AppIconRequest<'a> {
@@ -87,6 +96,12 @@ struct AccountSessionResponse {
 #[derive(Serialize)]
 struct AccountSessionRequest<'a> {
     value: &'a str,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
+struct CopyTextRequest<'a> {
+    text: &'a str,
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -235,6 +250,15 @@ impl<R: Runtime> MobilePlatform<R> {
         self.0.run_mobile_plugin("clearSession", ()).map_err(|_| ())
     }
 
+    pub fn copy_text(&self, text: &str) -> Result<(), ()> {
+        if !is_valid_ios_clipboard_text(text) {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("copyText", CopyTextRequest { text })
+            .map_err(|_| ())
+    }
+
     pub fn load_keyboard_preferences(&self) -> Result<IosKeyboardPreferences, ()> {
         let preferences = self
             .0
@@ -276,8 +300,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_supported_app_icon_style, is_valid_account_session_payload,
+        is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
         migrated_account_session_payload, IosKeyboardPreferences, MAX_ACCOUNT_SESSION_BYTES,
+        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS,
     };
     use serde_json::Value;
 
@@ -364,5 +389,17 @@ mod tests {
         let mut invalid = keyboard_preferences();
         invalid.custom_keyboard_skin = Some("[]".into());
         assert!(!invalid.is_valid());
+    }
+
+    #[test]
+    fn ios_clipboard_text_uses_the_apple_utf16_boundary() {
+        assert!(!is_valid_ios_clipboard_text(""));
+        assert!(is_valid_ios_clipboard_text(
+            &"a".repeat(MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS)
+        ));
+        assert!(!is_valid_ios_clipboard_text(
+            &"😀".repeat(MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS / 2 + 1)
+        ));
+        assert!(!is_valid_ios_clipboard_text("safe\0hidden"));
     }
 }

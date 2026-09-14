@@ -11,6 +11,10 @@ private struct SaveAccountSessionArgs: Decodable {
   let value: String
 }
 
+private struct CopyTextArgs: Decodable {
+  let text: String
+}
+
 private struct SaveKeyboardPreferencesArgs: Decodable {
   let inputScheme: String
   let traditionalChineseOutput: Bool
@@ -340,6 +344,25 @@ final class MobilePlatformPlugin: Plugin {
       invoke.resolve()
     } catch {
       invoke.reject("secure_storage", code: "secure_storage")
+    }
+  }
+
+  @objc public func copyText(_ invoke: Invoke) {
+    let args: CopyTextArgs
+    do {
+      args = try invoke.parseArgs(CopyTextArgs.self)
+    } catch {
+      invoke.reject("invalid_clipboard_text", code: "invalid_clipboard_text")
+      return
+    }
+    guard !args.text.isEmpty, args.text.utf16.count <= 4_000,
+          !args.text.unicodeScalars.contains(where: { $0.value == 0 }) else {
+      invoke.reject("invalid_clipboard_text", code: "invalid_clipboard_text")
+      return
+    }
+    onMain {
+      UIPasteboard.general.string = args.text
+      invoke.resolve()
     }
   }
 

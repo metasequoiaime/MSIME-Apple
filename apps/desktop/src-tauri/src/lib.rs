@@ -39,6 +39,8 @@ use msime_client_core::preferences::{
 use msime_client_core::typing_statistics::{
     TypingSource, TypingStatistics, TypingStatisticsStore,
 };
+#[cfg(target_os = "ios")]
+use msime_tauri_mobile_platform::MobilePlatform;
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -970,7 +972,7 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_clipboard_request(
     app: tauri::AppHandle,
@@ -1025,6 +1027,18 @@ async fn cloud_clipboard_request(
     .map_err(|_| CommandError {
         code: "unavailable",
     })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn cloud_clipboard_request(
+    state: tauri::State<'_, ios_account::AccountState>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
+        code: "invalid_cloud_clipboard",
+    })?;
+    ios_account::cloud_clipboard_request(state, action).await
 }
 
 #[cfg(target_os = "android")]
@@ -3852,6 +3866,7 @@ async fn copy_text_impl(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
+    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
 ) -> Result<(), HostActionError> {
     let state = state.inner().clone();
     let store = store.inner().clone();
@@ -3894,7 +3909,41 @@ async fn copy_text_impl(
         }
         return Ok(());
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    {
+        let platform = platform.inner().clone();
+        let clipboard_text = text.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            platform
+                .copy_text(&clipboard_text)
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })??;
+        if clipboard_enabled(&store)? {
+            store
+                .capture_clipboard_text(text)
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+            state
+                .0
+                .lock()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
+                .load()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        }
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
             .await
@@ -3915,7 +3964,18 @@ async fn copy_text(
     copy_text_impl(text, state, store, account).await
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
+) -> Result<(), HostActionError> {
+    copy_text_impl(text, state, store, platform).await
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_text(
     text: String,
@@ -3925,6 +3985,7 @@ async fn copy_text(
     copy_text_impl(text, state, store).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn copy_text_blocking(
     text: String,
     state: &ClipboardHistoryState,

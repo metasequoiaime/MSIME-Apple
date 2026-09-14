@@ -189,6 +189,30 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('"platform.ios.custom_keyboard_skin"', mapping)
         self.assertIn("settingsSync: accountSettingsSync", desktop_entry)
 
+    def test_ios_cloud_clipboard_uses_the_shared_account_and_native_copy_boundaries(self):
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        plugin_rust = (plugin / "src/lib.rs").read_text()
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+
+        self.assertIn("ios_account::cloud_clipboard_request(state, action).await", rust_entry)
+        self.assertIn("pub async fn cloud_clipboard_request", account)
+        self.assertIn("session.clipboard(&search)", account)
+        self.assertIn(".set_clipboard_enabled(enabled)", account)
+        self.assertIn("session.add_clipboard(&text)", account)
+        self.assertIn(".delete_clipboard(Some(&id))", account)
+        self.assertIn('run_mobile_plugin("copyText", CopyTextRequest { text })', plugin_rust)
+        self.assertIn("@objc public func copyText", swift)
+        self.assertIn("UIPasteboard.general.string = args.text", swift)
+        self.assertEqual(
+            desktop_entry.count(
+                'openCloudClipboard: async () => setMobilePanel("cloud-clipboard")'
+            ),
+            2,
+        )
+
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("revision: a83e2b2f196e3fa9605cb21c7d3b82652205c279", project)

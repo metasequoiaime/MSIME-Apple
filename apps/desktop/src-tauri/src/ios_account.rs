@@ -4,6 +4,9 @@ use msime_client_core::account::{
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+#[cfg(target_os = "ios")]
+use serde_json::Value;
+
 #[path = "ios_account_preferences.rs"]
 mod account_preferences;
 
@@ -336,6 +339,82 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
     call(state, |session| session.forget()).await
+}
+
+#[cfg(target_os = "ios")]
+pub async fn cloud_clipboard_request(
+    state: State<'_, AccountState>,
+    action: Value,
+) -> Result<Value, super::CommandError> {
+    let operation = action
+        .get("operation")
+        .and_then(Value::as_str)
+        .ok_or(super::CommandError {
+            code: "invalid_cloud_clipboard",
+        })?;
+    match operation {
+        "list" => {
+            let search = action
+                .get("search")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            call(state, move |session| {
+                session.clipboard(&search).and_then(|page| {
+                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        "set_enabled" => {
+            let enabled =
+                action
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or(super::CommandError {
+                        code: "invalid_cloud_clipboard",
+                    })?;
+            call(state, move |session| {
+                session
+                    .set_clipboard_enabled(enabled)
+                    .map(|()| serde_json::json!({ "enabled": enabled }))
+            })
+            .await
+        }
+        "add" => {
+            let text = action
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or(super::CommandError {
+                    code: "invalid_cloud_clipboard",
+                })?
+                .to_owned();
+            call(state, move |session| {
+                session.add_clipboard(&text).and_then(|item| {
+                    serde_json::to_value(item).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        "delete" => {
+            let id = action
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or(super::CommandError {
+                    code: "invalid_cloud_clipboard",
+                })?
+                .to_owned();
+            call(state, move |session| {
+                session
+                    .delete_clipboard(Some(&id))
+                    .map(|()| serde_json::json!({}))
+            })
+            .await
+        }
+        _ => Err(super::CommandError {
+            code: "invalid_cloud_clipboard",
+        }),
+    }
 }
 
 #[cfg(target_os = "ios")]

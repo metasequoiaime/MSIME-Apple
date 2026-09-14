@@ -322,6 +322,11 @@ function DesktopSettings() {
           openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
           openCloudDictionary: async () => setMobilePanel("cloud-dictionary"),
         }
+        : host?.platform === "ios"
+          ? {
+            ...hosted,
+            openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
+          }
         : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
     });
