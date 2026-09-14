@@ -45,12 +45,14 @@ try {
         $bin = Join-Path $output 'bin'
         Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple, '-p', 'msime-host-api')
         $source = if ($arch -eq 'x64') { 'platforms/windows' } else { 'platforms/windows/tsf' }
-        Invoke-ClientBuild cmake @('-S', (Join-Path $RepoRoot $source), '-B', $output,
+        $configure = @('-S', (Join-Path $RepoRoot $source), '-B', $output,
             '-G', $Generator, '-A', $platform,
             "-DCMAKE_PREFIX_PATH=$($env:CMAKE_PREFIX_PATH)",
             "-DMSIME_HOST_LIBRARY=$(Join-Path $release 'msime_host_api.dll.lib')",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$bin",
             '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF')
+        if ($arch -eq 'x64') { $configure += '-DMSIME_SERVER_UIACCESS=ON' }
+        Invoke-ClientBuild cmake $configure
         $targets = if ($arch -eq 'x64') {
             @('msime-client-server', 'msime-client-watchdog', 'msime-client-prepare', 'msime-tsf')
         } else { @('msime-tsf') }

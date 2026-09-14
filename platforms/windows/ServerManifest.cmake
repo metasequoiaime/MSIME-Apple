@@ -1,0 +1,15 @@
+option(MSIME_SERVER_UIACCESS "Embed the signed-installation Server UIAccess manifest" OFF)
+if(MSIME_SERVER_UIACCESS)
+  if(NOT WIN32)
+    message(FATAL_ERROR "Server UIAccess requires a Windows target")
+  endif()
+  enable_language(RC)
+  target_sources(msime-client-server PRIVATE "${CMAKE_CURRENT_LIST_DIR}/ServerManifest.rc")
+  target_include_directories(msime-client-server PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+  set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/ServerManifest.rc" APPEND PROPERTY
+    OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/MetasequoiaImeServer.manifest")
+  if(MSVC)
+    # The RC embeds resource 1. Do not generate/merge a second default manifest.
+    target_link_options(msime-client-server PRIVATE /MANIFEST:NO)
+  endif()
+endif()

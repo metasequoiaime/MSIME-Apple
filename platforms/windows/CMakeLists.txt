@@ -617,6 +617,7 @@ if(WIN32)
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
   add_executable(msime-client-server main.cpp)
+  include(ServerManifest.cmake)
   add_executable(msime-client-prepare prepare_host.cpp)
   target_include_directories(msime-client-prepare PRIVATE ../../crates/host-api/include)
   target_link_libraries(msime-client-prepare PRIVATE
