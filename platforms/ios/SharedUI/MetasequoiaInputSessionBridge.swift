@@ -230,6 +230,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
+  /// The latest canonical PreferencesStore document, exposed as a read-only
+  /// value for native UI settings that still use App Group compatibility keys.
+  /// Callers must remain on the session's owning thread when reading it.
+  var sharedPreferences: [String: Any]? {
+    options["preferences"] as? [String: Any]
+  }
+
   func handleCharacter(_ character: String) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: false) }
   }

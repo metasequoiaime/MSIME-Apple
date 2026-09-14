@@ -39,6 +39,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var appliedLayout: KeyboardGeometry?
 
   private var keyboardHeightConstraint: NSLayoutConstraint?
+  private var sharedKeyboardHeightAdjustment: CGFloat = 0
   private let session = MetasequoiaInputSessionBridge()
   private lazy var snapshotWorker: DictionarySnapshotWorker = {
     let worker = DictionarySnapshotWorker(session: session)
@@ -253,6 +254,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // the keyboard appears without blocking UIKit's input lifecycle.
     session.reloadSharedPreferences { [weak self] loaded in
       guard let self, loaded else { return }
+      self.synchronizeSharedTouchPreferences()
       self.applyLearningPreferences()
     }
     candidateGlossEpoch &+= 1
@@ -1340,7 +1342,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .wubi: session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .handwriting: session.switch(toShuangpin: false)
-    case .quanpin, .shuangpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
+    case .quanpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
+    case .shuangpin: session.switch(toShuangpinProfile: "xiaohe")
     }
   }
 
@@ -1558,6 +1561,64 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLanguageModeButton()
     render(snapshot, source: source)
     synchronizeReplyKeyboard()
+  }
+
+  private static func sharedInputScheme(_ value: String) -> ChineseInputScheme? {
+    switch value {
+    case "quanpin": return .quanpin
+    case "nine_key": return .nineKey
+    case "xiaohe": return .shuangpin
+    case "ziranma": return .ziranma
+    case "microsoft": return .microsoft
+    case "shoudao": return .shoudao
+    case "wubi": return .wubi
+    case "japanese_nine_key": return .japaneseNineKey
+    case "japanese": return .japanese
+    case "handwriting": return .handwriting
+    case "thoughtful_reply": return .thoughtfulReply
+    default: return nil
+    }
+  }
+
+  /// Apply settings written by the Tauri iOS host to the native keyboard's
+  /// legacy App Group preferences. Scheme changes are intentionally deferred
+  /// while composing so a settings reload cannot interrupt Engine state.
+  private func synchronizeSharedTouchPreferences() {
+    guard let preferences = session.sharedPreferences else { return }
+    var skinChanged = false
+    if let rawSkin = preferences["touch_keyboard_skin"] as? String,
+       let skin = KeyboardSkin(rawValue: rawSkin), skin != .custom,
+       skin != KeyboardSkinPreference.selected {
+      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      skinChanged = true
+    }
+    if let spacing = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
+      KeyboardLayoutPreference.keySpacing = spacing / 10
+    }
+    if let spacing = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
+      KeyboardLayoutPreference.rowSpacing = spacing / 10
+    }
+    if let voice = preferences["touch_voice_shortcut"] as? Bool {
+      KeyboardLayoutPreference.voiceShortcutEnabled = voice
+    }
+    if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
+       adjustment.isFinite {
+      sharedKeyboardHeightAdjustment = CGFloat(min(48, max(-12, adjustment)))
+    }
+
+    var selectedScheme: ChineseInputScheme?
+    if let schemes = preferences["touch_keyboard_schemes"] as? [String: Any] {
+      let enabled = (schemes["enabled"] as? [String] ?? []).compactMap(Self.sharedInputScheme)
+      if !enabled.isEmpty { InputSchemePreference.enabledSchemes = enabled }
+      selectedScheme = (schemes["selected"] as? String).flatMap(Self.sharedInputScheme)
+    }
+    if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
+      selectInputScheme(selectedScheme)
+    }
+    if skinChanged { applyKeyboardSkin() }
+    applyLayoutPreferences()
+    updateShortcutButtons()
+    updatePreferredKeyboardHeight()
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
@@ -2360,7 +2421,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let height: CGFloat = handwriting.isHidden
       ? (landscape ? 216 + extra : 260 + extra)
       : (landscape ? 260 + extra : 360 + extra)
-    if keyboardHeightConstraint?.constant != height { keyboardHeightConstraint?.constant = height }
+    let adjustedHeight = height + sharedKeyboardHeightAdjustment
+    if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
   }
 
   private func showClipboardHistory() {
