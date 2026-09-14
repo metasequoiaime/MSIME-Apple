@@ -592,6 +592,36 @@ BOOL CCompositionProcessorEngine::IsPunctuation(WCHAR wch)
 
 namespace
 {
+// Japanese mode reserves '-' for the long-vowel mark (ー) instead of
+// candidate paging. The server/engine receives the raw '-' and supplies the
+// generated ー / '-' candidates.
+bool IsJapaneseLongVowelKey(UINT uCode, WCHAR wch)
+{
+    return uCode == VK_OEM_MINUS && wch == L'-' &&
+           Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
+}
+
+// In Japanese mode '=' and non-long-vowel '-' are punctuation rather than
+// candidate paging keys, but only while an existing composition/candidate is
+// active. With an empty buffer the host application still owns punctuation.
+bool IsJapaneseMinusEqualPunctuationKey(UINT uCode, WCHAR wch, BOOL fComposing, CANDIDATE_MODE candidateMode,
+                                        DWORD_PTR keystrokeLength)
+{
+    if (uCode != VK_OEM_MINUS && uCode != VK_OEM_PLUS)
+    {
+        return false;
+    }
+    if (keystrokeLength == 0 || !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed))
+    {
+        return false;
+    }
+    if (IsJapaneseLongVowelKey(uCode, wch))
+    {
+        return false;
+    }
+    return fComposing || candidateMode != CANDIDATE_NONE;
+}
+
 bool IsCommitWithHighlightedCandidatePunctuationInCandidateMode(UINT uCode, WCHAR wch, CANDIDATE_MODE candidateMode)
 {
     if (candidateMode == CANDIDATE_NONE)
@@ -2007,6 +2037,17 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeedForFreshComposition(UINT uCode
         }
         return TRUE;
     }
+    // Japanese '-' starts a fresh composition so the server can expose the
+    // long-vowel mark (ー) and the literal hyphen as candidates.
+    if (IsJapaneseLongVowelKey(uCode, pwch ? *pwch : 0))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_INPUT;
+        }
+        return TRUE;
+    }
     if (IsVirtualKeyKeystrokeComposition(uCode, pKeyState, FUNCTION_INPUT))
     {
         return TRUE;
@@ -2102,14 +2143,37 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         return TRUE;
     }
 
+    if (IsJapaneseLongVowelKey(uCode, pwch ? *pwch : 0))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_INPUT;
+        }
+        return TRUE;
+    }
+
+    if (IsJapaneseMinusEqualPunctuationKey(uCode, pwch ? *pwch : 0, fComposing, candidateMode,
+                                           _keystrokeBuffer.GetLength()))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_PUNCTUATION;
+        }
+        return TRUE;
+    }
+
     // The Server owns the configurable comma/period behavior. Always route
     // these keys through it while candidates are active; its response decides
     // whether the key navigates or commits the highlighted candidate with punctuation.
     const bool isCommaPeriodPagingKey = uCode == VK_OEM_COMMA || uCode == VK_OEM_PERIOD;
     const bool isBracketPagingKey = uCode == VK_OEM_4 || uCode == VK_OEM_6;
+    const bool isMinusEqualPagingKey = (uCode == VK_OEM_MINUS || uCode == VK_OEM_PLUS) &&
+                                       !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
     if (candidateMode != CANDIDATE_NONE &&
-        (uCode == VK_OEM_MINUS || uCode == VK_OEM_PLUS || isCommaPeriodPagingKey || isBracketPagingKey ||
-         uCode == VK_TAB || uCode == VK_PRIOR || uCode == VK_NEXT || uCode == VK_UP || uCode == VK_DOWN))
+        (isMinusEqualPagingKey || isCommaPeriodPagingKey || isBracketPagingKey || uCode == VK_TAB ||
+         uCode == VK_PRIOR || uCode == VK_NEXT || uCode == VK_UP || uCode == VK_DOWN))
     {
         if (IsUnicodeModeComposition() && _keystrokeBuffer.GetLength() == 1 && uCode == VK_OEM_PLUS && pwch &&
             *pwch == L'+')
