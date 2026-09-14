@@ -818,6 +818,11 @@ int wmain(int argc, wchar_t **argv) {
         throw std::runtime_error("Candidate paging failed");
     });
     ModeClickWorker mode_clicks([&](const ModeClick &click) {
+      if (click.mode == WorkerMode::English && server.dedicated_english_state(click.lease).value_or(false)) {
+        if (!server.exit_dedicated_english(click.lease))
+          throw std::runtime_error("Dedicated English exit failed");
+        return;
+      }
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
         throw std::runtime_error("Mode request failed");
     });

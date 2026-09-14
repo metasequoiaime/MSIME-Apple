@@ -61,6 +61,9 @@ public:
   std::optional<bool> dedicated_english_state(const FocusLease &lease) {
     return controller_->dedicated_english_state(lease);
   }
+  bool exit_dedicated_english(const FocusLease &lease) {
+    return controller_->exit_dedicated_english(lease);
+  }
   bool send_tsf_config(const FocusLease &lease, const TsfLocalConfig &config) {
     return controller_->send_tsf_config(lease, config);
   }

@@ -62,6 +62,8 @@ public:
   // External worker only: reads Engine state on its owning input queue.
   // Empty means stale, busy or unavailable; never a guessed mode.
   std::optional<bool> dedicated_english_state(const FocusLease &lease);
+  // Exit the Engine's dedicated-English mode for this exact focus lease.
+  bool exit_dedicated_english(const FocusLease &lease);
   // Control-thread lease validation, not a best-effort UI snapshot. Waits for
   // an existing focus transaction instead of treating a busy gate as loss.
   bool focus_current(const FocusLease &lease);
