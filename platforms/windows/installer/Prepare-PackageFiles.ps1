@@ -69,6 +69,12 @@ $desktopSource = if ([IO.Path]::IsPathRooted($DesktopExecutable)) {
     Join-Path $RepoRoot $DesktopExecutable
 }
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
+if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
+    $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
+}
+if (-not $Tsf64ReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
+    $Tsf64ReleaseDirectory = 'target/windows-full/x64/bin'
+}
 $tsf32Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.dll')
 $tsf64Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.dll')
 $tsf32Pdb = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.pdb')
@@ -82,6 +88,8 @@ if ($Tsf64ReleaseDirectory) {
     $tsf64Pdb = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
 }
 $webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
+$tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) 'msime_host_api.dll'
+$tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) 'msime_host_api.dll'
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
@@ -114,6 +122,11 @@ Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DL
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
+foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
+    if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
+        throw '缺少对应架构 TSF 的 msime_host_api.dll'
+    }
+}
 $serverExecutables = @(
     Get-ChildItem -LiteralPath $serverRelease -Recurse -File -Filter '*.exe' |
         Where-Object { -not (Test-PackageTestArtifact -BaseName $_.BaseName) }
@@ -295,6 +308,8 @@ Copy-Item -LiteralPath $tsf32Release -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf32Pdb -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
+Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
+Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
 # rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime.db, so the
 # notice has to reach the user's disk rather than only exist in the source repository.

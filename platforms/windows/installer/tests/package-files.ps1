@@ -53,6 +53,8 @@ try {
         'ui-html/webview2/ftb/index.html',
         'ui-html/webview2/settings/ime-settings/dist/index.html'
     )) { Write-Fixture $file }
+    Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
     Write-Fixture 'server/assets/tables/pinyin.txt' 'xing'
     Write-Fixture 'MetasequoiaImeDict/out/dictionary-manifest.json' '{"manifest_version":1}'
     $english = Join-Path $fixture 'MetasequoiaImeDict/out/english.db'
@@ -129,6 +131,22 @@ try {
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
     $database = Join-Path $installer 'app_data/msime.db'
     [IO.File]::WriteAllText($database, 'preserved user data')
+    foreach ($arch in @('32', '64')) {
+        $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
+        $packagedHost = Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"
+        if ([IO.File]::ReadAllText($packagedHost) -ne $expected) { throw 'TSF Host DLL architecture mapping mismatch' }
+        $sourceHost = Join-Path $fixture "windows/build$arch-release/Release/msime_host_api.dll"
+        Remove-Item -LiteralPath $sourceHost
+        foreach ($lightMode in @($false, $true)) {
+            $rejected = $false
+            try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light:$lightMode }
+            catch { $rejected = $_.Exception.Message -match 'msime_host_api.dll' }
+            if (-not $rejected) { throw 'Missing TSF Host DLL accepted' }
+            if ([IO.File]::ReadAllText($database) -ne 'preserved user data' -or
+                [IO.File]::ReadAllText($packagedHost) -ne $expected) { throw 'Missing Host DLL damaged previous staging' }
+        }
+        [IO.File]::WriteAllText($sourceHost, $expected)
+    }
     $watchdog = Join-Path $fixture 'server/build-release/bin/Release/MetasequoiaImeWatchdog.exe'
     Remove-Item -LiteralPath $watchdog
     $rejected = $false
@@ -146,6 +164,12 @@ try {
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
+    foreach ($arch in @('32', '64')) {
+        $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/msime_host_api.dll")) -ne $expected) {
+            throw 'Light package lost matching TSF Host DLL'
+        }
+    }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-prepare.exe'))) { throw 'Light package lost preparation tool' }
     foreach ($testFile in @('windows-first-run.exe', 'nested/windows-server-launch.exe', 'nested/windows-server-launch.pdb')) {
         if (Test-Path (Join-Path $installer "server_exe/$testFile")) { throw 'Light package contains a Client test artifact' }
@@ -192,6 +216,28 @@ try {
         if (-not (Test-Path $database) -or [IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Invalid factory configuration damaged previous staging' }
     }
     [IO.File]::WriteAllText($factory, $originalFactory)
+    foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
+        $native = Join-Path $fixture "target/windows-full/$($mapping[1])/bin"
+        New-Item -ItemType Directory -Force $native | Out-Null
+        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb')) {
+            Copy-Item (Join-Path $fixture "windows/build$($mapping[0])-release/Release/$name") $native
+        }
+        [IO.File]::WriteAllText((Join-Path $native 'msime_host_api.dll'), "native $($mapping[1]) host")
+    }
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory 'server/build-release/bin/Release'
+    foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api.dll")) -ne "native $($mapping[1]) host") {
+            throw 'Native build directory default was not selected'
+        }
+    }
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light `
+        -ServerReleaseDirectory 'server/build-release/bin/Release' `
+        -Tsf32ReleaseDirectory 'windows/build32-release/Release' -Tsf64ReleaseDirectory 'windows/build64-release/Release'
+    foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api.dll")) -ne "synthetic $($mapping[1]) host") {
+            throw 'Explicit TSF directory override was ignored'
+        }
+    }
     if (-not (Test-Path (Join-Path $installer 'app_data/html/webview2/shared/runtime.js'))) { throw 'Light package lost shared contracts' }
     Remove-Item (Join-Path $fixture 'ui-html/webview2/shared') -Recurse -Force
     $rejected = $false
