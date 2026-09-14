@@ -61,6 +61,7 @@ private:
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 rust::Vec<float> capture_audio(std::uint32_t milliseconds);
+rust::Vec<rust::String> capture_device_names();
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
 rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text);
 rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables);

@@ -168,7 +168,7 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows
             ),
-            voice_capture_devices: platform == HostPlatform::Linux,
+            voice_capture_devices: matches!(platform, HostPlatform::Linux | HostPlatform::Windows),
             // Native Windows/macOS candidate windows consume the shared font
             // controls; IBus lookup tables and mobile hosts do not expose them.
             candidate_font_controls: matches!(

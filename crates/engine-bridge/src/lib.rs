@@ -178,6 +178,7 @@ mod ffi {
         /// platform-neutral AudioCapture implementation. An empty result
         /// means the host could not open a capture device.
         fn capture_audio(milliseconds: u32) -> Vec<f32>;
+        fn capture_device_names() -> Vec<String>;
         fn dictionary_entries(
             options: &EngineOptions,
             offset: usize,
@@ -332,6 +333,11 @@ pub fn dictionary_entries(
 /// samples; the caller owns session cancellation and provider transport.
 pub fn capture_audio(milliseconds: u32) -> Vec<f32> {
     ffi::capture_audio(milliseconds)
+}
+
+/// Enumerate capture devices without opening one or exposing device handles.
+pub fn capture_device_names() -> Vec<String> {
+    ffi::capture_device_names()
 }
 
 /// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the

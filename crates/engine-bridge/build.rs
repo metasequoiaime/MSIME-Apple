@@ -109,6 +109,7 @@ fn main() {
     bridge
         .file("native/bridge.cpp")
         .include("../../vendor/MSIME-Engine/voice/include")
+        .include("../../vendor/MSIME-Engine/voice/third_party/miniaudio")
         .include("native")
         .include(&engine)
         .include(engine.join("include"));
