@@ -3933,7 +3933,9 @@ mod tests {
                 "asr_token": "private-token"
             }}
         });
-        let options = super::voice_provider_options(&document).unwrap();
+        let result = super::voice_provider_options(&document);
+        assert!(result.is_ok());
+        let options = result.ok().expect("voice options should be valid");
         assert_eq!(options.get("doubao_auth_mode").and_then(|v| v.as_str()), Some("legacy"));
         assert!(options.get("asr_app_key").is_none());
         assert!(options.get("asr_token").is_none());
@@ -3941,7 +3943,9 @@ mod tests {
         let document = serde_json::json!({
             "preferences": {"voice_input": {"doubao_auth_mode": "unknown"}}
         });
-        let options = super::voice_provider_options(&document).unwrap();
+        let result = super::voice_provider_options(&document);
+        assert!(result.is_ok());
+        let options = result.ok().expect("voice options should be valid");
         assert!(options.get("doubao_auth_mode").is_none());
     }
 
