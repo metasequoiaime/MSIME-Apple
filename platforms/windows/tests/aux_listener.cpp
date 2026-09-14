@@ -41,6 +41,37 @@ bool send_like_tsf(const std::wstring &name, const std::wstring &message) {
   }
   return false;
 }
+// The DLL does not just write: after a TerminalDeactivation it waits on the
+// same handle for a literal "OK". Reading the reply back is the only way to
+// tell an acknowledged teardown from a silently dropped one.
+std::wstring send_and_read_reply(const std::wstring &name,
+                                 const std::wstring &message) {
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    HANDLE pipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                              nullptr, OPEN_EXISTING,
+                              SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                              nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) {
+      Sleep(20);
+      continue;
+    }
+    DWORD written = 0;
+    const DWORD size = static_cast<DWORD>(message.size() * sizeof(wchar_t));
+    if (!WriteFile(pipe, message.data(), size, &written, nullptr) ||
+        written != size) {
+      CloseHandle(pipe);
+      return {};
+    }
+    wchar_t reply[8]{};
+    DWORD read = 0;
+    const BOOL ok = ReadFile(pipe, reply, sizeof(reply), &read, nullptr);
+    CloseHandle(pipe);
+    if (!ok || read < sizeof(wchar_t))
+      return {};
+    return std::wstring(reply, read / sizeof(wchar_t));
+  }
+  return {};
+}
 // The DLL writes one message and closes immediately, so the Server must already
 // be parked in accept() to catch it; otherwise ConnectNamedPipe reports
 // ERROR_NO_DATA and the message is lost. A long-running Server satisfies that,
@@ -93,6 +124,13 @@ int main() {
       DWORD error = ERROR_SUCCESS;
       std::atomic<int> activations{0};
       std::atomic<int> deactivations{0};
+      // The terminal sink stands in for the Server's deactivation path. It
+      // records what it was asked and answers what the test tells it to, so
+      // both outcomes can be checked at the wire.
+      std::atomic<bool> deactivated{false};
+      std::atomic<int32_t> seen_client{0};
+      std::atomic<int32_t> seen_token{0};
+      std::atomic<uint64_t> terminal_calls{0};
       auto listener = AuxListener::create(
           name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
           [&](AuxActivation activation) {
@@ -100,6 +138,12 @@ int main() {
               ++activations;
             else
               ++deactivations;
+          },
+          [&](const AuxTerminalDeactivation &terminal) {
+            seen_client.store(terminal.client_id);
+            seen_token.store(terminal.focus_token);
+            ++terminal_calls;
+            return deactivated.load();
           });
       require(listener != nullptr);
       const auto dispatched = [&] { return listener->stats().dispatched; };
@@ -132,10 +176,26 @@ int main() {
       require(deliver(name, L"SomethingElse|1",
                       [&] { return listener->stats().unknown_verb; }, 1));
       require(listener->stats().unknown_verb == 1);
-      // TerminalDeactivation parses but is deliberately not acknowledged while
-      // no deactivation path exists, so it counts as unhandled.
+      // A deactivation that did not happen must not be acknowledged: the DLL
+      // would take an "OK" as proof of a teardown. It counts as unhandled and
+      // nothing is written back.
+      deactivated.store(false);
+      require(send_and_read_reply(name, L"TerminalDeactivation|7|42").empty());
       require(deliver(name, L"TerminalDeactivation|7|42",
-                      [&] { return listener->stats().unknown_verb; }, 2));
+                      [&] { return listener->stats().unknown_verb; }, 3));
+      // The sink is told exactly which client and focus token the DLL named.
+      require(seen_client.load() == 7 && seen_token.load() == 42);
+
+      // Once the client really is gone, the "OK" the DLL is polling for is
+      // written back on the same connection, so it stops waiting out its
+      // 150 ms.
+      deactivated.store(true);
+      const auto before = terminal_calls.load();
+      require(send_and_read_reply(name, L"TerminalDeactivation|9|11") == L"OK");
+      require(terminal_calls.load() > before);
+      require(seen_client.load() == 9 && seen_token.load() == 11);
+      // An acknowledged deactivation is dispatched work, not an unknown verb.
+      require(listener->stats().unknown_verb == 3);
       require(deliver(name, L"LangbarRightClick|10|10|50|50", dispatched, 9));
       require(collected.wait_for(7));
 

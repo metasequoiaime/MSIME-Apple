@@ -1008,13 +1008,18 @@ int wmain(int argc, wchar_t **argv) {
         [&ime_active](AuxActivation activation) {
           ime_active.store(activation == AuxActivation::Activated,
                            std::memory_order_release);
+        },
+        // The DLL falls back to this when its Main-pipe deactivate write
+        // fails, then polls for a literal "OK" for up to 150 ms - blocking the
+        // sending TSF thread for that whole window when nobody answers. The
+        // answer is only sent once the named client really is not focused
+        // under that token, so an "OK" never reports a teardown that did not
+        // happen.
+        [&server](const AuxTerminalDeactivation &terminal) {
+          return server.deactivate_terminal(
+              static_cast<uint64_t>(terminal.client_id),
+              static_cast<uint64_t>(terminal.focus_token));
         });
-    // TerminalDeactivation is parsed and routed, but deliberately left
-    // unacknowledged: there is no path in this Server that can deactivate a
-    // client by focus token yet, and replying "OK" would tell the DLL a
-    // teardown happened that did not. The 150 ms wait it then takes is the
-    // lesser problem, and the listener now has the hook ready for when the
-    // registry grows that operation.
     // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
     // it; nothing ever listened, so enabling diagnostic logging produced
     // nothing at all. Session-less like the Aux endpoint, because a TIP that

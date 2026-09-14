@@ -45,6 +45,10 @@ public:
   CandidatePageRequestResult request_page(const CandidatePage &page) {
     return controller_->request_page(page);
   }
+  // The Aux pipe's TerminalDeactivation fallback; see SessionController.
+  bool deactivate_terminal(uint64_t client, uint64_t token) {
+    return controller_->deactivate_terminal(client, token);
+  }
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }
