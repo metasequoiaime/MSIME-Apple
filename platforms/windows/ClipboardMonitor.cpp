@@ -57,8 +57,9 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
       }
     }
     monitor->sequence_ = sequence;
-    if (auto utf8 = wide_to_utf8(value); !utf8.empty() &&
-        monitor->history_.add(utf8) && monitor->callback_)
+    // The callback owns persistence through client-core. Writing the legacy
+    // string-array archive here would discard Tauri's structured entries.
+    if (auto utf8 = wide_to_utf8(value); !utf8.empty() && monitor->callback_)
       monitor->callback_(std::move(utf8));
     return 0;
   }

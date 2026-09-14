@@ -792,7 +792,17 @@ int wmain(int argc, wchar_t **argv) {
         },
         [&] { return server.mode_view().has_value(); });
     ClipboardMonitor clipboard_monitor(
-        clipboard_history, [](std::string) {});
+        clipboard_history, [&](std::string text) {
+          const auto request = nlohmann::json{
+              {"directory", config.state_root.u8string()},
+              {"text", normalize_clipboard_text(std::move(text))}}.dump();
+          // The shared writer preserves pinned entries, timestamps and the
+          // preference/history locking used by the Tauri panel.
+          std::unique_ptr<char, decltype(&msime_client_string_free)> reply(
+              msime_client_capture_clipboard_history(
+                  reinterpret_cast<const uint8_t *>(request.data()), request.size()),
+              msime_client_string_free);
+        });
     // Clipboard history is an optional convenience, so a monitor that cannot
     // start leaves it inert rather than taking the IME down with it. Failing
     // here used to cost the user all text input because a message-only window
