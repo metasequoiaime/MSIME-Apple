@@ -46,8 +46,13 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
       simplified_to_traditional(delta, traditional_output_);
-  PendingReply next{result, std::nullopt, prefix_, std::nullopt, std::nullopt,
-                    std::nullopt, traditional_output_};
+  // By name, not by position: PendingReply has gained fields twice, and a
+  // positional list silently shifts every value past the new one rather than
+  // failing to compile.
+  PendingReply next;
+  next.source = result;
+  next.next_prefix = prefix_;
+  next.traditional_output = traditional_output_;
   const auto invalid = [&] {
     next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
   };
@@ -330,9 +335,10 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       simplified_to_traditional(delta, traditional_output_);
   const auto &next_view = transition.at("view");
   const auto raw = next_view.at("editing_text").get<std::string>();
-  PendingReply next{
-      {client_, epoch_, 0, true, std::move(transition)}, std::nullopt, prefix_,
-      std::nullopt, std::nullopt, std::nullopt, traditional_output_};
+  PendingReply next;
+  next.source = {client_, epoch_, 0, true, std::move(transition)};
+  next.next_prefix = prefix_;
+  next.traditional_output = traditional_output_;
   if (delta.empty())
     next.ui_selection = ui_rejected_selection();
   else if (raw.empty()) {
