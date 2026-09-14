@@ -234,6 +234,16 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     Err(CommandError { code: "unavailable" })
 }
 
+#[tauri::command]
+async fn capture_voice_pcm(milliseconds: u32) -> Result<Vec<f32>, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::voice_capture_pcm(milliseconds)
+            .map_err(|code| CommandError { code })
+    })
+    .await
+    .map_err(|_| CommandError { code: "audio_capture" })?
+}
+
 #[derive(Clone)]
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
@@ -4015,6 +4025,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             host_capabilities,
             list_voice_capture_devices,
+            capture_voice_pcm,
             supports_font_catalog,
             initial_settings_page,
             list_font_families,

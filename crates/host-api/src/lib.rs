@@ -58,6 +58,18 @@ pub fn voice_capture_device_names() -> Vec<String> {
     msime_engine_bridge::capture_device_names()
 }
 
+/// Capture bounded mono 16 kHz PCM for a platform host.
+pub fn voice_capture_pcm(milliseconds: u32) -> Result<Vec<f32>, &'static str> {
+    if !(1..=60_000).contains(&milliseconds) {
+        return Err("invalid voice capture duration");
+    }
+    let samples = msime_engine_bridge::capture_audio(milliseconds);
+    if samples.is_empty() {
+        return Err("voice capture unavailable");
+    }
+    Ok(samples)
+}
+
 /// Run the optional offline Engine handwriting recognizer for a panel host.
 /// The caller must provide a trusted absolute model path; strokes are copied
 /// before crossing the C++ bridge. The shared panel uses a 420 by 420 canvas,
