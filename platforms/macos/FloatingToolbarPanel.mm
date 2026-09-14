@@ -218,8 +218,11 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     self.hidesOnDeactivate = NO;
     self.becomesKeyOnlyIfNeeded = YES;
     self.movableByWindowBackground = YES;
-    self.collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    // Keep the toolbar on ordinary Spaces without opting it into another
+    // app's full-screen Space. Candidate and panel windows remain auxiliary;
+    // the toolbar itself should disappear while a full-screen app owns the
+    // display, matching the Windows foreground policy.
+    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces;
     [self setFrameAutosaveName:kToolbarFrameAutosaveName];
     // The autosave name only writes the frame out; a programmatically created window has to read it back itself, and
     // force: is required because this panel is borderless and therefore not resizable.

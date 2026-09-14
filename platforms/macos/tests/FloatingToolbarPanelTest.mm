@@ -65,6 +65,8 @@ int main() {
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        assert((panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
+        assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) == 0);
         [panel applyThemePreferences:@{}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
