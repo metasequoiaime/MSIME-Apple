@@ -175,7 +175,15 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     find_library(CARBON_FRAMEWORK Carbon REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
 
-    set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+    # 默认放构建目录,删掉 build 就一起没了 —— CI 每个 job 因此都要重新下载一次,于是每个 job 都独立
+    # 暴露在发布主机的可用性下。指向一个可缓存的目录就只在版本变化时下载一次。
+    set(METASEQUOIA_SPARKLE_CACHE_DIR "$ENV{METASEQUOIA_SPARKLE_CACHE_DIR}"
+        CACHE PATH "Directory that keeps the downloaded Sparkle archive across builds")
+    if(METASEQUOIA_SPARKLE_CACHE_DIR)
+        set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${METASEQUOIA_SPARKLE_CACHE_DIR}")
+    else()
+        set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+    endif()
     set(METASEQUOIA_SPARKLE_ARCHIVE
         "${METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY}/Sparkle-${METASEQUOIA_SPARKLE_VERSION}.tar.xz")
     set(METASEQUOIA_SPARKLE_ROOT
@@ -198,7 +206,9 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         # reach its second attempt. The archive is fetched unverified and the same hash is then checked
         # separately, which fails just as loudly on a truncated or substituted file.
         set(METASEQUOIA_SPARKLE_DOWNLOAD_CODE 1)
-        foreach(attempt RANGE 1 3)
+        # 5 次、间隔 5/10/20/40s。原来是 3 次共 15 秒,连一次几十秒的抖动都跨不过去。真正不再依赖
+        # 下载的是上面那个缓存目录,这里只负责冷缓存那一次别被瞬时 5xx 打掉。
+        foreach(attempt RANGE 1 5)
             file(DOWNLOAD "${METASEQUOIA_SPARKLE_URL}" "${METASEQUOIA_SPARKLE_ARCHIVE}"
                 TLS_VERIFY ON
                 STATUS METASEQUOIA_SPARKLE_DOWNLOAD_STATUS
@@ -207,7 +217,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             if(METASEQUOIA_SPARKLE_DOWNLOAD_CODE EQUAL 0)
                 break()
             endif()
-            if(attempt LESS 3)
+            if(attempt LESS 5)
                 math(EXPR METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE "5 * (1 << (${attempt} - 1))")
                 message(STATUS "Sparkle download failed (${METASEQUOIA_SPARKLE_DOWNLOAD_STATUS}); retrying in ${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}s")
                 execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep "${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}")
