@@ -7,6 +7,7 @@
 #include "CandidateWindow.h"
 #include "ClipboardHistory.h"
 #include "DiagnosticListener.h"
+#include "DedicatedEnglishMailbox.h"
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "FloatingToolbarWindow.h"
 #include "FullscreenForeground.h"
@@ -584,12 +585,6 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
             .value("enabled", true));
-    // The Engine's own English mode, which the toolbar marks with an
-    // underlined "En". Published like the rest rather than read once, or the
-    // button would only follow the setting across a restart.
-    auto dedicated_english = std::make_shared<std::atomic<bool>>(
-        prepared.at("value").at("preferences")
-            .value("default_ime_mode", std::string("chinese")) == "english");
     // 候选窗口跟随光标, likewise published rather than read once.
     auto follow_cursor = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
@@ -618,7 +613,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, dedicated_english, follow_cursor, voice_light, candidate_fonts,
+         toolbar_enabled, follow_cursor, voice_light, candidate_fonts,
          toolbar_light, menu_light, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
          tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
@@ -686,10 +681,6 @@ int wmain(int argc, wchar_t **argv) {
               preferences.value("floating_toolbar", nlohmann::json::object());
           toolbar_enabled->store(toolbar_preferences.value("enabled", true),
                                  std::memory_order_release);
-          dedicated_english->store(
-              preferences.value("default_ime_mode", std::string("chinese")) ==
-                  "english",
-              std::memory_order_release);
           follow_cursor->store(
               preferences.value("candidate_follow_cursor", true),
               std::memory_order_release);
@@ -830,6 +821,12 @@ int wmain(int argc, wchar_t **argv) {
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
         throw std::runtime_error("Mode request failed");
     });
+    DedicatedEnglishMailbox english_state;
+    SingleClickWorker<FocusLease> english_reads([&](const FocusLease &lease) {
+      if (auto value = server.dedicated_english_state(lease))
+        english_state.publish(lease, *value);
+    });
+    uint64_t english_read_at = 0;
     CharacterSetClickWorker character_set_clicks(
         [traditional_output, directory = config.state_root](
             const CharacterSetClick &) {
@@ -841,18 +838,21 @@ int wmain(int argc, wchar_t **argv) {
       CandidatePageWorker &pages;
       ModeClickWorker &modes;
       CharacterSetClickWorker &character_sets;
+      SingleClickWorker<FocusLease> &english;
       ~ClickShutdown() {
         clicks.request_stop();
         pages.request_stop();
         modes.request_stop();
         character_sets.request_stop();
+        english.request_stop();
         server.request_stop();
         clicks.stop();
         pages.stop();
         modes.stop();
         character_sets.stop();
+        english.stop();
       }
-    } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks};
+    } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks, english_reads};
     std::optional<COLORREF> candidate_text_color;
     if (!config.candidate_text_color.empty() && config.candidate_text_color != "auto" &&
         config.candidate_text_color != "none") {
@@ -1164,7 +1164,7 @@ int wmain(int argc, wchar_t **argv) {
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !modes.failed() && !mode_clicks.failed() &&
-           !character_set_clicks.failed() && !toolbar.failed()) {
+           !character_set_clicks.failed() && !english_reads.failed() && !toolbar.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -1291,8 +1291,12 @@ int wmain(int argc, wchar_t **argv) {
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);
-        language.dedicated_english =
-            dedicated_english->load(std::memory_order_acquire);
+        if (const auto view = server.mode_view()) {
+          language.dedicated_english = english_state.snapshot(view->lease).value_or(false);
+          const auto now = GetTickCount64();
+          if (now >= english_read_at && english_reads.submit(view->lease))
+            english_read_at = now + 250;
+        }
         {
           std::lock_guard<std::mutex> lock(*tsf_config_mutex);
           language.japanese = tsf_config->japanese_input_mode;
@@ -1365,16 +1369,18 @@ int wmain(int argc, wchar_t **argv) {
     clicks.request_stop();
     character_set_clicks.request_stop();
     mode_clicks.request_stop();
+    english_reads.request_stop();
     server.stop();
     clicks.stop();
     character_set_clicks.stop();
     mode_clicks.stop();
+    english_reads.stop();
     if (restart_requested.load())
       return msime::windows::watchdog::restart_exit_code;
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
                    !modes.failed() && !mode_clicks.failed() &&
-                   !character_set_clicks.failed()
+                   !character_set_clicks.failed() && !english_reads.failed()
                ? 0
                : 1;
   } catch (...) {

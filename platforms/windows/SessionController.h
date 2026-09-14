@@ -59,6 +59,9 @@ public:
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
   std::optional<ModePresentation> mode_view();
+  // External worker only: reads Engine state on its owning input queue.
+  // Empty means stale, busy or unavailable; never a guessed mode.
+  std::optional<bool> dedicated_english_state(const FocusLease &lease);
   // Control-thread lease validation, not a best-effort UI snapshot. Waits for
   // an existing focus transaction instead of treating a busy gate as loss.
   bool focus_current(const FocusLease &lease);

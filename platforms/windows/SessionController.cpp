@@ -348,6 +348,27 @@ std::optional<ModePresentation> SessionController::mode_view() {
     return std::nullopt;
   return value;
 }
+std::optional<bool>
+SessionController::dedicated_english_state(const FocusLease &lease) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Mode state read cannot reenter controller callbacks");
+  if (stopping_) return std::nullopt;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock()) return std::nullopt;
+  std::optional<bool> result;
+  try {
+    auto read = input_.submit([&](InputState &state) {
+      if (stopping_ || !transport_.current(lease.transport)) return;
+      if (auto view = state.dedicated_english(lease, false))
+        result = view->at("dedicated_english").get<bool>();
+    });
+    if (!read || read->get() != InputTaskStatus::Completed || stopping_)
+      return std::nullopt;
+    return result;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
 bool SessionController::focus_current(const FocusLease &lease) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error(
