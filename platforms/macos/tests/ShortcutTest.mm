@@ -789,10 +789,10 @@ static void TestMixedInputPreferences() {
     NSString *suite = [@"msime.mixed-input." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 2 &&
+    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
            !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
     NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
-    assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@2] &&
+    assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@5] &&
            [initial[@"emoji"] isEqual:@NO] && [initial[@"kaomoji"] isEqual:@NO]);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
         @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES } }];

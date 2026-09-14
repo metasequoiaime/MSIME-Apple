@@ -939,7 +939,7 @@ mod tests {
             frequency_trigger_count: 1,
             frequency_linear_step: 1,
             mixed_english: true,
-            english_minimum_prefix: 2,
+            english_minimum_prefix: 5,
             mixed_emoji: false,
             mixed_kaomoji: false,
             local_unicode: true,
