@@ -211,6 +211,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     uint64_t _httpVoiceGeneration;
     BOOL _httpVoiceProcessing;
     MSIMEDoubaoVoiceRequest *_doubaoVoiceRequest;
+    MSIMEHTTPVoiceRequest *_doubaoPolishRequest;
+    BOOL _doubaoFinalReceived;
     MSIMEClientSession *_doubaoVoiceSession;
     id _doubaoVoiceClient;
     uint64_t _doubaoVoiceGeneration;
@@ -919,7 +921,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
         [provider.lowercaseString isEqual:@"doubao"];
 }
-- (void)dealloc { [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; }
+- (void)dealloc { [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; }
+- (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
+    if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
+    return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
+}
+- (void)applyDoubaoFinalText:(NSString *)text request:(MSIMEDoubaoVoiceRequest *)request {
+    if (_doubaoVoiceRequest != request) return;
+    if ([self ownsDoubaoVoiceFocus]) {
+        NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
+        if (result) { _doubaoVoiceMarked = NO; [self apply:result]; }
+    }
+    [self cancelDoubaoVoiceInput];
+}
 - (MSIMEDoubaoVoiceRequest *)makeDoubaoVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     return [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options error:error];
 }
@@ -932,6 +946,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_doubaoVoiceMarked && [self ownsDoubaoVoiceFocus])
         [(id<MSIMETextClient>)_doubaoVoiceClient setMarkedText:@"" selectionRange:NSMakeRange(0, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     [_doubaoVoiceRequest cancel];
+    [_doubaoPolishRequest cancel];
+    _doubaoPolishRequest = nil;
+    _doubaoFinalReceived = NO;
     _doubaoVoiceRequest = nil;
     _doubaoVoiceSession = nil;
     _doubaoVoiceClient = nil;
@@ -951,6 +968,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     [self apply:finished];
     _doubaoVoiceRequest = request;
+    _doubaoPolishRequest = [self makeDoubaoPolishRequest:options];
+    _doubaoFinalReceived = NO;
     _doubaoVoiceSession = _session;
     _doubaoVoiceClient = _activeClient;
     _doubaoVoiceGeneration = _voiceGeneration;
@@ -964,6 +983,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
         if (!controller || !liveRequest || controller->_doubaoVoiceRequest != liveRequest) return;
         if (failure || ![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
+        if (controller->_doubaoFinalReceived) return;
         if (!final) {
             if (controller->_doubaoVoiceInline && text) {
                 [(id<MSIMETextClient>)controller->_doubaoVoiceClient setMarkedText:text selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
@@ -971,9 +991,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
             return; // Partial text must not consume the runtime's final-only token.
         }
-        NSDictionary *result = text.length ? [controller->_doubaoVoiceSession applyVoiceText:text generation:controller->_doubaoVoiceGeneration error:nil] : nil;
-        if (result) { controller->_doubaoVoiceMarked = NO; [controller apply:result]; }
-        [controller cancelDoubaoVoiceInput];
+        controller->_doubaoFinalReceived = YES;
+        MSIMEHTTPVoiceRequest *polisher = controller->_doubaoPolishRequest;
+        if (text.length && polisher && [polisher polishText:text completion:^(NSString *polished, NSError *polishError) {
+            [weakSelf applyDoubaoFinalText:!polishError && polished.length ? polished : text request:liveRequest];
+        } error:nil]) return;
+        [controller applyDoubaoFinalText:text request:liveRequest];
     } error:&error]) { [self cancelDoubaoVoiceInput]; return NO; }
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {

@@ -66,11 +66,31 @@
 }
 @end
 
+@interface DoubaoPolishFixture : NSObject
+@property(copy) void (^completion)(NSString *, NSError *);
+@property NSUInteger submissions;
+@property NSUInteger cancellations;
+- (BOOL)polishText:(NSString *)text completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
+- (void)cancel;
+@end
+@implementation DoubaoPolishFixture
+- (BOOL)polishText:(NSString *)text completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
+    (void)text; (void)error; ++self.submissions; self.completion = completion; return YES;
+}
+- (void)cancel { ++self.cancellations; }
+@end
+
 @interface DoubaoControllerFixture : MSIMEInputController
 @property DoubaoRequestFixture *fixture;
 @property BOOL failRequest;
+@property BOOL usePolishFixture;
+@property DoubaoPolishFixture *polishFixture;
 @end
 @implementation DoubaoControllerFixture
+- (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
+    if (!self.usePolishFixture) return [super makeDoubaoPolishRequest:options];
+    self.polishFixture = [DoubaoPolishFixture new]; return (id)self.polishFixture;
+}
 - (MSIMEDoubaoVoiceRequest *)makeDoubaoVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     (void)options; (void)error; self.fixture = [DoubaoRequestFixture new]; self.fixture.failStart = self.failRequest; return (id)self.fixture;
 }
@@ -172,6 +192,26 @@ int main() {
         [controller voiceProviderSettingsChanged:nil];
         assert(!capture.active);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
+        controller.usePolishFixture = YES;
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"unpolished", YES, nil);
+        controller.fixture.result(@"duplicate final", YES, nil);
+        assert(client.commits.count == 2 && controller.polishFixture.submissions == 1);
+        controller.polishFixture.completion(@"synthetic polished", nil);
+        assert(client.commits.count == 3 && [client.commits.lastObject isEqual:@"synthetic polished"]);
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"cancelled polish", YES, nil);
+        DoubaoPolishFixture *oldPolish = controller.polishFixture;
+        [controller cancelDoubaoVoiceInput];
+        assert(oldPolish.cancellations == 1);
+        assert(Start(controller, capture, session, YES));
+        oldPolish.completion(@"late polish", nil);
+        assert(capture.active && client.commits.count == 3);
+        controller.fixture.result(@"focus moved", YES, nil);
+        [controller setValue:[DoubaoTextFixture new] forKey:@"activeClient"];
+        controller.polishFixture.completion(@"wrong focus", nil);
+        assert(client.commits.count == 3);
+        [controller setValue:client forKey:@"activeClient"];
         assert([session closeWithError:nil]);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

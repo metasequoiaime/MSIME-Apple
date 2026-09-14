@@ -7,6 +7,9 @@
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 - (instancetype)initWithOptions:(NSDictionary *)options error:(NSError **)error;
+// Text-only optional polishing; no ASR provider or audio credentials required.
+- (instancetype)initWithPolishOptions:(NSDictionary *)options error:(NSError **)error;
+- (BOOL)polishText:(NSString *)text completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
 - (void)cancel;
 @end
