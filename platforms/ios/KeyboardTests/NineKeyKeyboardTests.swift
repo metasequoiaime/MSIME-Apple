@@ -1184,6 +1184,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  // 候选条能横向滚,所以放不下的候选应该滚出去,不是在 chip 里折成两行。
+  // A configuration-based UIButton wraps its title by default, so a chip the stack squeezed showed
+  // 晕了限制 as 晕了限 over 制 while a same-length neighbour stayed on one line.
+  func testCandidateChipsNeverWrapToASecondLine() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    // Narrow on purpose: the row has to be the constraint for a chip to be tempted to wrap.
+    controller.view.frame = CGRect(x: 0, y: 0, width: 320, height: 260 + KeyboardViewController.compositionRowHeight)
+    for character in "926439" {
+      try button("nineKey\(character)", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    let chips = descendants(controller.view).compactMap { view -> UIButton? in
+      guard let button = view as? UIButton, let identifier = button.accessibilityIdentifier,
+            identifier.hasPrefix("candidate-") else { return nil }
+      return button
+    }
+    XCTAssertFalse(chips.isEmpty, "The strip offered no candidate to measure.")
+    for chip in chips {
+      let label = try XCTUnwrap(chip.titleLabel)
+      XCTAssertEqual(label.numberOfLines, 1, "A candidate chip may take more than one line.")
+      XCTAssertLessThan(
+        label.bounds.height, label.font.lineHeight * 1.5,
+        "Candidate \(chip.accessibilityIdentifier ?? "?") wrapped instead of keeping its width.")
+    }
+  }
+
   func testNewCandidatesAndPagesReturnToLeadingCandidate() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
