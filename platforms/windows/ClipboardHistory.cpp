@@ -147,9 +147,11 @@ bool ClipboardHistory::add(std::string text) {
   return write_store(store_, items);
 }
 bool ClipboardHistory::remove(const std::string &text) {
+  const auto normalized = normalize_clipboard_text(text);
+  if (normalized.empty()) return false;
   StoreLock lock(store_); if (!lock) return false;
   auto items = read_store(store_); const auto before = items.size();
-  items.erase(std::remove(items.begin(), items.end(), text), items.end());
+  items.erase(std::remove(items.begin(), items.end(), normalized), items.end());
   if (items.size() == before) return false;
   return write_store(store_, items);
 }
