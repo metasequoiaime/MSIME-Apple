@@ -1903,6 +1903,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self resetCandidateAnchor];
         _modifierTap.reset();
         _preferenceLoadState.reset();
+        _pairedPunctuation.clear();
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
