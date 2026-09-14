@@ -86,6 +86,9 @@ else
   echo "vendored engine: at the recorded commit"
 fi
 
+note "default config contracts"
+python3 scripts/test-default-config-parity.py || fail "default config contracts"
+
 note "compile: rust workspace"
 cargo check --workspace --all-targets 2>&1 | tail -3
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
