@@ -1973,15 +1973,17 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                 .as_ref()
                 .map(|snapshot| &snapshot.preferences)
                 .unwrap_or(&session.applied);
+            // The limit has to come from the same config the descriptor is
+            // built from: chat_completion_http_request rejects a request whose
+            // limit disagrees with its config, and the query document's copy
+            // can lag the pending preferences this call is meant to follow.
+            let config = &preferences.ai_assistant;
             let request = AiSuggestionRequest {
                 segmented_pinyin: query.pinyin_segments,
                 context: query.ai_context,
-                candidate_limit: query
-                    .ai_assistant
-                    .as_ref()
-                    .map_or(3, |config| config.candidate_limit),
+                candidate_limit: config.candidate_limit,
             };
-            msime_client_core::ai::chat_completion_http_request(preferences, &request)
+            msime_client_core::ai::chat_completion_http_request(config, &request)
                 .map(|value| value.unwrap_or(Value::Null))
                 .map_err(|error| error.to_string())
         })
@@ -4549,6 +4551,9 @@ mod tests {
         preferences.ai_assistant.enabled = true;
         preferences.ai_assistant.model = "synthetic-original".into();
         preferences.ai_assistant.token = "synthetic-private".into();
+        // An enabled assistant with no endpoint has nowhere to send anything;
+        // a real one is always configured with the provider's URL.
+        preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
         let handle = test_host_preferences(dir.path(), preferences.clone());
         read(msime_client_focus(handle, true));
         for byte in b"nihaoshijie" {
