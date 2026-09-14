@@ -1750,7 +1750,7 @@ test("conflicts preserve edits and require an explicit reload", async () => {
   confirm.mockRestore();
 });
 
-test("applies external preference revisions when clean and preserves dirty edits", async () => {
+test.each(["windows", "macos", "linux"])("%s applies external preference revisions when clean and preserves dirty edits", async platform => {
   let changed: ((snapshot: Snapshot) => void) | undefined;
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
@@ -1759,6 +1759,7 @@ test("applies external preference revisions when clean and preserves dirty edits
       changed = listener;
       return () => { changed = undefined; };
     }),
+    host: { platform } as never,
   };
   render(<SettingsPage client={client} />);
   const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;

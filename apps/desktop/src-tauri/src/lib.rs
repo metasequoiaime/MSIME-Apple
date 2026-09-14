@@ -8,6 +8,8 @@ mod linux_clipboard;
 mod android_account;
 #[cfg(any(target_os = "macos", test))]
 mod macos_launch;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
+mod desktop_preferences_monitor;
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::custom_skin_library::{
@@ -800,7 +802,7 @@ fn sync_runtime_options(
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn start_desktop_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
@@ -810,31 +812,10 @@ fn start_desktop_preferences_monitor(
     let _ = std::thread::Builder::new()
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
-            let mut revision = store.load().ok().map(|snapshot| snapshot.revision);
-            let mut last_history: Option<Vec<String>> = None;
+            let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(750));
-                let Ok(snapshot) = store.load() else {
-                    continue;
-                };
-                let entries = if snapshot.preferences.clipboard_history {
-                    history.lock().ok().and_then(|mut history| {
-                        history.load().ok().map(|_| history.entries().to_vec())
-                    })
-                } else {
-                    Some(Vec::new())
-                };
-                if let Some(entries) = entries {
-                    if last_history.as_ref() != Some(&entries) {
-                        last_history = Some(entries);
-                        // Only invalidate the view; clipboard text stays out of events.
-                        let _ = app.emit("clipboard-history-changed", ());
-                    }
-                }
-                if revision != Some(snapshot.revision) {
-                    revision = Some(snapshot.revision);
-                    let _ = app.emit("preferences-changed", snapshot);
-                }
+                monitor.poll(&app, &store, &history);
             }
         });
 }
@@ -3940,7 +3921,7 @@ pub fn run() {
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             start_desktop_preferences_monitor(
                 app.handle(),
                 preferences.clone(),
