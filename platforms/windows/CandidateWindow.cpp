@@ -1,5 +1,6 @@
 #include "CandidateWindow.h"
 #include "CandidateFlyoutWindow.h"
+#include "CandidateFontFormat.h"
 #include "CandidateWheel.h"
 #include "CursorResource.h"
 #include "NativeFontAlias.h"
@@ -77,13 +78,15 @@ std::wstring wide(const std::string &text) {
 // Text width in device independent pixels. DirectWrite is the same engine the
 // renderer draws with, so the card cannot be sized for a different shaping.
 double measured_width(msimeui::DeviceResources &device, const std::wstring &text,
-                      const std::wstring &family, float size) {
+                      const std::wstring &family, float size,
+                      IDWriteFontFallback *fallback) {
   if (text.empty() || size <= 0.0f)
     return 0.0;
   auto *factory = device.GetDWriteFactory();
   auto *format = device.GetTextFormat(
       family, size, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
       DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+  set_candidate_font_fallback(format, fallback);
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
   DWRITE_TEXT_METRICS metrics{};
   if (factory && format &&
@@ -334,6 +337,11 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   if (available_width <= 0 || available_height <= 0)
     throw std::invalid_argument("Invalid candidate work area");
   device_.EnsureFactories();
+  // The first layout precedes painting: do not let the format cache make font
+  // selection depend on whether a previous frame has already been drawn.
+  if (!fallback_families_.empty() && !font_fallback_)
+    font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
+                                        fallback_families_);
   const double scale = static_cast<double>(dpi) / 96.0;
   CandidateCardInput input;
   input.horizontal = horizontal_;
@@ -346,13 +354,15 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   if (show_preedit_)
     input.preedit_width = measured_width(device_, wide(value.preedit),
                                          font_family_,
-                                         static_cast<float>(preedit_font_size_));
+                                         static_cast<float>(preedit_font_size_),
+                                         font_fallback_.Get());
   for (const auto &candidate : value.candidates) {
     auto label = candidate.text + candidate.annotation + candidate.badge;
     if (!candidate.translation.empty())
       label += "  · " + candidate.translation;
     input.item_widths.push_back(measured_width(
-        device_, wide(label), font_family_, static_cast<float>(font_size_)));
+        device_, wide(label), font_family_, static_cast<float>(font_size_),
+        font_fallback_.Get()));
   }
   const auto card = candidate_card_size(input);
   const auto width =
@@ -430,11 +440,7 @@ void CandidateWindow::paint() {
         DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
-    if (font_fallback_) {
-      Microsoft::WRL::ComPtr<IDWriteTextFormat1> typed;
-      if (SUCCEEDED(value->QueryInterface(IID_PPV_ARGS(&typed))) && typed)
-        typed->SetFontFallback(font_fallback_.Get());
-    }
+    set_candidate_font_fallback(value, font_fallback_.Get());
     return value;
   };
   const float inset = palette_.border_width / 2.0f;
@@ -495,7 +501,7 @@ void CandidateWindow::paint() {
           wide(value->preedit.substr(0, value->preedit_caret));
       const auto offset = measured_width(
           device_, before, font_family_,
-          static_cast<float>(preedit_font_size_));
+          static_cast<float>(preedit_font_size_), font_fallback_.Get());
       const float x = rect.left + static_cast<float>(offset);
       // A hairline rather than a filled block, so it does not obscure the
       // character it sits before.
