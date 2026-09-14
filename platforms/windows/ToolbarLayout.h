@@ -4,29 +4,55 @@
 #include <optional>
 
 namespace msime::windows {
+// The margin the drop shadow needs around the bar. A shadow drawn inside the
+// window is clipped by it, so the window is grown by these and the bar is
+// inset, exactly as upstream does with its frame padding.
+struct ToolbarShadow {
+  double left = 0.0;
+  double top = 0.0;
+  double right = 0.0;
+  double bottom = 0.0;
+  // Blur radius and offset multiplier; 0 draws nothing.
+  double scale = 0.0;
+};
+
+inline ToolbarShadow toolbar_shadow(bool enabled) {
+  if (!enabled)
+    return {};
+  // Upstream's frame padding and card shadow scale.
+  return {18.0, 16.0, 18.0, 20.0, 0.45};
+}
+
 // Floating toolbar geometry, in device independent pixels.
 //
 // The cell pitch and bar height used to be the literals 72 and 52, repeated at
-// five call sites - the width calculation, the drawing loop, the hover hit and
-// the click hit. Two consequences. The icon size setting only changed the glyph
+// five call sites - the window sizing, the drawing loop, the hover hit and the
+// click hit. Two consequences. The icon size setting only changed the glyph
 // while the cell it sat in stayed the same size, so a larger icon crowded its
 // cell instead of enlarging the bar. And four copies of the same arithmetic is
 // four chances for the highlight and the click to disagree about which button
 // the pointer is over.
+//
+// The shadow margin goes through the same helper for the same reason: it
+// offsets every drawn coordinate, so a hit test that forgot it would select
+// the button to the left of the one lit up.
 struct ToolbarMetrics {
   double cell = 72.0;
+  // The bar itself, excluding the shadow margin.
   double height = 52.0;
   // The drag strip on the left; the only part of the window that drags.
   double handle = 8.0;
   double icon_top = 8.0;
   double icon_bottom = 44.0;
+  ToolbarShadow shadow;
 };
 
 // Derived from the configured icon size. The shipped default of 24 reproduces
-// the previous fixed 72 x 52 exactly, so nothing moves for a user who never
-// touched the setting.
-inline ToolbarMetrics toolbar_metrics(double font_size) {
+// the previous fixed 72 x 52 bar exactly, so the bar does not change size for
+// a user who never touched the setting.
+inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow = true) {
   ToolbarMetrics metrics;
+  metrics.shadow = toolbar_shadow(shadow);
   if (!(font_size >= 8.0) || !(font_size <= 64.0))
     return metrics; // Out of range: keep the shipped geometry.
   metrics.cell = font_size * 3.0;
@@ -36,30 +62,59 @@ inline ToolbarMetrics toolbar_metrics(double font_size) {
   return metrics;
 }
 
-inline double toolbar_bar_width(size_t buttons, const ToolbarMetrics &metrics) {
+// The bar, without the shadow margin around it.
+inline double toolbar_content_width(size_t buttons,
+                                    const ToolbarMetrics &metrics) {
   return metrics.handle * 2.0 + metrics.cell * static_cast<double>(buttons);
 }
 
-// Which button sits under `x`, or nothing for the drag strip and the margin
-// past the last button. One implementation so drawing, hover and click cannot
-// disagree.
+// The window, which is the bar plus room for the shadow to fall outside it.
+inline double toolbar_window_width(size_t buttons,
+                                   const ToolbarMetrics &metrics) {
+  return metrics.shadow.left + toolbar_content_width(buttons, metrics) +
+         metrics.shadow.right;
+}
+inline double toolbar_window_height(const ToolbarMetrics &metrics) {
+  return metrics.shadow.top + metrics.height + metrics.shadow.bottom;
+}
+
+// The bar's rectangle in window coordinates: what gets filled, and what the
+// shadow is cast from.
+struct ToolbarRect {
+  double left, top, right, bottom;
+};
+inline ToolbarRect toolbar_card(size_t buttons, const ToolbarMetrics &metrics) {
+  return {metrics.shadow.left, metrics.shadow.top,
+          metrics.shadow.left + toolbar_content_width(buttons, metrics),
+          metrics.shadow.top + metrics.height};
+}
+
+// Which button sits under `x` in window coordinates, or nothing for the shadow
+// margin, the drag strip, and the margin past the last button. One
+// implementation so drawing, hover and click cannot disagree.
 inline std::optional<size_t> toolbar_button_at(double x, size_t buttons,
                                                const ToolbarMetrics &metrics) {
-  if (buttons == 0 || metrics.cell <= 0.0 || x < metrics.handle)
+  const double first = metrics.shadow.left + metrics.handle;
+  if (buttons == 0 || metrics.cell <= 0.0 || x < first)
     return std::nullopt;
-  const auto index =
-      static_cast<size_t>((x - metrics.handle) / metrics.cell);
+  const auto index = static_cast<size_t>((x - first) / metrics.cell);
   if (index >= buttons)
     return std::nullopt;
   return index;
 }
 
-// The cell a button occupies, as drawing uses it.
-struct ToolbarCell {
-  double left, top, right, bottom;
-};
-inline ToolbarCell toolbar_cell(size_t index, const ToolbarMetrics &metrics) {
-  const double left = metrics.handle + metrics.cell * static_cast<double>(index);
-  return {left, metrics.icon_top, left + metrics.cell, metrics.icon_bottom};
+// The cell a button occupies, in window coordinates, as drawing uses it.
+inline ToolbarRect toolbar_cell(size_t index, const ToolbarMetrics &metrics) {
+  const double left = metrics.shadow.left + metrics.handle +
+                      metrics.cell * static_cast<double>(index);
+  return {left, metrics.shadow.top + metrics.icon_top, left + metrics.cell,
+          metrics.shadow.top + metrics.icon_bottom};
+}
+
+// The drag strip, which is everything left of the first button but inside the
+// bar - not the shadow margin, which belongs to whatever is behind it.
+inline bool toolbar_is_drag_strip(double x, const ToolbarMetrics &metrics) {
+  return x >= metrics.shadow.left &&
+         x < metrics.shadow.left + metrics.handle;
 }
 } // namespace msime::windows

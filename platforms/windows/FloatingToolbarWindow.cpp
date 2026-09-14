@@ -2,6 +2,7 @@
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
+#include "WindowShadow.h"
 #include "IconFont.h"
 #include <stdexcept>
 #include <windowsx.h>
@@ -97,9 +98,10 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     const auto metrics = toolbar_metrics(static_cast<double>(font_size_));
     const int width = dpi_scale(
         window_, static_cast<int>(
-                     toolbar_bar_width(slots(items_).size(), metrics) * scale_));
-    const int height =
-        dpi_scale(window_, static_cast<int>(metrics.height * scale_));
+                     toolbar_window_width(slots(items_).size(), metrics) *
+                     scale_));
+    const int height = dpi_scale(
+        window_, static_cast<int>(toolbar_window_height(metrics) * scale_));
     const int margin = dpi_scale(window_, 20);
     FloatingToolbarPlacementInput placement;
     placement.width = width;
@@ -153,7 +155,9 @@ void FloatingToolbarWindow::paint() {
     PAINTSTRUCT &state;
     ~End() { EndPaint(window, &state); }
   } end{window_, state};
-  if (!device_.EnsureForWindow(window_))
+  // Composition rather than an hwnd target: the shadow falls outside the bar,
+  // so the window has to carry per-pixel alpha where it is nothing but shadow.
+  if (!device_.EnsureForComposition(window_))
     throw std::runtime_error("Toolbar device unavailable");
   auto *target = device_.GetRenderTarget();
   if (!target)
@@ -172,15 +176,26 @@ void FloatingToolbarWindow::paint() {
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)
     throw std::runtime_error("Toolbar text format unavailable");
-  const auto size = target->GetSize();
+  const auto bar = toolbar_metrics(static_cast<double>(font_size_));
+  const auto card = toolbar_card(slots(items_).size(), bar);
+  const D2D1_RECT_F card_rect{
+      static_cast<float>(card.left) * unit, static_cast<float>(card.top) * unit,
+      static_cast<float>(card.right) * unit,
+      static_cast<float>(card.bottom) * unit};
   target->BeginDraw();
-  target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
-                             palette_.surface.b, palette_.surface.a));
+  // Transparent, not the surface colour: everything outside the bar is either
+  // shadow or the desktop showing through.
+  target->Clear(D2D1::ColorF(0, 0.0f));
+  draw_window_shadow(target, card_rect, palette_.radius * unit,
+                     static_cast<float>(bar.shadow.scale));
   const float inset = palette_.border_width * unit / 2.0f;
-  target->DrawRoundedRectangle(
-      {{inset, inset, size.width - inset, size.height - inset}, palette_.radius * unit,
-       palette_.radius * unit},
-      brush(palette_.border), palette_.border_width * unit);
+  const D2D1_ROUNDED_RECT body{{card_rect.left + inset, card_rect.top + inset,
+                                card_rect.right - inset,
+                                card_rect.bottom - inset},
+                               palette_.radius * unit, palette_.radius * unit};
+  target->FillRoundedRectangle(body, brush(palette_.surface));
+  target->DrawRoundedRectangle(body, brush(palette_.border),
+                               palette_.border_width * unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
     auto *factory = device_.GetDWriteFactory();
@@ -202,16 +217,18 @@ void FloatingToolbarWindow::paint() {
     // draws it in the accent colour. Both follow the bar height so they stay
     // centred when the icon size changes.
     const auto height = static_cast<float>(layout.height);
-    const float handle_left = 3.0f * unit;
-    const D2D1_ROUNDED_RECT handle{{handle_left, height * 0.269f * unit,
+    const float top = card_rect.top;
+    const float handle_left = card_rect.left + 3.0f * unit;
+    const D2D1_ROUNDED_RECT handle{{handle_left, top + height * 0.269f * unit,
                                     handle_left + 2.0f * unit,
-                                    height * 0.731f * unit},
+                                    top + height * 0.731f * unit},
                                    1.0f * unit, 1.0f * unit};
     target->FillRoundedRectangle(handle, brush(palette_.accent));
-    const float divider = static_cast<float>(layout.handle - 1.0) * unit;
-    target->DrawLine({divider, height * 0.231f * unit},
-                     {divider, height * 0.769f * unit}, brush(palette_.border),
-                     1.0f * unit);
+    const float divider =
+        card_rect.left + static_cast<float>(layout.handle - 1.0) * unit;
+    target->DrawLine({divider, top + height * 0.231f * unit},
+                     {divider, top + height * 0.769f * unit},
+                     brush(palette_.border), 1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
       const auto box = toolbar_cell(i, layout);
@@ -254,8 +271,12 @@ void FloatingToolbarWindow::paint() {
     }
   }
   const HRESULT drawn = target->EndDraw();
+  // A composition swap chain only reaches the screen once it is presented.
+  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
+    throw std::runtime_error("Toolbar presentation failed");
   if (drawn == D2DERR_RECREATE_TARGET) {
     device_.DiscardTarget();
+    InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
@@ -280,7 +301,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // loop, and the click below only ran for whatever button-up survived it.
       const int unit = dpi_scale(window, 1);
       const auto drag = toolbar_metrics(static_cast<double>(self->font_size_));
-      if (GET_X_LPARAM(l) < static_cast<int>(drag.handle) * unit) {
+      if (toolbar_is_drag_strip(
+              static_cast<double>(GET_X_LPARAM(l)) / unit, drag)) {
         ReleaseCapture();
         SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return 0;
@@ -299,10 +321,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         RECT bounds{};
         if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
             GetClientRect(window, &bounds) &&
-            cursor.x < static_cast<int>(
-                           toolbar_metrics(static_cast<double>(self->font_size_))
-                               .handle) *
-                           dpi_scale(window, 1)) {
+            toolbar_is_drag_strip(
+                static_cast<double>(cursor.x) / dpi_scale(window, 1),
+                toolbar_metrics(static_cast<double>(self->font_size_)))) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;
         }
