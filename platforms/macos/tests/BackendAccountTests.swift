@@ -126,8 +126,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
 
     // 绑定走的是同一条登录路径,结果落在钥匙串;本机那份匿名凭据绑完就该丢掉,否则下次启动会被
     // 当成另一个可用会话。
-    model.target = "synthetic@example.invalid"; model.requestCode(); try await finished(model)
-    model.code = "123456"; model.codeLogin(); try await finished(model)
+    model.completeSignIn(challenge: "synthetic-challenge", credential: "123456"); try await finished(model)
     try require(!model.anonymous && discarded)
     try require(try keychain.load() != nil && (try local.load()) == nil)
   }
@@ -144,14 +143,8 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
                                 discardAnonymous: {})
     model.load(); try await finished(model)
     try require(model.providers["email"] == true && model.user == nil)
-    model.channel = "phone"; model.target = "+10000000000"
-    model.requestCode(); try await finished(model)
-    try require(model.challenge == nil && model.message != nil)
-    model.channel = "email"; model.target = "synthetic@example.invalid"
-    model.requestCode(); try await finished(model)
-    try require(model.challenge != nil && model.resendAt > Date())
-    model.code = "123456"; model.codeLogin(); try await finished(model)
-    try require(model.user?.id == "synthetic-user" && model.code.isEmpty && model.target.isEmpty)
+    model.completeSignIn(challenge: "synthetic-challenge", credential: "123456"); try await finished(model)
+    try require(model.user?.id == "synthetic-user")
     model.name = "新昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
     model.logout(delete: true); try await finished(model)
@@ -196,8 +189,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
     model.logout(all: true); try await finished(model)
     try require(model.user == nil && storage.load() == nil)
-    model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
-    try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
+    model.close(); try require(!model.authorizing)
     try await anonymousFallback(client: client)
     print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
   }

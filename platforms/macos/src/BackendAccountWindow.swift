@@ -10,12 +10,6 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   @Published var busy = false
   @Published var authorizing = false
   @Published var name = ""
-  @Published var target = ""
-  @Published var code = ""
-  @Published var channel = "email"
-  @Published var challenge: BackendAccountClient.Challenge?
-  @Published var expiresAt = Date.distantPast
-  @Published var resendAt = Date.distantPast
   weak var window: NSWindow?
   // 匿名账号是本机文件,不在钥匙串里。这一页原来只问 account(钥匙串),于是装完自动开的那个账号
   // 在设置里完全不存在 —— 页面劝你登录一个你已经有的账号。
@@ -90,30 +84,16 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
     discardAnonymous()
     anonymous = false
   }
-  func requestCode() {
-    guard resendAt <= Date() else { return }
+  /// 登录或绑定成功之后的收尾:凭据已落钥匙串,匿名那份随即丢弃。抽出来是因为 Apple 回调是
+  /// 唯一入口,而它要一个 ASAuthorization 才能触发,测试进不去。
+  func completeSignIn(challenge: String, credential: String) {
     perform {
-      guard self.providers[self.channel] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let response = try await self.client.challenge(provider: self.channel,
-                                                     target: self.target.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                     linkToken: await self.linkToken())
-      try Task.checkCancellation()
-      self.challenge = response
-      self.expiresAt = Date().addingTimeInterval(TimeInterval(response.expires_in))
-      self.resendAt = Date().addingTimeInterval(60)
-      self.code = ""
-    }
-  }
-  func codeLogin() {
-    guard let challenge, expiresAt > Date(), code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { return }
-    perform {
-      try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code,
+      try await self.account.signIn(challenge: challenge, credential: credential,
                                     linkToken: await self.linkToken())
       let user = try await self.account.user()
       try Task.checkCancellation()
       await self.adoptKeychainIdentity()
       self.user = user; self.name = self.user?.preferredDisplayName ?? ""
-      self.challenge = nil; self.code = ""; self.target = ""
     }
   }
   func appleLogin() {
@@ -136,13 +116,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
     defer { appleController = nil; appleChallenge = nil; authorizing = false }
     guard let challenge = appleChallenge, let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
           let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
-    perform {
-      try await self.account.signIn(challenge: challenge, credential: token, linkToken: await self.linkToken())
-      let user = try await self.account.user()
-      try Task.checkCancellation()
-      await self.adoptKeychainIdentity()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
-    }
+    completeSignIn(challenge: challenge, credential: token)
   }
   func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
     guard controller === appleController else { return }
@@ -186,7 +160,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       self.user = nil; self.name = ""; self.anonymous = false
     }
   }
-  func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil; code = ""; target = ""; challenge = nil }
+  func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil }
 }
 
 
@@ -280,7 +254,7 @@ struct MacAccountView: View {
   private var appleSubtitle: String? {
     if model.providers["apple"] != true { return "此登录方式尚未启用" }
     if !MacAccountModel.appleSignInAuthorized { return "此构建未获授权，请使用正式发布版本" }
-    return nil
+    return "绑定后这个账号就能在其他设备上找回"
   }
 
   private var monogram: String {
@@ -380,44 +354,6 @@ struct MacAccountView: View {
       SettingsRow(title: "Apple 账号", subtitle: appleSubtitle) {
         Button(model.anonymous ? "绑定" : "登录") { model.appleLogin() }
           .disabled(model.providers["apple"] != true || !MacAccountModel.appleSignInAuthorized)
-      }
-      CardDivider()
-      SettingsRow(title: "验证码") {
-        Picker("", selection: $model.channel) {
-          Text("邮箱").tag("email"); Text("手机号").tag("phone")
-        }
-        .labelsHidden().frame(width: 110)
-        .onChange(of: model.channel) { _ in model.challenge = nil; model.code = "" }
-      }
-      CardDivider()
-      TimelineView(.periodic(from: .now, by: 1)) { timeline in
-        let remaining = max(0, Int(ceil(model.resendAt.timeIntervalSince(timeline.date))))
-        SettingsRow(title: model.channel == "email" ? "邮箱地址" : "手机号",
-                    subtitle: model.channel == "phone" ? "含国家区号，如 +86" : nil) {
-          HStack(spacing: 8) {
-            TextField("", text: $model.target).textFieldStyle(.roundedBorder).frame(width: 200)
-              .onChange(of: model.target) { _ in model.challenge = nil; model.code = "" }
-            Button(remaining == 0 ? "获取验证码" : "\(remaining) 秒") { model.requestCode() }
-              .disabled(remaining > 0 || model.providers[model.channel] != true || model.target.isEmpty)
-          }
-        }
-        if model.challenge != nil {
-          CardDivider()
-          SettingsRow(title: "验证码") {
-            HStack(spacing: 8) {
-              TextField("6 位数字", text: $model.code).textFieldStyle(.roundedBorder).frame(width: 200)
-              Button(model.anonymous ? "绑定" : "登录") { model.codeLogin() }
-                .keyboardShortcut(.defaultAction)
-                .disabled(model.expiresAt <= timeline.date || model.code.utf8.count != 6
-                          || !model.code.utf8.allSatisfy { (48...57).contains($0) })
-            }
-          }
-        }
-      }
-      if model.providers[model.channel] != true {
-        CardDivider()
-        Text("此登录方式尚未启用。").font(.caption).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
       }
     }
   }
