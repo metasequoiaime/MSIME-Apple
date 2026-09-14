@@ -329,10 +329,18 @@ def select_profile(config, options, name):
     return entry if entry and matching(entry, options, name) else None
 
 
-def capture_command(backend, device=None):
-    if device is not None and (not device or len(device) > 1024 or
-                               any(ord(c) < 32 for c in device)):
+def validate_capture_device(device, allow_empty=False):
+    if device is None:
+        return None
+    if (not isinstance(device, str) or (not allow_empty and not device)
+            or len(device) > 128 or len(device.encode("utf-8")) > 512
+            or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in device)):
         raise ValueError("invalid capture device")
+    return device
+
+
+def capture_command(backend, device=None):
+    device = validate_capture_device(device)
     if backend in ("auto", "pulse") and shutil.which("parec"):
         return ["parec", "--raw", "--format=s16le", "--rate=16000", "--channels=1", "--latency-msec=20"] + (
             ["--device=" + device] if device else [])
@@ -351,9 +359,7 @@ def request_capture_command(options, default_backend, default_device):
     device = options.get("capture_device", "")
     if not isinstance(backend, str) or backend not in ("", "auto", "pulse", "pipewire", "alsa"):
         raise ValueError("invalid capture backend")
-    if (not isinstance(device, str) or len(device) > 128 or len(device.encode("utf-8")) > 512
-            or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in device)):
-        raise ValueError("invalid capture device")
+    validate_capture_device(device, allow_empty=True)
     # A selected backend uses its system default when no device is supplied.
     # An entirely inherited selection preserves the service's command-line device.
     return capture_command(backend or default_backend,
