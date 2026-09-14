@@ -1,5 +1,6 @@
 #pragma once
 #include "ModeWindow.h"
+#include "ToolbarIcons.h"
 #include <functional>
 #include <array>
 #include <optional>
@@ -19,6 +20,15 @@ public:
   ~FloatingToolbarWindow();
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
+  // Caps Lock and Japanese mode change what the language button shows.
+  void set_language_state(ToolbarLanguageState state) {
+    if (state.caps_lock == language_.caps_lock &&
+        state.japanese == language_.japanese)
+      return;
+    language_ = state;
+    if (window_)
+      InvalidateRect(window_, nullptr, FALSE);
+  }
   void set_scale(double scale) { scale_ = scale; }
   void set_font_size(int size) { font_size_ = size; }
   void set_items(std::array<bool, 6> items) { items_ = items; }
@@ -67,6 +77,8 @@ private:
   std::optional<bool> shown_character_set_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
+  // Caps Lock and Japanese input mode, which the language button reflects.
+  ToolbarLanguageState language_;
   // True once the toolbar has been positioned. The default corner is only for
   // the first placement; afterwards the user's own position is preserved.
   bool placed_ = false;

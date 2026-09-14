@@ -1030,6 +1030,18 @@ int wmain(int argc, wchar_t **argv) {
                                     decision.push_chinese ? WorkerMode::Chinese
                                                           : WorkerMode::English);
       }
+      // The language button shows 'A' while Caps Lock is on and 日 in Japanese
+      // mode, so it has to follow both. Showing 中 with Caps Lock on tells the
+      // user the wrong thing about what the next letter key will do.
+      {
+        ToolbarLanguageState language;
+        language.caps_lock = caps_lock.load(std::memory_order_acquire);
+        {
+          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+          language.japanese = tsf_config->japanese_input_mode;
+        }
+        toolbar.set_language_state(language);
+      }
       if (caps_lock_dirty.load(std::memory_order_acquire)) {
         if (const auto view = server.mode_view())
           if (server.send_caps_lock(view->lease,

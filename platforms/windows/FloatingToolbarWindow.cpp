@@ -191,7 +191,7 @@ void FloatingToolbarWindow::paint() {
       const int button = active[i];
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
-      const auto icon = toolbar_icon(button, states[button]);
+      const auto icon = toolbar_icon(button, states[button], language_);
       // Draw the glyph only when the installed icon font really has it;
       // otherwise the text fallback, which is always readable.
       const bool glyph = icon.codepoint && icon_family &&
