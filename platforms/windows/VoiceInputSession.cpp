@@ -178,16 +178,16 @@ bool VoiceInputSession::start() {
   if (!config.enabled || config.token.empty() || endpoint.empty() ||
       (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
     return false;
-  {
-    std::lock_guard lock(config_mutex_);
-    active_config_ = config;
-  }
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
     return false;
   bool expected = false;
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
+  {
+    std::lock_guard lock(config_mutex_);
+    active_config_ = config;
+  }
   cancel_requested_.store(false);
   locked_.store(false);
   capture_overflow_.store(false);
