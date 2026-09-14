@@ -22,7 +22,7 @@ base64 = "0.22"
 flate2 = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 time = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 
 [dev-dependencies]
 

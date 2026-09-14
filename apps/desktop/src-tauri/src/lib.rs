@@ -694,6 +694,12 @@ async fn test_api_credential(
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
+            if service == "voice.asr" {
+                return msime_client_core::credential_asr::test(
+                    &config,
+                    &msime_client_core::credential_asr::HttpTransport,
+                );
+            }
             if service.starts_with("translation.") {
                 let milliseconds = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

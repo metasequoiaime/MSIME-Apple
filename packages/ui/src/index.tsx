@@ -11,7 +11,7 @@ import { CandidateFontControls } from "./candidate-font-controls";
 import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
 import { SecretInput } from "./secret-input";
-import { asrProviderUpdate, polishProviderUpdate, POLISH_PROVIDER_DEFAULTS } from "./voice-providers";
+import { asrProviderUpdate, polishProviderUpdate, ASR_PROVIDER_DEFAULTS, POLISH_PROVIDER_DEFAULTS } from "./voice-providers";
 import { POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt } from "./polish-presets";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
@@ -1931,6 +1931,15 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
           doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
         })}
+        {windowsPlatform && ["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") && <>
+          <p className="panel-inline-note">测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。</p>
+          {credentialTestControl("voice.asr", "测试语音识别配置", {
+            provider: voiceInput.asr_provider,
+            endpoint: voiceInput.asr_endpoint?.trim() || ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.endpoint || "",
+            model: voiceInput.asr_model?.trim() || ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.model || "",
+            token: voiceInput.asr_token ?? "",
+          }, !voiceInput.asr_token?.trim())}
+        </>}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>}
         {!androidPlatform && !systemVoice && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
