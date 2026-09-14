@@ -12,6 +12,10 @@ namespace msime::windows {
 struct ToolbarIcon {
   wchar_t codepoint = 0;
   const wchar_t *fallback = L"";
+  // Dedicated English draws an underlined "En" rather than a glyph. The line
+  // is what separates it from the temporary English toggle: both say the next
+  // letter is Latin, but only one survives the next commit.
+  bool underline = false;
 };
 // Button ids as the toolbar's slot order uses them.
 enum ToolbarButton {
@@ -30,14 +34,39 @@ enum ToolbarButton {
 // full width, Chinese punctuation, traditional output - and is absent when the
 // Server has not reported it yet. An unreported mode shows a question mark
 // rather than a guessed state, which would tell the user the wrong thing.
-inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state) {
+// Extra state the language button reflects beyond Chinese/English.
+//
+// The shipped toolbar renders four distinct things there: 'A' while Caps Lock
+// is on, 日 in Japanese input mode, and 中/英 otherwise. Showing 中 while Caps
+// Lock is on tells the user the wrong thing about what the next key will do.
+struct ToolbarLanguageState {
+  bool caps_lock = false;
+  bool japanese = false;
+  // The Engine's own English mode, as opposed to the temporary Chinese/English
+  // toggle carried in `state`. It outlives a commit, so it is worth telling
+  // apart on the button.
+  bool dedicated_english = false;
+};
+inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
+                                ToolbarLanguageState language = {}) {
   const ToolbarIcon unknown{0, L"?"};
   switch (button) {
   case kToolbarLanguage:
+    // Caps Lock wins over everything: it changes what every letter key does,
+    // whatever input mode is selected.
+    if (language.caps_lock)
+      return {0xE7B5, L"A"};
+    // The temporary toggle wins over the dedicated mode: it is what the next
+    // key actually does, and it is the one the user just pressed.
+    if (state && !*state)
+      return {0xE983, L"英"}; // 英
+    if (language.dedicated_english)
+      return {0, L"En", true};
+    if (language.japanese)
+      return {0xE7DE, L"日"};
     if (!state)
       return unknown;
-    return *state ? ToolbarIcon{0xE982, L"中"}   // 中
-                  : ToolbarIcon{0xE983, L"英"};  // 英
+    return ToolbarIcon{0xE982, L"中"}; // 中
   case kToolbarFullwidth:
     if (!state)
       return unknown;

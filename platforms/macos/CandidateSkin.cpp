@@ -637,6 +637,18 @@ SkinTokens BuiltInSkinTokens(std::string_view id, bool dark)
     return FluentTokens(dark);
 }
 
+SkinTokens ToolbarSkinTokens(std::string_view id, bool dark)
+{
+    const bool builtin = IsBuiltInSkinId(id);
+    SkinTokens tokens = BuiltInSkinTokens(builtin ? id : "fluent", dark);
+    // The default toolbar accent is intentionally lighter than the Fluent
+    // candidate-card accent. External packages do not own a native toolbar
+    // palette, so they use the same stable default instead of leaking their
+    // candidate overrides into this surface.
+    if (!builtin || id == "fluent") tokens.accent = Rgb(0x8E8CD8);
+    return tokens;
+}
+
 std::optional<Rgba> ParseCssColor(std::string_view text)
 {
     std::string value = Trim(std::string(text));

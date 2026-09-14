@@ -81,6 +81,11 @@ $japaneseModel = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\dict_j
 $japaneseModelLicense = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'source\mozc_dictionary_oss\README.txt')
 $englishDb = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\english.db')
 $othersDb = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\others.db')
+# 手写模型与其授权/来源声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model
+# 查找，因此这三个文件与 Server 一起落在 server_exe 下，而不是 app_data。
+$handwritingModel = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\models\handwriting-zh_CN.model'
+$handwritingLicense = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\models\HandwritingModel-LICENSE.txt'
+$handwritingProvenance = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\provenance.json'
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
@@ -157,6 +162,26 @@ else {
     Copy-Item -LiteralPath $japaneseModelLicense -Destination (Join-Path $targetAppData 'MOZC_DICTIONARY_LICENSE.txt') -Force
     Copy-Item -LiteralPath $englishDb -Destination (Join-Path $targetAppData 'english.db') -Force
     Copy-Item -LiteralPath $othersDb -Destination (Join-Path $targetAppData 'others.db') -Force
+
+    # 手写识别模型。缺了它 Windows 上的手写板能收笔迹却永远识别失败，因为这是该平台
+    # 目前唯一的后端。模型是可选的：不存在时跳过并提示，而不是让整个打包失败。
+    if (Test-Path -LiteralPath $handwritingModel) {
+        $targetHandwriting = Join-Path $targetServer 'handwriting'
+        New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
+        Copy-Item -LiteralPath $handwritingModel -Destination (Join-Path $targetHandwriting 'handwriting-zh_CN.model') -Force
+        # 授权与来源声明必须与模型同行，否则分发的是一份没有出处的二进制。
+        foreach ($notice in @($handwritingLicense, $handwritingProvenance)) {
+            if (Test-Path -LiteralPath $notice) {
+                Copy-Item -LiteralPath $notice -Destination $targetHandwriting -Force
+            }
+            else {
+                throw "手写模型缺少随附声明：$notice"
+            }
+        }
+    }
+    else {
+        Write-Host "未找到手写模型，跳过：$handwritingModel"
+    }
 
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
     # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。
