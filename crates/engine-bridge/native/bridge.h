@@ -14,6 +14,7 @@ EngineOptions stage_dictionary_state(const EngineOptions& options, rust::Str gen
 void hash_dictionary_state(const EngineOptions& options, DictionaryRevision& sink);
 struct EngineSnapshot;
 struct EngineResult;
+struct DictionaryReplaySummary;
 struct OnlineQuerySnapshot;
 struct EmojiCatalogItem;
 struct EmojiCatalogSlice;
@@ -64,6 +65,8 @@ rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllabl
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
+DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
+                                                rust::Str english_db_path);
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
                                           rust::Str category, std::uint8_t limit);
 rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,

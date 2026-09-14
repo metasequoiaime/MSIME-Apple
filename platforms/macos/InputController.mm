@@ -751,6 +751,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [menu addItem:dictionary];
     NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
     NSMenuItem *clipboard = [[NSMenuItem alloc] initWithTitle:@"云剪贴板…" action:@selector(showCloudClipboard:) keyEquivalent:@""]; clipboard.target = self; [menu addItem:clipboard];
+    NSMenuItem *cloudDictionary = [[NSMenuItem alloc] initWithTitle:@"云词典…" action:@selector(showCloudDictionary:) keyEquivalent:@""]; cloudDictionary.target = self; [menu addItem:cloudDictionary];
     NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""]; handwriting.target = self; [menu addItem:handwriting];
     NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
     prepare.target = self;
@@ -795,8 +796,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self showAccount:sender];
     }
 }
+- (void)showCloudDictionary:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=cloud-dictionary"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [self showAccount:nil]; }
 - (void)showHandwriting:(id)sender {
     (void)sender;
+    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=handwriting"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
@@ -804,6 +808,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showEmoji:(id)sender {
     (void)sender;
+    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=emoji"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
@@ -841,6 +847,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
+    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=keyboard"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
 }
 - (void)setEnglishInputMode:(BOOL)enabled {

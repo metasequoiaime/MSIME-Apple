@@ -29,12 +29,10 @@ inline CandidateBuiltinPalette candidate_builtin_palette(std::string_view skin,
   // Fluent is the fallback for unknown ids. IBus cannot carry fluent's alpha
   // on the selected row, so selected stores the same RGB token without alpha.
   CandidateBuiltinPalette palette =
-      dark ? CandidateBuiltinPalette{0x202020,    0xE9E8E8, 0xE9E8E8,
-                                     0x6B69D6,    0x3E3E3E, std::nullopt,
-                                     std::nullopt}
-           : CandidateBuiltinPalette{0xFFFFFF,    0x1A1A1A, 0x1A1A1A,
-                                     0x6B69D6,    0xE8E8E8, std::nullopt,
-                                     std::nullopt};
+      dark ? CandidateBuiltinPalette{0x202020, 0xE9E8E8, 0xE9E8E8, 0x6B69D6,
+                                     0x3E3E3E, std::nullopt, std::nullopt}
+           : CandidateBuiltinPalette{0xFFFFFF, 0x1A1A1A, 0x1A1A1A, 0x6B69D6,
+                                     0xE8E8E8, std::nullopt, std::nullopt};
   if (skin == "wechat") {
     palette.surface = dark ? 0x151515 : 0xF7F7F7;
     palette.text = dark ? 0xB7B7B7 : 0x333333;

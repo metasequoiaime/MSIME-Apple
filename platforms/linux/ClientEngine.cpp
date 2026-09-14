@@ -1221,7 +1221,8 @@ std::optional<guint> contrasting_color(std::optional<guint> background) {
   return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
 }
 std::optional<guint> candidate_text_color(const Json &preferences) {
-  if (const auto custom = palette_color(preferences.value("candidate_text_color", Json(nullptr))))
+  if (const auto custom =
+          palette_color(preferences.value("candidate_text_color", Json(nullptr))))
     return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
@@ -1280,9 +1281,9 @@ std::optional<guint> candidate_selected_text_color(const Json &preferences) {
     const auto palette =
         msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
     if (palette.selected_text) return palette.selected_text;
-    return std::nullopt;
+    return candidate_text_color(preferences);
   }
-  return contrasting_color(candidate_selected_color(preferences));
+  return candidate_text_color(preferences);
 }
 std::optional<guint> candidate_selected_number_color(const Json &preferences) {
   const auto skin = preferences.value("candidate_skin", "fluent");
@@ -1291,9 +1292,9 @@ std::optional<guint> candidate_selected_number_color(const Json &preferences) {
     const auto palette =
         msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
     if (palette.selected_number) return palette.selected_number;
-    return std::nullopt;
+    return candidate_number_color(preferences);
   }
-  return contrasting_color(candidate_selected_color(preferences));
+  return candidate_number_color(preferences);
 }
 IBusOrientation candidate_orientation(const Json &preferences) {
   return preferences.value("candidate_layout", "vertical") == "horizontal"
@@ -2930,17 +2931,15 @@ void render(IBusEngine *engine, const Json &view) {
           text, IBUS_ATTR_TYPE_FOREGROUND,
           *state(engine).candidate_accent_color, 0, G_MAXUINT);
     else if (row_text_color)
-      ibus_text_append_attribute(
-          text, IBUS_ATTR_TYPE_FOREGROUND,
-          *row_text_color, 0, G_MAXUINT);
+      ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 *row_text_color, 0, G_MAXUINT);
     const auto row_background =
         highlighted && state(engine).candidate_selected_color
             ? state(engine).candidate_selected_color
             : state(engine).candidate_background_color;
     if (row_background)
       ibus_text_append_attribute(
-          text, IBUS_ATTR_TYPE_BACKGROUND,
-          *row_background, 0, G_MAXUINT);
+          text, IBUS_ATTR_TYPE_BACKGROUND, *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
     auto label_text = ibus_text_new_from_string(label.c_str());
