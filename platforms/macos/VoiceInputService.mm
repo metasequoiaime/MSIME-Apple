@@ -1,5 +1,6 @@
 #import "VoiceInputService.h"
 #import "VoicePCMBuffer.h"
+#import "VoiceCaptureDevice.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
 #include <memory>
@@ -100,21 +101,9 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     if (_audioEngine) return YES;
     _audioEngine = [[AVAudioEngine alloc] init];
     AVAudioInputNode *input = _audioEngine.inputNode;
-    if (deviceUID.length && input.audioUnit) {
-        AudioObjectPropertyAddress address = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
-        UInt32 size = 0;
-        if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, NULL, &size) == noErr) {
-            UInt32 count = size / sizeof(AudioDeviceID); AudioDeviceID *devices = (AudioDeviceID *)calloc(count, sizeof(AudioDeviceID));
-            if (devices && AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, devices) == noErr) {
-                for (UInt32 index = 0; index < count; ++index) {
-                    AudioObjectPropertyAddress uidAddress = { kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
-                    CFStringRef uid = NULL; UInt32 uidSize = sizeof(uid);
-                    if (AudioObjectGetPropertyData(devices[index], &uidAddress, 0, NULL, &uidSize, &uid) == noErr && uid && [(__bridge NSString *)uid isEqualToString:deviceUID]) { UInt32 device = devices[index]; AudioUnitSetProperty(input.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, sizeof(device)); CFRelease(uid); break; }
-                    if (uid) CFRelease(uid);
-                }
-            }
-            free(devices);
-        }
+    if (!MSIMEConfigureVoiceCaptureDevice(deviceUID, input.audioUnit, error)) {
+        _audioEngine = nil;
+        return NO;
     }
     AVAudioFormat *format = [input inputFormatForBus:0];
     NSError *tapError = nil;

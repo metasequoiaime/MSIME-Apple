@@ -65,6 +65,69 @@ pub struct TranslationGlossStore {
     root: PathBuf,
 }
 
+// Publish a record by replacing the previous one, retrying briefly on Windows.
+//
+// The replace is a rename over the live path. On Windows that can fail with
+// ACCESS_DENIED while another process or thread is mid-operation on the same
+// target, even when every handle shares delete - the window is short and the
+// operation is not serialised for us. Two threads remembering the same key
+// hit it readily. A few brief retries close that window; anything else is
+// reported, so a real permission problem still surfaces rather than spinning.
+fn persist_replacing(
+    temporary: tempfile::NamedTempFile,
+    path: &std::path::Path,
+) -> Result<(), GlossStoreError> {
+    #[cfg(windows)]
+    {
+        let mut file = temporary;
+        for attempt in 0..16 {
+            match file.persist(path) {
+                Ok(_) => return Ok(()),
+                Err(error)
+                    if error.error.kind() == std::io::ErrorKind::PermissionDenied
+                        && attempt < 15 =>
+                {
+                    file = error.file;
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                Err(error) => return Err(error.error.into()),
+            }
+        }
+        unreachable!("the loop returns on its last attempt")
+    }
+    #[cfg(not(windows))]
+    {
+        temporary.persist(path).map_err(|error| error.error)?;
+        Ok(())
+    }
+}
+
+// Open a record for reading without blocking its replacement.
+//
+// `remember` publishes each key by writing a temporary file and renaming it
+// over the old one. On Windows that rename fails with ACCESS_DENIED while any
+// other handle holds the target open, unless that handle allowed deletion - so
+// a reader using a plain open makes a concurrent writer fail. Sharing delete
+// is what makes the atomic replace actually atomic from the reader's side:
+// the reader keeps reading the bytes it opened, and the writer proceeds.
+#[cfg(windows)]
+fn open_shared(path: &std::path::Path) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .open(path)
+}
+
+// Every other platform already replaces a file out from under an open handle.
+#[cfg(not(windows))]
+fn open_shared(path: &std::path::Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
 impl TranslationGlossStore {
     /// Construct without touching disk. The caller chooses the private user root.
     pub fn new(user_directory: impl Into<PathBuf>) -> Self {
@@ -95,7 +158,7 @@ impl TranslationGlossStore {
         let Some(key) = direction.key(text) else {
             return Ok(None);
         };
-        let file = match File::open(self.path(direction, &key)) {
+        let file = match open_shared(&self.path(direction, &key)) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
@@ -156,7 +219,7 @@ impl TranslationGlossStore {
         let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
         temporary.write_all(&bytes)?;
         temporary.as_file().sync_all()?;
-        temporary.persist(&path).map_err(|error| error.error)?;
+        persist_replacing(temporary, &path)?;
         Ok(true)
     }
 }
