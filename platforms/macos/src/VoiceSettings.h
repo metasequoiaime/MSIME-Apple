@@ -15,8 +15,4 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)validate:(NSError **)error;
 - (BOOL)save:(NSError **)error;
 @end
-@interface MetasequoiaVoiceSettingsWindow : NSWindowController
-+ (instancetype)sharedController;
-- (void)showAndActivate;
-@end
 NS_ASSUME_NONNULL_END
