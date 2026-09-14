@@ -87,6 +87,7 @@ public final class MSIMEInputService extends InputMethodService {
     private FrameLayout keyboardRoot;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
+    private FrameLayout candidateViewport;
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
@@ -365,6 +366,23 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
     }
 
+    /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
+    private void alignEngineSchemeWithSelection(
+            JSONObject preferences, KeyboardScheme engineScheme,
+            SchemeConfiguration configuration) throws JSONException {
+        if (preferences == null || !configuration.shared()
+                || configuration.selected() == KeyboardScheme.THOUGHTFUL_REPLY
+                || configuration.selected() == engineScheme) return;
+        KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
+            engineScheme, configuration.selected(),
+            preferences.optString("last_chinese_scheme", preferences.optString("scheme", "quanpin")),
+            preferences.optString("shuangpin_profile", "xiaohe"));
+        preferences.put("scheme", mapping.scheme());
+        preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
+        preferences.put("shuangpin_profile", mapping.shuangpinProfile());
+        preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
+    }
+
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
         if (!envelope.getBoolean("ok")) throw new JSONException("Shared runtime rejected operation");
@@ -482,6 +500,7 @@ public final class MSIMEInputService extends InputMethodService {
                     preferences == null ? "twenty_six_key"
                         : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
                 SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
+                alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
                 enabledSchemes = schemeConfiguration.enabled();
                 selectedScheme = schemeConfiguration.selected();
                 sharedSchemePreferences = schemeConfiguration.shared();
@@ -4492,7 +4511,14 @@ public final class MSIMEInputService extends InputMethodService {
             punctuation.addView(key, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
-        container.addView(punctuation, new LinearLayout.LayoutParams(0,
+        FrameLayout sidebar = new FrameLayout(this);
+        sidebar.addView(punctuation, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (nineKeySpellingScroll != null) {
+            sidebar.addView(nineKeySpellingScroll, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+        container.addView(sidebar, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
 
         LinearLayout grid = new LinearLayout(this);
@@ -5013,7 +5039,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
         nineKeySpellings = new LinearLayout(this);
         nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
         nineKeySpellingScroll = new HorizontalScrollView(this);
@@ -5021,7 +5047,6 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingScroll.setContentDescription("九键拼音选择");
         nineKeySpellingScroll.addView(nineKeySpellings);
         nineKeySpellingScroll.setVisibility(View.GONE);
-        candidateRegion.addView(nineKeySpellingScroll);
         candidates = new LinearLayout(this);
         candidates.setOrientation(LinearLayout.HORIZONTAL);
         horizontalCandidateScroll = new HorizontalScrollView(this);
@@ -5030,12 +5055,14 @@ public final class MSIMEInputService extends InputMethodService {
         verticalCandidates.setOrientation(LinearLayout.VERTICAL);
         verticalCandidateScroll = new ScrollView(this);
         verticalCandidateScroll.addView(verticalCandidates);
-        FrameLayout candidateViewport = new FrameLayout(this);
+        candidateViewport = new FrameLayout(this);
         candidateViewport.addView(horizontalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-        candidateRegion.addView(candidateViewport);
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        candidateViewport.setVisibility(View.GONE);
+        candidateRegion.addView(candidateViewport, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
         candidatePaging = new LinearLayout(this);
         candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
         candidateRegion.addView(candidatePaging);
@@ -5416,6 +5443,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+        if (candidateViewport != null)
+            candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
             scriptShortcutButton.setVisibility(View.GONE);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");

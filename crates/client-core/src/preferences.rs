@@ -518,6 +518,11 @@ pub struct VoiceInputPreferences {
     pub asr_provider: String,
     #[serde(default)]
     pub asr_app_key: String,
+    /// Doubao authentication mode (`api_key` or `legacy`). Empty preserves
+    /// compatibility with older files and lets each host infer the mode from
+    /// the stored App ID.
+    #[serde(default)]
+    pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_token: String,
     /// One recognition token per provider id.
@@ -595,6 +600,7 @@ impl Default for VoiceInputPreferences {
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
             asr_app_key: String::new(),
+            doubao_auth_mode: "api_key".into(),
             asr_token: String::new(),
             asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
@@ -1697,6 +1703,23 @@ mod tests {
             .remove("commit_mode");
         let restored: Preferences = serde_json::from_value(value).unwrap();
         assert_eq!(restored.voice_input.commit_mode, "tsf");
+    }
+
+    #[test]
+    fn doubao_auth_mode_defaults_and_roundtrips() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["voice_input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("doubao_auth_mode");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.doubao_auth_mode, "");
+
+        let mut explicit = Preferences::default();
+        explicit.voice_input.doubao_auth_mode = "legacy".into();
+        let roundtripped: Preferences =
+            serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
+        assert_eq!(roundtripped.voice_input.doubao_auth_mode, "legacy");
     }
 
     #[test]

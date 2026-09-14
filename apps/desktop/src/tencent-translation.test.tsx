@@ -93,3 +93,14 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
   expect(custom.textContent).not.toContain("Linux provider");
   expect(custom.textContent).toContain("DeepLX");
 });
+
+test("Linux delegates Tencent credentials to the user-managed provider", async () => {
+  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "linux" } as never }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const online = screen.getByRole("group", { name: "在线翻译服务" });
+  expect(online.textContent).toContain("tencent-provider.json");
+  expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
+  expect(screen.queryByLabelText("腾讯云 SecretKey")).toBeNull();
+  expect(screen.queryByLabelText("腾讯云地域")).toBeNull();
+});

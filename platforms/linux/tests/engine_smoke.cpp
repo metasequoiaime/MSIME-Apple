@@ -215,6 +215,7 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_surface_color"] = "#654321";
     options["preferences"]["candidate_number_color"] = "#abcdef";
+    options["preferences"]["candidate_selected_color"] = "#fedcba";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
@@ -440,7 +441,8 @@ int main(int argc, char **argv) {
     {
       auto offline = options;
       offline.erase("preferences_directory");
-      offline["preferences"]["candidate_translations"] = true;
+      offline["preferences"]["candidate_translations"] = false;
+      offline["preferences"]["candidate_english_gloss"] = true;
       msime_preview_configure(offline.dump());
       engine = create_engine();
       seen = Observation{};
@@ -458,6 +460,29 @@ int main(int argc, char **argv) {
               "Offline gloss changed the active composition");
       require(key(IBUS_space) && seen.committed == "你好",
               "Offline gloss leaked into committed candidate text");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
+      auto offline = options;
+      offline.erase("preferences_directory");
+      offline["preferences"]["candidate_translations"] = false;
+      offline["preferences"]["candidate_english_gloss"] = false;
+      msime_preview_configure(offline.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto deadline = g_get_monotonic_time() + 800000;
+      while (g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(std::none_of(seen.candidates.begin(), seen.candidates.end(),
+                           [](const std::string &text) {
+                             return text.find(" · ") != std::string::npos;
+                           }),
+              "Disabled English gloss unexpectedly rendered");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
@@ -1084,10 +1109,13 @@ int main(int argc, char **argv) {
             "Candidate numeric label missing");
     require(seen.first_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    require(seen.first_candidate_background == 0x654321,
-            "Candidate surface color attribute missing");
+    require(seen.first_candidate_background == 0xfedcba,
+            "Selected candidate color attribute missing");
     require(seen.first_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
+    require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
+            "Candidate auxiliary text did not expose the preedit caret");
+    invoke("Reset");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");

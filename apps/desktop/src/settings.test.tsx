@@ -80,7 +80,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
-test("Android offline candidate gloss is hidden elsewhere, defaults off and persists", async () => {
+test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
@@ -98,6 +98,17 @@ test("Android offline candidate gloss is hidden elsewhere, defaults off and pers
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(screen.queryByRole("checkbox", { name: "显示英文释义" })).toBeNull();
+});
+
+test("Linux can expose the shared offline candidate gloss setting", async () => {
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save: vi.fn(),
+    host: { platform: "linux" } as HostCapabilities,
+    candidateEnglishGloss: true,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.getByRole("checkbox", { name: "显示英文释义" })).toBeTruthy();
 });
 
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
@@ -378,7 +389,7 @@ test("voice settings persist under the shared voice_input contract", async () =>
     // That is the point of the change: the shipped endpoint default is Doubao's
     // websocket URL, and leaving it behind routed other providers' tokens to
     // ByteDance.
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", doubao_auth_mode: "api_key", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
       // Tokens are kept per provider, so switching also moves the credential
       // into the slot being left rather than carrying it to the new endpoint.
       asr_token: "", asr_tokens: {} },
@@ -696,9 +707,9 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   const host: HostCapabilities = {
     platform: "linux", restart_input_method: true, panel_windows: true, ime_mode_scope: true,
     typing_statistics: false, fuzzy_pinyin: true, system_fonts: true, window_chrome: true,
-    floating_toolbar: true, floating_toolbar_appearance: false,
+    floating_toolbar: true, floating_toolbar_appearance: false, floating_toolbar_components: true,
     mode_switch_shortcuts: true, panel_shortcuts: true, voice_capture_devices: true,
-    candidate_font_controls: false, candidate_selection_appearance: false,
+    candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false,
   };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />);
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
@@ -833,7 +844,7 @@ test("screen keyboard matches upstream Shift and Caps posting combinations", asy
     expect(letter).toBeDefined();
     expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
     fireEvent.click(letter);
-    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps || shift, include_sticky_modifiers: true }));
+    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps !== shift, include_sticky_modifiers: true }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
     expect(letter.textContent).toBe("a");
     panel.unmount();

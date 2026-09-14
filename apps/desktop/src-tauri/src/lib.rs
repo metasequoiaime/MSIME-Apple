@@ -41,13 +41,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
-use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
+#[cfg(any(target_os = "windows", test))]
+mod voice_output;
 #[cfg(unix)]
 mod voice_sessions;
 use msime_host_api::system_fonts;
@@ -1650,7 +1650,7 @@ fn send_panel_text_to_target(
     sent.then_some(()).ok_or(HostActionError { code: "unavailable" })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn record_panel_typing_statistics(
     store: &TypingStatisticsStore,
     text: &str,
@@ -1770,10 +1770,26 @@ fn send_panel_voice_text(
 // Windows panels are ordinary Tauri windows that never activate, so the host
 // injects input on their behalf through the Windows host layer; this shell
 // itself stays free of unsafe code.
+
 #[cfg(target_os = "windows")]
 fn remember_panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    // Editable panels invoke this again after mounting. Do not replace the
+    // original editor with our own newly focused webview.
+    if !msime_host_windows::foreground_is_external() {
+        return state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .as_ref()
+            .map(|_| ())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
+    }
     let target = msime_host_windows::foreground_window().ok_or(HostActionError {
         code: "unavailable",
     })?;
@@ -2049,6 +2065,36 @@ async fn recognize_handwriting(
             code: "invalid_stroke",
         })?;
         return Ok(result);
+    }
+    // Windows ships a recognizer with the language pack, and it is the only one
+    // a stock machine has: the packaged Engine model is optional in the
+    // installer. Try it first, and fall through to the model when Windows has
+    // no Chinese handwriting feature installed.
+    #[cfg(windows)]
+    {
+        let strokes: Vec<msime_host_windows::ink::Stroke> = query
+            .strokes
+            .iter()
+            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+            .collect();
+        let recognized =
+            tauri::async_runtime::spawn_blocking(move || msime_host_windows::ink::recognize(&strokes))
+                .await
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        match recognized {
+            Ok(candidates) if !candidates.is_empty() => {
+                let result = HandwritingRecognitionResult { candidates };
+                result.validate().map_err(|_| HostActionError {
+                    code: "invalid_stroke",
+                })?;
+                return Ok(result);
+            }
+            // Recognized nothing, or Windows has no Chinese recognizer. Either
+            // way the packaged model below is still worth asking.
+            _ => {}
+        }
     }
     let Some(model) = model else {
         return Err(HostActionError {
@@ -2485,7 +2531,18 @@ async fn submit_handwriting_candidate(
         )
         .await;
     }
-    #[cfg(not(target_os = "linux"))]
+    // Recognition without a way to commit is half a panel: Windows could
+    // produce candidates and then refuse to insert the one the user picked.
+    #[cfg(target_os = "windows")]
+    {
+        // Windows panels inject through the host rather than the runtime, so
+        // they do not pass through the typing counter, matching send_text.
+        let _ = (&app, &typing_statistics);
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text_windows(&state, &candidate);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, candidate);
         Err(HostActionError {
@@ -2569,20 +2626,77 @@ async fn send_voice_text(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .as_ref()
+            .map(|target| target.0)
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let store = store.inner().clone();
+        let statistics = typing_statistics.0.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let mode = store
+                .load()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
+                .preferences
+                .voice_input
+                .commit_mode;
+            voice_output::submit(&text, &mode, |mode, text| match mode {
+                // The TSF mode must use the Server's active-client/epoch lease;
+                // do not bypass that boundary with an unacknowledged fallback.
+                voice_output::OutputMode::Tsf => false,
+                voice_output::OutputMode::SendInput => {
+                    msime_host_windows::focus_external(target)
+                        && msime_host_windows::send_text(text)
+                }
+                voice_output::OutputMode::Clipboard => {
+                    msime_host_windows::paste_voice_text(target, text)
+                }
+            })
+            .map_err(|error| HostActionError {
+                code: match error {
+                    voice_output::OutputError::InvalidText => "invalid_text",
+                    voice_output::OutputError::Unavailable => "unavailable",
+                },
+            })?;
+            record_panel_typing_statistics(&statistics, &text, TypingSource::Voice);
+            Ok(())
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    }
     #[cfg(target_os = "linux")]
     {
         let target = state
             .0
             .lock()
-            .map_err(|_| HostActionError { code: "unavailable" })?
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
             .clone()
-            .ok_or(HostActionError { code: "unavailable" })?;
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             let commit_mode = store
                 .load()
-                .map_err(|_| HostActionError { code: "unavailable" })?
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
                 .preferences
                 .voice_input
                 .commit_mode;
@@ -2593,9 +2707,11 @@ async fn send_voice_text(
             result
         })
         .await
-        .map_err(|_| HostActionError { code: "unavailable" })?;
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, typing_statistics, store, text);
         Err(HostActionError {
@@ -2890,34 +3006,29 @@ fn open_voice_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = &state;
+    #[cfg(target_os = "linux")]
+    let position = {
+        let _ = remember_panel_input_target(&state, true);
+        panel_position(&state, 620.0, 520.0)
+    };
     #[cfg(target_os = "windows")]
-    {
-        let _ = (app, state);
-        Err(HostActionError {
-            code: "unavailable",
-        })
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 620.0, 520.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "voice-panel",
-            "voice",
-            "水杉语音输入",
-            620.0,
-            520.0,
-            position,
-        )
-    }
+    let position = {
+        let _ = remember_panel_input_target(&state);
+        windows_panel_position(620.0, 520.0)
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let position = None;
+    open_panel_window(
+        &app,
+        "voice-panel",
+        "voice",
+        "水杉语音输入",
+        620.0,
+        520.0,
+        position,
+    )
 }
 
 #[tauri::command]
@@ -3526,43 +3637,46 @@ pub fn run() {
             {
                 let linger = DesktopSettingsLinger::default();
                 app.manage(linger.clone());
-                app.on_window_event(move |window, event| {
-                    if window.label() != "main" {
-                        return;
-                    }
-                    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
-                        return;
-                    };
-                    if linger.quitting.load(Ordering::Acquire) {
-                        return;
-                    }
-                    api.prevent_close();
-                    let generation = linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = window.hide();
-                    let app = window.app_handle().clone();
-                    let linger = linger.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(10 * 60));
-                        let timer_app = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if linger
-                                .generation
-                                .compare_exchange(
-                                    generation,
-                                    generation + 1,
-                                    Ordering::AcqRel,
-                                    Ordering::Acquire,
-                                )
-                                .is_ok()
-                            {
-                                linger.quitting.store(true, Ordering::Release);
-                                if let Some(window) = timer_app.get_webview_window("main") {
-                                    let _ = window.close();
+                // The handler belongs to the window: App has no on_window_event,
+                // and the label check this replaces only ever admitted "main".
+                if let Some(main) = app.get_webview_window("main") {
+                    let window = main.clone();
+                    main.on_window_event(move |event| {
+                        let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                            return;
+                        };
+                        if linger.quitting.load(Ordering::Acquire) {
+                            return;
+                        }
+                        api.prevent_close();
+                        let generation =
+                            linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                        let _ = window.hide();
+                        let app = window.app_handle().clone();
+                        let linger = linger.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(10 * 60));
+                            let timer_app = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if linger
+                                    .generation
+                                    .compare_exchange(
+                                        generation,
+                                        generation + 1,
+                                        Ordering::AcqRel,
+                                        Ordering::Acquire,
+                                    )
+                                    .is_ok()
+                                {
+                                    linger.quitting.store(true, Ordering::Release);
+                                    if let Some(window) = timer_app.get_webview_window("main") {
+                                        let _ = window.close();
+                                    }
                                 }
-                            }
+                            });
                         });
                     });
-                });
+                }
             }
             #[cfg(unix)]
             app.manage(voice_sessions::VoiceSessions::default());

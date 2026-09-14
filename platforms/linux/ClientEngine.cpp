@@ -80,6 +80,9 @@ Json skin_display_preferences(Json preferences) {
     if (!preferences.value("candidate_accent_color", Json(nullptr)).is_string() &&
         palette.contains("accent"))
       preferences["candidate_accent_color"] = palette["accent"];
+    if (!preferences.value("candidate_selected_color", Json(nullptr)).is_string() &&
+        palette.contains("selected"))
+      preferences["candidate_selected_color"] = palette["selected"];
     if (palette.contains("surface"))
       preferences["candidate_background_color"] = palette["surface"];
     break;
@@ -102,6 +105,9 @@ std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_number_color(const Json &preferences);
 std::optional<guint> candidate_accent_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
+std::optional<guint> candidate_selected_color(const Json &preferences);
+std::optional<guint> candidate_selected_text_color(const Json &preferences);
+std::optional<guint> candidate_selected_number_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
@@ -235,6 +241,9 @@ struct State {
   std::string preedit_style = "raw";
   std::optional<guint> candidate_text_color, candidate_background_color;
   std::optional<guint> candidate_number_color, candidate_accent_color;
+  std::optional<guint> candidate_selected_color;
+  std::optional<guint> candidate_selected_text_color;
+  std::optional<guint> candidate_selected_number_color;
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
@@ -316,6 +325,7 @@ struct State {
   guint translation_delay_source = 0;
   bool cloud_candidates = true;
   bool candidate_translations = true;
+  bool candidate_english_gloss = false;
   bool translation_reset_pending = false;
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
@@ -480,6 +490,7 @@ struct State {
         preferences.value("cloud_candidates", true));
     candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
+    candidate_english_gloss = preferences.value("candidate_english_gloss", false);
     translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
     if (english_override)
@@ -523,6 +534,11 @@ struct State {
     candidate_number_color = ::candidate_number_color(display_preferences);
     candidate_accent_color = ::candidate_accent_color(display_preferences);
     candidate_background_color = ::candidate_background_color(display_preferences);
+    candidate_selected_color = ::candidate_selected_color(display_preferences);
+    candidate_selected_text_color =
+        ::candidate_selected_text_color(display_preferences);
+    candidate_selected_number_color =
+        ::candidate_selected_number_color(display_preferences);
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
     preedit_style = ::preedit_style(options.at("preferences"));
     candidate_preedit_style =
@@ -602,11 +618,15 @@ struct State {
     cloud_candidates = next_cloud_candidates;
     const bool next_candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
-    if (next_candidate_translations != candidate_translations) {
+    const bool next_candidate_english_gloss =
+        preferences.value("candidate_english_gloss", false);
+    if (next_candidate_translations != candidate_translations ||
+        next_candidate_english_gloss != candidate_english_gloss) {
       translation_reset_pending = true;
       invalidate_providers();
     }
     candidate_translations = next_candidate_translations;
+    candidate_english_gloss = next_candidate_english_gloss;
     const auto next_translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
     if (next_translation_target_language != translation_target_language) {
@@ -626,6 +646,11 @@ struct State {
     candidate_number_color = ::candidate_number_color(display_preferences);
     candidate_accent_color = ::candidate_accent_color(display_preferences);
     candidate_background_color = ::candidate_background_color(display_preferences);
+    candidate_selected_color = ::candidate_selected_color(display_preferences);
+    candidate_selected_text_color =
+        ::candidate_selected_text_color(display_preferences);
+    candidate_selected_number_color =
+        ::candidate_selected_number_color(display_preferences);
     candidate_orientation = ::candidate_orientation(display_preferences);
     preedit_style = preedit_override.value_or(::preedit_style(display_preferences));
     candidate_preedit_style = preferences.value("candidate_preedit_style", "pinyin");
@@ -1183,10 +1208,7 @@ std::optional<guint> palette_color(const Json &value) {
   }
   return color;
 }
-std::optional<guint> candidate_text_color(const Json &preferences) {
-  if (const auto custom = palette_color(preferences.value("candidate_text_color", Json(nullptr))))
-    return custom;
-  const auto background = candidate_background_color(preferences);
+std::optional<guint> contrasting_color(std::optional<guint> background) {
   if (!background) return std::nullopt;
   const auto linear = [](guint channel) {
     const double value = channel / 255.0;
@@ -1199,8 +1221,25 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   const auto white_contrast = 1.05 / (luminance + 0.05);
   return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
 }
+std::optional<guint> candidate_text_color(const Json &preferences) {
+  if (const auto custom =
+          palette_color(preferences.value("candidate_text_color", Json(nullptr))))
+    return custom;
+  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (msime::linux_host::candidate_builtin_skin(skin))
+    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").text;
+  return contrasting_color(candidate_background_color(preferences));
+}
 std::optional<guint> candidate_number_color(const Json &preferences) {
-  return palette_color(preferences.value("candidate_number_color", Json(nullptr)));
+  if (const auto custom =
+          palette_color(preferences.value("candidate_number_color", Json(nullptr))))
+    return custom;
+  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (msime::linux_host::candidate_builtin_skin(skin))
+    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").number;
+  return std::nullopt;
 }
 std::optional<guint> candidate_accent_color(const Json &preferences) {
   if (const auto custom =
@@ -1208,8 +1247,9 @@ std::optional<guint> candidate_accent_color(const Json &preferences) {
     return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
-  return msime::linux_host::candidate_builtin_accent(
-      skin, theme == "dark");
+  if (msime::linux_host::candidate_builtin_skin(skin))
+    return msime::linux_host::candidate_builtin_accent(skin, theme == "dark");
+  return std::nullopt;
 }
 std::optional<guint> candidate_background_color(const Json &preferences) {
   if (const auto custom = palette_color(preferences.value("candidate_background_color", Json(nullptr))))
@@ -1219,12 +1259,43 @@ std::optional<guint> candidate_background_color(const Json &preferences) {
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";
-  if (skin == "wechat") return dark ? 0x163c2cu : 0xe8f5e9u;
-  if (skin == "graphite") return dark ? 0x2f3437u : 0xf1f3f4u;
-  if (skin == "willow_green") return dark ? 0x244437u : 0xf1f8eeu;
+  if (msime::linux_host::candidate_builtin_skin(skin))
+    return msime::linux_host::candidate_builtin_palette(skin, dark).surface;
   if (theme == "dark") return 0x202124u;
   if (theme == "light") return 0xffffffu;
   return std::nullopt;
+}
+std::optional<guint> candidate_selected_color(const Json &preferences) {
+  if (const auto custom =
+          palette_color(preferences.value("candidate_selected_color", Json(nullptr))))
+    return custom;
+  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (msime::linux_host::candidate_builtin_skin(skin))
+    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").selected;
+  return std::nullopt;
+}
+std::optional<guint> candidate_selected_text_color(const Json &preferences) {
+  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (msime::linux_host::candidate_builtin_skin(skin)) {
+    const auto palette =
+        msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
+    if (palette.selected_text) return palette.selected_text;
+    return candidate_text_color(preferences);
+  }
+  return candidate_text_color(preferences);
+}
+std::optional<guint> candidate_selected_number_color(const Json &preferences) {
+  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (msime::linux_host::candidate_builtin_skin(skin)) {
+    const auto palette =
+        msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
+    if (palette.selected_number) return palette.selected_number;
+    return candidate_number_color(preferences);
+  }
+  return candidate_number_color(preferences);
 }
 IBusOrientation candidate_orientation(const Json &preferences) {
   return preferences.value("candidate_layout", "vertical") == "horizontal"
@@ -1496,8 +1567,11 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
 }
 void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.candidate_translations ||
-      (s.translation_provider_socket.empty() && s.translation_target_language != "en") ||
+  const bool offline_gloss =
+      s.candidate_english_gloss && s.translation_target_language == "en";
+  const bool online_translation =
+      s.candidate_translations && !s.translation_provider_socket.empty();
+  if ((!offline_gloss && !online_translation) ||
       s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled ||
       !s.view.value("candidates", Json::array()).size())
@@ -1523,10 +1597,13 @@ void translation_dispatch(IBusEngine *engine) {
     const auto gloss_query = Json{{"generation", query.at("generation")},
                                   {"user_data", configured.value("user_data", std::string{})},
                                   {"candidates", candidates}}.dump();
+    const auto provider_socket =
+        s.candidate_translations ? s.translation_provider_socket : std::string{};
     start_translation_task(engine, TranslationTask{
-        s.session, s.provider_epoch, encoded, s.translation_provider_socket,
+        s.session, s.provider_epoch, encoded, provider_socket,
         configured.value("resources", std::string{}), gloss_query,
-        s.translation_target_language == "en", Json::array()});
+        offline_gloss,
+        Json::array()});
   } catch (...) { s.translation_loading = false; }
 }
 // Match the Windows translation worker's 500ms idle window. Only copy
@@ -1538,8 +1615,11 @@ void translation_schedule(IBusEngine *engine) {
     s.translation_delay_source = 0;
     g_source_remove(source);
   }
-  if (!s.candidate_translations ||
-      (s.translation_provider_socket.empty() && s.translation_target_language != "en") ||
+  const bool offline_gloss =
+      s.candidate_english_gloss && s.translation_target_language == "en";
+  const bool online_translation =
+      s.candidate_translations && !s.translation_provider_socket.empty();
+  if ((!offline_gloss && !online_translation) ||
       !s.session || !s.focused || s.blocked || !s.input_enabled ||
       s.view.value("candidates", Json::array()).empty())
     return;
@@ -2771,7 +2851,10 @@ void render(IBusEngine *engine, const Json &view) {
     const auto candidate_preedit = view.value("preedit", std::string{});
     if (!candidate_preedit.empty()) {
       paging += "  · ";
-      paging += candidate_preedit;
+      const auto editing_text = view.value("editing_text", std::string{});
+      const auto caret = view.value("caret_position", editing_text.size());
+      paging += msime::linux_host::candidate_preedit_with_caret(
+          candidate_preedit, editing_text, caret);
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
@@ -2797,7 +2880,12 @@ void render(IBusEngine *engine, const Json &view) {
     auto value = candidate.at("text").get<std::string>();
     if (candidate.value("corrected", false))
       value += "*";
-    if (state(engine).candidate_translations && !state(engine).translation_reset_pending &&
+    const auto &engine_state = state(engine);
+    const bool show_translations =
+        engine_state.candidate_translations ||
+        (engine_state.candidate_english_gloss &&
+         engine_state.translation_target_language == "en");
+    if (show_translations && !engine_state.translation_reset_pending &&
         candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose
@@ -2825,26 +2913,42 @@ void render(IBusEngine *engine, const Json &view) {
     }
     value = traditional_display(state(engine), view, std::move(value));
     auto text = ibus_text_new_from_string(value.c_str());
-    if (state(engine).candidate_text_color)
-      ibus_text_append_attribute(
-          text, IBUS_ATTR_TYPE_FOREGROUND,
-          *state(engine).candidate_text_color, 0, G_MAXUINT);
+    const bool highlighted = candidate.at("highlighted").get<bool>();
+    const auto row_text_color =
+        highlighted && state(engine).candidate_selected_text_color
+            ? state(engine).candidate_selected_text_color
+            : state(engine).candidate_text_color;
+    // Fixed candidates keep the accent priority used by the Windows
+    // presenter, including when the row is highlighted.
     if (fixed_position > 0 && state(engine).candidate_accent_color)
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
           *state(engine).candidate_accent_color, 0, G_MAXUINT);
-    if (state(engine).candidate_background_color)
+    else if (row_text_color)
+      ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 *row_text_color, 0, G_MAXUINT);
+    const auto row_background =
+        highlighted && state(engine).candidate_selected_color
+            ? state(engine).candidate_selected_color
+            : state(engine).candidate_background_color;
+    if (row_background)
       ibus_text_append_attribute(
-          text, IBUS_ATTR_TYPE_BACKGROUND,
-          *state(engine).candidate_background_color, 0, G_MAXUINT);
+          text, IBUS_ATTR_TYPE_BACKGROUND, *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
     auto label_text = ibus_text_new_from_string(label.c_str());
-    if (state(engine).candidate_number_color)
+    const auto row_number_color =
+        highlighted && state(engine).candidate_selected_number_color
+            ? state(engine).candidate_selected_number_color
+            : state(engine).candidate_number_color;
+    if (row_number_color)
       ibus_text_append_attribute(label_text, IBUS_ATTR_TYPE_FOREGROUND,
-                                 *state(engine).candidate_number_color, 0, G_MAXUINT);
+                                 *row_number_color, 0, G_MAXUINT);
+    if (row_background)
+      ibus_text_append_attribute(label_text, IBUS_ATTR_TYPE_BACKGROUND,
+                                 *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_label(table, label_text);
-    if (candidate.at("highlighted").get<bool>())
+    if (highlighted)
       ibus_lookup_table_set_cursor_pos(table, static_cast<guint>(index));
   }
   ibus_engine_update_lookup_table(engine, table, TRUE);
@@ -2951,6 +3055,7 @@ Json voice_provider_options(const Json &preferences) {
   }
   constexpr const char *string_keys[] = {
       "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
+      "doubao_auth_mode",
       "polish_provider", "polish_model", "doubao_boosting_table_id",
       "polish_prompt_id"};
   for (const auto *key : string_keys) {
@@ -3235,8 +3340,10 @@ void voice_start_impl(IBusEngine *engine) {
                   !s.session || !s.focused || s.blocked || !s.input_enabled) {
                 return G_SOURCE_REMOVE;
               }
+              auto text = msime_voice_result_or_transcript(
+                  std::move(result->text), s.voice_transcript, s.voice_preedit);
               try {
-                if (result->text.empty()) {
+                if (text.empty()) {
                   msime_client_string_free(msime_client_voice_cancel(s.session));
                   s.voice_active = false;
                   s.voice_generation = 0;
@@ -3254,38 +3361,60 @@ void voice_start_impl(IBusEngine *engine) {
                 }
                 auto applied = response(msime_client_voice_apply(
                     s.session, result->generation,
-                    reinterpret_cast<const uint8_t *>(result->text.data()),
-                    result->text.size()));
+                    reinterpret_cast<const uint8_t *>(text.data()), text.size()));
+                if (!applied.is_string())
+                  throw std::runtime_error("Voice result was rejected");
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
                 s.voice_transcript.clear();
                 s.wave_overlay.transcript.clear();
                 s.voice_space_locked = false;
-                if (applied.is_string()) {
-                  auto text = traditional_display(
-                      s, Json{{"scheme", s.view.value("scheme", 0)},
-                              {"local_mode", "none"}},
-                      applied.get<std::string>());
-                  if (s.fullwidth)
-                    text = fullwidth_text(std::move(text));
-                  commit_text(result->engine, text,
-                              msime::linux_host::TypingSource::Voice);
-                }
+                auto committed = traditional_display(
+                    s, Json{{"scheme", s.view.value("scheme", 0)},
+                            {"local_mode", "none"}},
+                    applied.get<std::string>());
+                if (s.fullwidth)
+                  committed = fullwidth_text(std::move(committed));
+                commit_text(result->engine, committed,
+                            msime::linux_host::TypingSource::Voice);
                 render(result->engine, s.view);
                 publish_mode(result->engine);
               } catch (...) {
-                s.voice_active = false;
-                s.voice_generation = 0;
-                s.voice_preedit.clear();
-                s.voice_transcript.clear();
-                s.wave_overlay.transcript.clear();
-                s.voice_space_locked = false;
-                msime_client_string_free(msime_client_voice_cancel(s.session));
-                render(result->engine, s.view);
-                publish_mode(result->engine);
-                show_voice_failure(result->engine,
-                                   "语音结果处理失败，请重新录音");
+                // The shared Engine route can be refused after recognition
+                // (for example while focus is being torn down). Preserve the
+                // transcript rather than losing the completed recording.
+                try {
+                  auto fallback = traditional_display(
+                      s, Json{{"scheme", s.view.value("scheme", 0)},
+                              {"local_mode", "none"}},
+                      std::move(text));
+                  if (s.fullwidth)
+                    fallback = fullwidth_text(std::move(fallback));
+                  commit_text(result->engine, fallback,
+                              msime::linux_host::TypingSource::Voice);
+                  s.voice_active = false;
+                  s.voice_generation = 0;
+                  s.voice_preedit.clear();
+                  s.voice_transcript.clear();
+                  s.wave_overlay.transcript.clear();
+                  s.voice_space_locked = false;
+                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  render(result->engine, s.view);
+                  publish_mode(result->engine);
+                } catch (...) {
+                  s.voice_active = false;
+                  s.voice_generation = 0;
+                  s.voice_preedit.clear();
+                  s.voice_transcript.clear();
+                  s.wave_overlay.transcript.clear();
+                  s.voice_space_locked = false;
+                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  render(result->engine, s.view);
+                  publish_mode(result->engine);
+                  show_voice_failure(result->engine,
+                                     "语音结果处理失败，请重新录音");
+                }
               }
               return G_SOURCE_REMOVE;
             },

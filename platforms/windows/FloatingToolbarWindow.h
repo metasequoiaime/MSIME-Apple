@@ -81,6 +81,9 @@ private:
   std::optional<ModePresentation> shown_;
   std::optional<bool> shown_character_set_;
   std::optional<POINT> dragged_position_;
+  // True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE, so a programmatic
+  // placement is not mistaken for one the user made.
+  bool moving_ = false;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
   // Pointer feedback. Without these the buttons gave no sign of being buttons.

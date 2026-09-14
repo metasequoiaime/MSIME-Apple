@@ -8,6 +8,8 @@ public final class KeyboardGeometry {
     public static final int MIN_HEIGHT_ADJUSTMENT_DP = -12;
     public static final int MAX_HEIGHT_ADJUSTMENT_DP = 48;
     public static final int STANDARD_ROW_HEIGHT_DP = 48;
+    /** Fixed candidate/shortcut row; swapping its contents must not move the key rows. */
+    public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
     public static final int HANDWRITING_BODY_HEIGHT_DP = 220;
     public static final int DEFAULT_KEY_SPACING_TENTHS = 60;

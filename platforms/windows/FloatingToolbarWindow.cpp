@@ -116,8 +116,10 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     placement.work_right = work.right;
     placement.work_bottom = work.bottom;
     // The remembered position, not the live window rect, is what survives a
-    // restart: WM_MOVE keeps it current and the config restores it through
-    // set_position before the first refresh.
+    // restart: a drag records it and the config restores it through
+    // set_position before the first refresh. It stays empty until the user
+    // actually moves the toolbar, so an untouched one keeps following the
+    // focused window and re-anchoring to the corner.
     placement.placed = dragged_position_.has_value();
     if (dragged_position_) {
       placement.current_x = dragged_position_->x;
@@ -310,7 +312,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
+    case WM_ENTERSIZEMOVE:
+      self->moving_ = true;
+      return 0;
     case WM_MOVE:
+      // Only a move the user drove counts. refresh()'s own SetWindowPos raises
+      // WM_MOVE too, and treating that as a drag would record the default
+      // corner as a chosen position - after which the toolbar would stop
+      // following the focused window's monitor and stop re-anchoring when its
+      // width changes.
+      if (!self->moving_)
+        return 0;
       self->dragged_position_ = POINT{static_cast<LONG>(static_cast<short>(LOWORD(l))),
                                       static_cast<LONG>(static_cast<short>(HIWORD(l)))};
       {
@@ -330,9 +342,15 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
                                                      info.rcWork.bottom - height);
           }
         }
-        if (self->position_changed_ && self->dragged_position_)
-          self->position_changed_(*self->dragged_position_);
       }
+      return 0;
+    case WM_EXITSIZEMOVE:
+      // Once, when the drag ends. The move loop raises WM_MOVE for every frame
+      // of the drag, and the listener rewrites the whole configuration file, so
+      // persisting there rewrote it dozens of times per second on the UI thread.
+      self->moving_ = false;
+      if (self->position_changed_ && self->dragged_position_)
+        self->position_changed_(*self->dragged_position_);
       return 0;
     case WM_LBUTTONDOWN: {
       // Only the strip left of the first button drags. Treating the whole

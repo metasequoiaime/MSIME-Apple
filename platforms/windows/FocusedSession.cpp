@@ -15,6 +15,15 @@ void FocusedSession::attach_online_query(
     const FocusLease &lease, std::optional<PendingReply> &reply) {
   if (reply) {
     reply->online_query = session_.online_query(lease.epoch);
+    if (reply->online_query) {
+      try {
+        reply->ai_request =
+            session_.ai_request(lease.epoch, *reply->online_query);
+      } catch (...) {
+        // AI configuration is optional; keep the ordinary reply path intact.
+        reply->ai_request.reset();
+      }
+    }
     reply->translation_query = session_.translation_query(lease.epoch);
   }
 }

@@ -112,6 +112,12 @@ mod ffi {
         pub commit: String,
         pub diagnostic: String,
     }
+    pub struct DictionaryReplaySummary {
+        pub applied: i32,
+        pub skipped: i32,
+        pub failed: i32,
+        pub error: String,
+    }
     #[derive(Debug)]
     pub struct OnlineQuerySnapshot {
         pub available: bool,
@@ -179,6 +185,11 @@ mod ffi {
             replacement: &[DictionaryEntry],
             request_id: &str,
         ) -> Result<()>;
+        fn replay_user_dictionary(
+            user_db_path: &str,
+            main_db_path: &str,
+            english_db_path: &str,
+        ) -> DictionaryReplaySummary;
         fn prepare_options(
             resources: &str,
             user_data: &str,
@@ -342,6 +353,18 @@ pub fn prepare_options(
     content_id: &str,
 ) -> Result<EngineOptions, cxx::Exception> {
     ffi::prepare_options(resources, user_data, cache, content_id)
+}
+
+/// Replay the Engine-owned user dictionary journal into the freshly installed
+/// dictionaries. The installer calls this only after quiescing the previous
+/// Server, so the operation cannot race a live session.
+pub fn replay_user_dictionary(
+    user_db_path: &str,
+    main_db_path: &str,
+    english_db_path: &str,
+) -> (i32, i32, i32, String) {
+    let result = ffi::replay_user_dictionary(user_db_path, main_db_path, english_db_path);
+    (result.applied, result.skipped, result.failed, result.error)
 }
 
 pub fn emoji_catalog(

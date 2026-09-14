@@ -86,9 +86,37 @@ def request_body(options):
                        "request": request}).encode()
 
 
+def _placeholder(value):
+    return (not value or
+            (len(value) >= 2 and value.startswith("<") and value.endswith(">")) or
+            value.startswith("FAKESECRET_"))
+
+
+def doubao_auth_headers(config, options):
+    """Choose Doubao headers without logging or exposing credential values."""
+    app_key = config.get("app_key", "")
+    token = config.get("token", "")
+    mode = options.get("doubao_auth_mode", "")
+    if not isinstance(mode, str) or not isinstance(app_key, str) or not isinstance(token, str):
+        raise ValueError("invalid Doubao authentication configuration")
+    mode = mode.lower()
+    if mode not in ("api_key", "legacy"):
+        # Older preferences had no mode and inferred the console generation
+        # from App ID presence. Keep that behavior, but never treat a shipped
+        # placeholder as an App ID.
+        mode = "api_key" if _placeholder(app_key) else "legacy"
+    if mode == "legacy":
+        if _placeholder(app_key):
+            raise ValueError("Doubao legacy authentication requires an App ID")
+        return {"X-Api-App-Key": app_key, "X-Api-Access-Key": token}
+    # New-console API Key authentication deliberately ignores a stale App ID.
+    return {"X-Api-Key": token}
+
+
 class DoubaoStream:
     def __init__(self, config, options, cancelled):
         self.config = config
+        self.auth_headers = doubao_auth_headers(config, options)
         self.initial = request_body(options)
         self.cancelled = cancelled
         self.closed = threading.Event()
@@ -150,11 +178,7 @@ class DoubaoStream:
             connection_type, connect = websocket_dependency()
             headers = {"X-Api-Resource-Id": self.config["resource_id"],
                        "X-Api-Request-Id": str(uuid.uuid4())}
-            if self.config.get("app_key"):
-                headers.update({"X-Api-App-Key": self.config["app_key"],
-                                "X-Api-Access-Key": self.config["token"]})
-            else:
-                headers["X-Api-Key"] = self.config["token"]
+            headers.update(self.auth_headers)
             logger = logging.Logger("msime.voice.doubao")
             logger.disabled = True
             logger.propagate = False
