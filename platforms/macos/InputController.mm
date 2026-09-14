@@ -845,6 +845,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
+    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=keyboard"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
