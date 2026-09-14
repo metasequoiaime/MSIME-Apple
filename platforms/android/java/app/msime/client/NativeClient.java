@@ -205,6 +205,12 @@ public final class NativeClient {
                     if ("header".equals(kind)) {
                         if (header || dataRecords != 0 || ended) throw new IOException("invalid snapshot header");
                         header = true;
+                        // The header counts and hashes like any other record, which is what
+                        // the Server's footer was written against; skipping it rejects every
+                        // valid snapshot.
+                        digest.update(bytes);
+                        digest.update((byte) '\n');
+                        dataRecords++;
                     } else if ("footer".equals(kind)) {
                         if (!header || footerHash != null) throw new IOException("invalid snapshot footer");
                         Matcher count = FOOTER_RECORDS.matcher(text);
