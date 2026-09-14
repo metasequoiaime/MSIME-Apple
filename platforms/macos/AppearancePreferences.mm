@@ -889,9 +889,9 @@ static BOOL ValidToolbarFontSize(id value) {
     NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     values[@"english"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
 }
-- (NSInteger)mixedEnglishMinimumPrefix { id value = [self mixedInputValues][@"minimum_prefix"]; return ValidMixedPrefix(value) ? [value integerValue] : 2; }
+- (NSInteger)mixedEnglishMinimumPrefix { id value = [self mixedInputValues][@"minimum_prefix"]; return ValidMixedPrefix(value) ? [value integerValue] : 5; }
 - (void)setMixedEnglishMinimumPrefix:(NSInteger)value {
-    if (value < 1 || value > 8) value = 2;
+    if (value < 1 || value > 8) value = 5;
     NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     values[@"minimum_prefix"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
 }

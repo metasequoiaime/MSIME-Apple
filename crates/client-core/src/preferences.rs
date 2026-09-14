@@ -887,7 +887,7 @@ impl Default for MixedInputPreferences {
     fn default() -> Self {
         Self {
             english: true,
-            minimum_prefix: 2,
+            minimum_prefix: 5,
             emoji: false,
             kaomoji: false,
         }
