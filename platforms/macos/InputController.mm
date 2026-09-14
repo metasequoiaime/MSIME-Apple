@@ -2119,6 +2119,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
+    NSString *commitForTracking = transition[@"commit"];
+    if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
+        static NSArray<NSArray<NSString *> *> *pairs;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ pairs = @[@[@"（", @"）"], @[@"【", @"】"], @[@"《", @"》"], @[@"“", @"”"], @[@"‘", @"’"], @[@"〈", @"〉"], @[@"「", @"」"]]; });
+        for (NSArray<NSString *> *pair in pairs)
+            if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
+    }
     NSDictionary *displayTransition = transition;
     if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
