@@ -88,6 +88,26 @@
     _translationRequest = [request copy]; _maximumBodyBytes = 1048576; _timeout = 2.5;
     return self;
 }
+- (instancetype)initWithNiuTransDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                completion:(void (^)(NSData *))completion {
+    self = [self initWithURL:nil configuration:configuration completion:completion];
+    if (!self) return nil;
+    if (![descriptor isKindOfClass:NSDictionary.class] ||
+        ![descriptor[@"url"] isEqual:@"https://api.niutrans.com/v2/text/translate"] ||
+        ![descriptor[@"method"] isEqual:@"POST"] || ![descriptor[@"timeout_ms"] isEqual:@2500] ||
+        ![descriptor[@"max_response_bytes"] isEqual:@1048576] ||
+        ![descriptor[@"body_utf8"] isKindOfClass:NSString.class]) return self;
+    NSDictionary *headers = descriptor[@"headers"];
+    if (![headers isKindOfClass:NSDictionary.class] || headers.count != 1 ||
+        ![headers[@"Content-Type"] isEqual:@"application/x-www-form-urlencoded; charset=utf-8"]) return self;
+    NSData *body = [descriptor[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding];
+    if (!body.length || body.length > 16384) return self;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:descriptor[@"url"]]];
+    request.HTTPMethod = @"POST"; request.allHTTPHeaderFields = headers; request.HTTPBody = body;
+    request.HTTPShouldHandleCookies = NO; request.timeoutInterval = 2.5;
+    _translationRequest = [request copy]; _maximumBodyBytes = 1048576; _timeout = 2.5;
+    return self;
+}
 - (instancetype)initWithAITranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
                                        completion:(void (^)(NSData *))completion {
     self = [self initWithURL:nil configuration:configuration completion:completion];

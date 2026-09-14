@@ -52,6 +52,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 /// Signed Tencent descriptor. Send body_utf8 unchanged; never log credentials.
 + (nullable NSDictionary *)tencentTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Signed NiuTrans v2 form descriptor. Send body_utf8 unchanged; never log it.
++ (nullable NSDictionary *)niuTransTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
++ (nullable NSString *)parseNiuTransTranslationResponse:(NSData *)body error:(NSError **)error;
 /// Pure AI descriptor with credentials; never log it or follow HTTP redirects.
 + (nullable NSDictionary *)aiHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 + (nullable NSArray<NSString *> *)parseAIResponse:(NSData *)body limit:(NSUInteger)limit error:(NSError **)error;

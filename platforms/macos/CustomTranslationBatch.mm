@@ -14,6 +14,27 @@
     BOOL _started;
     BOOL _tencent;
     BOOL _ai;
+    BOOL _niuTrans;
+}
+- (instancetype)initWithNiuTransItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
+                        configuration:(NSURLSessionConfiguration *)configuration
+                           completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    NSMutableArray *requests = [NSMutableArray array];
+    BOOL valid = [items isKindOfClass:NSArray.class] && items.count <= 9 && [config isKindOfClass:NSDictionary.class];
+    if (valid) for (id item in items) {
+        if (![item isKindOfClass:NSDictionary.class]) { valid = NO; break; }
+        for (NSString *key in @[@"text", @"key", @"source_language", @"target_language"])
+            if (![item[key] isKindOfClass:NSString.class] || ![item[key] length]) valid = NO;
+        if (!valid) break;
+        [requests addObject:@{@"text":item[@"text"], @"request":@{@"config":config, @"text":item[@"key"],
+            @"source_language":item[@"source_language"], @"target_language":item[@"target_language"]}}];
+    }
+    self = [self initWithItems:valid ? requests : @[] configuration:configuration completion:completion];
+    if (self) _niuTrans = YES;
+    return self;
+}
+- (MSIMECloudCandidateRequest *)niuTransRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    return [[MSIMECloudCandidateRequest alloc] initWithNiuTransDescriptor:descriptor configuration:_configuration completion:completion];
 }
 - (instancetype)initWithAIItems:(NSArray<NSDictionary *> *)items
                    configuration:(NSURLSessionConfiguration *)configuration
@@ -127,7 +148,9 @@
         if ([strongSelf currentTime] >= strongSelf->_deadline) { [strongSelf finish]; return; }
         NSArray *translations = nil;
         NSString *translation = nil;
-        if (strongSelf->_tencent) {
+        if (strongSelf->_niuTrans) {
+            translation = body ? [MSIMEClientSession parseNiuTransTranslationResponse:body error:nil] : nil;
+        } else if (strongSelf->_tencent) {
             translations = body ? [MSIMEClientSession parseTencentTranslationResponse:body
                 expectedCount:[item[@"originals"] count] error:nil] : nil;
         } else if (strongSelf->_ai) {
@@ -148,7 +171,14 @@
         strongSelf->_request = nil;
         [strongSelf advance];
     };
-    if (_tencent) {
+    if (_niuTrans) {
+        NSMutableDictionary *input = [item[@"request"] mutableCopy];
+        input[@"timestamp"] = [NSString stringWithFormat:@"%lld", (long long)([self unixTime] * 1000)];
+        NSDictionary *descriptor = [MSIMEClientSession niuTransTranslationHTTPRequest:input error:nil];
+        if (!descriptor) { reply(nil); return; }
+        if ([self currentTime] >= _deadline) { [self finish]; return; }
+        _request = [self niuTransRequestForDescriptor:descriptor completion:reply];
+    } else if (_tencent) {
         NSDictionary *descriptor = [MSIMEClientSession tencentTranslationHTTPRequest:@{
             @"config":item[@"config"], @"texts":item[@"texts"],
             @"source_language":item[@"source_language"], @"target_language":item[@"target_language"],

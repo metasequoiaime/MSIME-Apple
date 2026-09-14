@@ -2,6 +2,9 @@
 
 /// One bounded ephemeral request. All methods and completion run on main thread.
 @interface MSIMECloudCandidateRequest : NSObject <NSURLSessionDataDelegate>
+/// Fixed NiuTrans HTTPS endpoint; signed form bytes are not reserialized.
+- (instancetype)initWithNiuTransDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                completion:(void (^)(NSData *body))completion;
 - (instancetype)initWithURL:(NSURL *)url configuration:(NSURLSessionConfiguration *)configuration
                  completion:(void (^)(NSData *body))completion;
 - (void)start;

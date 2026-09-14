@@ -1889,7 +1889,7 @@ static void TestAiCandidateEngineDelivery() {
     assert(!bridgeError && parsed.count == 2);
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
-        @"candidate_page_size":@5, @"chinese_punctuation":@YES,
+        @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"default_ime_mode":@"chinese",
         @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"candidate_limit":@3}}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
@@ -1932,7 +1932,7 @@ static void TestAiCandidateEngineDelivery() {
 }
 static void TestCloudCandidateEngineDelivery() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"cloud_candidates":@YES, @"learning":@NO}} mutableCopy];
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"cloud_candidates":@YES, @"learning":@NO, @"default_ime_mode":@"chinese"}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -2084,6 +2084,7 @@ static void TestCloudCandidatePreference() {
 @interface CustomTranslationSession : GlossSession
 @property(nonatomic, copy) NSDictionary *custom;
 @property(nonatomic, copy) NSDictionary *tencent;
+@property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
@@ -2093,7 +2094,7 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
-        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}} : nil;
+        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -2111,6 +2112,7 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic, copy) void (^reply)(NSArray *);
 @property(nonatomic, copy) NSArray *items;
 @property(nonatomic, copy) NSDictionary *tencentConfig;
+@property(nonatomic, copy) NSDictionary *niuTransConfig;
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL cancelled;
 @end
@@ -2123,6 +2125,11 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic) BOOL useRealDelay;
 @end
 @implementation CustomTranslationController
+- (MSIMECustomTranslationBatch *)niuTransBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
+                                           completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    ControlledTranslationBatch *batch = (ControlledTranslationBatch *)[self customBatchForItems:items completion:completion];
+    batch.niuTransConfig = config; return batch;
+}
 - (NSTimer *)customTranslationTimerWithBlock:(void (^)(NSTimer *))block {
     if (self.useRealDelay) return [super customTranslationTimerWithBlock:block];
     block(nil); return nil;
@@ -2203,6 +2210,52 @@ static void TestLearnedGlossRuntime() {
     [reader cancelCandidateTranslations];
     NSError *error = nil;
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+    [[MSIMETranslationCache sharedCache] clear];
+}
+static void TestNiuTransCandidateScheduling() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc]; controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.niuTrans = @{@"enabled":@YES, @"app_id":@"synthetic-app", @"apikey":@"synthetic-key"};
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://synthetic.invalid", @"api_key":@""};
+    session.tencent = TencentConfig();
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"smile", @"source":@6}];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"]; [controller setValue:client forKey:@"activeClient"];
+    [controller applySharedToolbarPreferences:@{@"niutrans":session.niuTrans, @"custom_translation":session.custom, @"tencent_tmt":session.tencent}];
+    [controller synchronizeCustomTranslations]; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1);
+    ControlledTranslationBatch *first = controller.batches[0];
+    assert([first.niuTransConfig isEqual:session.niuTrans] && !first.tencentConfig && first.items.count == 2);
+    assert([first.items[0][@"target_language"] isEqual:@"zh"] && [first.items[1][@"target_language"] isEqual:@"fr"]);
+    first.reply(@[@{@"text":@"Hello", @"translation":@"合成释义"}]);
+    session.generation++; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1); // Positive and negative entries are reused within this provider.
+    NSDictionary *updated = @{@"enabled":@YES, @"app_id":@"synthetic-app-2", @"apikey":@"synthetic-key-2"};
+    [controller applySharedToolbarPreferences:@{@"niutrans":updated}];
+    assert(![controller currentCustomTranslationRequest]); // Pending Engine snapshot must not use old credentials.
+    session.niuTrans = updated; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && controller.batches.lastObject.items.count == 2);
+    ControlledTranslationBatch *pending = controller.batches.lastObject;
+    NSDictionary *disabled = @{@"enabled":@NO, @"app_id":@"", @"apikey":@""};
+    [controller applySharedToolbarPreferences:@{@"niutrans":disabled}];
+    pending.reply(@[@{@"text":@"Hello", @"translation":@"stale"}]);
+    assert(pending.cancelled && !session.delivered.count && ![controller currentCustomTranslationRequest]);
+    session.niuTrans = disabled; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 3 && !controller.batches.lastObject.niuTransConfig); // Explicit opt-out selects custom.
+    [controller cancelCustomTranslations];
+    [controller applySharedToolbarPreferences:@{@"niutrans":updated}];
+    assert(![controller currentCustomTranslationRequest]); // No fallback while NiuTrans enablement is pending.
+    session.niuTrans = updated; [controller synchronizeCustomTranslations];
+    pending = controller.batches.lastObject;
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    pending.reply(@[@{@"text":@"Hello", @"translation":@"stale focus"}]);
+    assert(!session.delivered.count);
+    [controller cancelCustomTranslations];
+    [controller setValue:client forKey:@"activeClient"];
+    session.localMode = @"temporary_japanese";
+    assert(![controller currentCustomTranslationRequest]);
     [[MSIMETranslationCache sharedCache] clear];
 }
 static void TestTencentCandidateScheduling() {
@@ -2613,12 +2666,25 @@ static void TestGlossModePolicy() {
     [controller cancelCandidateGloss];
 }
 
-int main() {
+int main(int argc, char **argv) {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--translations") {
+            TestGlossScheduling();
+            TestCustomTranslationController();
+            TestCustomTranslationCacheDelivery();
+            TestCustomTranslationIdleDelay(NO);
+            TestCustomTranslationIdleDelay(YES);
+            TestTencentCandidateScheduling();
+            TestNiuTransCandidateScheduling();
+            TestLearnedGlossRuntime();
+            TestCandidateTranslationPreference();
+            TestGlossModePolicy();
+            return 0;
+        }
         NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
         id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
@@ -2632,6 +2698,7 @@ int main() {
         TestCustomTranslationIdleDelay(NO);
         TestCustomTranslationIdleDelay(YES);
         TestTencentCandidateScheduling();
+        TestNiuTransCandidateScheduling();
         TestLearnedGlossRuntime();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();

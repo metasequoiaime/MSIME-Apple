@@ -279,6 +279,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
     NSDictionary *_tencentTranslationConfig;
+    NSDictionary *_niuTransConfig;
     NSArray<NSDictionary *> *_customResults;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
@@ -347,13 +348,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
-    NSDictionary *config = query[@"custom_translation"];
-    BOOL custom = [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
-    if (!custom) config = query[@"tencent_tmt"];
+    NSDictionary *config = query[@"niutrans"];
+    BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
+    if (!niuTrans) config = query[@"custom_translation"];
+    BOOL custom = !niuTrans && [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
+    if (!niuTrans && !custom) config = query[@"tencent_tmt"];
     if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] isEqual:@YES]) return nil;
     // A preference snapshot can be pending in Engine while the composition is active.
-    if ((custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
-        (!custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
+    if ((niuTrans && _niuTransConfig && ![_niuTransConfig isEqual:config]) ||
+        (!niuTrans && [_niuTransConfig[@"enabled"] isEqual:@YES]) ||
+        (custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
+        (!niuTrans && !custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
             (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
         (_glossTargetLanguage && ![_glossTargetLanguage isEqual:query[@"target_language"]])) return nil;
     NSDictionary *view = [_session viewWithError:nil];
@@ -372,7 +377,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (!candidates.count) return nil;
     return @{@"generation":query[@"generation"], @"target_language":query[@"target_language"],
-        (custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
+        (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
 - (void)applyCandidateTranslationResults {
@@ -392,6 +397,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return [[MSIMECustomTranslationBatch alloc] initWithTencentItems:items config:config
         configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
 }
+- (MSIMECustomTranslationBatch *)niuTransBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
+                                           completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    return [[MSIMECustomTranslationBatch alloc] initWithNiuTransItems:items config:config
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
 - (NSTimer *)customTranslationTimerWithBlock:(void (^)(NSTimer *))block {
     NSTimer *timer = [NSTimer timerWithTimeInterval:0.5 repeats:NO block:block];
     [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
@@ -409,7 +419,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSMutableDictionary *identities = [NSMutableDictionary dictionary];
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     BOOL tencent = query[@"tencent_tmt"] != nil;
-    NSString *scope = tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
+    BOOL niuTrans = query[@"niutrans"] != nil;
+    NSString *scope = niuTrans ? [@"niutrans:" stringByAppendingString:query[@"niutrans"][@"app_id"] ?: @""] :
+        tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
     for (NSDictionary *item in plan) {
         NSArray *identity = @[scope, query[@"target_language"],
             item[@"source_language"], item[@"target_language"], item[@"key"]];
@@ -418,7 +430,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if ([value isKindOfClass:NSString.class]) [cached addObject:@{@"text":item[@"text"], @"translation":value}];
             continue;
         }
-        if (tencent) {
+        if (tencent || niuTrans) {
             [items addObject:item];
             identities[item[@"text"]] = identity;
             continue;
@@ -461,7 +473,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             current->_customResults = [combined copy];
             [current applyCandidateTranslationResults];
         };
-        owner->_customBatch = tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
+        owner->_customBatch = niuTrans ? [owner niuTransBatchForItems:items config:query[@"niutrans"] completion:completion]
+            : tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
             : [owner customBatchForItems:items completion:completion];
         [owner->_customBatch start];
     }];
@@ -1677,6 +1690,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:tencent]) [[MSIMETranslationCache sharedCache] clear];
         translationChanged |= ![_tencentTranslationConfig isEqual:tencent];
         _tencentTranslationConfig = [tencent copy];
+    }
+    NSDictionary *niuTrans = preferences[@"niutrans"];
+    if ([niuTrans isKindOfClass:NSDictionary.class]) {
+        if (_niuTransConfig && ![_niuTransConfig isEqual:niuTrans]) [[MSIMETranslationCache sharedCache] clear];
+        translationChanged |= ![_niuTransConfig isEqual:niuTrans];
+        _niuTransConfig = [niuTrans copy];
     }
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
         [self cancelCandidateTranslations];
