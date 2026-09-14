@@ -167,9 +167,22 @@ build_font_fallback(IDWriteFactory *factory,
     result.Reset();
   return result;
 }
+// Owner-drawn menu rows.
+//
+// The rows and their rules were already right; only the presentation was the
+// OS default, so a light system menu appeared over a dark card and no skin's
+// colours reached it. Owner drawing keeps the platform's own keyboard handling
+// and dismissal - which a hand-rolled flyout would have to reimplement - while
+// painting the rows from the skin.
 void append_menu(HMENU menu, UINT flags, UINT_PTR command,
                  const wchar_t *label) {
   if (!AppendMenuW(menu, flags, command, label))
+    throw std::runtime_error("Candidate context menu unavailable");
+}
+// An owner-drawn row carries a pointer to its label instead of a string.
+void append_owner_menu(HMENU menu, UINT flags, UINT_PTR command,
+                       ULONG_PTR data) {
+  if (!AppendMenuW(menu, flags, command, reinterpret_cast<LPCWSTR>(data)))
     throw std::runtime_error("Candidate context menu unavailable");
 }
 } // namespace
@@ -593,23 +606,32 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
       ++i;
   }
 
+  // Labels outlive TrackPopupMenuEx: the owner-draw messages carry a pointer
+  // to them, so they cannot be temporaries.
+  menu_labels_.clear();
+  auto label = [this](std::wstring text) {
+    menu_labels_.push_back(std::make_unique<MenuRowLabel>(MenuRowLabel{std::move(text)}));
+    return reinterpret_cast<ULONG_PTR>(menu_labels_.back().get());
+  };
   PopupMenu menu(CreatePopupMenu());
   if (!menu.handle)
     throw std::runtime_error("Candidate context menu unavailable");
-  append_menu(menu.handle, MF_STRING, menu_pin, L"置顶");
+  append_owner_menu(menu.handle, MF_OWNERDRAW, menu_pin, label(L"置顶"));
   PopupMenu fixed(CreatePopupMenu());
   if (!fixed.handle)
     throw std::runtime_error("Candidate context menu unavailable");
   for (UINT position = 1; position <= 5; ++position)
-    append_menu(fixed.handle, MF_STRING, menu_fix_first + position - 1,
-                (L"第 " + std::to_wstring(position) + L" 位").c_str());
+    append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_fix_first + position - 1,
+                      label(L"第 " + std::to_wstring(position) + L" 位"));
   append_menu(fixed.handle, MF_SEPARATOR, 0, nullptr);
-  append_menu(fixed.handle, MF_STRING, menu_clear_fix, L"取消固定");
-  append_menu(menu.handle, MF_POPUP,
-              reinterpret_cast<UINT_PTR>(fixed.handle), L"固定排位");
+  append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_clear_fix,
+                    label(L"取消固定"));
+  append_owner_menu(menu.handle, MF_OWNERDRAW | MF_POPUP,
+                    reinterpret_cast<UINT_PTR>(fixed.handle),
+                    label(L"固定排位"));
   fixed.handle = nullptr; // Ownership now belongs to the parent menu.
   if (code_points != 1)
-    append_menu(menu.handle, MF_STRING, menu_remove, L"删除");
+    append_owner_menu(menu.handle, MF_OWNERDRAW, menu_remove, label(L"删除"));
 
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
@@ -646,7 +668,49 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
   if (self) {
     try {
       switch (message) {
-      case WM_MOUSEACTIVATE:
+      case WM_MEASUREITEM: {
+      auto *measure = reinterpret_cast<MEASUREITEMSTRUCT *>(lparam);
+      if (!measure || measure->CtlType != ODT_MENU)
+        break;
+      const auto *row = reinterpret_cast<const MenuRowLabel *>(measure->itemData);
+      const int unit = MulDiv(1, static_cast<int>(GetDpiForWindow(window)), 96);
+      // Roughly a character per label glyph plus padding; the exact width only
+      // has to be generous enough that the text is not clipped.
+      measure->itemWidth = static_cast<UINT>(
+          (row ? row->text.size() : 4) * 16 * unit + 24 * unit);
+      measure->itemHeight = static_cast<UINT>(26 * unit);
+      return TRUE;
+    }
+    case WM_DRAWITEM: {
+      auto *draw = reinterpret_cast<DRAWITEMSTRUCT *>(lparam);
+      if (!draw || draw->CtlType != ODT_MENU || !self)
+        break;
+      const auto *row = reinterpret_cast<const MenuRowLabel *>(draw->itemData);
+      if (!row)
+        break;
+      const auto &palette = self->palette_;
+      auto colour = [](const CandidateColor &value) {
+        return RGB(static_cast<int>(value.r * 255.0f),
+                   static_cast<int>(value.g * 255.0f),
+                   static_cast<int>(value.b * 255.0f));
+      };
+      const bool hot = (draw->itemState & (ODS_SELECTED | ODS_HOTLIGHT)) != 0;
+      HBRUSH fill = CreateSolidBrush(
+          colour(hot ? palette.menu_hover : palette.menu_fill));
+      if (fill) {
+        FillRect(draw->hDC, &draw->rcItem, fill);
+        DeleteObject(fill);
+      }
+      SetBkMode(draw->hDC, TRANSPARENT);
+      SetTextColor(draw->hDC, colour(palette.menu_text));
+      RECT text = draw->rcItem;
+      text.left += MulDiv(12, static_cast<int>(GetDpiForWindow(window)), 96);
+      DrawTextW(draw->hDC, row->text.c_str(),
+                static_cast<int>(row->text.size()), &text,
+                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+      return TRUE;
+    }
+    case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
       case WM_MOUSEWHEEL: {
         if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {

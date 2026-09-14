@@ -182,4 +182,27 @@ int main() {
   // Light and dark remain distinct surfaces.
   require(toolbar_palette("wechat", true).surface !=
           toolbar_palette("wechat", false).surface);
+
+  // The right-click flyout has its own colours per skin and per theme. The
+  // client used a plain OS popup, so a light system menu appeared over a dark
+  // card and no skin reached it.
+  for (const char *id : {"fluent", "wechat", "graphite", "willow_green"}) {
+    for (const bool dark : {false, true}) {
+      const auto skin = candidate_builtin_palette(id, dark);
+      // Readable: the menu text must not be the menu fill.
+      require(skin.menu_text != skin.menu_fill);
+      // The hover state has to be visible against the fill as well.
+      require(skin.menu_hover != skin.menu_fill);
+      // Fully transparent menu colours would draw nothing at all.
+      require(skin.menu_fill.a > 0.0f);
+      require(skin.menu_text.a > 0.0f);
+    }
+    // Light and dark are genuinely different menus, not one reused.
+    require(candidate_builtin_palette(id, true).menu_fill !=
+            candidate_builtin_palette(id, false).menu_fill);
+  }
+  // Each shipped skin dresses its menu differently from the default one.
+  for (const char *id : {"wechat", "graphite", "willow_green"})
+    require(candidate_builtin_palette(id, true).menu_fill !=
+            candidate_builtin_palette("fluent", true).menu_fill);
 }

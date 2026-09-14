@@ -4,6 +4,7 @@
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>
+#include <memory>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
 // which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
@@ -15,6 +16,11 @@ namespace msime::windows {
 // Main/UI thread owns construction, polling, painting and destruction. Reader
 // outlives the window and returns a freshly validated value, never Engine
 // state.
+// One owner-drawn menu row's label. Owner drawing keeps the platform's own
+// keyboard handling and dismissal while letting the skin paint the row.
+struct MenuRowLabel {
+  std::wstring text;
+};
 class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
@@ -82,6 +88,9 @@ private:
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
+  // Owner-drawn menu labels, kept alive for the duration of the popup: the
+  // draw messages carry pointers into this list.
+  std::vector<std::unique_ptr<MenuRowLabel>> menu_labels_;
   std::vector<std::wstring> fallback_families_;
   Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical
