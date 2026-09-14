@@ -20,13 +20,15 @@ use msime_client_core::panels::{
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
-use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+use msime_client_core::typing_statistics::{
+    TypingSource, TypingStatistics, TypingStatisticsStore,
+};
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
-#[cfg(unix)]
+use tauri::Emitter;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -625,6 +627,23 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
         .map_err(|error| error.error)
 }
 
+/// Keep the host's reason instead of flattening every failure to "storage".
+///
+/// The host distinguishes three things the user can actually act on - the
+/// dictionary is locked by another process, the edit itself was refused, and
+/// the store could not be opened - and the page used to print one identical
+/// sentence for all of them.
+fn dictionary_error_code(reason: &str) -> &'static str {
+    match reason {
+        "dictionary maintenance busy" => "dictionary_busy",
+        "dictionary import rejected" => "dictionary_import_rejected",
+        "dictionary read rejected" => "dictionary_read_rejected",
+        "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
+        "dictionary access unavailable" => "dictionary_unavailable",
+        _ => "storage",
+    }
+}
+
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
@@ -637,12 +656,14 @@ async fn dictionary_request(
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
-            return msime_host_api::personal_dictionary_request_json(&bytes)
-                .map_err(|_| CommandError { code: "storage" });
+            return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
+                CommandError { code: dictionary_error_code(&reason) }
+            });
         }
         #[cfg(not(target_os = "android"))]
-        msime_host_api::dictionary_request_json(&bytes)
-            .map_err(|_| CommandError { code: "storage" })
+        msime_host_api::dictionary_request_json(&bytes).map_err(|reason| CommandError {
+            code: dictionary_error_code(&reason),
+        })
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -805,7 +826,6 @@ struct EmojiCatalogResponse {
     unavailable: Vec<&'static str>,
 }
 
-#[cfg(unix)]
 fn emoji_category_icon(title: &str) -> &'static str {
     [
         ("Smileys", "😀"),
@@ -823,7 +843,11 @@ fn emoji_category_icon(title: &str) -> &'static str {
     .unwrap_or("☺")
 }
 
-#[cfg(unix)]
+// Reads the real catalog on every desktop host. The Windows build used to hit
+// a stub that always failed, so the panel fell back to the compact built-in
+// catalog - 97 emoji, 18 kaomoji, 48 symbols - behind a permanent "catalog
+// failed to load" banner, and the symbol sub-tabs collapsed to one flat tab
+// because only this path fills in each group's parent category.
 fn read_local_emoji_groups(
     resources: &str,
     category: &str,
@@ -917,14 +941,6 @@ fn read_local_emoji_groups(
         .into_iter()
         .filter(|group| !group.items.is_empty())
         .collect())
-}
-
-#[cfg(not(unix))]
-fn read_local_emoji_groups(
-    _resources: &str,
-    _category: &str,
-) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
-    Err("local emoji catalog unavailable")
 }
 
 #[tauri::command]
@@ -1635,10 +1651,30 @@ fn send_panel_text_to_target(
 }
 
 #[cfg(target_os = "linux")]
+fn record_panel_typing_statistics(
+    store: &TypingStatisticsStore,
+    text: &str,
+    source: TypingSource,
+) {
+    let day = time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+        .date();
+    let day = format!(
+        "{:04}-{:02}-{:02}",
+        day.year(),
+        u8::from(day.month()),
+        day.day()
+    );
+    let _ = store.record(text, source, &day);
+}
+
+#[cfg(target_os = "linux")]
 async fn send_panel_text(
     app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
+    typing_statistics: &tauri::State<'_, TypingStatisticsState>,
     text: String,
+    source: TypingSource,
 ) -> Result<(), HostActionError> {
     if text.is_empty()
         || text.len() > 4096
@@ -1658,8 +1694,13 @@ async fn send_panel_text(
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
+    let typing_statistics = typing_statistics.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        send_panel_text_to_target(&app, &target, &text)
+        let result = send_panel_text_to_target(&app, &target, &text);
+        if result.is_ok() {
+            record_panel_typing_statistics(&typing_statistics, &text, source);
+        }
+        result
     })
     .await
     .map_err(|_| HostActionError { code: "unavailable" })?
@@ -1764,11 +1805,20 @@ fn focused_panel_target(state: &tauri::State<'_, PanelInputState>) -> Result<(),
 fn send_panel_key_windows(
     state: &tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
+    keyboard_panel: bool,
 ) -> Result<(), HostActionError> {
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
-    focused_panel_target(state)?;
+    // The on-screen keyboard follows whatever the user is typing into now, as
+    // the reference does with RememberInputTargetWindow on every press. The
+    // panel is WS_EX_NOACTIVATE, so the foreground genuinely is the editor;
+    // re-focusing the handle captured when the panel opened sent every key to
+    // a window the user may have left several clicks ago. Other panels keep
+    // their original destination, which is what being edited implies.
+    if !keyboard_panel || !msime_host_windows::foreground_is_external() {
+        focused_panel_target(state)?;
+    }
     // Sticky modifiers only travel with keys the panel marked as inheriting
     // them; shift always applies to the key being sent.
     let sticky = request.include_sticky_modifiers;
@@ -1917,7 +1967,7 @@ async fn send_key(
         .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(target_os = "windows")]
-    return send_panel_key_windows(&state, request);
+    return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, request);
@@ -2423,13 +2473,21 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
 async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     {
         msime_client_core::panels::validate_candidate(&candidate)
             .map_err(|_| HostActionError { code: "invalid_text" })?;
-        return send_panel_text(app, &state, candidate).await;
+        return send_panel_text(
+            app,
+            &state,
+            &typing_statistics,
+            candidate,
+            TypingSource::Handwriting,
+        )
+        .await;
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -2444,11 +2502,20 @@ async fn submit_handwriting_candidate(
 async fn send_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     text: String,
 ) -> Result<(), HostActionError> {
     let _ = &app;
+    let _ = &typing_statistics;
     #[cfg(target_os = "linux")]
-    return send_panel_text(app, &state, text).await;
+    return send_panel_text(
+        app,
+        &state,
+        &typing_statistics,
+        text,
+        TypingSource::Unknown,
+    )
+    .await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -2502,6 +2569,7 @@ async fn paste_clipboard_text(
 async fn send_voice_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
+    typing_statistics: tauri::State<'_, TypingStatisticsState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
@@ -2514,6 +2582,7 @@ async fn send_voice_text(
             .clone()
             .ok_or(HostActionError { code: "unavailable" })?;
         let store = store.inner().clone();
+        let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             let commit_mode = store
                 .load()
@@ -2521,14 +2590,18 @@ async fn send_voice_text(
                 .preferences
                 .voice_input
                 .commit_mode;
-            send_panel_voice_text(&app, &target, &text, &commit_mode)
+            let result = send_panel_voice_text(&app, &target, &text, &commit_mode);
+            if result.is_ok() {
+                record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
+            }
+            result
         })
         .await
         .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (app, state, store, text);
+        let _ = (app, state, typing_statistics, store, text);
         Err(HostActionError {
             code: "unavailable",
         })
@@ -2932,6 +3005,7 @@ fn close_panel(
         "keyboard-panel"
             | "handwriting-panel"
             | "emoji-panel"
+            | "clipboard-panel"
             | "voice-panel"
             | "cloud-clipboard-panel"
             | "cloud-dictionary-panel"
@@ -2957,6 +3031,7 @@ fn close_panel(
             label.as_str(),
             "keyboard-panel"
                 | "handwriting-panel"
+                | "clipboard-panel"
                 | "voice-panel"
                 | "cloud-clipboard-panel"
                 | "cloud-dictionary-panel"
@@ -3194,8 +3269,7 @@ fn sync_clipboard_history_blocking(
     Ok(history.entries().to_vec())
 }
 
-#[tauri::command]
-async fn copy_text(
+async fn copy_text_impl(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -3250,6 +3324,27 @@ async fn copy_text(
                 code: "unavailable",
             })?
     }
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    account: tauri::State<'_, android_account::AccountState>,
+) -> Result<(), HostActionError> {
+    copy_text_impl(text, state, store, account).await
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<(), HostActionError> {
+    copy_text_impl(text, state, store).await
 }
 
 fn copy_text_blocking(

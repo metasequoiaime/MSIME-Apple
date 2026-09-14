@@ -99,6 +99,11 @@ bool IsSafeSkinId(std::string_view id);
 std::string NormalizeSkinId(std::string_view id);
 const std::vector<SkinListEntry> &BuiltInSkinEntries();
 SkinTokens BuiltInSkinTokens(std::string_view id, bool dark);
+/// Resolve the palette owned by the floating toolbar rather than candidate
+/// color overrides. The shipped Fluent toolbar uses its own lighter accent;
+/// external packages fall back to that safe default, matching the Windows
+/// host's toolbar contract.
+SkinTokens ToolbarSkinTokens(std::string_view id, bool dark);
 std::optional<Rgba> ParseCssColor(std::string_view text);
 std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoot, const std::string &id,
                                            std::string *error = nullptr);

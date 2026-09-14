@@ -44,6 +44,9 @@ public:
   std::optional<nlohmann::json>
   apply_cloud_response(const FocusLease &lease, const std::string &query,
                        const std::string &body);
+  std::optional<nlohmann::json> apply_ai_candidates(const FocusLease &lease,
+                                                    const std::string &query,
+                                                    const std::string &candidates);
   std::optional<std::string> translation_query(const FocusLease &lease);
   std::optional<nlohmann::json>
   apply_translations(const FocusLease &lease, uint64_t generation,

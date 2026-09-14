@@ -11,7 +11,11 @@ import { discoverFontReader } from "./system-font-client";
 import { DesktopKeyboard } from "./desktop-keyboard";
 
 const dictionary: DictionaryClient = {
-  list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
+  // kind and query are omitted when absent so an older host still sees the
+  // request shape it knows.
+  list: (offset, limit, kind, query) => invoke("dictionary_request", {
+    action: { operation: "list", offset, limit, ...(kind ? { kind } : {}), ...(query ? { query } : {}) },
+  }),
   edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
   import: (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import", kind, format, text, request_id } }),
   ...(/\bAndroid\b/i.test(navigator.userAgent) ? {
@@ -290,6 +294,7 @@ function DesktopSettings() {
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
+  const panelLabel = initialPage === "clipboard" ? "clipboard-panel" : "emoji-panel";
   useEffect(() => {
     let active = true;
     const capability = isTauri()
@@ -299,14 +304,15 @@ function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "l
       if (!active) return;
       setEmojiClient(supported ? {
         ...panelClients.emoji,
+        close: () => invoke("close_panel", { label: panelLabel }),
         clipboard: {
           ...panelClients.emoji.clipboard,
           paste: text => invoke<void>("paste_clipboard_text", { text }),
         },
-      } : panelClients.emoji);
+      } : { ...panelClients.emoji, close: () => invoke("close_panel", { label: panelLabel }) });
     });
     return () => { active = false; };
-  }, []);
+  }, [panelLabel]);
   return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
     : <p role="status">正在连接面板…</p>;
 }

@@ -356,7 +356,14 @@ test("voice settings persist under the shared voice_input contract", async () =>
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    voice_input: { enabled: false, asr_provider: "doubao", doubao_auth_mode: "legacy", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration" },
+    // Picking a provider now also writes that provider's endpoint and model.
+    // That is the point of the change: the shipped endpoint default is Doubao's
+    // websocket URL, and leaving it behind routed other providers' tokens to
+    // ByteDance.
+    voice_input: { enabled: false, asr_provider: "doubao", doubao_auth_mode: "legacy", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
+      // Tokens are kept per provider, so switching also moves the credential
+      // into the slot being left rather than carrying it to the new endpoint.
+      asr_token: "", asr_tokens: {} },
   });
 });
 
@@ -610,7 +617,9 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
   expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
-  expect(list).toHaveBeenCalledWith(0, 100);
+  // The host now selects the kind and code prefix instead of the client
+  // filtering a page it had already fetched.
+  expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -641,13 +650,14 @@ test("dictionary manager pages through entries instead of loading the whole dict
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
-  expect(list).toHaveBeenCalledWith(0, 100);
+  // This case selected 全拼, so that is the kind the host is asked for.
+  expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
   expect(await screen.findByText("第 101–120 条")).toBeDefined();
-  expect(list).toHaveBeenLastCalledWith(100, 100);
+  expect(list).toHaveBeenLastCalledWith(100, 100, "pinyin", "");
   expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", false);
 });

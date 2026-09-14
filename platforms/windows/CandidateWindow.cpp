@@ -130,9 +130,59 @@ constexpr UINT menu_remove = 2;
 constexpr UINT menu_fix_first = 100;
 constexpr UINT menu_fix_last = menu_fix_first + 4;
 constexpr UINT menu_clear_fix = 105;
+// Build a real per-glyph fallback chain from the configured faces.
+//
+// PreviewConfig documents these as "supplementary faces tried in order when the
+// main font lacks a glyph", but the window only ever used them to replace the
+// primary family when that family was not installed at all. Once the primary
+// existed, a missing glyph fell through to DirectWrite's system fallback and
+// the user's list was ignored entirely - which is the case the setting is for,
+// since the primary is usually a Latin/CJK face and the missing glyph is an
+// emoji or a rare character.
+Microsoft::WRL::ComPtr<IDWriteFontFallback>
+build_font_fallback(IDWriteFactory *factory,
+                    const std::vector<std::wstring> &families) {
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> result;
+  if (!factory || families.empty())
+    return result;
+  Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+  if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) || !factory2)
+    return result; // Windows 7 and older: keep the system chain.
+  Microsoft::WRL::ComPtr<IDWriteFontFallbackBuilder> builder;
+  if (FAILED(factory2->CreateFontFallbackBuilder(&builder)) || !builder)
+    return result;
+  // The whole Unicode range, in the user's order.
+  DWRITE_UNICODE_RANGE range{0, 0x10FFFF};
+  for (const auto &family : families) {
+    const wchar_t *name = family.c_str();
+    if (FAILED(builder->AddMapping(&range, 1, &name, 1)))
+      return result;
+  }
+  // Append the system chain last so anything the list does not cover still
+  // resolves the way it did before.
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> system;
+  if (SUCCEEDED(factory2->GetSystemFontFallback(&system)) && system)
+    builder->AddMappings(system.Get());
+  if (FAILED(builder->CreateFontFallback(&result)))
+    result.Reset();
+  return result;
+}
+// Owner-drawn menu rows.
+//
+// The rows and their rules were already right; only the presentation was the
+// OS default, so a light system menu appeared over a dark card and no skin's
+// colours reached it. Owner drawing keeps the platform's own keyboard handling
+// and dismissal - which a hand-rolled flyout would have to reimplement - while
+// painting the rows from the skin.
 void append_menu(HMENU menu, UINT flags, UINT_PTR command,
                  const wchar_t *label) {
   if (!AppendMenuW(menu, flags, command, label))
+    throw std::runtime_error("Candidate context menu unavailable");
+}
+// An owner-drawn row carries a pointer to its label instead of a string.
+void append_owner_menu(HMENU menu, UINT flags, UINT_PTR command,
+                       ULONG_PTR data) {
+  if (!AppendMenuW(menu, flags, command, reinterpret_cast<LPCWSTR>(data)))
     throw std::runtime_error("Candidate context menu unavailable");
 }
 } // namespace
@@ -155,11 +205,18 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
+  // Keep the configured faces for the per-glyph chain, and separately allow one
+  // of them to stand in when the primary family is not installed at all. The
+  // two are different problems and both need handling.
+  for (const auto &fallback : fallback_fonts) {
+    auto candidate = wide(fallback);
+    if (!candidate.empty() && candidate.size() <= 128)
+      fallback_families_.push_back(std::move(candidate));
+  }
   if (!installed_font(font_family_)) {
-    for (const auto &fallback : fallback_fonts) {
-      auto candidate = wide(fallback);
-      if (!candidate.empty() && candidate.size() <= 128 && installed_font(candidate)) {
-        font_family_ = std::move(candidate);
+    for (const auto &candidate : fallback_families_) {
+      if (installed_font(candidate)) {
+        font_family_ = candidate;
         break;
       }
     }
@@ -299,6 +356,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.preedit_font_size = preedit_font_size_;
   input.max_width = static_cast<double>(available_width) / scale / 2.0;
   input.max_height = static_cast<double>(available_height) / scale / 2.0;
+  input.skin_min_width = skin_min_width_;
   if (show_preedit_)
     input.preedit_width = measured_width(device_, wide(value.preedit),
                                          font_family_,
@@ -313,8 +371,15 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const auto card = candidate_card_size(input);
   const auto width =
       (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
-  const auto height =
-      (std::min)(static_cast<int64_t>(card.height * scale + 0.5), available_height);
+  // The window has to be tall enough to hold the mascot as well, or the
+  // artwork would be clipped by the window it overhangs.
+  const int64_t decoration = decoration_image_.empty()
+                                 ? 0
+                                 : static_cast<int64_t>(decoration_top_ * scale + 0.5);
+  decoration_offset_ = static_cast<float>(decoration);
+  const auto height = (std::min)(
+      static_cast<int64_t>(card.height * scale + 0.5) + decoration,
+      available_height);
   // A vertical list grows as the user keeps typing. Deciding the flip from the
   // tallest it has been this composition keeps it on one side of the caret
   // instead of jumping below-to-above mid-word; tallest_ is cleared in hide().
@@ -366,6 +431,12 @@ void CandidateWindow::paint() {
   };
   // Points are device independent here; the composition target carries the
   // scale, so the constructor's validated sizes go straight to DirectWrite.
+  // Built once per paint and shared by every run below; the formats themselves
+  // are cached by DeviceResources, so attaching here is what actually puts the
+  // user's faces in front of the system chain.
+  if (!fallback_families_.empty() && !font_fallback_)
+    font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
+                                         fallback_families_);
   auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
     auto *value = device_.GetTextFormat(
         font_family_, static_cast<float>(points),
@@ -373,6 +444,11 @@ void CandidateWindow::paint() {
         DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
+    if (font_fallback_) {
+      Microsoft::WRL::ComPtr<IDWriteTextFormat1> typed;
+      if (SUCCEEDED(value->QueryInterface(IID_PPV_ARGS(&typed))) && typed)
+        typed->SetFontFallback(font_fallback_.Get());
+    }
     return value;
   };
   const float inset = palette_.border_width / 2.0f;
@@ -387,20 +463,61 @@ void CandidateWindow::paint() {
   // stay transparent rather than showing a square window edge.
   target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
   const D2D1_ROUNDED_RECT card{
-      {inset, inset, size.width - inset, size.height - inset},
+      {inset, decoration_offset_ + inset, size.width - inset,
+       size.height - inset},
       palette_.radius, palette_.radius};
   target->FillRoundedRectangle(card, brush(palette_.surface));
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
+  // The mascot, drawn last so it sits over the card's top edge - that overlap
+  // is the whole point of the decoration.
+  if (!decoration_image_.empty() && decoration_offset_ > 0.0f) {
+    D2D1_SIZE_F natural{};
+    if (auto *bitmap = device_.GetBitmapFromFile(decoration_image_, &natural)) {
+      const float drawn_width = static_cast<float>(decoration_width_);
+      // Keep the image's own aspect ratio: a package gives a width, not a box,
+      // so deriving the height is what stops the artwork being squashed.
+      const float drawn_height =
+          natural.width > 0.0f ? drawn_width * (natural.height / natural.width)
+                               : decoration_offset_;
+      // Right-aligned above the card, as the settings preview places it.
+      const float right = size.width - static_cast<float>(metrics.pad_x);
+      const float left = (std::max)(0.0f, right - drawn_width);
+      const float bottom = decoration_offset_ + static_cast<float>(metrics.pad_y);
+      const float top = (std::max)(0.0f, bottom - drawn_height);
+      target->DrawBitmap(bitmap, D2D1_RECT_F{left, top, right, bottom}, 1.0f,
+                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+  }
   if (show_preedit_) {
-    const D2D1_RECT_F rect{static_cast<float>(metrics.pad_x),
-                           static_cast<float>(metrics.pad_y),
-                           size.width - static_cast<float>(metrics.pad_x / 2.0),
-                           static_cast<float>(metrics.pad_y + metrics.preedit_row)};
+    const D2D1_RECT_F rect{
+        static_cast<float>(metrics.pad_x),
+        decoration_offset_ + static_cast<float>(metrics.pad_y),
+        size.width - static_cast<float>(metrics.pad_x / 2.0),
+        decoration_offset_ +
+            static_cast<float>(metrics.pad_y + metrics.preedit_row)};
     const auto text = wide(value->preedit);
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       rect, brush(text_color));
+    // The insertion point. Without it, moving left or right inside a long
+    // pinyin string gave no indication of where the next key would land - and
+    // the settings preview drew a caret the real window never did.
+    if (value->preedit_caret != std::string::npos &&
+        value->preedit_caret <= value->preedit.size()) {
+      const auto before =
+          wide(value->preedit.substr(0, value->preedit_caret));
+      const auto offset = measured_width(
+          device_, before, font_family_,
+          static_cast<float>(preedit_font_size_));
+      const float x = rect.left + static_cast<float>(offset);
+      // A hairline rather than a filled block, so it does not obscure the
+      // character it sits before.
+      const float inset_y = static_cast<float>(metrics.preedit_row) * 0.15f;
+      target->FillRectangle(
+          D2D1_RECT_F{x, rect.top + inset_y, x + 1.5f, rect.bottom - inset_y},
+          brush(palette_.accent));
+    }
   }
   // The selection number keeps its own column so candidates start on one
   // vertical line, as the shipped card does.
@@ -410,9 +527,13 @@ void CandidateWindow::paint() {
   for (size_t i = 0; i < count; ++i) {
     const auto row = candidate_row_bounds(i, count, size.width, metrics,
                                           horizontal_);
+    // Rows are laid out in card coordinates; the decoration strip sits above
+    // the card, so every row moves down with it. Without this the rows would
+    // be drawn over the artwork and the hit test below would disagree.
     const D2D1_RECT_F rect{
-        static_cast<float>(row.left), static_cast<float>(row.top),
-        static_cast<float>(row.right), static_cast<float>(row.bottom)};
+        static_cast<float>(row.left), decoration_offset_ + static_cast<float>(row.top),
+        static_cast<float>(row.right),
+        decoration_offset_ + static_cast<float>(row.bottom)};
     if (value->candidates[i].highlighted || hovered_ == i) {
       const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
                                         palette_.item_radius};
@@ -486,8 +607,14 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
   const double scale = painted_dpi_ ? painted_dpi_ / 96.0 : 1.0;
+  // Undo the decoration shift before testing: the rows were drawn that far
+  // down, so a click has to be measured from the card, not the window.
+  const double card_y = y - static_cast<double>(decoration_offset_);
+  if (card_y < 0.0)
+    return std::nullopt; // Inside the artwork, which is not clickable.
   const auto row = candidate_card_hit(
-      x / scale, y / scale, bounds.right / scale, bounds.bottom / scale,
+      x / scale, card_y / scale, bounds.right / scale,
+      (bounds.bottom - static_cast<double>(decoration_offset_)) / scale,
       painted_->candidates.size(),
       candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_),
       horizontal_);
@@ -519,23 +646,32 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
       ++i;
   }
 
+  // Labels outlive TrackPopupMenuEx: the owner-draw messages carry a pointer
+  // to them, so they cannot be temporaries.
+  menu_labels_.clear();
+  auto label = [this](std::wstring text) {
+    menu_labels_.push_back(std::make_unique<MenuRowLabel>(MenuRowLabel{std::move(text)}));
+    return reinterpret_cast<ULONG_PTR>(menu_labels_.back().get());
+  };
   PopupMenu menu(CreatePopupMenu());
   if (!menu.handle)
     throw std::runtime_error("Candidate context menu unavailable");
-  append_menu(menu.handle, MF_STRING, menu_pin, L"置顶");
+  append_owner_menu(menu.handle, MF_OWNERDRAW, menu_pin, label(L"置顶"));
   PopupMenu fixed(CreatePopupMenu());
   if (!fixed.handle)
     throw std::runtime_error("Candidate context menu unavailable");
   for (UINT position = 1; position <= 5; ++position)
-    append_menu(fixed.handle, MF_STRING, menu_fix_first + position - 1,
-                (L"第 " + std::to_wstring(position) + L" 位").c_str());
+    append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_fix_first + position - 1,
+                      label(L"第 " + std::to_wstring(position) + L" 位"));
   append_menu(fixed.handle, MF_SEPARATOR, 0, nullptr);
-  append_menu(fixed.handle, MF_STRING, menu_clear_fix, L"取消固定");
-  append_menu(menu.handle, MF_POPUP,
-              reinterpret_cast<UINT_PTR>(fixed.handle), L"固定排位");
+  append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_clear_fix,
+                    label(L"取消固定"));
+  append_owner_menu(menu.handle, MF_OWNERDRAW | MF_POPUP,
+                    reinterpret_cast<UINT_PTR>(fixed.handle),
+                    label(L"固定排位"));
   fixed.handle = nullptr; // Ownership now belongs to the parent menu.
   if (code_points != 1)
-    append_menu(menu.handle, MF_STRING, menu_remove, L"删除");
+    append_owner_menu(menu.handle, MF_OWNERDRAW, menu_remove, label(L"删除"));
 
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
@@ -572,7 +708,49 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
   if (self) {
     try {
       switch (message) {
-      case WM_MOUSEACTIVATE:
+      case WM_MEASUREITEM: {
+      auto *measure = reinterpret_cast<MEASUREITEMSTRUCT *>(lparam);
+      if (!measure || measure->CtlType != ODT_MENU)
+        break;
+      const auto *row = reinterpret_cast<const MenuRowLabel *>(measure->itemData);
+      const int unit = MulDiv(1, static_cast<int>(GetDpiForWindow(window)), 96);
+      // Roughly a character per label glyph plus padding; the exact width only
+      // has to be generous enough that the text is not clipped.
+      measure->itemWidth = static_cast<UINT>(
+          (row ? row->text.size() : 4) * 16 * unit + 24 * unit);
+      measure->itemHeight = static_cast<UINT>(26 * unit);
+      return TRUE;
+    }
+    case WM_DRAWITEM: {
+      auto *draw = reinterpret_cast<DRAWITEMSTRUCT *>(lparam);
+      if (!draw || draw->CtlType != ODT_MENU || !self)
+        break;
+      const auto *row = reinterpret_cast<const MenuRowLabel *>(draw->itemData);
+      if (!row)
+        break;
+      const auto &palette = self->palette_;
+      auto colour = [](const CandidateColor &value) {
+        return RGB(static_cast<int>(value.r * 255.0f),
+                   static_cast<int>(value.g * 255.0f),
+                   static_cast<int>(value.b * 255.0f));
+      };
+      const bool hot = (draw->itemState & (ODS_SELECTED | ODS_HOTLIGHT)) != 0;
+      HBRUSH fill = CreateSolidBrush(
+          colour(hot ? palette.menu_hover : palette.menu_fill));
+      if (fill) {
+        FillRect(draw->hDC, &draw->rcItem, fill);
+        DeleteObject(fill);
+      }
+      SetBkMode(draw->hDC, TRANSPARENT);
+      SetTextColor(draw->hDC, colour(palette.menu_text));
+      RECT text = draw->rcItem;
+      text.left += MulDiv(12, static_cast<int>(GetDpiForWindow(window)), 96);
+      DrawTextW(draw->hDC, row->text.c_str(),
+                static_cast<int>(row->text.size()), &text,
+                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+      return TRUE;
+    }
+    case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
       case WM_MOUSEWHEEL: {
         if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {

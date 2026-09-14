@@ -14,6 +14,7 @@
 #include "CandidateActionPolicy.h"
 #include "PairedPunctuation.h"
 #include "DiagnosticLog.h"
+#include "TypingStatistics.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -377,7 +378,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
-    wave_overlay = {};
+    wave_overlay.reset();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
     voice_space_consumed = false;
@@ -673,6 +674,9 @@ struct State {
     wubi_code_hint = wubi_code_hint_override.value_or(
         preferences.value("wubi_code_hint", true));
     const auto voice = preferences.value("voice_input", Json::object());
+    wave_overlay.light_theme = msime_voice_overlay_light_theme(
+        preferences.value("voice_theme", "follow"),
+        preferences.value("theme", "dark"), system_dark);
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
@@ -862,12 +866,79 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
-// Record the exact text sent to IBus after each route's output conversion.
-void commit_text(IBusEngine *engine, const std::string &text) {
+struct TypingStatisticsTask {
+  std::string directory;
+  std::string text;
+  std::string source;
+  std::string day;
+};
+
+void record_typing_statistics(IBusEngine *engine, std::string text,
+                              msime::linux_host::TypingSource source) {
   if (text.empty())
     return;
+  const auto directory = configured.value("preferences_directory", std::string{});
+  if (directory.empty() || directory.front() != '/')
+    return;
+  GDateTime *now = g_date_time_new_now_local();
+  if (!now)
+    return;
+  gchar *formatted_day = g_date_time_format(now, "%Y-%m-%d");
+  g_date_time_unref(now);
+  if (!formatted_day)
+    return;
+  TypingStatisticsTask request{
+      directory, std::move(text),
+      std::string(msime::linux_host::typing_source_id(source)), formatted_day};
+  g_free(formatted_day);
+  auto task = g_task_new(G_OBJECT(engine), nullptr, nullptr, nullptr);
+  g_task_set_task_data(task, new TypingStatisticsTask(std::move(request)),
+                       [](gpointer value) {
+                         delete static_cast<TypingStatisticsTask *>(value);
+                       });
+  g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data,
+                                GCancellable *) {
+    const auto &request = *static_cast<TypingStatisticsTask *>(data);
+    try {
+      const auto encoded = Json{
+          {"directory", request.directory},
+          {"action", Json{{"operation", "record"},
+                            {"text", request.text},
+                            {"source", request.source},
+                            {"day", request.day}}}}
+                                .dump();
+      auto *raw = msime_client_typing_statistics(
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
+      if (raw)
+        msime_client_string_free(raw);
+    } catch (...) {
+      // Statistics are best effort and must never affect text commitment.
+    }
+    g_task_return_boolean(task, TRUE);
+  });
+  g_object_unref(task);
+}
+
+msime::linux_host::TypingSource typing_source(const State &s) {
+  const auto preferences = configured.value("preferences", Json::object());
+  const auto profile = s.shuangpin_profile_override.value_or(
+      preferences.value("shuangpin_profile", "xiaohe"));
+  return msime::linux_host::resolve_typing_source(
+      s.view.value("scheme", -1), s.view.value("nine_key", false),
+      s.english_mode, s.view.value("local_mode", "none"), profile);
+}
+
+// Record the exact text sent to IBus after each route's output conversion.
+void commit_text(
+    IBusEngine *engine, const std::string &text,
+    std::optional<msime::linux_host::TypingSource> source_override = std::nullopt) {
+  if (text.empty())
+    return;
+  auto &s = state(engine);
+  const auto source = source_override.value_or(typing_source(s));
   ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
-  state(engine).remember_commit(text);
+  record_typing_statistics(engine, text, source);
+  s.remember_commit(text);
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
@@ -3032,7 +3103,7 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_stopping = false;
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.actions_visible = false;
   if (s.wave_overlay_surface && s.wave_overlay_visible)
     s.wave_overlay_surface->hide();
@@ -3053,7 +3124,7 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   ++s.voice_failure_id;
   if (s.voice_failure_id == 0)
     ++s.voice_failure_id;
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
   s.wave_overlay.actions_visible = false;
@@ -3080,7 +3151,7 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
           if (s.wave_overlay_visible && s.wave_overlay_surface) {
             s.wave_overlay_surface->hide();
             s.wave_overlay_visible = false;
-            s.wave_overlay = {};
+            s.wave_overlay.reset();
           }
         }
         return G_SOURCE_REMOVE;
@@ -3136,7 +3207,7 @@ void voice_start_impl(IBusEngine *engine) {
   s.voice_active = true;
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
-  s.wave_overlay = {};
+  s.wave_overlay.reset();
   s.wave_overlay.listening = true;
   s.wave_overlay.actions_visible = true;
   s.wave_overlay_visible = false;
@@ -3311,7 +3382,8 @@ void voice_start_impl(IBusEngine *engine) {
                       applied.get<std::string>());
                   if (s.fullwidth)
                     text = fullwidth_text(std::move(text));
-                  commit_text(result->engine, text);
+                  commit_text(result->engine, text,
+                              msime::linux_host::TypingSource::Voice);
                 }
                 render(result->engine, s.view);
                 publish_mode(result->engine);

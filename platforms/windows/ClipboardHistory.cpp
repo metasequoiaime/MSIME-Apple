@@ -87,17 +87,45 @@ bool write_store(const std::filesystem::path &path, const std::vector<std::strin
 #endif
 }
 }
+// Count UTF-16 units, not UTF-8 bytes.
+//
+// max_chars is the shipped cap of 4000 wchar_t, and client-core's clipboard.rs
+// implements exactly that. Applying it to a std::string cut Chinese - the
+// primary case for this IME - at about 1333 characters, and worse, stopping on
+// a byte count could end inside a multi-byte sequence and leave invalid UTF-8,
+// which nlohmann::json::dump() then throws on when the store is written.
+namespace {
+// Units a UTF-8 lead byte contributes to UTF-16: astral planes take a pair.
+size_t utf16_units(unsigned char lead) { return lead >= 0xF0 ? 2 : 1; }
+size_t sequence_length(unsigned char lead) {
+  if (lead < 0x80) return 1;
+  if ((lead & 0xE0) == 0xC0) return 2;
+  if ((lead & 0xF0) == 0xE0) return 3;
+  if ((lead & 0xF8) == 0xF0) return 4;
+  return 1; // Not a lead byte; copy it and let validation elsewhere object.
+}
+} // namespace
 std::string normalize_clipboard_text(std::string text) {
   text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
   std::string normalized;
   normalized.reserve(text.size());
-  for (size_t i = 0; i < text.size() && normalized.size() < ClipboardHistory::max_chars; ++i) {
+  size_t units = 0;
+  for (size_t i = 0; i < text.size() && units < ClipboardHistory::max_chars;) {
     if (text[i] == '\r') {
       if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
       normalized.push_back('\n');
-    } else {
-      normalized.push_back(text[i]);
+      ++units;
+      ++i;
+      continue;
     }
+    const auto lead = static_cast<unsigned char>(text[i]);
+    const size_t length = (std::min)(sequence_length(lead), text.size() - i);
+    const size_t cost = utf16_units(lead);
+    // Never take part of a character: stop before one that would not fit.
+    if (units + cost > ClipboardHistory::max_chars) break;
+    normalized.append(text, i, length);
+    units += cost;
+    i += length;
   }
   while (!normalized.empty() && (normalized.back() == '\n' || normalized.back() == ' ' || normalized.back() == '\t')) normalized.pop_back();
   return normalized;

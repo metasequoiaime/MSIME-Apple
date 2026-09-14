@@ -1235,6 +1235,12 @@ pub struct Runtime<E: InputEngine = Session> {
     snapshot_valid: bool,
     character_width: CharacterWidth,
     touch_keyboard_layout: TouchKeyboardLayout,
+    /// Recently committed text, sent to the AI provider as context.
+    ///
+    /// The reference sends what the user has just written so a suggestion fits
+    /// the sentence in progress. Every host but Linux left this empty, which
+    /// made AI suggestions guess from the pinyin alone.
+    ai_context: String,
 }
 
 impl Runtime<Session> {
@@ -1264,7 +1270,7 @@ impl Runtime<Session> {
             ai_eligible: query.ai_eligible,
             cloud_candidates: true,
             session_id: query.session_id,
-            ai_context: String::new(),
+            ai_context: self.ai_context.clone(),
             ai_assistant: None,
         }))
     }
@@ -1389,6 +1395,7 @@ impl<E: InputEngine> Runtime<E> {
             engine,
             session,
             generation: 0,
+            ai_context: String::new(),
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -1588,7 +1595,33 @@ impl<E: InputEngine> Runtime<E> {
         Ok(())
     }
 
-    fn transition(&self, result: EngineResult) -> Transition {
+    /// Keep the tail of what was committed, cut on a character boundary.
+    ///
+    /// Bounded at 1024 bytes because `query_candidates` refuses anything longer
+    /// outright - an over-long context would silently disable the whole query
+    /// rather than being trimmed for us.
+    fn remember_commit(&mut self, text: &str) {
+        if !self.focused {
+            self.ai_context.clear();
+            return;
+        }
+        self.ai_context.push_str(text);
+        if self.ai_context.len() > 1024 {
+            let mut cut = self.ai_context.len() - 1024;
+            while cut < self.ai_context.len() && !self.ai_context.is_char_boundary(cut) {
+                cut += 1;
+            }
+            self.ai_context.drain(..cut);
+        }
+    }
+
+    fn transition(&mut self, result: EngineResult) -> Transition {
+        // Every commit passes through here, so this is the one place the AI
+        // context has to be fed from.
+        if result.has_commit {
+            let committed = result.commit.clone();
+            self.remember_commit(&committed);
+        }
         Transition {
             commit_context: result.has_commit.then(|| OutputContext {
                 scheme: self.cached.scheme,
@@ -1656,6 +1689,9 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()?;
         let result = result?;
         self.focused = focused;
+        // A different client is a different sentence, so context never leaks
+        // from one application into another.
+        self.ai_context.clear();
         Ok(self.transition(result))
     }
 
@@ -1863,6 +1899,7 @@ fn empty_result(handled: bool) -> EngineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[cfg(unix)]
     use std::os::unix::net::UnixListener;
     use std::time::Duration;
@@ -2030,6 +2067,45 @@ mod tests {
             5,
         )
         .unwrap()
+    }
+
+    // The AI context accumulator. Every host but Linux sent an empty context,
+    // so AI suggestions had to guess from the pinyin alone.
+    #[test]
+    fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
+        let mut runtime = runtime();
+        runtime.focused = true;
+        runtime.remember_commit("你好");
+        runtime.remember_commit("世界");
+        assert_eq!(runtime.ai_context, "你好世界");
+
+        // Bounded at 1024 bytes, because query_candidates refuses anything
+        // longer outright rather than trimming it.
+        for _ in 0..400 {
+            runtime.remember_commit("字");
+        }
+        assert!(runtime.ai_context.len() <= 1024);
+        // The cut lands on a character boundary, so the context is still valid
+        // UTF-8 and does not start with half a character.
+        assert!(runtime.ai_context.is_char_boundary(0));
+        assert!(std::str::from_utf8(runtime.ai_context.as_bytes()).is_ok());
+        assert!(runtime.ai_context.ends_with('字'));
+        // It is the tail that is kept, not the head.
+        assert!(!runtime.ai_context.starts_with("你好"));
+    }
+
+    #[test]
+    fn ai_context_does_not_leak_between_clients() {
+        let mut runtime = runtime();
+        runtime.focused = true;
+        runtime.remember_commit("上一个应用里的句子");
+        assert!(!runtime.ai_context.is_empty());
+
+        // A commit while unfocused is not context at all, and clears what was
+        // there: the user has left.
+        runtime.focused = false;
+        runtime.remember_commit("anything");
+        assert!(runtime.ai_context.is_empty());
     }
     fn type_key(runtime: &mut Runtime<Fixture>) -> Transition {
         runtime

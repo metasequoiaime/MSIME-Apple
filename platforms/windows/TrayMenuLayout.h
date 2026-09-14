@@ -23,6 +23,12 @@ enum class TrayMenuCommand {
 struct TrayMenuItem {
   TrayMenuCommand command;
   std::string label;
+  // Leading glyph, from the same icon font the toolbar uses. Zero means the
+  // row has no icon and only its label is drawn.
+  wchar_t icon = 0;
+  // Text drawn when the icon font lacks the glyph, as on Windows 10 builds
+  // whose Segoe MDL2 predates it.
+  const wchar_t *icon_fallback = L"";
   // Only the toolbar row carries a switch; the rest open a surface.
   bool toggle = false;
   // A row whose host capability is missing is shown disabled rather than
@@ -44,19 +50,20 @@ inline std::vector<TrayMenuItem>
 tray_menu_items(const TrayMenuCapabilities &capabilities,
                 bool floating_toolbar_visible) {
   return {
-      {TrayMenuCommand::ToggleFloatingToolbar, "悬浮工具栏", true,
+      {TrayMenuCommand::ToggleFloatingToolbar, "悬浮工具栏", 0xE7C4, L"栏", true,
        capabilities.floating_toolbar, floating_toolbar_visible},
-      {TrayMenuCommand::OpenEmojiPanel, "表情/符号面板", false,
+      {TrayMenuCommand::OpenEmojiPanel, "表情/符号面板", 0xE76E, L"表", false,
        capabilities.emoji_panel, false},
-      {TrayMenuCommand::OpenHandwritingPanel, "手写识别板", false,
+      {TrayMenuCommand::OpenHandwritingPanel, "手写识别板", 0xE70F, L"写", false,
        capabilities.handwriting_panel, false},
-      {TrayMenuCommand::OpenKeyboardPanel, "屏幕键盘", false,
+      {TrayMenuCommand::OpenKeyboardPanel, "屏幕键盘", 0xE765, L"键", false,
        capabilities.keyboard_panel, false},
-      {TrayMenuCommand::ToggleVoiceInput, "语音输入", false,
+      {TrayMenuCommand::ToggleVoiceInput, "语音输入", 0xE720, L"音", false,
        capabilities.voice_input, false},
-      {TrayMenuCommand::OpenSettings, "设置", false, capabilities.settings,
-       false},
-      {TrayMenuCommand::OpenAbout, "关于", false, capabilities.settings, false},
+      {TrayMenuCommand::OpenSettings, "设置", 0xE713, L"设", false,
+       capabilities.settings, false},
+      {TrayMenuCommand::OpenAbout, "关于", 0xE946, L"关", false,
+       capabilities.settings, false},
   };
 }
 struct TrayMenuMetrics {
@@ -65,7 +72,22 @@ struct TrayMenuMetrics {
   double padding = 6.0;
   double radius = 8.0;
   double border_width = 1.0;
+  // Leading icon column. The rows were plain text with no room reserved, so
+  // the card did not match the shipped visual language.
+  double icon_column = 28.0;
+  // The switch drawn on the toolbar row, in place of a bare check mark.
+  double toggle_width = 30.0;
+  double toggle_height = 16.0;
 };
+// Where a row's leading icon is drawn, relative to the row's own origin.
+inline double tray_menu_icon_x(const TrayMenuMetrics &metrics) {
+  return metrics.padding + metrics.icon_column / 2.0;
+}
+// Where a row's label starts: after the icon column, so labels line up whether
+// or not a particular row has an icon.
+inline double tray_menu_label_x(const TrayMenuMetrics &metrics) {
+  return metrics.padding + metrics.icon_column;
+}
 struct TrayMenuSize {
   double width, height;
 };

@@ -12,6 +12,7 @@ import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
 import { SecretInput } from "./secret-input";
 import { asrProviderUpdate, polishProviderUpdate } from "./voice-providers";
+import { POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt } from "./polish-presets";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
@@ -32,10 +33,12 @@ import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
 export type { SkinFont, SkinFontReader } from "./skin-font";
+export { POLISH_CUSTOM_IDS, POLISH_PRESETS, POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt, type PolishPresetId } from "./polish-presets";
 export { ASR_PROVIDER_DEFAULTS, POLISH_PROVIDER_DEFAULTS, asrProviderUpdate, polishProviderUpdate, type ProviderDefaults } from "./voice-providers";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
+export { emojiDisplayName } from "./panels";
 export { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type CloudCandidate, type CloudCandidateKind, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryCatalogEntry, type CloudDictionaryEntry, type CloudDictionaryFileFormat, type CloudDictionaryKind, type CloudDictionaryPanelClient, type CloudFixedPosition, type CloudRankingMode, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
@@ -198,6 +201,7 @@ export type Preferences = {
   handwriting_theme?: SurfaceTheme;
   voice_theme?: SurfaceTheme;
   emoji_theme?: SurfaceTheme;
+  menu_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
@@ -286,6 +290,7 @@ export type VoiceInputPreferences = {
   doubao_auth_mode?: "api_key" | "legacy";
   asr_endpoint?: string;
   asr_token?: string;
+  asr_tokens?: Record<string, string>;
   asr_app_key?: string;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
@@ -304,6 +309,7 @@ export type VoiceInputPreferences = {
   polish_provider?: string;
   polish_endpoint?: string;
   polish_token?: string;
+  polish_tokens?: Record<string, string>;
   polish_model?: string;
   polish_prompt_id?: string;
   polish_prompt?: string;
@@ -354,17 +360,23 @@ export interface DictionaryImportResult {
 export function describeImportResult(kind: string, result: DictionaryImportResult): string {
   const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
   if (result.failed) {
-    const lines = (result.first_failures ?? []).map(failure => failure.line).join("、");
+    const failures = result.first_failures ?? [];
+    const lines = failures.map(failure => failure.line).join("、");
     parts.push(lines
       ? `跳过 ${result.failed} 行，首先出现在第 ${lines} 行。`
       : `跳过 ${result.failed} 行。`);
+    // "rejected" means the row parsed but the engine refused it, which is a
+    // different thing for the user to fix than a malformed line.
+    if (failures.some(failure => failure.issue === "rejected")) {
+      parts.push("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。");
+    }
   }
   if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
   return parts.join("");
 }
 
 export interface DictionaryClient {
-  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
+  list(offset: number, limit: number, kind?: LocalDictionaryKind, query?: string): Promise<{ entries: DictionaryEntry[]; has_more: boolean; pending_count?: number; failed_requests?: DictionaryFailure[]; snapshot_error?: string | null; page_offset?: number; requested_page_offset?: number }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
   import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<DictionaryImportResult>;
   importPersonal?(text: string, request_id: string): Promise<{ queued: boolean; pending_count: number }>;
@@ -393,14 +405,82 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
 
 /** The user-facing name of a local dictionary, for messages about it. */
 /** Prefer the host's reason; fall back to the generic format hint. */
+/**
+ * Turn a dictionary command failure into something the user can act on.
+ *
+ * The host distinguishes several reasons and the desktop bridge now forwards
+ * them as codes. Printing one fixed "请稍后重试" for all of them told a user
+ * whose IME was simply locked by another process to retry forever.
+ */
+export function dictionaryErrorMessage(error: unknown, fallback: string): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code: unknown }).code)
+    : "";
+  switch (code) {
+    case "dictionary_busy":
+      return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
+    case "dictionary_import_rejected":
+      return "词库拒绝了这次写入，请检查编码与词是否匹配。";
+    case "dictionary_read_rejected":
+      return "词库拒绝了这次读取，请稍后重试。";
+    case "dictionary_pinyin_unavailable":
+      return "拼音表不可用，无法校验这条词的读音。";
+    case "dictionary_unavailable":
+      return "无法打开用户词库，请检查输入法是否正在运行。";
+    default:
+      return fallback;
+  }
+}
+
 function importFailureMessage(kind: string, error: unknown): string {
   const reason = error instanceof Error ? error.message
     : typeof error === "string" ? error
     : typeof error === "object" && error !== null && "error" in error ? String((error as { error: unknown }).error)
     : "";
+  // A host code is more specific than a free-text reason, so try it first.
+  const coded = dictionaryErrorMessage(error, "");
+  if (coded) return `${kind}导入失败：${coded}`;
   return reason
     ? `${kind}导入失败：${reason}`
     : `${kind}导入失败，请检查文本格式。`;
+}
+
+/** The shipped export filenames, one per dictionary kind. */
+export function dictionaryExportName(kind: LocalDictionaryKind): string {
+  const names: Record<LocalDictionaryKind, string> = {
+    pinyin: "水杉IME-拼音用户词库.txt",
+    wubi: "水杉IME-五笔用户词库.txt",
+    english: "水杉IME-英文用户词库.txt",
+    quick_phrase: "水杉IME-快捷短语用户词库.txt",
+  };
+  return names[kind];
+}
+/**
+ * Prepare the export payload.
+ *
+ * Two things the plain Blob did not do. A UTF-8 BOM, because Notepad and Excel
+ * on a GBK-default Windows render the Chinese as mojibake without one. And for
+ * the pinyin book, single-character rows are dropped: those are learning
+ * artefacts the engine accumulated, not words the user added, so exporting
+ * them buries the real entries.
+ */
+export function dictionaryExportPayload(
+  kind: LocalDictionaryKind,
+  format: LocalDictionaryFormat,
+  text: string,
+): { body: string; rows: number } {
+  const lines = text.split("\n").filter(line => line.trim().length > 0);
+  // Windows exports put the code first; every other format puts the word first.
+  const wordColumn = format === "windows" ? 1 : 0;
+  const kept = kind === "pinyin"
+    ? lines.filter(line => {
+        const columns = line.split("\t");
+        const word = columns[wordColumn]?.trim() ?? "";
+        return Array.from(word).length > 1;
+      })
+    : lines;
+  if (!kept.length) return { body: "", rows: 0 };
+  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
 }
 
 function dictionaryKindLabel(kind: LocalDictionaryKind): string {
@@ -647,6 +727,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
+  // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
+  // explaining where to change it.
+  const windowsPlatform = client.host?.platform === "windows";
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -847,7 +930,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     setPhrasePage(current => ({ ...current, status: "查询中…" }));
     try {
-      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE);
+      // Ask the host for this kind and code prefix. Filtering a page the host
+      // had already chosen meant a user with more than a page of pinyin words
+      // saw an empty list when they picked another dictionary, and the status
+      // line counted the filtered rows against the unfiltered page.
+      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, phraseSearch.trim());
+      // Older hosts ignore the extra arguments, so keep filtering defensively.
       const entries = page.entries.filter(entry => entry.kind === kind);
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);
@@ -880,7 +968,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         : phrasePage.offset;
       await loadPhrases(dictionaryKind, offset);
     }
-    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`); }
+    catch (error) { setPhraseError(dictionaryErrorMessage(error, `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`)); }
     finally { setPhraseBusy(false); }
   }
   async function savePhrase() {
@@ -895,7 +983,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       // the first page, where the shared runtime lists it.
       await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
     }
-    catch { setPhraseError(`${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`); }
+    catch (error) { setPhraseError(dictionaryErrorMessage(error, `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`)); }
     finally { setPhraseBusy(false); }
   }
   async function importPhrases(file: File) {
@@ -963,9 +1051,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           ? `${entry.key}\t${entry.value}\t${entry.weight}`
           : `${entry.value}\t${entry.key}\t${entry.weight}`).join("\n");
       }
-      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `msime-${dictionaryKind}-dictionary.tsv`; anchor.click(); URL.revokeObjectURL(url);
-    } catch { setPhraseError("词库导出失败，请稍后重试。"); }
+      const payload = dictionaryExportPayload(dictionaryKind, dictionaryFormat, text);
+      if (!payload.rows) { setPhraseError("当前没有可导出的用户新增词条。"); return; }
+      const url = URL.createObjectURL(new Blob([payload.body], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = dictionaryExportName(dictionaryKind); anchor.click(); URL.revokeObjectURL(url);
+      setPhraseNotice(`已导出 ${payload.rows} 条用户词条。`);
+    } catch (error) { setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。")); }
     finally { setPhraseBusy(false); }
   }
 
@@ -1023,6 +1114,19 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
     });
+  };
+  const tencentTmt = draft?.tencent_tmt ?? defaultTencentTmt;
+  // Which prompt slot the 润色方案 select is on, and the text that slot means.
+  // A preset resolves to its shipped prompt; a custom slot to whatever the user
+  // stored in it. Selecting a preset used to change an id with nothing behind
+  // it, leaving the textarea showing something unrelated.
+  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
+  const polishSlotField = (slot: string): string | undefined =>
+    isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
+  const polishPromptFor = (slot: string, current: VoiceInputPreferences): string => {
+    const field = polishSlotField(slot);
+    if (!field) return polishPresetPrompt(slot);
+    return (current as Record<string, unknown>)[field] as string ?? "";
   };
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
@@ -1156,6 +1260,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">手写面板主题<small>覆盖手写识别板的明暗外观</small></span><select aria-label="手写面板主题" value={draft.handwriting_theme ?? "follow"} onChange={event => setDraft({ ...draft, handwriting_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">Emoji 面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small></span><select aria-label="Emoji 面板主题" value={draft.emoji_theme ?? "follow"} onChange={event => setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">菜单主题<small>覆盖托盘菜单与候选右键菜单的明暗外观</small></span><select aria-label="菜单主题" value={draft.menu_theme ?? "follow"} onChange={event => setDraft({ ...draft, menu_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} /> : <div className="section"><small>当前宿主的 IBus 候选面板不支持自定义字体或字号。</small></div>}
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1250,7 +1355,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
           <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
             <div className="floating-toolbar-preview-label">预览</div>
-            <div className="skin-card-preview toolbar-settings-preview" data-preview-theme={toolbarPreviewTheme}>
+            <div className={`skin-card-preview toolbar-settings-preview skin-${draft.candidate_skin ?? "fluent"}`} data-preview-theme={toolbarPreviewTheme}>
               <SkinToolbarPreview preferences={floatingToolbar} />
             </div>
           </div>
@@ -1472,6 +1577,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <span className="section-title">{label}</span>
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
+          {windowsPlatform && <div className="shortcut-system-guide">
+            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
+            <small>Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 / 非输入法切换”的按键顺序：</small>
+            <ol>
+              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
+              <li>选择“高级键盘设置” → “输入语言热键”。</li>
+              <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
+              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
+            </ol>
+            <small>不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。</small>
+          </div>}
         </div>}
         {showPanelShortcuts && <div className="section" role="group" aria-label="面板快捷键">
           <div className="section-title">面板快捷键</div>
@@ -1645,11 +1761,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <label className="section-header"><span className="section-title">润色接口地址<small>留空使用当前 provider 默认地址</small></span><input aria-label="润色接口地址" type="url" value={voiceInput.polish_endpoint ?? ""} onChange={event => updateVoice({ polish_endpoint: event.target.value })} /></label>
             <label className="section-header"><span className="section-title">润色 API Token<small>仅保存在本机设置中</small></span><SecretInput label="润色 API Token" value={voiceInput.polish_token ?? ""} onChange={value => updateVoice({ polish_token: value })} /></label>
           </>}
-          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={voiceInput.polish_prompt_id === "custom" ? "custom_1" : voiceInput.polish_prompt_id ?? "cleanup"} onChange={event => updateVoice({ polish_prompt_id: event.target.value })}><option value="cleanup">清理口语</option><option value="faithful">忠实原文</option><option value="zh2en">中译英</option><option value="casual">自然口语</option><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
-          <label className="section-header"><span className="section-title">润色提示词</span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词一</span><textarea aria-label="自定义提示词一" value={voiceInput.polish_prompt_custom_1 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_1: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词二</span><textarea aria-label="自定义提示词二" value={voiceInput.polish_prompt_custom_2 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_2: event.target.value })} /></label>
-          <label className="section-header"><span className="section-title">自定义提示词三</span><textarea aria-label="自定义提示词三" value={voiceInput.polish_prompt_custom_3 ?? ""} onChange={event => updateVoice({ polish_prompt_custom_3: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={polishSlot} onChange={event => updateVoice({ polish_prompt_id: event.target.value, polish_prompt: polishPromptFor(event.target.value, voiceInput) })}>{POLISH_PRESET_IDS.map(id => <option key={id} value={id}>{POLISH_PRESET_NAMES[id]}</option>)}<option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
+          <label className="section-header polish-prompt-row"><span className="section-title">润色提示词<small>{isPolishCustomSlot(polishSlot) ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}</small></span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value, ...(polishSlotField(polishSlot) ? { [polishSlotField(polishSlot) as string]: event.target.value } : {}) })} /></label>
+          <button type="button" className="secondary" disabled={(voiceInput.polish_prompt ?? "") === polishPromptFor(polishSlot, voiceInput)} onClick={() => updateVoice({ polish_prompt: polishPromptFor(polishSlot, voiceInput) })}>恢复默认</button>
         </div>
         <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
           {([[
@@ -1672,8 +1786,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Math.max(1, Math.min(10, Number(event.target.value) || 3)) })} /></label></div>
-        {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>}
-        <div className="section"><label className="section-title">{linuxPlatform ? "兼容提示词" : "AI 润色提示词"}<small>{linuxPlatform ? "旧版提示词，所选自定义槽位留空时使用" : "Android 只发送选中文字，并要求服务仅返回修改结果"}</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
+        <div className="section"><label className="section-header"><span className="section-title">AI 联想提示词方案<small>使用选中的独立槽位；槽位留空时使用兼容提示词</small></span><select aria-label="AI 联想提示词方案" value={ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"} onChange={event => updateAi({ prompt_id: event.target.value })}><option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label></div>
+        <div className="section"><label className="section-title">兼容提示词<small>旧版提示词，所选自定义槽位留空时使用</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={ai.prompt_custom_1} onChange={event => updateAi({ prompt_custom_1: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={ai.prompt_custom_2} onChange={event => updateAi({ prompt_custom_2: event.target.value })} /></div>
         <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={ai.prompt_custom_3} onChange={event => updateAi({ prompt_custom_3: event.target.value })} /></div>

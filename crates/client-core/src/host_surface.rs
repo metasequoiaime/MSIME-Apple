@@ -127,7 +127,12 @@ impl HostCapabilities {
             restart_input_method: matches!(platform, HostPlatform::Windows | HostPlatform::Linux),
             panel_windows: platform.is_desktop(),
             // IBus keeps a session-wide mode; the other hosts track it per application.
-            ime_mode_scope: platform == HostPlatform::Linux,
+            // Windows keeps a cross-application CN/EN authority now, so the
+            // choice is real there too.
+            ime_mode_scope: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
             typing_statistics: true,
             // Windows, Linux, macOS and Android apply the shared fuzzy-pinyin
             // options; iOS will opt in when its host consumes the contract.
@@ -151,10 +156,18 @@ impl HostCapabilities {
             // Linux maps the component switches to IBus menu entries; the
             // native-window hosts apply them to their own toolbar buttons.
             floating_toolbar_components: platform.is_desktop(),
-            // Only the IBus host consumes the shared keybindings and forwards
-            // panel shortcuts so far; a host flips these once it does.
-            mode_switch_shortcuts: platform == HostPlatform::Linux,
-            panel_shortcuts: platform == HostPlatform::Linux,
+            // The IBus host consumes these directly. The Windows Server now
+            // mirrors them into the shared config.toml the TIP reads at
+            // activation, so the toggles take effect there too.
+            mode_switch_shortcuts: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
+            // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
+            panel_shortcuts: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
             voice_capture_devices: platform == HostPlatform::Linux,
             // Native Windows/macOS candidate windows consume the shared font
             // controls; IBus lookup tables and mobile hosts do not expose them.
@@ -549,11 +562,13 @@ mod tests {
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(windows.restart_input_method);
-        assert!(!windows.ime_mode_scope);
+        // Windows keeps a cross-application CN/EN authority, so the scope
+        // choice is real there.
+        assert!(windows.ime_mode_scope);
         assert!(windows.panel_windows);
-        // These stay false until the Windows host actually consumes them;
-        // showing the controls earlier would offer settings that do nothing.
-        assert!(!windows.mode_switch_shortcuts);
+        // The Server mirrors these into the shared config.toml the TIP reads,
+        // so the controls offer settings that actually take effect.
+        assert!(windows.mode_switch_shortcuts);
         assert!(
             windows.floating_toolbar
                 && windows.floating_toolbar_appearance
@@ -582,7 +597,12 @@ mod tests {
         assert!(!android.candidate_font_controls);
         assert!(!android.candidate_row_colors);
         assert!(!android.candidate_selection_appearance);
-        assert!(!windows.panel_shortcuts);
+        // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
+        // panel shortcut row is real there now.
+        assert!(windows.panel_shortcuts);
+        // The CN/EN and 简繁 hotkeys are editable now: the Server mirrors them
+        // into the config.toml the TIP reads, so the toggles take effect.
+        assert!(windows.mode_switch_shortcuts);
         assert!(windows.system_fonts);
 
         let android = HostCapabilities::for_platform(HostPlatform::Android);

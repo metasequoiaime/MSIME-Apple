@@ -5,8 +5,11 @@
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
+#include "FloatingToolbarVisibilityPolicy.h"
+#include "FullscreenForeground.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WatchdogPolicy.h"
@@ -16,8 +19,11 @@
 #include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
 #include "AuxListener.h"
+#include "DiagnosticListener.h"
 #include "ServerLaunch.h"
 #include "TrayMenuDispatch.h"
+#include "MaintenanceHotkey.h"
+#include "ModeAuthority.h"
 #include "ipc_negotiation.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
@@ -224,6 +230,157 @@ bool system_prefers_dark() {
     return true;
   return light == 0;
 }
+// Flip a stored boolean through the same revisioned store the settings shell
+// uses. The tray rows used to change only an in-process flag, so the choice was
+// forgotten on every Server restart and disagreed with the settings page.
+bool toggle_stored_flag(const std::filesystem::path &directory,
+                        const char *section, const char *field, bool fallback,
+                        bool &result) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return false;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return false;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    auto &preferences = snapshot.at("preferences");
+    bool current = fallback;
+    if (section) {
+      if (!preferences.contains(section) || !preferences.at(section).is_object())
+        preferences[section] = nlohmann::json::object();
+      current = preferences.at(section).value(field, fallback);
+      preferences[section][field] = !current;
+    } else {
+      current = preferences.value(field, fallback);
+      preferences[field] = !current;
+    }
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision, reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+    if (!saved)
+      return false;
+    const auto saved_response = nlohmann::json::parse(saved.get());
+    if (!saved_response.value("ok", false) ||
+        !saved_response.at("value").is_object())
+      return false;
+    result = !current;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+// Map the shared preferences onto the settings the TIP keeps in its own
+// globals. The TIP consumes every one of these, but nothing ever sent them, so
+// they sat at their compiled defaults: turning smart or paired punctuation off
+// did nothing, the Microsoft shuangpin ';' key was never enabled, and the
+// inline preedit style stayed "raw" whatever the user picked.
+// The token for the provider actually in use.
+//
+// Tokens are kept one per provider so switching provider restores the matching
+// key instead of sending the previous provider's key to the new endpoint. The
+// flat field remains the value the box currently holds, so it is the right
+// fallback for a store written before the slots existed.
+std::string provider_token(const nlohmann::json &input, const char *slots_key,
+                           const char *flat_key, const std::string &provider) {
+  const auto slots = input.value(slots_key, nlohmann::json::object());
+  if (slots.is_object() && !provider.empty() && slots.contains(provider) &&
+      slots.at(provider).is_string()) {
+    auto token = slots.at(provider).get<std::string>();
+    if (!token.empty())
+      return token;
+  }
+  return input.value(flat_key, std::string{});
+}
+msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
+  msime::windows::TsfLocalConfig config;
+  const auto keys = preferences.value("key_bindings", nlohmann::json::object());
+  config.paging_comma_period = keys.value("comma_period", false);
+  config.preedit_style = msime::windows::tsf_preedit_style(preferences);
+  // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
+  if (config.preedit_style == "local")
+    config.preedit_style = "raw";
+  config.smart_punctuation = preferences.value("smart_punctuation", true);
+  config.smart_punctuation_repeat_to_chinese =
+      preferences.value("smart_punctuation_repeat", true);
+  config.paired_punctuation = preferences.value("paired_punctuation", true);
+  config.microsoft_shuangpin =
+      preferences.value("scheme", std::string("quanpin")) == "shuangpin" &&
+      preferences.value("shuangpin_profile", std::string("xiaohe")) == "microsoft";
+  config.japanese_input_mode =
+      preferences.value("scheme", std::string("quanpin")) == "japanese";
+  config.tsf_diagnostic_log =
+      preferences.value("diagnostic_log", nlohmann::json::object())
+          .value("tsf", false);
+  const auto lock = preferences.value("punctuation_lock", std::string("follow"));
+  config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
+  return config;
+}
+
+// Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
+//
+// These four do not ride the worker pipe: the TIP reads them straight off disk
+// at activation. Without this the settings toggles would save and do nothing,
+// which is why they were hidden on Windows. Writing is best effort - a config
+// we cannot update costs the user their hotkey choice, never the IME.
+void publish_switch_language_keybindings(const nlohmann::json &preferences) {
+  // The same folder the TIP resolves, through the known-folder API rather than
+  // the environment variable so a redirected profile still lands in one place.
+  PWSTR app_data = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &app_data)))
+    return;
+  const std::filesystem::path path =
+      std::filesystem::path(app_data) / L"metasequoiaime" / L"config.toml";
+  CoTaskMemFree(app_data);
+  const auto bindings =
+      preferences.value("keybindings", nlohmann::json::object());
+  msime::windows::SwitchLanguageKeybindings values;
+  values.shift = bindings.value("switch_language_shift", true);
+  values.ctrl = bindings.value("switch_language_ctrl", false);
+  values.ctrl_alt_space = bindings.value("switch_language_ctrl_alt_space", true);
+  values.character_set_ctrl_shift_f =
+      bindings.value("toggle_character_set_ctrl_shift_f", true);
+  try {
+    std::string existing;
+    {
+      std::ifstream input(path, std::ios::binary);
+      if (input)
+        existing.assign(std::istreambuf_iterator<char>(input),
+                        std::istreambuf_iterator<char>());
+    }
+    const auto updated = msime::windows::update_keybindings(existing, values);
+    if (updated == existing)
+      return;
+    std::error_code ignored;
+    std::filesystem::create_directories(path.parent_path(), ignored);
+    // Write beside the target and rename over it: a crash mid-write must not
+    // leave the user with a truncated config the TIP then reads as defaults.
+    const auto temporary = std::filesystem::path(path).concat(L".new");
+    {
+      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+      if (!output)
+        return;
+      output.write(updated.data(),
+                   static_cast<std::streamsize>(updated.size()));
+      if (!output)
+        return;
+    }
+    std::filesystem::rename(temporary, path, ignored);
+    if (ignored)
+      std::filesystem::remove(temporary, ignored);
+  } catch (const std::exception &) {
+    // A read-only or roaming profile is the user's business, not a fatal error.
+  }
+}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -338,6 +495,63 @@ int wmain(int argc, wchar_t **argv) {
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
+    auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
+        tsf_local_config(prepared.at("value").at("preferences")));
+    auto tsf_config_mutex = std::make_shared<std::mutex>();
+    // Set on every publication and on each focus session, so a TIP that
+    // registers later is not left holding compiled defaults.
+    auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
+    // The toolbar resolves light/dark from its own preference, independently
+    // of the candidate card: toolbar_theme is honoured on macOS and in the
+    // settings preview but was ignored by the Windows surface, which simply
+    // took the card's palette.
+    // The tray and candidate context menus. Windows draws its own menus, so
+    // this override only ever mattered here, and it was the one surface theme
+    // the client did not have.
+    // Cross-application CN/EN authority, when the user asked for one state to
+    // follow them between applications.
+    auto mode_scope_global = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("ime_mode_scope", std::string("app")) == "global");
+    auto menu_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("menu_theme", std::string("follow"));
+      if (theme == "light")
+        return true;
+      if (theme == "dark")
+        return false;
+      const auto global = stored.value("theme", std::string("dark"));
+      return global == "light" ||
+             (global == "system" && !system_prefers_dark());
+    }());
+    auto toolbar_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("toolbar_theme", std::string("follow"));
+      if (theme == "light")
+        return true;
+      if (theme == "dark")
+        return false;
+      // "follow" defers to the global theme, and that in turn to Windows.
+      const auto global = stored.value("theme", std::string("dark"));
+      return global == "light" ||
+             (global == "system" && !system_prefers_dark());
+    }());
+    auto voice_light = std::make_shared<std::atomic<bool>>([&] {
+      const auto &stored = prepared.at("value").at("preferences");
+      const auto theme = stored.value("voice_theme", std::string("follow"));
+      return theme == "light" ||
+             (theme == "follow" && !system_prefers_dark());
+    }());
+    auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("floating_toolbar", nlohmann::json::object())
+            .value("enabled", true));
+    // The Engine's own English mode, which the toolbar marks with an
+    // underlined "En". Published like the rest rather than read once, or the
+    // button would only follow the setting across a restart.
+    auto dedicated_english = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("default_ime_mode", std::string("chinese")) == "english");
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -355,8 +569,11 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&, voice_config, voice_config_mutex, traditional_output](
-            const PreferenceSnapshot &snapshot) {
+        [&, voice_config, voice_config_mutex, traditional_output,
+         toolbar_enabled, dedicated_english, voice_light, toolbar_light,
+         menu_light, mode_scope_global, tsf_config,
+         tsf_config_mutex,
+         tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           traditional_output->store(
@@ -364,6 +581,60 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          mode_scope_global->store(
+              preferences.value("ime_mode_scope", std::string("app")) ==
+                  "global",
+              std::memory_order_release);
+          {
+            const auto theme =
+                preferences.value("menu_theme", std::string("follow"));
+            const auto global = preferences.value("theme", std::string("dark"));
+            menu_light->store(
+                theme == "light" ||
+                    (theme != "dark" &&
+                     (global == "light" ||
+                      (global == "system" && !system_prefers_dark()))),
+                std::memory_order_release);
+          }
+          {
+            const auto theme =
+                preferences.value("toolbar_theme", std::string("follow"));
+            const auto global = preferences.value("theme", std::string("dark"));
+            toolbar_light->store(
+                theme == "light" ||
+                    (theme != "dark" &&
+                     (global == "light" ||
+                      (global == "system" && !system_prefers_dark()))),
+                std::memory_order_release);
+          }
+          // 语音面板主题: follow / dark / light. The overlay has had the setter
+          // all along, but nothing read the preference, so it was always dark.
+          // The overlay is built later, so publish through a flag the loop
+          // applies.
+          const auto voice_theme =
+              preferences.value("voice_theme", std::string("follow"));
+          // Publish the TSF-local settings; the loop pushes them to the
+          // focused TIP, since the server is constructed after this handler.
+          {
+            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+            *tsf_config = tsf_local_config(preferences);
+            tsf_config_dirty->store(true, std::memory_order_release);
+          }
+          voice_light->store(voice_theme == "light" ||
+                                 (voice_theme == "follow" &&
+                                  !system_prefers_dark()),
+                             std::memory_order_release);
+          // The settings page owns this too; without reconciling it here the
+          // toolbar only followed the preference across a restart.
+          const auto toolbar_preferences =
+              preferences.value("floating_toolbar", nlohmann::json::object());
+          toolbar_enabled->store(toolbar_preferences.value("enabled", true),
+                                 std::memory_order_release);
+          dedicated_english->store(
+              preferences.value("default_ime_mode", std::string("chinese")) ==
+                  "english",
+              std::memory_order_release);
+          publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.enabled = input.value("enabled", true);
@@ -378,10 +649,13 @@ int wmain(int argc, wchar_t **argv) {
           next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
-          next.asr_provider = input.value("asr_provider", std::string{"doubao"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
-          next.token = input.value("asr_token", std::string{});
+          // Read before the tokens: the slot lookup is keyed on them.
+          next.asr_provider = input.value("asr_provider", std::string{"doubao"});
+          next.polish_provider = input.value("polish_provider", std::string{});
+          next.token = provider_token(input, "asr_tokens", "asr_token",
+                                      next.asr_provider);
           next.app_key = input.value("asr_app_key", std::string{});
           next.resource_id = input.value("asr_resource_id", std::string{});
           next.enable_itn = input.value("doubao_enable_itn", true);
@@ -391,8 +665,9 @@ int wmain(int argc, wchar_t **argv) {
           next.language = input.value("language", std::string{"zh-cn"});
           next.polish_enabled = input.value("polish_enabled", false);
           next.polish_text = input.value("polish_text", false);
-          next.polish_provider = input.value("polish_provider", std::string{});
-          next.polish_token = input.value("polish_token", std::string{});
+          next.polish_token = provider_token(input, "polish_tokens",
+                                             "polish_token",
+                                             next.polish_provider);
           next.polish_endpoint = input.value("polish_endpoint", std::string{});
           next.polish_model = input.value("polish_model", std::string{});
           next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});
@@ -408,6 +683,7 @@ int wmain(int argc, wchar_t **argv) {
         production ? production_key_handler() : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
+    voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
     VoiceInputSession *voice_session = nullptr;
     if (!voice_overlay.init(
             GetModuleHandleW(nullptr), [&voice_session](WaveOverlay::Action action) {
@@ -447,8 +723,12 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return server.mode_view().has_value(); });
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
+    // Clipboard history is an optional convenience, so a monitor that cannot
+    // start leaves it inert rather than taking the IME down with it. Failing
+    // here used to cost the user all text input because a message-only window
+    // or a class registration failed.
     if (!clipboard_monitor.start())
-      throw std::runtime_error("Clipboard monitor unavailable");
+      std::cerr << "Clipboard history unavailable; continuing without it\n";
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (click.action == CandidateAction::Select) {
         if (server.request_selection(click.lease, click.session,
@@ -511,6 +791,31 @@ int wmain(int argc, wchar_t **argv) {
         config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); });
     const auto palette = resolve_palette(config);
+    // An external package may ask for a wider card than the font implies; the
+    // artwork is drawn against that width.
+    double skin_min_width = 0.0;
+    msime::windows::CandidateSkinDecoration skin_decoration;
+    if (!config.skin_directory.empty() && !config.skin_id.empty() &&
+        !msime::windows::candidate_builtin_skin(config.skin_id)) {
+      try {
+        const auto root = config.skin_directory.u8string();
+        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+            msime_client_skin_catalog(
+                reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+            msime_client_string_free);
+        if (owned) {
+          const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
+          if (!catalog.is_discarded() && catalog.value("ok", false)) {
+            skin_min_width = msime::windows::candidate_skin_min_width(
+                catalog.at("value"), config.skin_id);
+            skin_decoration = msime::windows::candidate_skin_decoration(
+                catalog.at("value"), config.skin_id, config.skin_directory);
+          }
+        }
+      } catch (const std::exception &) {
+        skin_min_width = 0.0;
+      }
+    }
     auto resolved_palette = palette;
     if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
         config.candidate_number_color != "none")
@@ -533,14 +838,20 @@ int wmain(int argc, wchar_t **argv) {
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
+    candidates.set_skin_min_width(skin_min_width);
+    candidates.set_skin_decoration(skin_decoration.image, skin_decoration.top_dip,
+                                   skin_decoration.width_dip);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(resolved_palette);
-    bool toolbar_visible = config.floating_toolbar_enabled;
+    bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    toolbar.set_palette(resolved_palette);
+    // The toolbar draws from the skin's own accent, not the card's overrides.
+    bool toolbar_dark_applied = !toolbar_light->load(std::memory_order_acquire);
+    toolbar.set_palette(
+        toolbar_palette(config.skin_id, toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -599,7 +910,20 @@ int wmain(int argc, wchar_t **argv) {
         menu_capabilities,
         [&](TrayMenuCommand command) {
           if (command == TrayMenuCommand::ToggleFloatingToolbar) {
-            toolbar_visible = !toolbar_visible;
+            // Write it back, so the choice survives a restart and the settings
+            // page and this row cannot disagree. A store that refuses the write
+            // leaves the row unhandled rather than showing a state that was
+            // never saved.
+            bool next = !toolbar_visible;
+            if (!toggle_stored_flag(config.state_root, "floating_toolbar",
+                                    "enabled", toolbar_visible, next))
+              return false;
+            // Publish immediately as well as writing the store: the file
+            // monitor reports the change a moment later, and the refresh loop
+            // reads this flag, so without it the toolbar would flip back until
+            // the monitor caught up.
+            toolbar_enabled->store(next, std::memory_order_release);
+            toolbar_visible = next;
             if (!toolbar_visible)
               toolbar.hide();
             return true;
@@ -612,7 +936,26 @@ int wmain(int argc, wchar_t **argv) {
           return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
-    tray.set_palette(resolved_palette);
+    // The menu follows its own theme and the active skin, like the toolbar.
+    bool menu_dark_applied = !menu_light->load(std::memory_order_acquire);
+    tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
+    // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
+    // at activation, so pressing Caps mid-session left its indicator stale.
+    ModeAuthorityState mode_authority;
+    // Seeded from the configured default, and marked as seeded so the first
+    // client does not silently become the authority. 默认输入状态 is documented
+    // as the state a new focus session starts in, so pushing it to the first
+    // client is the behaviour that option promises.
+    mode_authority.chinese =
+        prepared.at("value").at("preferences")
+            .value("default_ime_mode", std::string("chinese")) != "english";
+    mode_authority.seeded = true;
+    std::atomic<bool> caps_lock{(GetKeyState(VK_CAPITAL) & 1) != 0};
+    std::atomic<bool> caps_lock_dirty{true};
+    // Starts true: the Server is launched by the TIP, so the IME is active by
+    // the time this runs, and waiting for the first edge would hide the toolbar
+    // until the user switched focus once.
+    std::atomic<bool> ime_active{true};
     // The language bar sends a right click over the Aux pipe; without a
     // listener the tray menu - and with it every shared-shell entry - is
     // unreachable. A failure here costs the menu, never the IME.
@@ -631,9 +974,86 @@ int wmain(int argc, wchar_t **argv) {
             restart_requested.store(true);
             stopping.store(true);
           }
+        },
+        [&ime_active](AuxActivation activation) {
+          ime_active.store(activation == AuxActivation::Activated,
+                           std::memory_order_release);
         });
+    // TerminalDeactivation is parsed and routed, but deliberately left
+    // unacknowledged: there is no path in this Server that can deactivate a
+    // client by focus token yet, and replying "OK" would tell the DLL a
+    // teardown happened that did not. The 150 ms wait it then takes is the
+    // lesser problem, and the listener now has the hook ready for when the
+    // registry grows that operation.
+    // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
+    // it; nothing ever listened, so enabling diagnostic logging produced
+    // nothing at all. Session-less like the Aux endpoint, because a TIP that
+    // is failing to compose is exactly the one whose diagnostics matter.
+    DWORD diagnostic_error = ERROR_SUCCESS;
+    auto diagnostics = DiagnosticListener::create(
+        FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE,
+        [](const DiagnosticBatch &batch) {
+          std::cerr << "TSF diagnostics pid=" << batch.source_process_id
+                    << " records=" << batch.record_count;
+          // A gap in the log is worth saying out loud rather than leaving the
+          // reader to wonder why the sequence jumps.
+          if (batch.dropped_count)
+            std::cerr << " dropped=" << batch.dropped_count;
+          std::cerr << "\n" << batch.payload << "\n";
+        },
+        diagnostic_error);
+    if (!diagnostics)
+      std::cerr << "TSF diagnostics unavailable; continuing without them\n";
     if (!aux)
       std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
+    // The four shortcuts the shared settings page documents. They must work
+    // while another application has focus, so they sit on a low-level keyboard
+    // hook rather than the TSF key sink.
+    MaintenanceHotkeyController maintenance([&](MaintenanceHotkey hotkey) {
+      switch (hotkey.action) {
+      case MaintenanceAction::Restart:
+        restart_requested.store(true);
+        stopping.store(true);
+        return true;
+      case MaintenanceAction::Stop:
+        stopping.store(true);
+        return true;
+      case MaintenanceAction::ClearCache: {
+        const auto view = server.candidate_view();
+        if (!view)
+          return false;
+        std::unique_ptr<char, decltype(&msime_client_string_free)> reply(
+            msime_client_reset_cache(view->session), msime_client_string_free);
+        return static_cast<bool>(reply);
+      }
+      case MaintenanceAction::OpenScreenKeyboard: {
+        const auto request =
+            shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
+        return request && launch_shell(*request);
+      }
+      case MaintenanceAction::DeleteCandidate: {
+        // Only meaningful while a candidate list is on screen; otherwise the
+        // stroke belongs to the focused application and must not be eaten.
+        const auto view = server.candidate_view();
+        if (!view || !view->visible || hotkey.slot >= view->candidates.size())
+          return false;
+        const auto &candidate = view->candidates[hotkey.slot];
+        return server.request_candidate_action(
+                   view->lease, candidate.session, candidate.generation,
+                   candidate.index, CandidateAction::Remove) ==
+               CandidateActionRequestResult::Sent;
+      }
+      }
+      return false;
+    },
+    [&](bool caps) {
+      // The Server owns the indicator; publish and let the loop deliver it, so
+      // the hook callback never touches the transport.
+      caps_lock.store(caps, std::memory_order_release);
+      caps_lock_dirty.store(true, std::memory_order_release);
+    });
+    if (!maintenance.installed())
+      std::cerr << "Maintenance shortcuts unavailable; continuing without them\n";
     uint64_t tray_shown_at = 0;
     uint64_t pointer_left_at = 0;
     HWND tray_foreground = nullptr;
@@ -658,7 +1078,81 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
-      toolbar.refresh(toolbar_visible);
+      // The settings page may have published a new value since the last pass.
+      toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
+      voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+      if (const bool dark = !menu_light->load(std::memory_order_acquire);
+          dark != menu_dark_applied) {
+        menu_dark_applied = dark;
+        tray.set_palette(candidate_builtin_palette(config.skin_id, dark));
+      }
+      if (const bool dark = !toolbar_light->load(std::memory_order_acquire);
+          dark != toolbar_dark_applied) {
+        toolbar_dark_applied = dark;
+        toolbar.set_palette(toolbar_palette(config.skin_id, dark));
+      }
+      // The toolbar is topmost, so without this it floats over full-screen
+      // video and presentations. ShouldShowFloatingToolbar was ported long ago
+      // but nothing ever supplied its fullscreen argument, leaving the whole
+      // predicate dead outside its unit test.
+      // Push the TSF-local settings whenever they changed, so turning smart
+      // punctuation off takes effect on the text being typed now.
+      if (tsf_config_dirty->load(std::memory_order_acquire)) {
+        if (const auto view = server.mode_view()) {
+          msime::windows::TsfLocalConfig pending;
+          {
+            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+            pending = *tsf_config;
+          }
+          if (server.send_tsf_config(view->lease, pending))
+            tsf_config_dirty->store(false, std::memory_order_release);
+        }
+      }
+      // One CN/EN state follows the user between applications when the scope
+      // is global. Each TSF client keeps its own mode, so a newly focused one
+      // reports whatever it holds and the Server pushes its own back.
+      {
+        const auto view = server.mode_view();
+        const auto decision = mode_authority_step(
+            mode_authority, mode_scope_global->load(std::memory_order_acquire),
+            view.has_value() && view->chinese.has_value(),
+            view ? view->lease.token : 0,
+            view && view->chinese ? *view->chinese : true);
+        mode_authority = decision.next;
+        if (decision.push && view)
+          (void)server.request_mode(view->lease,
+                                    decision.push_chinese ? WorkerMode::Chinese
+                                                          : WorkerMode::English);
+      }
+      // The language button shows 'A' while Caps Lock is on, 日 in Japanese
+      // mode and an underlined "En" in the Engine's own English mode, so it
+      // has to follow all three. Showing 中 with Caps Lock on tells the user
+      // the wrong thing about what the next letter key will do.
+      {
+        ToolbarLanguageState language;
+        language.caps_lock = caps_lock.load(std::memory_order_acquire);
+        language.dedicated_english =
+            dedicated_english->load(std::memory_order_acquire);
+        {
+          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+          language.japanese = tsf_config->japanese_input_mode;
+        }
+        toolbar.set_language_state(language);
+      }
+      if (caps_lock_dirty.load(std::memory_order_acquire)) {
+        if (const auto view = server.mode_view())
+          if (server.send_caps_lock(view->lease,
+                                    caps_lock.load(std::memory_order_acquire)))
+            caps_lock_dirty.store(false, std::memory_order_release);
+      }
+      const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
+      // The DLL's activation edges, not the mode view: a temporary focus
+      // suspension (Win+. for instance) empties the view without deactivating
+      // anything, and gating on the view made the toolbar blink away each time.
+      const bool show_toolbar = ShouldShowFloatingToolbar(
+          toolbar_visible, fullscreen,
+          ime_active.load(std::memory_order_acquire));
+      toolbar.refresh(show_toolbar);
       // The listener thread owns no window; the anchor is applied here, on the
       // thread that created the tray card.
       const uint64_t now = GetTickCount64();

@@ -59,9 +59,12 @@ test("Doubao takes no model, so switching to it clears one", () => {
   expect(update.asr_model).toBe("");
 });
 
-test("an unknown provider changes nothing but the id", () => {
+test("an unknown provider leaves endpoint and model alone", () => {
   const update = asrProviderUpdate("nonsense", { asr_endpoint: doubaoEndpoint, asr_model: "whisper-1" });
-  expect(update).toEqual({ asr_provider: "nonsense" });
+  // Nothing is known about it, so its endpoint and model are not invented.
+  expect(update.asr_endpoint).toBeUndefined();
+  expect(update.asr_model).toBeUndefined();
+  expect(update.asr_provider).toBe("nonsense");
 });
 
 test("the polish provider follows the same rules", () => {
@@ -74,4 +77,48 @@ test("the polish provider follows the same rules", () => {
 
   const custom = polishProviderUpdate("openai", { polish_endpoint: "https://llm.internal.example/v1/chat" });
   expect(custom.polish_endpoint).toBeUndefined();
+});
+
+test("switching provider stashes the old key and restores the new one", () => {
+  // A single flat token meant the previous provider's key stayed in the box and
+  // was sent to the new endpoint until the user noticed.
+  const first = asrProviderUpdate("openai", {
+    asr_provider: "doubao", asr_token: "doubao-key", asr_tokens: {},
+  });
+  expect(first.asr_tokens).toEqual({ doubao: "doubao-key" });
+  expect(first.asr_token).toBe("");
+
+  // Coming back restores it rather than leaving the box empty.
+  const back = asrProviderUpdate("doubao", {
+    asr_provider: "openai", asr_token: "openai-key", asr_tokens: first.asr_tokens,
+  });
+  expect(back.asr_token).toBe("doubao-key");
+  expect(back.asr_tokens).toEqual({ doubao: "doubao-key", openai: "openai-key" });
+});
+
+test("clearing the box forgets that provider's slot", () => {
+  const update = asrProviderUpdate("groq", {
+    asr_provider: "openai", asr_token: "  ".trim(), asr_tokens: { openai: "old", groq: "g" },
+  });
+  // An emptied box is a deliberate removal, not something to preserve.
+  expect(update.asr_tokens.openai).toBeUndefined();
+  expect(update.asr_token).toBe("g");
+});
+
+test("the polish provider keeps its own slots", () => {
+  const update = polishProviderUpdate("deepseek", {
+    polish_provider: "siliconflow", polish_token: "sf-key", polish_tokens: { deepseek: "ds-key" },
+  });
+  expect(update.polish_token).toBe("ds-key");
+  expect(update.polish_tokens).toEqual({ siliconflow: "sf-key", deepseek: "ds-key" });
+});
+
+test("an unknown provider still swaps the token slot", () => {
+  // Endpoint and model are left alone for an unknown id, but the credential
+  // must not follow the user to it.
+  const update = asrProviderUpdate("nonsense", {
+    asr_provider: "openai", asr_token: "openai-key", asr_tokens: {},
+  });
+  expect(update.asr_token).toBe("");
+  expect(update.asr_tokens).toEqual({ openai: "openai-key" });
 });

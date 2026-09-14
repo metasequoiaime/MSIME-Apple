@@ -363,6 +363,10 @@ pub struct Preferences {
     pub voice_theme: SettingsTheme,
     #[serde(default)]
     pub emoji_theme: SettingsTheme,
+    /// The tray and candidate context menus. Windows draws its own, so this is
+    /// the one surface override the client was missing.
+    #[serde(default)]
+    pub menu_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -518,6 +522,13 @@ pub struct VoiceInputPreferences {
     pub asr_app_key: String,
     #[serde(default)]
     pub asr_token: String,
+    /// One recognition token per provider id.
+    ///
+    /// A single flat token meant switching provider left the previous
+    /// provider's key in the box, so it was sent to the new endpoint until the
+    /// user noticed, and the old key was gone the moment they retyped.
+    #[serde(default)]
+    pub asr_tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub asr_endpoint: String,
     #[serde(default)]
@@ -532,6 +543,9 @@ pub struct VoiceInputPreferences {
     pub polish_provider: String,
     #[serde(default)]
     pub polish_token: String,
+    /// One polish token per provider id, for the same reason as `asr_tokens`.
+    #[serde(default)]
+    pub polish_tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub polish_endpoint: String,
     #[serde(default)]
@@ -585,6 +599,7 @@ impl Default for VoiceInputPreferences {
             doubao_auth_mode: "api_key".into(),
             asr_app_key: String::new(),
             asr_token: String::new(),
+            asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
@@ -592,6 +607,7 @@ impl Default for VoiceInputPreferences {
             polish_text: false,
             polish_provider: "siliconflow".into(),
             polish_token: String::new(),
+            polish_tokens: BTreeMap::new(),
             polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
@@ -1021,6 +1037,7 @@ impl Default for Preferences {
             handwriting_theme: SettingsTheme::default(),
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
+            menu_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),

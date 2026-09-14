@@ -82,6 +82,89 @@ int main() {
     require(toolbar_icon(99, std::nullopt).codepoint == 0);
     require(std::wcscmp(toolbar_icon(99, true).fallback, L"?") == 0);
 
+    // The language button reflects more than Chinese/English.
+    {
+      ToolbarLanguageState caps;
+      caps.caps_lock = true;
+      // Caps Lock wins over every input mode: it changes what each letter key
+      // does, so showing 中 there would say the wrong thing.
+      require(toolbar_icon(kToolbarLanguage, true, caps).codepoint == 0xE7B5);
+      require(toolbar_icon(kToolbarLanguage, false, caps).codepoint == 0xE7B5);
+      require(std::wcscmp(toolbar_icon(kToolbarLanguage, true, caps).fallback,
+                          L"A") == 0);
+      // Even with an unreported mode, Caps Lock is known and shown.
+      require(toolbar_icon(kToolbarLanguage, std::nullopt, caps).codepoint ==
+              0xE7B5);
+
+      ToolbarLanguageState japanese;
+      japanese.japanese = true;
+      require(toolbar_icon(kToolbarLanguage, true, japanese).codepoint == 0xE7DE);
+      // But the temporary English toggle beats it, as upstream orders these:
+      // the toggle is what the next key actually does, and 日 over a keystroke
+      // that produces Latin letters tells the user the wrong thing.
+      require(toolbar_icon(kToolbarLanguage, false, japanese).codepoint == 0xE983);
+
+      // Caps Lock beats Japanese too, and the two together are not a fourth
+      // state.
+      ToolbarLanguageState both;
+      both.caps_lock = true;
+      both.japanese = true;
+      require(toolbar_icon(kToolbarLanguage, true, both).codepoint == 0xE7B5);
+
+      // With neither, the button is the ordinary CN/EN pair.
+      ToolbarLanguageState plain;
+      require(toolbar_icon(kToolbarLanguage, true, plain).codepoint == 0xE982);
+      require(toolbar_icon(kToolbarLanguage, false, plain).codepoint == 0xE983);
+      require(!toolbar_icon(kToolbarLanguage, std::nullopt, plain).codepoint);
+
+      // Dedicated English is the Engine's own mode, and is the only button
+      // state drawn as underlined text rather than a glyph.
+      ToolbarLanguageState dedicated;
+      dedicated.dedicated_english = true;
+      const auto english = toolbar_icon(kToolbarLanguage, true, dedicated);
+      require(english.underline);
+      require(!english.codepoint);
+      require(std::wstring(english.fallback) == L"En");
+      // Unreported Chinese state does not suppress it: the dedicated mode is
+      // known independently of the toggle.
+      require(toolbar_icon(kToolbarLanguage, std::nullopt, dedicated).underline);
+
+      // The temporary English toggle wins, because it is what the next key
+      // actually does and it is what the user just pressed.
+      const auto toggled = toolbar_icon(kToolbarLanguage, false, dedicated);
+      require(toggled.codepoint == 0xE983);
+      require(!toggled.underline);
+
+      // Caps Lock still beats everything.
+      ToolbarLanguageState capped_english;
+      capped_english.caps_lock = true;
+      capped_english.dedicated_english = true;
+      require(toolbar_icon(kToolbarLanguage, true, capped_english).codepoint ==
+              0xE7B5);
+      require(!toolbar_icon(kToolbarLanguage, true, capped_english).underline);
+
+      // Dedicated English beats Japanese; the two together are not a fifth
+      // state.
+      ToolbarLanguageState english_and_japanese;
+      english_and_japanese.dedicated_english = true;
+      english_and_japanese.japanese = true;
+      require(
+          toolbar_icon(kToolbarLanguage, true, english_and_japanese).underline);
+
+      // Nothing else is ever underlined; the line means one specific mode.
+      require(!toolbar_icon(kToolbarLanguage, true, plain).underline);
+      require(!toolbar_icon(kToolbarLanguage, false, plain).underline);
+      for (int button = kToolbarLanguage; button <= kToolbarHide; ++button)
+        if (button != kToolbarLanguage)
+          require(!toolbar_icon(button, true, dedicated).underline);
+
+      // No other button is affected by the language state.
+      require(toolbar_icon(kToolbarEmoji, std::nullopt, caps).codepoint ==
+              toolbar_icon(kToolbarEmoji, std::nullopt, plain).codepoint);
+      require(toolbar_icon(kToolbarFullwidth, true, caps).codepoint ==
+              toolbar_icon(kToolbarFullwidth, true, plain).codepoint);
+    }
+
     std::cout << "Toolbar icons: glyphs and fallbacks match the shipped set\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

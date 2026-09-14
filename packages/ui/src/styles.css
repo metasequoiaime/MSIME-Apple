@@ -513,10 +513,14 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .cloud-dictionary-empty { margin: auto; color: var(--text-muted); }
 .cloud-dictionary-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; color: var(--text-secondary); font-size: 12px; }
 .ink-canvas-section { min-width: 0; }
-.ink-canvas { display: block; width: 100%; aspect-ratio: 1; border: 1px solid #45454f; border-radius: 8px; background: #25262d; touch-action: none; }
+/* Crosshair while a stroke is in progress, hand otherwise, as the shipped panel
+   does. Without any cursor the square gives no hint that it can be written on. */
+.ink-canvas { display: block; width: 100%; aspect-ratio: 1; border: 1px solid #45454f; border-radius: 8px; background: #25262d; touch-action: none; cursor: grab; }
+.ink-canvas[data-drawing="true"] { cursor: crosshair; }
 .ink-canvas polyline { fill: none; stroke: #f5f5f7; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
 .ink-canvas circle { fill: #f5f5f7; }
 .ink-canvas text { fill: #b8b8c0; font-size: 18px; }
+.emoji-panel-loading { opacity: 0.75; }
 .handwriting-actions { display: flex; gap: 12px; margin-top: 18px; }
 .handwriting-actions button { flex: 0 0 112px; padding: 10px; border: 1px solid #45454f; border-radius: 6px; background: #292a31; color: #f5f5f7; }
 .handwriting-actions button:hover { background: #3b3240; }

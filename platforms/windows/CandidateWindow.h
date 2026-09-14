@@ -4,15 +4,23 @@
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>
+#include <memory>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
 // which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
+// IDWriteFontFallback and IDWriteTextFormat1 live here, not in dwrite.h.
+#include <dwrite_2.h>
 
 namespace msime::windows {
 // Main/UI thread owns construction, polling, painting and destruction. Reader
 // outlives the window and returns a freshly validated value, never Engine
 // state.
+// One owner-drawn menu row's label. Owner drawing keeps the platform's own
+// keyboard handling and dismissal while letting the skin paint the row.
+struct MenuRowLabel {
+  std::wstring text;
+};
 class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
@@ -33,6 +41,14 @@ public:
   // Adopt resolved skin tokens. The next refresh repaints with them; the
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
+  // Minimum card width asked for by the active skin package, in DIPs.
+  void set_skin_min_width(double value) { skin_min_width_ = value; }
+  // The mascot a package draws above the card. Empty image means none.
+  void set_skin_decoration(std::wstring image, double top_dip, double width_dip) {
+    decoration_image_ = std::move(image);
+    decoration_top_ = top_dip;
+    decoration_width_ = width_dip;
+  }
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
@@ -75,6 +91,22 @@ private:
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;
+  // Configured supplementary faces, in order, for the per-glyph fallback chain.
+  // Minimum card width asked for by the active skin package, in DIPs.
+  double skin_min_width_ = 0.0;
+  // Decoration artwork: absolute path, how far it rises above the card, and
+  // its drawn width. The height follows the image's own aspect ratio.
+  std::wstring decoration_image_;
+  double decoration_top_ = 0.0;
+  double decoration_width_ = 0.0;
+  // Pixels reserved above the card for the artwork, computed when the card is
+  // sized and reused when it is painted so the two cannot disagree.
+  float decoration_offset_ = 0.0f;
+  // Owner-drawn menu labels, kept alive for the duration of the popup: the
+  // draw messages carry pointers into this list.
+  std::vector<std::unique_ptr<MenuRowLabel>> menu_labels_;
+  std::vector<std::wstring> fallback_families_;
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical
   // pixels. Only the flip decision reads it; placement uses the real height.
   int64_t tallest_ = 0;

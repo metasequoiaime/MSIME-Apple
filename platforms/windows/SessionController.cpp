@@ -35,6 +35,26 @@ SessionController::SessionController(
           // Optional provider delivery must never stop the input queue.
         }
       }),
+      ai_([this](AiCandidateWorker::Result result) {
+        try {
+          (void)input_.submit(
+              [this, result = std::move(result)](InputState &state) mutable {
+                if (stopping_ || !transport_.current(result.lease.transport))
+                  return;
+                // The worker returns plain strings; the Engine wants the JSON
+                // array its apply entry point documents.
+                nlohmann::json candidates = nlohmann::json::array();
+                for (auto &text : result.candidates)
+                  candidates.push_back(std::move(text));
+                auto view = state.apply_ai_candidates(
+                    result.lease, result.query, candidates.dump());
+                if (view)
+                  candidates_.online(result.lease, *view);
+              });
+        } catch (...) {
+          // Optional provider delivery must never stop the input queue.
+        }
+      }),
       translations_([this](TranslationWorker::Result result) {
         try {
           (void)input_.submit(
@@ -72,8 +92,13 @@ SessionController::SessionController(
                presentation_.disconnected(ticket);
            },
            [this](const FocusLease &lease, const PendingReply &reply) {
-             if (reply.online_query)
+             if (reply.online_query) {
                (void)cloud_.submit(lease, *reply.online_query);
+               // The same query carries the resolved AI config and the
+               // ai_eligible flag; the AI worker decides for itself whether it
+               // applies, so an ineligible query costs nothing here.
+               (void)ai_.submit(lease, *reply.online_query);
+             }
            },
            [this](const FocusLease &lease, const PendingReply &reply) {
              if (reply.translation_query)
@@ -323,6 +348,55 @@ std::optional<ModePresentation> SessionController::mode_view() {
     return std::nullopt;
   return value;
 }
+bool SessionController::send_caps_lock(const FocusLease &lease, bool enabled) {
+  if (input_.on_worker_thread() || active_controller == this || stopping_)
+    return false;
+  const auto frame = caps_lock_frame(enabled);
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return false;
+  bool sent = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (stopping_ || !transport_.current(lease.transport))
+        return;
+      sent = transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
+                             frame) == KeyEventSendResult::Sent;
+    });
+  } catch (...) {
+    return false;
+  }
+  return sent;
+}
+bool SessionController::send_tsf_config(const FocusLease &lease,
+                                       const TsfLocalConfig &config) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Config push cannot reenter controller callbacks");
+  if (stopping_)
+    return false;
+  const auto frames = tsf_config_frames(config);
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return false;
+  bool sent = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (stopping_ || !transport_.current(lease.transport))
+        return;
+      // All or nothing: a TIP left holding half the settings is worse than one
+      // holding its compiled defaults, because the user cannot tell which.
+      for (const auto &frame : frames) {
+        if (transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
+                            frame) != KeyEventSendResult::Sent)
+          return;
+      }
+      sent = true;
+    });
+  } catch (...) {
+    return false;
+  }
+  return sent;
+}
 ModeRequestResult SessionController::request_mode(const FocusLease &lease,
                                                   WorkerMode mode) {
   if (input_.on_worker_thread() || active_controller == this)
@@ -359,6 +433,7 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
 void SessionController::request_stop() {
   stopping_ = true;
   cloud_.request_stop();
+  ai_.request_stop();
   translations_.request_stop();
   candidates_.stop();
   modes_.stop();
@@ -413,6 +488,7 @@ void SessionController::run() {
     failure_ = ControllerFailure::Control;
   }
   cloud_.stop();
+  ai_.stop();
   translations_.stop();
   workers_.stop();
   input_.stop();

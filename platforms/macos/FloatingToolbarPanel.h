@@ -39,6 +39,8 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)applySizingPreferences:(NSDictionary *)preferences;
 /// Use the active host's resolved palette without reading another preference store.
 - (void)applyLightSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark;
+/// Use the toolbar's own palette, independent of candidate color overrides.
+- (void)applyLightToolbarSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark;
 @end
 #define MSIMEFloatingToolbarDelegate MetasequoiaFloatingToolbarDelegate
 #define MSIMEFloatingToolbarPanel MetasequoiaFloatingToolbarPanel

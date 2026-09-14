@@ -41,10 +41,37 @@ function fillIfDefault(current: string | undefined, next: string, defaults: stri
   return next;
 }
 
+type TokenMap = Record<string, string>;
+
+/**
+ * Move the token box from one provider's slot to another's.
+ *
+ * A single flat token meant switching provider left the previous provider's key
+ * in the box, so it was sent to the new endpoint until the user noticed, and
+ * the old key was gone the moment they retyped.
+ */
+function swapTokenSlot(from: string, to: string, box: string, slots: TokenMap | undefined) {
+  const next: TokenMap = { ...(slots ?? {}) };
+  // Stash whatever is in the box under the provider being left.
+  if (from) {
+    if (box) next[from] = box;
+    else delete next[from];
+  }
+  return { tokens: next, token: next[to] ?? "" };
+}
+
 /** The voice fields to update when the recognition provider changes. */
-export function asrProviderUpdate(provider: string, current: { asr_endpoint?: string; asr_model?: string }) {
+export function asrProviderUpdate(
+  provider: string,
+  current: { asr_provider?: string; asr_endpoint?: string; asr_model?: string; asr_token?: string; asr_tokens?: TokenMap },
+) {
   const defaults = ASR_PROVIDER_DEFAULTS[provider];
-  const update: { asr_provider: string; asr_endpoint?: string; asr_model?: string } = { asr_provider: provider };
+  const swapped = swapTokenSlot(current.asr_provider ?? "", provider, current.asr_token ?? "", current.asr_tokens);
+  const update: { asr_provider: string; asr_endpoint?: string; asr_model?: string; asr_token: string; asr_tokens: TokenMap } = {
+    asr_provider: provider,
+    asr_token: swapped.token,
+    asr_tokens: swapped.tokens,
+  };
   if (!defaults) return update;
   const endpoint = fillIfDefault(current.asr_endpoint, defaults.endpoint, known(ASR_PROVIDER_DEFAULTS, "endpoint"));
   if (endpoint !== undefined) update.asr_endpoint = endpoint;
@@ -57,9 +84,17 @@ export function asrProviderUpdate(provider: string, current: { asr_endpoint?: st
 }
 
 /** The voice fields to update when the polish provider changes. */
-export function polishProviderUpdate(provider: string, current: { polish_endpoint?: string; polish_model?: string }) {
+export function polishProviderUpdate(
+  provider: string,
+  current: { polish_provider?: string; polish_endpoint?: string; polish_model?: string; polish_token?: string; polish_tokens?: TokenMap },
+) {
   const defaults = POLISH_PROVIDER_DEFAULTS[provider];
-  const update: { polish_provider: string; polish_endpoint?: string; polish_model?: string } = { polish_provider: provider };
+  const swapped = swapTokenSlot(current.polish_provider ?? "", provider, current.polish_token ?? "", current.polish_tokens);
+  const update: { polish_provider: string; polish_endpoint?: string; polish_model?: string; polish_token: string; polish_tokens: TokenMap } = {
+    polish_provider: provider,
+    polish_token: swapped.token,
+    polish_tokens: swapped.tokens,
+  };
   if (!defaults) return update;
   const endpoint = fillIfDefault(current.polish_endpoint, defaults.endpoint, known(POLISH_PROVIDER_DEFAULTS, "endpoint"));
   if (endpoint !== undefined) update.polish_endpoint = endpoint;

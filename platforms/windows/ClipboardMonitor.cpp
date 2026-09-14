@@ -39,17 +39,27 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
         !IsClipboardFormatAvailable(CF_UNICODETEXT) ||
         !OpenClipboard(static_cast<HWND>(window)))
       return 0;
+    // Windows allows one clipboard owner at a time, so every path from here
+    // must close it. The second availability check below can fail when another
+    // process replaces the contents between the two checks; leaving the
+    // clipboard open there broke Ctrl+C and Ctrl+V in every application on the
+    // desktop until this process exited.
+    struct ClipboardScope {
+      ~ClipboardScope() { CloseClipboard(); }
+    } scope;
+    std::wstring value;
     if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
       auto data = GetClipboardData(CF_UNICODETEXT);
       const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
-      const std::wstring value = text ? text : L"";
-      if (text) GlobalUnlock(data);
-      CloseClipboard();
-      monitor->sequence_ = sequence;
-      if (auto utf8 = wide_to_utf8(value); !utf8.empty() &&
-          monitor->history_.add(utf8) && monitor->callback_)
-        monitor->callback_(std::move(utf8));
+      if (text) {
+        value = text;
+        GlobalUnlock(data);
+      }
     }
+    monitor->sequence_ = sequence;
+    if (auto utf8 = wide_to_utf8(value); !utf8.empty() &&
+        monitor->history_.add(utf8) && monitor->callback_)
+      monitor->callback_(std::move(utf8));
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);
@@ -59,7 +69,10 @@ bool ClipboardMonitor::start() {
   const auto instance = GetModuleHandleW(nullptr);
   const wchar_t name[] = L"MSIMEClientClipboardMonitor";
   WNDCLASSW klass{}; klass.hInstance = instance; klass.lpfnWndProc = window_proc; klass.lpszClassName = name;
-  RegisterClassW(&klass);
+  // A name collision is the one failure worth distinguishing: everything else
+  // surfaces later as a CreateWindowExW failure with no hint of the cause.
+  if (!RegisterClassW(&klass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+    return false;
   window_ = CreateWindowExW(0, name, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
   if (!window_) return false;
   sequence_ = GetClipboardSequenceNumber();

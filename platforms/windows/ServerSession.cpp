@@ -253,6 +253,29 @@ ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
     return std::nullopt;
   }
 }
+std::optional<nlohmann::json>
+ServerSession::apply_ai_candidates(uint64_t epoch, const std::string &query,
+                                   const std::string &candidates) {
+  check_active(epoch);
+  if (query.empty() || query.size() > 16384 || candidates.empty() ||
+      candidates.size() > 16384)
+    return std::nullopt;
+  try {
+    // Source 1 is AI, so the candidates land in their own slot rather than
+    // displacing the cloud ones.
+    const auto value = response(msime_client_apply_online_candidates(
+        session_, reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+        reinterpret_cast<const uint8_t *>(candidates.data()),
+        candidates.size(), 1));
+    if (!value.is_object() || !value.value("applied", false) ||
+        !value.contains("view") || !value.at("view").is_object())
+      return std::nullopt;
+    return value.at("view");
+  } catch (...) {
+    // Optional provider data is a no-op, never a reason to stop input.
+    return std::nullopt;
+  }
+}
 std::optional<std::string> ServerSession::translation_query(uint64_t epoch) {
   check_active(epoch);
   try {
