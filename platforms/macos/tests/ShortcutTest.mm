@@ -34,7 +34,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
-        @"showCloudClipboard:", @"showHandwriting:", @"prepareDictionary:", @"",
+        @"showCloudClipboard:", @"showCloudDictionary:", @"showHandwriting:", @"prepareDictionary:", @"",
         @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"toggleVoiceInput:", @"showVoiceSettings:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
@@ -1707,7 +1707,11 @@ show_selected_bar = true
             [controller appearanceChanged:nil];
             [toolbar applyThemePreferences:@{@"theme": [theme isEqual:NSAppearanceNameDarkAqua] ? @"dark" : @"light"}];
             NSColor *toolbarFill = [[toolbar valueForKey:@"chrome"] valueForKey:@"fillColor"];
-            assert([toolbarFill isEqual:SkinColor([external resolvedSkinForDark:[theme isEqual:NSAppearanceNameDarkAqua]].tokens.surface)]);
+            // External candidate overrides must not leak into the native toolbar.
+            const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
+            const auto toolbarTokens = msime::mac::ToolbarSkinTokens(external.skinID.UTF8String, dark);
+            assert([toolbarFill isEqual:SkinColor(toolbarTokens.surface)]);
+            assert(![toolbarFill isEqual:SkinColor([external resolvedSkinForDark:dark].tokens.surface)]);
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
             NSImageView *decoration = (id)chrome.subviews.lastObject;
             assert([decoration isKindOfClass:NSImageView.class] && decoration.image);
