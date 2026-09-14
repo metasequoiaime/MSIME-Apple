@@ -62,8 +62,9 @@ int main() {
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:@42 forKey:@"voiceGeneration"];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
-        [controller finishHTTPVoiceInput];
-        assert(controller.requestFixture.submitted);
+        [controller finishVoiceInputForDisable];
+        [controller finishVoiceInputForDisable];
+        assert(controller.requestFixture.submitted && !controller.requestFixture.cancellations);
         controller.requestFixture.completion(@"synthetic", nil);
         controller.requestFixture.completion = nil;
         assert(session.submissions == 1 && controller.applies == 1 && !capture.active);

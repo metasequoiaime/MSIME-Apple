@@ -131,8 +131,10 @@ int main() {
         request.result(@"synthetic partial", NO, nil);
         assert([client.marked isEqual:@"synthetic partial"] && client.commits.count == 0);
         capture.chunk([NSMutableData dataWithLength:32], nil);
-        [controller finishDoubaoVoiceInput];
+        [controller finishVoiceInputForDisable];
+        [controller finishVoiceInputForDisable];
         assert(request.audio.length == 48 && request.finishes == 1 && capture.finishes == 1);
+        assert(!request.cancellations);
         request.result(@"synthetic final", YES, nil);
         assert(client.commits.count == 1 && [client.commits[0] isEqual:@"synthetic final"] && !capture.active);
         request.result(@"duplicate", YES, nil);
@@ -174,7 +176,7 @@ int main() {
         // Exercise the actual toggle route without touching persistent defaults.
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO} forName:NSArgumentDomain];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO} forName:NSArgumentDomain];
         DoubaoPresentationFixture *presentation = [DoubaoPresentationFixture new];
         [controller setValue:presentation forKey:@"voiceOverlay"];
         [controller setValue:presentation forKey:@"voiceAudioMuter"];

@@ -89,7 +89,8 @@ int main(int argc, char **) {
         for (NSString *key in @[@"voiceOverlay", @"voiceAudioMuter", @"voiceCuePlayer"]) [controller setValue:presentation forKey:key];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} forName:NSArgumentDomain];
+        NSMutableDictionary *voiceArguments = [@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} mutableCopy];
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         if (argc == 2) {
             session.providerDone = dispatch_semaphore_create(0);
             [controller toggleVoiceInput:nil];
@@ -100,7 +101,8 @@ int main(int argc, char **) {
             session.providerUpdate(@"socket partial", NO);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert([client.marked isEqual:@"socket partial"] && !client.commits.count);
-            [controller toggleVoiceInput:nil];
+            [controller finishVoiceInputForDisable];
+            [controller finishVoiceInputForDisable];
             session.providerUpdate(@"socket final", YES);
             while ((capture.active || !session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -170,6 +172,55 @@ int main(int argc, char **) {
         capture.needsMicrophonePermission = NO;
         capture.permission(YES);
         assert(!capture.active);
+        // Disabling stops capture but finishes the in-flight recognition, as on
+        // Windows. Use volatile preferences so no real settings are written.
+        [controller toggleVoiceInput:nil]; assert(capture.active);
+        void (^disabledResult)(NSString *, BOOL) = capture.transcript;
+        disabledResult(@"synthetic disabled partial", NO);
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @NO;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [NSApplication sharedApplication];
+        [controller applySharedToolbarPreferences:@{}];
+        assert(capture.active && [[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        const auto disabledCaptureStops = capture.captureStops;
+        [controller applySharedToolbarPreferences:@{}];
+        [controller toggleVoiceInput:nil];
+        assert(capture.active && capture.captureStops == disabledCaptureStops);
+        disabledResult(@"synthetic disabled final", YES);
+        disabledResult(@"synthetic duplicate disabled final", YES);
+        assert(!capture.active && !client.marked.length && client.commits.count == 4);
+        [controller toggleVoiceInput:nil]; assert(!capture.active);
+        assert(![controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        assert(![controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        assert(![controller handleEvent:key(101, NSEventModifierFlagControl, NSEventTypeKeyDown) client:client]);
+        assert(!capture.active);
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        // A previously requested permission must not override a later disable.
+        capture.needsMicrophonePermission = YES;
+        capture.permission = nil;
+        [controller toggleVoiceInput:nil]; assert(capture.permission);
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @NO;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        capture.needsMicrophonePermission = NO;
+        capture.permission(YES); assert(!capture.active);
+        voiceArguments[@"MSIMEClientVoiceEnabled"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller setValue:nil forKey:@"activeClient"];
+        [controller toggleVoiceInput:nil]; assert(!capture.active);
+        [controller setValue:client forKey:@"activeClient"];
+        assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.active);
+        [controller cancelLiveVoiceInput];
+        assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        voiceArguments[@"MSIMEClientVoiceHotkeyRightAlt"] = @NO;
+        voiceArguments[@"MSIMEClientVoiceHotkeyCtrlOption"] = @YES;
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        const auto rightControl = NSEventModifierFlagControl | NX_DEVICERCTLKEYMASK;
+        assert(![controller handleEvent:key(62, rightControl, NSEventTypeFlagsChanged) client:client]);
+        assert([controller handleEvent:key(61, rightControl | option, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.active);
+        [controller cancelLiveVoiceInput];
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

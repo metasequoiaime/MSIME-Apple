@@ -1,6 +1,12 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+// Match the shared default while preserving explicit disablement.
+static inline BOOL MSIMEVoiceInputEnabled(NSUserDefaults *defaults) {
+    return [defaults objectForKey:@"MSIMEClientVoiceEnabled"] == nil ||
+        [defaults boolForKey:@"MSIMEClientVoiceEnabled"];
+}
+
 // Adapt shared settings to the legacy native consumers. Missing or malformed
 // fields preserve local values; explicit false and empty strings clear them.
 // Reloading settings must not restart an active recording or emit save events.
@@ -29,6 +35,7 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         }
     }
     NSDictionary *booleans = @{
+        @"enabled": @"Enabled",
         @"sound_enabled": @"SoundEnabled", @"mute_system_audio": @"MuteSystemAudio",
         @"stream_inline_preedit": @"StreamInlinePreedit", @"polish_enabled": @"Polish",
         @"doubao_enable_itn": @"DoubaoEnableITN",
@@ -36,6 +43,7 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"doubao_enable_ddc": @"DoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"HotkeyCtrlF9", @"hotkey_hold_space_lock": @"HotkeyHoldSpace",
         @"hotkey_ralt": @"HotkeyRightAlt",
+        @"hotkey_rctrl_ralt": @"HotkeyCtrlOption",
         // The shared Windows modifier is Command on macOS.
         @"hotkey_ctrl_win": @"HotkeyCtrlCommand"
     };

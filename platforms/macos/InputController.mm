@@ -626,7 +626,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _globalVoiceHotkeyMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^(NSEvent *event) {
         if (event.keyCode != 101 || event.isARepeat || (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand)) != NSEventModifierFlagControl) return;
         MSIMEInputController *controller = weakSelf;
-        if (!controller || ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] != nil && ![NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) return;
+        if (!controller || !controller->_activeClient || !MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) || ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] != nil && ![NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) return;
         dispatch_async(dispatch_get_main_queue(), ^{ [controller toggleVoiceInput:nil]; });
     }];
 }
@@ -1175,8 +1175,23 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (controller && controller->_liveVoiceToken == token) [controller cancelLiveVoiceInput];
     });
 }
+- (void)finishVoiceInputForDisable {
+    // Windows RefreshKeyboardHook stops capture on disable without discarding
+    // its final result. Repeated preference loads must not act as a second stop.
+    _voiceHoldShortcut.reset();
+    if (_httpVoiceRequest && !_httpVoiceProcessing) [self finishHTTPVoiceInput];
+    if (_doubaoVoiceRequest && !_doubaoVoiceProcessing) [self finishDoubaoVoiceInput];
+    if (_liveVoiceToken && !_liveVoiceProcessing) [self finishLiveVoiceInput];
+}
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
+    // All menu, toolbar, local/global shortcut and permission callbacks converge
+    // here. Recheck after asynchronous permission delivery, before any capture.
+    if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults)) {
+        [self finishVoiceInputForDisable];
+        return;
+    }
+    if (!_activeClient) return;
     if (!_session) [self prepareSession];
     if (!_session) return;
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
@@ -1450,6 +1465,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
     MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults);
+    if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults))
+        [self finishVoiceInputForDisable];
     BOOL translationChanged = NO;
     id glossEnabled = preferences[@"candidate_translations"];
     if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
@@ -1590,12 +1607,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
     NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
-    const auto voiceShortcut = _voiceHoldShortcut.observe(event, {
+    const BOOL voiceEnabled = MSIMEVoiceInputEnabled(voiceDefaults);
+    if (!voiceEnabled) _voiceHoldShortcut.reset();
+    const auto voiceShortcut = voiceEnabled ? _voiceHoldShortcut.observe(event, {
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"] != NO,
         [voiceDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]
-    }, _voiceService.active);
+    }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
     if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::Toggle) {
         _voiceHoldStarting = !voiceShortcut.onRelease && !_voiceService.active;
@@ -1613,7 +1632,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
-    if (!event.isARepeat && event.keyCode == 101 &&
+    if (voiceEnabled && !event.isARepeat && event.keyCode == 101 &&
         (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand)) == NSEventModifierFlagControl &&
         ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) {
         [self toggleVoiceInput:nil];
