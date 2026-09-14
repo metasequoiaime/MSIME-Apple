@@ -14,6 +14,7 @@
 #include "CandidatePalette.h"
 #include "CandidateActionPolicy.h"
 #include "PairedPunctuation.h"
+#include "ShuangpinProfileNames.h"
 #include "DiagnosticLog.h"
 #include "TypingStatistics.h"
 #include "msime_client.h"
@@ -2676,10 +2677,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto profile_menu = ibus_prop_list_new();
   const auto configured_profile = s.shuangpin_profile_override.value_or(
       configured.at("preferences").value("shuangpin_profile", "xiaohe"));
-  for (const auto &[value, label] : {std::pair{"xiaohe", "小鹤"},
-                                     std::pair{"ziranma", "自然码"},
-                                     std::pair{"shoudao", "搜狗"},
-                                     std::pair{"microsoft", "微软"}}) {
+  for (const auto &[value, label] : msime::linux_host::kShuangpinProfileNames) {
     auto item = ibus_property_new(
         (std::string("ShuangpinProfile/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
