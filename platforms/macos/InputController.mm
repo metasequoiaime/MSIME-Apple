@@ -934,13 +934,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (final || streamInline)
                 [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
         } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
+        NSString *deviceUID = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
             const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : NULL;
             float level = 0;
             for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
             MSIMEInputController *liveController = weakSelf;
             if (liveController) [liveController->_voiceOverlay setInputLevel:level];
-        } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; }
+        } deviceUID:deviceUID error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; }
     };
     if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
         [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];

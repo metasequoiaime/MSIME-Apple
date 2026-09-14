@@ -9,7 +9,7 @@ typedef void (^MSIMEVoiceAudioBuffer)(AVAudioPCMBuffer *);
 @interface MSIMEVoiceInputService : NSObject
 - (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error;
 - (BOOL)cancelWithError:(NSError **)error;
-- (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler error:(NSError **)error;
+- (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString * _Nullable)deviceUID error:(NSError **)error;
 - (void)stopMicrophoneCapture;
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error;
 - (void)stopTranscription;

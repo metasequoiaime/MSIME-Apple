@@ -1,16 +1,33 @@
 #import "VoiceInputService.h"
 #import <AVFoundation/AVFoundation.h>
+#import <CoreAudio/CoreAudio.h>
 @implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return [SFSpeechRecognizer authorizationStatus]; }
 - (void)requestSpeechPermission:(void (^)(BOOL))completion { [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) { dispatch_async(dispatch_get_main_queue(), ^{ completion(status == SFSpeechRecognizerAuthorizationStatusAuthorized); }); }]; }
 - (BOOL)isActive { return _active; }
-- (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)bufferHandler error:(NSError **)error {
+- (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)bufferHandler deviceUID:(NSString *)deviceUID error:(NSError **)error {
     if ([self microphoneAuthorizationStatus] != AVAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:1 userInfo:@{NSLocalizedDescriptionKey: @"麦克风权限未授权"}]; return NO; }
     if (_audioEngine) return YES;
     _audioEngine = [[AVAudioEngine alloc] init];
     AVAudioInputNode *input = _audioEngine.inputNode;
+    if (deviceUID.length && input.audioUnit) {
+        AudioObjectPropertyAddress address = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+        UInt32 size = 0;
+        if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, NULL, &size) == noErr) {
+            UInt32 count = size / sizeof(AudioDeviceID); AudioDeviceID *devices = (AudioDeviceID *)calloc(count, sizeof(AudioDeviceID));
+            if (devices && AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, devices) == noErr) {
+                for (UInt32 index = 0; index < count; ++index) {
+                    AudioObjectPropertyAddress uidAddress = { kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+                    CFStringRef uid = NULL; UInt32 uidSize = sizeof(uid);
+                    if (AudioObjectGetPropertyData(devices[index], &uidAddress, 0, NULL, &uidSize, &uid) == noErr && uid && [(__bridge NSString *)uid isEqualToString:deviceUID]) { UInt32 device = devices[index]; AudioUnitSetProperty(input.audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, sizeof(device)); CFRelease(uid); break; }
+                    if (uid) CFRelease(uid);
+                }
+            }
+            free(devices);
+        }
+    }
     AVAudioFormat *format = [input inputFormatForBus:0];
     NSError *tapError = nil;
     if (@available(macOS 27.0, *)) {
