@@ -1814,7 +1814,8 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
 {
     (void)sender;
     [self cancelVoiceInput];
-    [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
+    // 语音设置现在是设置窗里的一页,不再是独立窗口 —— 从菜单进来的人和从侧栏进来的人看到同一个东西。
+    [[MetasequoiaPreferencesWindowController sharedController] showVoiceInput:nil];
 }
 
 - (void)showPreferences:(id)sender

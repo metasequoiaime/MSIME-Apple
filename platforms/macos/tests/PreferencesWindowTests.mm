@@ -338,6 +338,30 @@ int main()
         require([diagnostics isKindOfClass:[NSTextField class]] &&
                     [((NSTextField *)diagnostics).stringValue containsString:@"macOS"],
                 "The feedback page did not collect the diagnostics it promises to attach.");
+        // 语音输入曾经是侧栏上唯一还开独立窗口的入口 —— 一个 610×505 的老式窗口,和其余设置各用各的
+        // 外观,关掉还得重新从菜单找回来。现在它也是页面,而且云端和本地各自只显示自己要的字段。
+        NSButton *voiceNavigationItem = FindButtonWithTitle(navigation, @"语音输入");
+        NSView *voicePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"语音输入设置页");
+        require(voiceNavigationItem != nil && voicePage != nil,
+                "Voice input did not become a real page in the settings window.");
+        require([NSApp sendAction:voiceNavigationItem.action to:voiceNavigationItem.target from:voiceNavigationItem] &&
+                    !voicePage.hidden && helpPage.hidden,
+                "The voice sidebar item did not show the voice page.");
+        NSView *voiceCloudRows = FindViewWithAccessibilityLabel(controller.window.contentView, @"云端识别设置");
+        NSView *voiceLocalRow = FindViewWithAccessibilityLabel(controller.window.contentView, @"本地识别设置");
+        NSView *voiceProviderView = FindViewWithAccessibilityLabel(controller.window.contentView, @"识别方式");
+        require(voiceCloudRows != nil && voiceLocalRow != nil &&
+                    [voiceProviderView isKindOfClass:[NSPopUpButton class]],
+                "The voice page did not expose the recognition controls.");
+        NSPopUpButton *voiceProvider = (NSPopUpButton *)voiceProviderView;
+        [voiceProvider selectItemAtIndex:0];
+        [NSApp sendAction:voiceProvider.action to:voiceProvider.target from:voiceProvider];
+        require(!voiceCloudRows.hidden && voiceLocalRow.hidden, "Cloud recognition did not show the fields it needs.");
+        [voiceProvider selectItemAtIndex:1];
+        [NSApp sendAction:voiceProvider.action to:voiceProvider.target from:voiceProvider];
+        require(voiceCloudRows.hidden && !voiceLocalRow.hidden,
+                "Local recognition kept showing the cloud fields it does not use.");
+
         [NSApp sendAction:appearanceNavigationItem.action
                        to:appearanceNavigationItem.target
                      from:appearanceNavigationItem];

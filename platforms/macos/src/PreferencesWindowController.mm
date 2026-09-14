@@ -321,7 +321,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 }
 } // namespace
 
-@interface MetasequoiaPreferencesWindowController ()
+@interface MetasequoiaPreferencesWindowController () <NSTextFieldDelegate>
 - (void)updateFrequencyControlEnabled;
 @end
 
@@ -398,6 +398,18 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSPopUpButton *_feedbackKindButton;
     NSTextView *_feedbackTextView;
     NSTextField *_feedbackDiagnosticsLabel;
+    NSPopUpButton *_voiceProviderButton;
+    NSTextField *_voiceEndpointField;
+    NSTextField *_voiceModelField;
+    NSSecureTextField *_voiceTokenField;
+    NSTextField *_voiceModelPathField;
+    NSButton *_voicePolishButton;
+    NSTextField *_voicePolishEndpointField;
+    NSTextField *_voicePolishModelField;
+    NSSecureTextField *_voicePolishTokenField;
+    NSTextField *_voiceStatusLabel;
+    NSView *_voiceCloudRows;
+    NSView *_voiceLocalRow;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
     NSArray<NSView *> *_preferencePages;
@@ -1592,6 +1604,95 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                            @[ feedbackCard, feedbackDiagnosticsCard ]);
     feedbackPage.accessibilityLabel = @"反馈页";
 
+    // 语音输入原来是侧栏上唯一还开独立窗口的入口:一个 610×505、绝对定位的老式窗口,和其余设置各用
+    // 各的外观,关掉之后还得重新从菜单找回来。这里用同一套卡片重建,内容和校验逻辑仍然走
+    // MetasequoiaVoiceSettings,只是换了承载它的界面。
+    _voiceProviderButton = [NSPopUpButton new];
+    [_voiceProviderButton addItemsWithTitles:@[ @"云端识别", @"本地 Whisper" ]];
+    _voiceProviderButton.target = self;
+    _voiceProviderButton.action = @selector(voiceProviderChanged:);
+    _voiceProviderButton.accessibilityLabel = @"识别方式";
+    _voiceEndpointField = [NSTextField textFieldWithString:@""];
+    _voiceEndpointField.accessibilityLabel = @"识别服务地址";
+    _voiceEndpointField.delegate = self;
+    _voiceModelField = [NSTextField textFieldWithString:@""];
+    _voiceModelField.accessibilityLabel = @"识别模型";
+    _voiceTokenField = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    _voiceTokenField.accessibilityLabel = @"API 密钥";
+    _voiceModelPathField = [NSTextField textFieldWithString:@""];
+    _voiceModelPathField.accessibilityLabel = @"Whisper 模型";
+    NSButton *voiceBrowseButton = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browseVoiceModel:)];
+    voiceBrowseButton.bezelStyle = NSBezelStyleRounded;
+    voiceBrowseButton.accessibilityLabel = @"选择 Whisper 模型";
+    NSStackView *voiceModelPathRow = [NSStackView stackViewWithViews:@[ _voiceModelPathField, voiceBrowseButton ]];
+    voiceModelPathRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    voiceModelPathRow.alignment = NSLayoutAttributeCenterY;
+    voiceModelPathRow.spacing = 8.0;
+    // 云端和本地各自只显示自己要的那几项。原来那个窗口是把不相关的字段置灰留在原地,看起来像
+    // 「这些也要填,只是暂时不让填」。
+    NSView *voiceEndpointRow = PreferenceRow(@"识别服务地址", _voiceEndpointField);
+    NSView *voiceModelRow = PreferenceRow(@"识别模型", _voiceModelField);
+    NSView *voiceTokenRow = PreferenceRow(@"API 密钥", _voiceTokenField);
+    _voiceLocalRow = PreferenceRow(@"Whisper 模型", voiceModelPathRow);
+    NSStackView *voiceCloudStack = [NSStackView stackViewWithViews:@[ voiceEndpointRow, voiceModelRow, voiceTokenRow ]];
+    voiceCloudStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    voiceCloudStack.alignment = NSLayoutAttributeLeading;
+    voiceCloudStack.spacing = 0.0;
+    _voiceCloudRows = voiceCloudStack;
+    _voiceCloudRows.accessibilityLabel = @"云端识别设置";
+    _voiceLocalRow.accessibilityLabel = @"本地识别设置";
+    NSBox *voiceRecognitionCard = CardWithViews(
+        @[ CardHeader(@"识别"), PreferenceRow(@"识别方式", _voiceProviderButton), _voiceCloudRows, _voiceLocalRow ],
+        8.0);
+
+    _voicePolishButton = [NSButton checkboxWithTitle:@"识别后整理文本"
+                                              target:self
+                                              action:@selector(voiceProviderChanged:)];
+    _voicePolishButton.accessibilityLabel = @"识别后整理文本";
+    _voicePolishEndpointField = [NSTextField textFieldWithString:@""];
+    _voicePolishEndpointField.accessibilityLabel = @"整理服务地址";
+    _voicePolishEndpointField.delegate = self;
+    _voicePolishModelField = [NSTextField textFieldWithString:@""];
+    _voicePolishModelField.accessibilityLabel = @"整理模型";
+    _voicePolishTokenField = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    _voicePolishTokenField.accessibilityLabel = @"整理 API 密钥";
+    NSTextField *voicePolishNote = [NSTextField wrappingLabelWithString:@"会把这次识别出的文字发送给该服务。"];
+    voicePolishNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    voicePolishNote.textColor = [NSColor secondaryLabelColor];
+    NSBox *voicePolishCard = CardWithViews(
+        @[
+            CardHeader(@"整理"), _voicePolishButton, voicePolishNote,
+            PreferenceRow(@"整理服务地址", _voicePolishEndpointField),
+            PreferenceRow(@"整理模型", _voicePolishModelField), PreferenceRow(@"整理 API 密钥", _voicePolishTokenField)
+        ],
+        8.0);
+
+    _voiceStatusLabel = [NSTextField wrappingLabelWithString:@""];
+    _voiceStatusLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _voiceStatusLabel.textColor = [NSColor secondaryLabelColor];
+    _voiceStatusLabel.accessibilityLabel = @"语音设置状态";
+    NSButton *voiceSaveButton = [NSButton buttonWithTitle:@"保存" target:self action:@selector(saveVoiceSettings:)];
+    voiceSaveButton.bezelStyle = NSBezelStyleRounded;
+    voiceSaveButton.keyEquivalent = @"\r";
+    voiceSaveButton.accessibilityLabel = @"保存语音设置";
+    NSStackView *voiceSaveRow = [NSStackView stackViewWithViews:@[ _voiceStatusLabel, voiceSaveButton ]];
+    voiceSaveRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    voiceSaveRow.alignment = NSLayoutAttributeCenterY;
+    voiceSaveRow.spacing = 12.0;
+    NSBox *voiceUsageCard = CardWithViews(
+        @[
+            HelpRow(@"Control+Option+V", @"开始或结束听写，Esc 取消。"),
+            HelpRow(@"发送了什么", @"云端识别会发送本次录音；本地识别在这台机器上完成，录音不出机。"),
+            HelpRow(@"密钥存在哪", @"保存在系统钥匙串里。"), voiceSaveRow
+        ],
+        10.0);
+    voiceRecognitionCard.accessibilityLabel = @"语音识别卡片";
+    voicePolishCard.accessibilityLabel = @"语音整理卡片";
+    voiceUsageCard.accessibilityLabel = @"语音用法卡片";
+    NSView *voicePage = PreferencesPage(@"语音输入", @"配置听写使用的识别服务，以及识别后的文本整理。",
+                                        @[ voiceRecognitionCard, voicePolishCard, voiceUsageCard ]);
+    voicePage.accessibilityLabel = @"语音输入设置页";
+
     NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入"
                                                         target:self
                                                         action:@selector(backToKeyboardInput:)];
@@ -1904,7 +2005,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
     _preferencePages = @[
         generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage, helpcodePage, shortcutsPage,
-        floatingPage, accountPage, helpPage, feedbackPage
+        floatingPage, accountPage, helpPage, feedbackPage, voicePage
     ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
@@ -1973,6 +2074,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                             : [NSString stringWithFormat:@"当前版本 v%@，通过 msime.app 检查最新正式版本", version];
     _updatePageButton.enabled = YES;
     _feedbackDiagnosticsLabel.stringValue = [self feedbackDiagnostics];
+    [self refreshVoiceControls];
 }
 
 - (void)checkForUpdates:(id)sender
@@ -1982,14 +2084,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
 - (void)selectPreferencesPage:(NSButton *)sender
 {
-    // 下标约定:前面是真正的设置页,和 _preferencePages 一一对应;越界的下标是动作,如今只剩语音输入
-    // 那一个(它开的是另一个窗口)。新增设置页要同时加进 labels/symbols 和 _preferencePages,加在
-    // labels 末尾但没进数组,点了只会把按钮弹回去。
+    // 每个侧栏项都对应 _preferencePages 里同下标的那一页 —— 曾经有过「越界下标是开窗/开网页的动作」
+    // 这一层,帮助、反馈、语音输入都在里面,点了设置窗什么都不变。现在它们都是页面了。新增侧栏项要
+    // 同时加进 labels/symbols 和 _preferencePages,只加前者会落到这个分支,点了把按钮弹回去。
     const NSInteger selectedIndex = sender.tag;
     if (selectedIndex >= static_cast<NSInteger>(_preferencePages.count))
     {
         sender.state = NSControlStateValueOff;
-        [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
         return;
     }
     [self showPreferencesPageAtIndex:selectedIndex navigationIndex:selectedIndex];
@@ -2039,6 +2140,82 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     {
         [[NSWorkspace sharedWorkspace] openURL:website];
     }
+}
+
+// 换了服务地址就清掉对应的密钥:上一家的密钥发给下一家,既登不上也白白泄露一次。
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+    if (notification.object == _voiceEndpointField)
+        _voiceTokenField.stringValue = @"";
+    if (notification.object == _voicePolishEndpointField)
+        _voicePolishTokenField.stringValue = @"";
+}
+
+- (void)showVoiceInput:(id)sender
+{
+    (void)sender;
+    const NSInteger voiceIndex = static_cast<NSInteger>(_preferencePages.count) - 1;
+    [self showPreferencesPageAtIndex:voiceIndex navigationIndex:voiceIndex];
+}
+
+// 云端和本地各自只显示自己要的那几项。原来是把不相关的字段置灰留在原地,读起来像「这些也要填,
+// 只是暂时不让填」。
+- (void)voiceProviderChanged:(id)sender
+{
+    (void)sender;
+    const BOOL cloud = _voiceProviderButton.indexOfSelectedItem == 0;
+    _voiceCloudRows.hidden = !cloud;
+    _voiceLocalRow.hidden = cloud;
+    const BOOL polish = _voicePolishButton.state == NSControlStateValueOn;
+    _voicePolishEndpointField.enabled = polish;
+    _voicePolishModelField.enabled = polish;
+    _voicePolishTokenField.enabled = polish;
+}
+
+- (void)browseVoiceModel:(id)sender
+{
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    [panel beginSheetModalForWindow:self.window
+                  completionHandler:^(NSModalResponse response) {
+                    if (response == NSModalResponseOK)
+                        self->_voiceModelPathField.stringValue = panel.URL.path;
+                  }];
+}
+
+- (void)saveVoiceSettings:(id)sender
+{
+    (void)sender;
+    MetasequoiaVoiceSettings *value = [MetasequoiaVoiceSettings new];
+    value.provider = _voiceProviderButton.indexOfSelectedItem == 0 ? @"cloud" : @"local";
+    value.endpoint = _voiceEndpointField.stringValue;
+    value.model = _voiceModelField.stringValue;
+    value.token = _voiceTokenField.stringValue;
+    value.modelPath = _voiceModelPathField.stringValue;
+    value.polishEnabled = _voicePolishButton.state == NSControlStateValueOn;
+    value.polishEndpoint = _voicePolishEndpointField.stringValue;
+    value.polishModel = _voicePolishModelField.stringValue;
+    value.polishToken = _voicePolishTokenField.stringValue;
+    NSError *error = nil;
+    _voiceStatusLabel.stringValue = [value save:&error] ? @"设置已保存。" : error.localizedDescription;
+}
+
+- (void)refreshVoiceControls
+{
+    MetasequoiaVoiceSettings *value = [MetasequoiaVoiceSettings loadSettings];
+    [_voiceProviderButton selectItemAtIndex:[value.provider isEqualToString:@"local"] ? 1 : 0];
+    _voiceEndpointField.stringValue = value.endpoint;
+    _voiceModelField.stringValue = value.model;
+    _voiceTokenField.stringValue = value.token;
+    _voiceModelPathField.stringValue = value.modelPath;
+    _voicePolishButton.state = value.polishEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _voicePolishEndpointField.stringValue = value.polishEndpoint;
+    _voicePolishModelField.stringValue = value.polishModel;
+    _voicePolishTokenField.stringValue = value.polishToken;
+    _voiceStatusLabel.stringValue = @"";
+    [self voiceProviderChanged:nil];
 }
 
 - (void)showFeedback:(id)sender
