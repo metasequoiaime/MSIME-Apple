@@ -1787,6 +1787,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _voiceHoldShortcut.reset();
         [self cancelLiveVoiceInput];
         [self cancelDoubaoVoiceInput];
+        [self cancelHTTPVoiceInput];
         [self cancelCandidateTranslations];
         [self cancelCloudCandidates];
         [self resetCandidateAnchor];

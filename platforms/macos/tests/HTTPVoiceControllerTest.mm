@@ -41,6 +41,7 @@
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
 @end
 @implementation HTTPHostFixture
+- (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error { (void)focused; (void)error; return @{}; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
     ++self.submissions; return @{@"commit": text};
@@ -55,6 +56,7 @@
 @property(copy) NSString *commitMode;
 @end
 @implementation HTTPControllerFixture
+- (void)ensureAppearance {}
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new]; return (id)self.requestFixture;
 }
@@ -241,6 +243,31 @@ int main() {
                 assert(controller.externalCommits == external + 1 && [controller.commitMode isEqual:mode]);
                 assert(controller.imkCommits == imk + (outcome == MSIMEVoiceCommitOutcome::unavailable ? 1 : 0));
             }
+        }
+        // IMK may deliver a new client's event before deactivateServer for the old one.
+        // Revoke both active capture and pending recognition immediately.
+        for (NSNumber *processing in @[@NO, @YES]) {
+            [controller setValue:client forKey:@"activeClient"];
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            HTTPRequestFixture *departing = controller.requestFixture;
+            MSIMEVoiceAudioBuffer oldBuffer = capture.bufferHandler;
+            if (processing.boolValue) [controller finishHTTPVoiceInput];
+            NSObject *successor = [NSObject new];
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeFlagsChanged location:NSZeroPoint modifierFlags:0 timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:56];
+            const NSUInteger submissions = session.submissions;
+            assert(![controller handleEvent:event client:successor]);
+            assert(!capture.active && departing.cancellations == 1);
+            assert([controller valueForKey:@"activeClient"] == successor);
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            [controller deactivateServer:client]; // Delayed old-client deactivation must not cancel the successor.
+            assert(![controller handleEvent:event client:successor]);
+            const NSUInteger levels = overlay.levelUpdates;
+            oldBuffer(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+            departing.polishingHandler();
+            if (departing.completion) departing.completion(@"synthetic", nil);
+            assert(capture.active && !controller.requestFixture.cancellations);
+            assert(session.submissions == submissions && overlay.levelUpdates == levels && overlay.phase != 3);
+            [controller cancelHTTPVoiceInput];
         }
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
