@@ -18,6 +18,39 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
+  func testSharedPreferencesDesignUsesRustCamelCaseAndSwiftDataEncoding() throws {
+    let photo = Data([0x89, 0x50, 0x4E, 0x47])
+    let document: [String: Any] = [
+      "background": 0xE8F0EB,
+      "keyBackground": 0xFFFFFF,
+      "keyForeground": 0x17251D,
+      "accent": 0x185C47,
+      "actionBackground": 0x185C47,
+      "cornerRadius": 12.0,
+      "borderWidth": 0.5,
+      "shadow": 0.1,
+      "pattern": 3,
+      "monospaced": true,
+      "keyShape": "ticket",
+      "keyMaterial": "paper",
+      "keyOpacity": 0.8,
+      "gradientEnd": 0xDDEFE9,
+      "gradientHorizontal": true,
+      "patternOpacity": 0.05,
+      "customBorderColor": 0xB8CDBE,
+      "photo": photo.base64EncodedString(),
+      "photoShade": 0.25,
+      "photoPosition": 0.5,
+    ]
+    let data = try JSONSerialization.data(withJSONObject: document)
+    let decoded = try JSONDecoder().decode(CustomKeyboardSkin.self, from: data)
+    XCTAssertEqual(decoded.keyShape, .ticket)
+    XCTAssertEqual(decoded.keyMaterial, .paper)
+    XCTAssertEqual(decoded.photo, photo)
+    XCTAssertEqual(decoded.gradientEnd, 0xDDEFE9)
+    XCTAssertEqual(decoded.keyOpacity, 0.8)
+  }
+
   func testCustomSkinPersistenceValidationAndContrast() throws {
     let defaults = KeyboardFeedbackPreference.defaults
     let previous = defaults.object(forKey: CustomKeyboardSkinStore.key)

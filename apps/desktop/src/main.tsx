@@ -292,6 +292,7 @@ function DesktopSettings() {
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
           ...(host.platform === "ios" ? { appIcon,
             touchKeyboardSchemes: true,
+            customTouchKeyboardSkins: true,
             openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
             home: {
               openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),

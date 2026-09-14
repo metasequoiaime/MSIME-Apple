@@ -1586,11 +1586,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func synchronizeSharedTouchPreferences() {
     guard let preferences = session.sharedPreferences else { return }
     var skinChanged = false
-    if let rawSkin = preferences["touch_keyboard_skin"] as? String,
+    var customSkinChanged = false
+    let rawSkin = preferences["touch_keyboard_skin"] as? String
+    if let rawSkin,
        let skin = KeyboardSkin(rawValue: rawSkin), skin != .custom,
        skin != KeyboardSkinPreference.selected {
       KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
       skinChanged = true
+    }
+    if let design = preferences["custom_touch_keyboard_skin"] as? [String: Any],
+       JSONSerialization.isValidJSONObject(design),
+       let data = try? JSONSerialization.data(withJSONObject: design),
+       let decoded = try? JSONDecoder().decode(CustomKeyboardSkin.self, from: data) {
+      let normalized = decoded.normalized
+      if normalized != CustomKeyboardSkinStore.current {
+        CustomKeyboardSkinStore.save(normalized)
+        customSkinChanged = true
+      }
+      if rawSkin == KeyboardSkin.custom.rawValue,
+         KeyboardSkinPreference.selected != .custom {
+        KeyboardFeedbackPreference.defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
+        skinChanged = true
+      }
     }
     if let spacing = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
       KeyboardLayoutPreference.keySpacing = spacing / 10
@@ -1615,7 +1632,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
       selectInputScheme(selectedScheme)
     }
-    if skinChanged { applyKeyboardSkin() }
+    if skinChanged || customSkinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()
     updateShortcutButtons()
     updatePreferredKeyboardHeight()
