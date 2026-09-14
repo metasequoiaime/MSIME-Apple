@@ -117,7 +117,7 @@ inline thread_local WCHAR wch = L'\0';
 inline thread_local UINT ModifiersDown = 0;
 inline thread_local int Point[2] = {100, 100};
 inline thread_local int PinyinLength = 0;
-inline thread_local std::wstring PinyinString = L"";
+extern thread_local std::wstring PinyinString;
 
 // TF_TMF_UIELEMENTENABLEDONLY at ActivateEx, and/or BeginUIElement pbShow=FALSE.
 inline thread_local bool HostUiLessMode = false;
@@ -128,7 +128,7 @@ inline bool IsUiLessMode()
 }
 
 inline thread_local int firefox_like_cnt = 0; // Apps like firefox, e.g. firefox, zen...
-inline thread_local std::wstring current_process_name = L"";
+extern thread_local std::wstring current_process_name;
 
 inline thread_local wchar_t app_name[512] = {0};
 

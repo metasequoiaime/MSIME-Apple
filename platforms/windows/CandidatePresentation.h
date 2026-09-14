@@ -108,14 +108,12 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
       packet.event_type != FanyImePipeEventType::KeyEvent)
     throw std::invalid_argument("Invalid candidate presentation identity");
   const auto &view = source.transition.at("view");
-  CandidatePresentation output{lease,
-                               view.at("session").get<uint64_t>(),
-                               view.at("generation").get<uint64_t>(),
-                               false,
-                               packet.point[0],
-                               packet.point[1],
-                               {},
-                               {}};
+  CandidatePresentation output{};
+  output.lease = lease;
+  output.session = view.at("session").get<uint64_t>();
+  output.generation = view.at("generation").get<uint64_t>();
+  output.x = packet.point[0];
+  output.y = packet.point[1];
   if (!view.at("focused").get<bool>() ||
       (packet.modifiers_down & FanyImePipeFlags::UiLess) ||
       view.at("editing_text").get<std::string>().empty())

@@ -129,7 +129,7 @@ int main() {
       frame.generation = 1;
       frame.visible = true;
       frame.preedit = "U4e2d";
-      frame.candidates.push_back({1, 1, 0, "中", true});
+      frame.candidates.push_back({1, 1, 0, "中", true, {}, {}, false, {}});
       value = frame;
       const auto foreground = GetForegroundWindow();
       window.refresh();

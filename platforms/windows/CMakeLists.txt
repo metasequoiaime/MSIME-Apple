@@ -355,6 +355,11 @@ endif()
 add_test(NAME windows-tsf-config-frames COMMAND windows-tsf-config-frames)
 set_tests_properties(windows-tsf-config-frames PROPERTIES TIMEOUT 10)
 add_executable(windows-reply-composer tests/reply_composer.cpp)
+add_executable(windows-candidate-initialization tests/candidate_initialization.cpp)
+target_include_directories(windows-candidate-initialization PRIVATE . ../../vendor/MSIME-Engine/contracts)
+target_link_libraries(windows-candidate-initialization PRIVATE msime-windows-session msime-windows-composer)
+add_test(NAME windows-candidate-initialization COMMAND windows-candidate-initialization)
+set_tests_properties(windows-candidate-initialization PROPERTIES TIMEOUT 10)
 add_executable(windows-preedit-caret tests/preedit_caret.cpp)
 target_include_directories(windows-preedit-caret PRIVATE . ../../vendor/MSIME-Engine/contracts)
 # CandidatePresentation.h reaches KeyEvent.h and so the host API headers; the
@@ -469,12 +474,11 @@ if(WIN32)
   endif()
   target_link_libraries(windows-server-smoke PRIVATE msime-windows-server)
   foreach(target msime-windows-server windows-server-smoke msime-client-server)
+    # Keep TCHAR/D2D declarations wide in every translation unit. Link-only
+    # -municode does not set these macros when compiling the Server library.
+    target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX
+                               WIN32_LEAN_AND_MEAN)
     if(MSVC)
-      # MinGW gets these from -municode and its headers. MSVC does not define
-      # UNICODE itself, so TCHAR macros resolve to the ANSI entry points, and
-      # windows.h defines min/max macros that swallow std::min / std::max.
-      target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX
-                                 WIN32_LEAN_AND_MEAN)
       # Vendored Engine and system headers are not ours to warn-clean; keep
       # /W4 /WX for this repository's own sources only.
       target_compile_options(${target} PRIVATE /W4 /WX /utf-8

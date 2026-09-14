@@ -17,7 +17,8 @@ RECT wave_overlay_monitor() {
   RECT coordinates{};
   const HWND foreground = GetForegroundWindow();
   const HMONITOR monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO info{sizeof(info)};
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
   if (monitor && GetMonitorInfoW(monitor, &info))
     coordinates = info.rcMonitor;
   return coordinates;

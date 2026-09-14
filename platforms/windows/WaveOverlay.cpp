@@ -134,7 +134,7 @@ bool WaveOverlay::init(HINSTANCE instance, std::function<void(Action)> action_ha
 
     // 设置窗口透明
     SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
-    MARGINS mar = {-1};
+    MARGINS mar = {-1, 0, 0, 0};
     DwmExtendFrameIntoClientArea(hwnd_, &mar);
 
     return true;

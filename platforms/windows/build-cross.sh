@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build complete Windows GNU DLL + native test executables; never runs them.
+# Build Windows GNU DLL + native tests; excludes the SDK C++/WinRT demo.
+# Never runs Windows executables.
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
@@ -50,9 +51,10 @@ cmake -S platforms/windows -B "$output" \
   -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$compiler-g++" \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix" \
   -DMSIME_WINDOWS_PIPE_ONLY=OFF \
+  -DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF \
   -DMSIME_HOST_LIBRARY="$repo_root/target/$triple/debug/libmsime_host_api.dll.a"
 cmake --build "$output" --parallel 4
 cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output"
 cmake -E copy_if_different \
   "$repo_root/target/$triple/debug/MetasequoiaImeDictionaryReplay.exe" "$output"
-echo "Full $arch Windows GNU host DLL and native tests linked; Windows execution not performed; MinGW runtime DLLs are not bundled."
+echo "$arch Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; MinGW runtime DLLs are not bundled."

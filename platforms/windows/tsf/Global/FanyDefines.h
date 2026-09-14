@@ -88,10 +88,10 @@ inline bool isKnownTsfPreeditStyleWide(const wchar_t *style)
 
 namespace GlobalIme
 {
-inline thread_local std::wstring word_for_creating_word = L"";
+extern thread_local std::wstring word_for_creating_word;
 // One-shot override for TSF inline preedit after NeedToCreateWord (pinyin mode).
 // Consumed by _HandleCompositionInputWorker, then cleared.
-inline thread_local std::wstring pending_create_word_preedit = L"";
+extern thread_local std::wstring pending_create_word_preedit;
 } // namespace GlobalIme
 
 namespace Global

@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -82,7 +83,8 @@ std::string utf8_from_wide(const std::wstring &value) {
 void persist_locked() {
   if (state_path.empty())
     return;
-  std::ofstream output(state_path, std::ios::binary | std::ios::trunc);
+  std::ofstream output(std::filesystem::path(state_path),
+                       std::ios::binary | std::ios::trunc);
   if (!output)
     return;
   for (const auto &item : muted) {
@@ -160,7 +162,7 @@ IAudioSessionManager2 *create_manager() {
 void restore_from_disk() {
   if (state_path.empty())
     return;
-  std::ifstream input(state_path, std::ios::binary);
+  std::ifstream input(std::filesystem::path(state_path), std::ios::binary);
   if (!input)
     return;
   std::vector<std::wstring> ids;

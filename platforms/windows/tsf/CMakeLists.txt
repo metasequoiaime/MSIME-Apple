@@ -64,7 +64,7 @@ add_library(msime-tsf SHARED
   LanguageBar/LanguageBar.cpp
   Register/Register.cpp Register/RegKey.cpp
   Tf/TfInputProcessorProfile.cpp Tf/TfTextLayoutSink.cpp
-  Thread/ThreadFocusSink.cpp Thread/ThreadMgrEventSink.cpp
+  Thread/ThreadFocusSink.cpp Thread/ThreadMgrEventSink.cpp Thread/ThreadState.cpp
   UI/CandidateSessionState.cpp UI/CandidateListUIPresenter.cpp
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
@@ -87,10 +87,10 @@ target_include_directories(msime-tsf PRIVATE
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
 target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 shell32 uuid)
-if(NOT MSVC)
-  # The Windows SDK carries the TSF GUIDs in uuid.lib and ships no msctf.lib;
-  # MinGW still needs its own import library.
-  target_link_libraries(msime-tsf PRIVATE msctf)
+# TSF objects are obtained through COM; GUIDs come from uuid. No direct TF_*
+# exports are used, and MinGW distributions need not ship an msctf import lib.
+if(MINGW)
+  target_sources(msime-tsf PRIVATE Global/TsfPropertyGuids.cpp)
 endif()
 target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)

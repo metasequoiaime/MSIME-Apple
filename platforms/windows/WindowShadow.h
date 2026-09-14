@@ -59,8 +59,14 @@ inline bool draw_gaussian_shadow(ID2D1RenderTarget *target,
     blur->SetInput(0, bitmap.Get());
     blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, deviation);
     blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_SOFT);
+#ifdef __MINGW32__
+    // MinGW omits the optimization enum. Windows SDK / windows 0.61.3
+    // defines QUALITY as 2; the effect property is a UINT32 enum value.
+    blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, UINT32{2});
+#else
     blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION,
                    D2D1_GAUSSIANBLUR_OPTIMIZATION_QUALITY);
+#endif
     context->DrawImage(blur.Get(),
                        D2D1::Point2F(bounds.left - pad,
                                      bounds.top - pad + offset_y));
