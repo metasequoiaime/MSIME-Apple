@@ -614,8 +614,8 @@ void CandidateWindow::paint() {
         selected && palette_.selected_number.a > 0.0f ? palette_.selected_number
                                                       : palette_.number;
     const auto row_text_color =
-        selected && palette_.selected_text.a > 0.0f ? palette_.selected_text
-                                                    : text_color;
+        candidate_row_text_color(palette_, text_color, selected,
+                                 value->candidates[i].fixed_position != 0);
     const auto label = std::to_wstring(i + 1);
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
@@ -628,13 +628,11 @@ void CandidateWindow::paint() {
     if (!value->candidates[i].translation.empty())
       candidate_label += "  · " + value->candidates[i].translation;
     const auto text = wide(candidate_label);
-    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
-                      format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
-                      D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
-                                  rect.bottom},
-                      brush(value->candidates[i].fixed_position
-                                ? palette_.accent
-                                : row_text_color));
+    target->DrawText(
+        text.c_str(), static_cast<UINT32>(text.size()),
+        format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
+        D2D1_RECT_F{rect.left + gutter, rect.top, rect.right, rect.bottom},
+        brush(row_text_color));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

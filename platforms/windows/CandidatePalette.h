@@ -116,6 +116,17 @@ struct CandidatePalette {
   float item_radius = 4.0f;
   bool show_selected_bar = true;
 };
+// Resolve the candidate label as one row. The shipped presenter lets selected
+// text win for every highlighted entry; the fixed-position accent is only an
+// unselected-row treatment.
+inline CandidateColor candidate_row_text_color(const CandidatePalette &palette,
+                                               CandidateColor normal,
+                                               bool highlighted,
+                                               bool fixed_position) {
+  if (highlighted)
+    return palette.selected_text.a > 0.0f ? palette.selected_text : normal;
+  return fixed_position ? palette.accent : normal;
+}
 // Built-in tokens. The defaults above are the shipped fluent dark values; the
 // light branch replaces only the colors the shipped presenter overrides.
 inline CandidatePalette candidate_light_palette() {

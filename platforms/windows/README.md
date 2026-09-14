@@ -4,7 +4,7 @@
 
 ## 原生界面渲染与皮肤
 
-候选窗、模式面板、悬浮工具条和三个面板都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。
+候选窗、模式面板、悬浮工具条和三个面板都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。固定候选只在未高亮时使用 accent；进入高亮行后，候选正文、辅助码和翻译整体改用选中行正文颜色。
 
 皮肤经 `msime_client_skin_catalog` 从共享目录进入原生宿主，Server 按 `PreviewConfig` 的可选 `appearance`（`skin_directory` 绝对路径、`skin`、`dark_theme`）解析后下发给三个 Server 界面。兼容性以清单为准：没有声明当前布局和主题的包保留内置 token，不做半套应用；目录不可读、id 未知或条目畸形都不改变主题，也不让运行中的 Server 失败。三个独立面板目前仍从内置深色 token 起步，把已解析皮肤交给它们是后续改动。
 

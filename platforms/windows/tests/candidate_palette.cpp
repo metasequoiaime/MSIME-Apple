@@ -158,6 +158,22 @@ int main() {
   require(fluent_dark.selected_text.a == 0.0f &&
           fluent_dark.selected_number.a == 0.0f);
 
+  // A fixed candidate uses the accent only until it becomes the selected row.
+  // Opaque selected text wins there, while fluent's transparent sentinel keeps
+  // the normal text instead of falling back to the fixed accent.
+  const auto normal_text = candidate_rgb(0x123456);
+  require(candidate_row_text_color(fluent_dark, normal_text, false, false) ==
+          normal_text);
+  require(candidate_row_text_color(fluent_dark, normal_text, false, true) ==
+          fluent_dark.accent);
+  require(candidate_row_text_color(fluent_dark, normal_text, true, true) ==
+          normal_text);
+  const auto wechat_dark = candidate_builtin_palette("wechat", true);
+  require(candidate_row_text_color(wechat_dark, normal_text, true, false) ==
+          wechat_dark.selected_text);
+  require(candidate_row_text_color(wechat_dark, normal_text, true, true) ==
+          wechat_dark.selected_text);
+
   // The toolbar follows the same skin but resolves light/dark from its own
   // preference, and the shipped default skin uses a lighter accent than the
   // card - the drag handle and hover tint are drawn from it.
