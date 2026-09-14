@@ -453,6 +453,10 @@ pub struct Preferences {
     pub candidate_border_color: Option<String>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
+    /// Optional leading face for the Windows candidate glyph fallback chain.
+    /// The host supplies its default; absent values preserve other hosts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_english_font: Option<String>,
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
@@ -1099,6 +1103,7 @@ impl Default for Preferences {
             candidate_surface_color: None,
             candidate_border_color: None,
             candidate_font_family: default_candidate_font_family(),
+            candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
             learning: true,
             autocorrect: true,
@@ -1481,6 +1486,11 @@ impl Preferences {
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
         if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 {
+            return Err(PreferencesError::InvalidCandidateFontFamily);
+        }
+        if self.candidate_english_font.as_ref().is_some_and(|font| {
+            font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
+        }) {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()

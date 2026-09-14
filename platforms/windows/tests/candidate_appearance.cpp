@@ -39,6 +39,7 @@ int main() {
     require(defaults.dark_theme);          // The shipped card is dark.
     require(!defaults.horizontal_candidates); // The stored default is vertical.
     require(defaults.candidate_show_preedit);
+    require(defaults.candidate_font == "Segoe UI");
 
     // The user's choices reach the card.
     nlohmann::json preferences{
@@ -49,6 +50,7 @@ int main() {
         {"candidate_font_size", 22},
         {"candidate_preedit_font_size", 18},
         {"candidate_font_family", "Microsoft YaHei"},
+        {"candidate_english_font", "Synthetic Latin"},
         {"candidate_fallback_fonts",
          nlohmann::json::array({"Segoe UI Emoji", "Noto Color Emoji"})},
         {"candidate_text_color", "#ffffff"},
@@ -60,7 +62,7 @@ int main() {
     require(configured.skin_id == "wechat");
     require(configured.candidate_font_size == 22);
     require(configured.candidate_preedit_font_size == 18);
-    require(configured.candidate_font == "Microsoft YaHei");
+    require(configured.candidate_font == "Synthetic Latin");
     require(configured.candidate_fallback_fonts.size() == 2 &&
             configured.candidate_fallback_fonts[0] == "Segoe UI Emoji");
     require(configured.candidate_text_color == "#ffffff");
@@ -88,7 +90,7 @@ int main() {
         {"candidate_preedit_font_size", 0},
         {"candidate_text_color", std::string(64, 'x')},
         {"candidate_number_color", std::string("rgb(0,0,0)\nInjected")},
-        {"candidate_font_family", std::string(400, 'y')},
+        {"candidate_english_font", std::string(400, 'y')},
         {"candidate_skin", std::string(200, 'z')},
         {"candidate_fallback_fonts",
          nlohmann::json::array({"", std::string(400, 'w'), 7, "Segoe UI"})},

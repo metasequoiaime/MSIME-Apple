@@ -63,7 +63,9 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
     if (printable(value, 32))
       appearance[name] = value;
   }
-  const auto family = text("candidate_font_family", "");
+  // Windows upstream uses the English face first for all candidate text, then
+  // supplementary faces for missing glyphs, independent of input mode.
+  const auto family = text("candidate_english_font", "Segoe UI");
   if (printable(family, 128))
     appearance["candidate_font"] = family;
   if (preferences.contains("candidate_fallback_fonts") &&

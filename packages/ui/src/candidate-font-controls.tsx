@@ -1,8 +1,8 @@
-import { defaultCandidateFallbackFonts, defaultCandidateFontFamily, validFontFamily, type CandidateFontPreferences } from "./candidate-font-family";
+import { defaultCandidateEnglishFont, defaultCandidateFallbackFonts, defaultCandidateFontFamily, validFontFamily, type CandidateFontPreferences } from "./candidate-font-family";
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";
 
-export function CandidateFontControls({ value, onChange, readFonts }: { value: CandidateFontPreferences; onChange: (patch: CandidateFontPreferences) => void; readFonts?: FontCatalogReader }) {
+export function CandidateFontControls({ value, onChange, readFonts, windows = false }: { value: CandidateFontPreferences; onChange: (patch: CandidateFontPreferences) => void; readFonts?: FontCatalogReader; windows?: boolean }) {
   const catalog = useFontCatalog(readFonts);
   const fonts = value.candidate_fallback_fonts ?? [...defaultCandidateFallbackFonts];
   const move = (index: number, delta: number) => {
@@ -11,9 +11,12 @@ export function CandidateFontControls({ value, onChange, readFonts }: { value: C
     onChange({ candidate_fallback_fonts: next });
   };
   return <>
-    <div className="section"><div className="section-header"><span className="section-title">候选窗主字体</span>
+    {windows && <div className="section"><div className="section-header"><span className="section-title">候选窗英文字体<small>优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。保存后重启输入法生效。</small></span>
+      <FontFamilyInput label="候选窗英文字体" value={value.candidate_english_font ?? defaultCandidateEnglishFont} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_english_font: font })} />
+    </div></div>}
+    <div className="section">{!windows && <div className="section-header"><span className="section-title">候选窗主字体</span>
       <FontFamilyInput label="候选窗主字体" value={value.candidate_font_family ?? defaultCandidateFontFamily} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_font_family: font })} />
-    </div>
+    </div>}
       <p role="status">{catalog.status === "unsupported" ? "当前宿主未接入系统字体列表，请输入完整字体名。" : catalog.status === "loading" ? "正在读取字体列表。" : catalog.status === "failed" ? "读取字体列表失败，可重试或手动输入。" : catalog.status === "ready" && !catalog.fonts.length ? "系统字体列表为空，可手动输入。" : ""}</p>
       {readFonts && <button type="button" className="secondary" disabled={catalog.status === "loading"} onClick={catalog.refresh}>刷新字体列表</button>}
     </div>

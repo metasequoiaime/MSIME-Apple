@@ -5,7 +5,7 @@ export type FontFamilyResolver = (names: string[]) => Promise<string[]>;
 
 // Resolution affects presentation only. Never write aliases back to preferences.
 export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(preferences: T, resolve?: FontFamilyResolver): T {
-  const names = [preferences.candidate_font_family ?? defaultCandidateFontFamily,
+  const names = [preferences.candidate_english_font ?? preferences.candidate_font_family ?? defaultCandidateFontFamily,
     ...(preferences.candidate_fallback_fonts ?? defaultCandidateFallbackFonts)];
   const encoded = JSON.stringify(names);
   const request = useMemo(() => ({ names: JSON.parse(encoded) as string[], resolve }), [encoded, resolve]);
@@ -26,5 +26,6 @@ export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(pr
     return () => { active = false; };
   }, [request]);
   if (result?.request !== request) return preferences;
-  return { ...preferences, candidate_font_family: result.names[0], candidate_fallback_fonts: result.names.slice(1) };
+  return { ...preferences, ...(preferences.candidate_english_font == null
+    ? { candidate_font_family: result.names[0] } : { candidate_english_font: result.names[0] }), candidate_fallback_fonts: result.names.slice(1) };
 }
