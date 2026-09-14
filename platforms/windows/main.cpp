@@ -151,6 +151,20 @@ std::string read_document(const std::filesystem::path &path) {
   document.resize(static_cast<size_t>(input.gcount()));
   return document;
 }
+void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
+  if (document.size() > 16384)
+    throw std::runtime_error("Configuration document oversized");
+  const auto temporary = path.wstring() + L".tmp";
+  {
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) throw std::runtime_error("Configuration temporary file unavailable");
+    output.write(document.data(), static_cast<std::streamsize>(document.size()));
+    output.flush();
+    if (!output) throw std::runtime_error("Configuration write failed");
+  }
+  if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    throw std::runtime_error("Configuration replace failed");
+}
 // The native toolbar's character-set button uses the same revisioned store as
 // the settings shell. Read and write on its single action worker so the UI
 // thread never waits on the preferences lock.
@@ -855,6 +869,22 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
+    if (config.floating_toolbar_x && config.floating_toolbar_y)
+      toolbar.set_position(POINT{*config.floating_toolbar_x, *config.floating_toolbar_y});
+    if (!production) {
+      toolbar.set_position_changed([&document, &config_path](POINT position) {
+        try {
+          auto updated = nlohmann::json::parse(document);
+          updated["floating_toolbar_x"] = position.x;
+          updated["floating_toolbar_y"] = position.y;
+          const auto serialized = updated.dump();
+          write_document_atomic(config_path, serialized);
+          document = serialized;
+        } catch (...) {
+          // A transient write failure must not tear down the input server.
+        }
+      });
+    }
     toolbar.set_character_set_reader([traditional_output] {
       return std::optional<bool>(
           traditional_output->load(std::memory_order_acquire));

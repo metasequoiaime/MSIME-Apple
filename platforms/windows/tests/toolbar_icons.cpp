@@ -75,8 +75,12 @@ int main() {
       require(seen.insert(entry.codepoint).second);
     }
 
-    // About and hide have no upstream counterpart and no glyph, so they stay
-    // text. An id outside the table is a question mark rather than a blank.
+    // Handwriting, about and hide have no upstream counterpart and no glyph,
+    // so they stay text. An id outside the table is a question mark rather
+    // than a blank.
+    require(toolbar_icon(kToolbarHandwriting, std::nullopt).codepoint == 0);
+    require(std::wcscmp(toolbar_icon(kToolbarHandwriting, std::nullopt).fallback,
+                        L"✍") == 0);
     require(toolbar_icon(kToolbarAbout, std::nullopt).codepoint == 0);
     require(toolbar_icon(kToolbarHide, std::nullopt).codepoint == 0);
     require(toolbar_icon(99, std::nullopt).codepoint == 0);
