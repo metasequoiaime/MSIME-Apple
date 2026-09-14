@@ -28,6 +28,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Test-PackageTestArtifact {
+    param([Parameter(Mandatory)][string]$BaseName)
+    # Client CMake tests use windows-*, alongside the legacy test conventions.
+    # Production entry points use MetasequoiaIme* or msime-client-* names.
+    return $BaseName -like '*Tests' -or $BaseName -like 'test_*' -or $BaseName -like 'windows-*'
+}
+
 function Assert-PathExists {
     param([Parameter(Mandatory)][string]$LiteralPath, [Parameter(Mandatory)][string]$Description)
     if (-not (Test-Path -LiteralPath $LiteralPath)) {
@@ -109,7 +116,7 @@ Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
 $serverExecutables = @(
     Get-ChildItem -LiteralPath $serverRelease -Recurse -File -Filter '*.exe' |
-        Where-Object { $_.BaseName -notlike '*Tests' -and $_.BaseName -notlike 'test_*' }
+        Where-Object { -not (Test-PackageTestArtifact -BaseName $_.BaseName) }
 )
 $missingServerPdb = @(
     $serverExecutables |
@@ -273,13 +280,11 @@ if ($hasHandwritingModel) {
 } else {
     Write-Host "未找到手写模型，跳过：$handwritingModel"
 }
-Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter '*Tests.exe' |
-    Remove-Item -Force
-Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter '*Tests.pdb' |
-    Remove-Item -Force
-Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter 'test_*.exe' |
-    Remove-Item -Force
-Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter 'test_*.pdb' |
+Get-ChildItem -LiteralPath $targetServer -Recurse -File |
+    Where-Object {
+        $_.Extension -in @('.exe', '.pdb') -and
+        (Test-PackageTestArtifact -BaseName $_.BaseName)
+    } |
     Remove-Item -Force
 
 Reset-Directory -LiteralPath $targetTsf

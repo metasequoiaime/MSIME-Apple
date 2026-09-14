@@ -25,6 +25,11 @@ try {
         'server/build-release/bin/Release/MetasequoiaImeServerTests.pdb',
         'server/build-release/bin/Release/test_webview_contract.exe',
         'server/build-release/bin/Release/test_webview_contract.pdb',
+        'server/build-release/bin/Release/windows-first-run.exe',
+        'server/build-release/bin/Release/nested/windows-server-launch.exe',
+        'server/build-release/bin/Release/nested/windows-server-launch.pdb',
+        'server/build-release/bin/Release/msime-client-prepare.exe',
+        'server/build-release/bin/Release/msime-client-prepare.pdb',
         'windows/build32-release/Release/MetasequoiaImeTsf.dll',
         'windows/build32-release/Release/MetasequoiaImeTsf.pdb',
         'windows/build64-release/Release/MetasequoiaImeTsf.dll',
@@ -97,6 +102,8 @@ try {
                          'server_exe/MetasequoiaImeWatchdog.pdb',
                          'server_exe/MetasequoiaImeDictionaryReplay.pdb',
                          'server_exe/msime-client-settings.exe',
+                         'server_exe/msime-client-prepare.exe',
+                         'server_exe/msime-client-prepare.pdb',
                          'server_exe/handwriting/handwriting-zh_CN.model',
                          'server_exe/handwriting/HandwritingModel-LICENSE.txt',
                          'server_exe/handwriting/provenance.json',
@@ -107,7 +114,10 @@ try {
         'server_exe/MetasequoiaImeServerTests.exe',
         'server_exe/MetasequoiaImeServerTests.pdb',
         'server_exe/test_webview_contract.exe',
-        'server_exe/test_webview_contract.pdb'
+        'server_exe/test_webview_contract.pdb',
+        'server_exe/windows-first-run.exe',
+        'server_exe/nested/windows-server-launch.exe',
+        'server_exe/nested/windows-server-launch.pdb'
     )) {
         if (Test-Path (Join-Path $installer $testFile)) { throw "Packaged a test file: $testFile" }
     }
@@ -136,6 +146,10 @@ try {
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
+    if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-prepare.exe'))) { throw 'Light package lost preparation tool' }
+    foreach ($testFile in @('windows-first-run.exe', 'nested/windows-server-launch.exe', 'nested/windows-server-launch.pdb')) {
+        if (Test-Path (Join-Path $installer "server_exe/$testFile")) { throw 'Light package contains a Client test artifact' }
+    }
     if (Test-Path (Join-Path $installer 'server_exe/resources')) { throw 'Light package unexpectedly carries dictionaries' }
     Write-Fixture 'custom build/shell.exe' 'synthetic alternate shell'
     foreach ($shellPath in @('custom build/shell.exe', (Join-Path $fixture 'custom build/shell.exe'))) {
