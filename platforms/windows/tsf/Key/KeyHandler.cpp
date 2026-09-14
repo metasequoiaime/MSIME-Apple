@@ -16,11 +16,52 @@
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
 #include "../HostCharacterResult.h"
+#include "../KeyboardCancellation.h"
 #include <limits>
 
 namespace
 {
 thread_local std::wstring g_toggleImeFallbackBuffer;
+
+HRESULT ClearKeyboardRange(ITfRange *range, TfEditCookie ec)
+{
+#ifdef __MINGW32__
+    return range->SetText(ec, 0, nullptr, 0);
+#else
+    __try { return range->SetText(ec, 0, nullptr, 0); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return E_FAIL; }
+#endif
+}
+
+HRESULT EndKeyboardComposition(ITfComposition *composition, TfEditCookie ec)
+{
+#ifdef __MINGW32__
+    return composition->EndComposition(ec);
+#else
+    __try { return composition->EndComposition(ec); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return E_FAIL; }
+#endif
+}
+
+class CKeyboardCancellationEditSession final : public CEditSessionBase
+{
+  public:
+    CKeyboardCancellationEditSession(CMetasequoiaIME *service, ITfContext *context,
+                                     ITfComposition *composition, uint64_t focus, uint64_t epoch)
+        : CEditSessionBase(service, context), composition_(composition), focus_(focus), epoch_(epoch)
+    {
+        composition_->AddRef();
+    }
+    ~CKeyboardCancellationEditSession() override { composition_->Release(); }
+    STDMETHODIMP DoEditSession(TfEditCookie ec) override
+    {
+        return _pTextService->_ApplyKeyboardCancellation(ec, _pContext, composition_, focus_, epoch_);
+    }
+  private:
+    ITfComposition *composition_;
+    uint64_t focus_;
+    uint64_t epoch_;
+};
 
 WCHAR GetPairedPunctuationClosing(const std::wstring &text)
 {
@@ -204,6 +245,91 @@ HRESULT CMetasequoiaIME::_HandleHostRawCommit(TfEditCookie ec, _In_ ITfContext *
 // _HandleCancel
 //
 //----------------------------------------------------------------------------
+
+bool CMetasequoiaIME::_IsKeyboardCancellationCurrent(ITfContext *context, ITfComposition *composition,
+                                                    uint64_t focusToken, uint64_t compositionEpoch) const
+{
+    if (!context || !composition || !SupportsKeyboardCompositionCancel(this) ||
+        !_IsFocusSessionCurrent(focusToken, context))
+        return false;
+    // GetFocus/GetTop cross COM; recheck local identities after they return.
+    return _pContext == context && _IsCompositionCurrent(composition) &&
+           _IsFocusSessionCurrent(focusToken) &&
+           msime::tsf::keyboard_cancellation_matches(
+               {focusToken, compositionEpoch}, {_CaptureFocusSessionToken(), _CaptureCompositionEpoch()},
+               SupportsKeyboardCompositionCancel(this), !_voiceCompositionActive);
+}
+
+HRESULT CMetasequoiaIME::_RequestKeyboardCancellation(uint64_t focusToken, uint64_t compositionEpoch)
+{
+    if (!_pComposition || !_pContext || !SupportsKeyboardCompositionCancel(this)) return S_FALSE;
+    // Keep exact references across both focus validation and RequestEditSession.
+    ITfContext *context = _pContext;
+    ITfComposition *composition = _pComposition;
+    context->AddRef();
+    composition->AddRef();
+    HRESULT result = S_FALSE;
+    if (_IsKeyboardCancellationCurrent(context, composition, focusToken, compositionEpoch))
+    {
+        auto *session = new (std::nothrow) CKeyboardCancellationEditSession(
+            this, context, composition, focusToken, compositionEpoch);
+        if (!session) result = E_OUTOFMEMORY;
+        else
+        {
+            result = E_FAIL;
+            const HRESULT requested = context->RequestEditSession(
+                _tfClientId, session, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &result);
+            session->Release();
+            if (FAILED(requested)) result = requested;
+        }
+    }
+    composition->Release();
+    context->Release();
+    return result;
+}
+
+HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext *context,
+                                                   ITfComposition *composition, uint64_t focusToken,
+                                                   uint64_t compositionEpoch)
+{
+    struct RangeReference
+    {
+        ITfRange *value = nullptr;
+        ~RangeReference() { if (value) value->Release(); }
+    } range;
+    const auto current = [&] {
+        return _IsKeyboardCancellationCurrent(context, composition, focusToken, compositionEpoch);
+    };
+    return msime::tsf::cancel_keyboard_composition(
+        S_OK, S_FALSE, current,
+        [&]() -> HRESULT {
+            const HRESULT result = composition->GetRange(&range.value);
+            return result == S_OK && !range.value ? E_FAIL : result;
+        },
+        [&]() -> HRESULT {
+            const HRESULT result = ClearKeyboardRange(range.value, ec);
+            if (result != S_OK) return result;
+            if (!current()) return S_FALSE;
+            if (_pCompositionProcessorEngine)
+            {
+                if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+                {
+                    std::string raw, error;
+                    if (!host->command(MSIME_CANCEL, &raw, &error)) return E_FAIL;
+                }
+            }
+            g_toggleImeFallbackBuffer.clear();
+            GlobalIme::word_for_creating_word.clear();
+            GlobalIme::pending_create_word_preedit.clear();
+            return S_OK;
+        },
+        [&] { return EndKeyboardComposition(composition, ec); },
+        [&]() -> HRESULT {
+            // The existing termination callback detaches this exact object
+            // before cleaning its presenter. Never clean a re-entrant new one.
+            return _IsCompositionCurrent(composition) ? OnCompositionTerminated(ec, composition) : S_OK;
+        });
+}
 
 HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext)
 {

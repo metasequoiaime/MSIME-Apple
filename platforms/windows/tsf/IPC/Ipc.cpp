@@ -478,7 +478,8 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
     {
         const auto hello =
             FanyImeProtocol::Hello(GetPipeClientId(), NextProtocolId(nextRequestId),
-                                   FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut);
+                                   FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
+                                       FanyImeProtocol::KeyboardCompositionCancel);
         BOOL ret = WriteFile(hPipeHandle, &hello, sizeof(hello), &bytesWritten, NULL);
         // Never authorize keys from merely writing a hello. An old Server
         // without negotiation times out into the existing raw-input fallback.
@@ -922,6 +923,12 @@ bool SupportsCharacterSetShortcut()
 {
     return hPipe && hPipe != INVALID_HANDLE_VALUE &&
            (negotiatedServerCapabilities & FanyImeProtocol::CharacterSetShortcut) != 0;
+}
+
+bool SupportsKeyboardCompositionCancel(const void *owner)
+{
+    return IsNamedpipeFocusStateOwner(owner) && hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::KeyboardCompositionCancel) != 0;
 }
 
 HANDLE GetToTsfWorkerThreadNamedpipe()

@@ -45,6 +45,7 @@ const DWORD WM_UpdateVoiceComposition = WM_USER + 24;
 const DWORD WM_CommitVoiceComposition = WM_USER + 25;
 const DWORD WM_CancelVoiceComposition = WM_USER + 26;
 const DWORD WM_ApplyPunctuationLock = WM_USER + 27;
+const DWORD WM_CancelKeyboardComposition = WM_USER + 28;
 constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
 constexpr ULONGLONG SMART_PUNCTUATION_REPEAT_INTERVAL_MS = 2000;
 constexpr UINT_PTR TIMER_CONNECT_ALL_NAMEDPIPE = 1;
@@ -237,6 +238,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     uint64_t _CaptureCompositionEpoch() const;
     bool _IsCompositionEpochCurrent(uint64_t compositionEpoch) const;
     bool _IsCompositionCurrent(_In_opt_ ITfComposition *expectedComposition) const;
+    bool _IsKeyboardCancellationCurrent(ITfContext *, ITfComposition *, uint64_t, uint64_t) const;
+    HRESULT _RequestKeyboardCancellation(uint64_t, uint64_t);
+    HRESULT _ApplyKeyboardCancellation(TfEditCookie, ITfContext *, ITfComposition *, uint64_t, uint64_t);
     static bool _IsSameComObject(_In_opt_ IUnknown *left, _In_opt_ IUnknown *right);
     void _DebugCompositionRecovery(_In_z_ const WCHAR *reason, HRESULT hr) const;
     bool _IsLocalSessionResetCurrent(UINT resetToken) const;

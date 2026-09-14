@@ -35,6 +35,7 @@ void MarkNamedpipeSessionDirty();
 bool MarkNamedpipeSessionDirtyForOwner(_In_ const void *owner);
 bool EnsureNamedpipeFocusSessionActivated();
 bool SupportsCharacterSetShortcut();
+bool SupportsKeyboardCompositionCancel(_In_ const void *owner);
 bool FlushNamedpipeFocusSessionReset();
 bool FlushNamedpipeImeDeactivation(uint64_t focusToken = 0);
 

@@ -22,6 +22,7 @@
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostOptionsPaths.h"
+#include "keyboard_composition_pipe.h"
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
@@ -847,8 +848,10 @@ bool CMetasequoiaIME::_TakeServerCandidateCommit(UINT token, _Out_ WorkerCandida
 bool CMetasequoiaIME::_PostWorkerCompartmentSwitch(UINT messageType, uint64_t focusToken)
 {
     constexpr size_t maxPendingSwitches = 64;
-    if (messageType < Global::DataToTsfWorkerThreadMsgType::SwitchToEnglish ||
-        messageType > Global::DataToTsfWorkerThreadMsgType::SwitchToHalfwidth || focusToken == 0 ||
+    const bool keyboardCancel = messageType == FanyImeWorkerReplyType::CancelKeyboardComposition;
+    if ((!keyboardCancel && (messageType < Global::DataToTsfWorkerThreadMsgType::SwitchToEnglish ||
+                            messageType > Global::DataToTsfWorkerThreadMsgType::SwitchToHalfwidth)) ||
+        focusToken == 0 ||
         !_workerCommitReady.load(std::memory_order_acquire) ||
         _localSessionResetPending.load(std::memory_order_acquire) ||
         _expectedWorkerFocusToken.load(std::memory_order_acquire) != focusToken ||
@@ -882,7 +885,8 @@ bool CMetasequoiaIME::_PostWorkerCompartmentSwitch(UINT messageType, uint64_t fo
             token, WorkerCompartmentSwitch{messageType, focusToken, _CaptureCompositionEpoch()});
     }
 
-    if (!PostMessage(ownerWindow, WM_CheckGlobalCompartment, static_cast<WPARAM>(token), 0))
+    if (!PostMessage(ownerWindow, keyboardCancel ? WM_CancelKeyboardComposition : WM_CheckGlobalCompartment,
+                     static_cast<WPARAM>(token), 0))
     {
         std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
         _pendingWorkerSwitchMessages.erase(token);
@@ -1711,6 +1715,12 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         {
             continue;
         }
+        if (buf.msg_type == FanyImeWorkerReplyType::CancelKeyboardComposition)
+        {
+            if (const auto token = FanyImeKeyboardCompositionPipe::ParseCancel(buf))
+                pIME->_PostWorkerCompartmentSwitch(buf.msg_type, *token);
+            continue;
+        }
 
         bool validFrame = true;
         if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCurCandidate ||
@@ -2171,6 +2181,13 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
 
     switch (message)
     {
+    case WM_CancelKeyboardComposition: {
+        CMetasequoiaIME::WorkerCompartmentSwitch request;
+        if (pIME->_TakeWorkerCompartmentSwitch(static_cast<UINT>(wParam), request) &&
+            request.messageType == FanyImeWorkerReplyType::CancelKeyboardComposition)
+            pIME->_RequestKeyboardCancellation(request.focusToken, request.compositionEpoch);
+        break;
+    }
     case WM_MinttyShiftRelease:
         pIME->_HandleMinttyShiftRelease(static_cast<UINT>(wParam));
         return 0;
