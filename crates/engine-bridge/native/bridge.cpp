@@ -57,6 +57,10 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     done.wait_for(lock, std::chrono::milliseconds(milliseconds), [&] {
         return samples.size() >= maximum;
     });
+    // AudioCapture::stop waits for the callback thread. Do not hold the
+    // sample mutex while stopping: the callback may be waiting on this mutex
+    // to finish its final delivery.
+    lock.unlock();
     capture.stop();
     failed = capture.callback_failed();
     if (failed) samples.clear();
