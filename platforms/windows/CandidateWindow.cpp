@@ -297,6 +297,7 @@ void CandidateWindow::invalidate_geometry() {
   painted_.reset();
   pressed_.reset();
   hovered_.reset();
+  hovered_.reset();
   wheel_accumulator_ = 0;
   tallest_ = 0;
   if (window_)
@@ -786,6 +787,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         TrackMouseEvent(&track);
         const auto click = self->hit(static_cast<short>(LOWORD(lparam)),
                                      static_cast<short>(HIWORD(lparam)));
+        SetCursor(LoadCursorW(nullptr, click ? IDC_HAND : IDC_ARROW));
         SetCursor(LoadCursorW(nullptr, click ? wide_cursor(IDC_HAND)
                                              : wide_cursor(IDC_ARROW)));
         std::optional<size_t> hovered;
