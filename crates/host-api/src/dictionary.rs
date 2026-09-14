@@ -6,7 +6,6 @@ use msime_client_core::personal_dictionary::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
 };
-use msime_client_core::dictionary_import::{dictionary_row_matches, PageSelector};
 use msime_engine_bridge::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -906,6 +905,7 @@ mod tests {
             autocorrect_transposition: true,
             autocorrect_neighbor: true,
             fuzzy_pinyin_rules: 0,
+            wubi_mixed_pinyin: false,
             helpcode: false,
             show_helpcode: true,
             helpcode_schema: "ziranma".into(),
