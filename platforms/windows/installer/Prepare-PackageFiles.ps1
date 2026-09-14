@@ -10,7 +10,8 @@ param(
     [string]$ServerDirectory = 'server',
     # Deprecated compatibility argument; UI assets are embedded in Tauri now.
     [string]$UiHtmlDirectory = 'ui-html',
-    [string]$HelpCodeDirectory = 'vendor/MetasequoiaImeEngine/helpcode',
+    [string]$HelpCodeDirectory = 'vendor/MSIME-Engine/helpcode',
+    # Deprecated: both resource layouts now use DesktopResourcesDirectory.
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
     # Tauri release binary; relative overrides are resolved against RepoRoot.
@@ -94,21 +95,23 @@ if ($Tsf64ReleaseDirectory) {
 }
 $tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) 'msime_host_api.dll'
 $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) 'msime_host_api.dll'
-$serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
-$pinyinTable = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\tables\pinyin.txt')
+$pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
-$appIcon = Join-Path $RepoRoot (Join-Path $ServerDirectory 'src\resource\MetasequoiaIME.ico')
+$appIcon = Join-Path $iconSource 'Metasequoia.ico'
 $thirdPartyNotices = Join-Path $RepoRoot (Join-Path $NoticesDirectory 'THIRD_PARTY_NOTICES.txt')
 $license = Join-Path $RepoRoot 'LICENSE'
-$dictionaryDb = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\msime.db')
-$dictionaryManifest = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\dictionary-manifest.json')
-$japaneseModel = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\dict_japanese.dat')
-$japaneseModelLicense = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'source\mozc_dictionary_oss\README.txt')
-$englishDb = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\english.db')
-$othersDb = Join-Path $RepoRoot (Join-Path $DictionaryDirectory 'out\others.db')
+$resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
+    $DesktopResourcesDirectory
+} else { Join-Path $RepoRoot $DesktopResourcesDirectory }
+$dictionaryDb = Join-Path $resourceSource 'msime.db'
+$dictionaryManifest = Join-Path $resourceSource 'dictionary-manifest.json'
+$japaneseModel = Join-Path $resourceSource 'dict_japanese.dat'
+$japaneseModelLicense = Join-Path $resourceSource 'mozc_dictionary_oss_README.txt'
+$englishDb = Join-Path $resourceSource 'english.db'
+$othersDb = Join-Path $resourceSource 'others.db'
 # 手写模型与其授权/来源声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model
 # 查找，因此这三个文件与 Server 一起落在 server_exe 下，而不是 app_data。
 $handwritingModel = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\models\handwriting-zh_CN.model'
@@ -145,12 +148,17 @@ $missingServerPdb = @(
 if ($missingServerPdb.Count -gt 0) {
     throw "Server Release 缺少同名 PDB：$($missingServerPdb -join ', ')"
 }
-Assert-PathExists -LiteralPath $serverConfig -Description 'Server config.toml'
 Assert-PathExists -LiteralPath $appIcon -Description '应用图标'
 Assert-PathExists -LiteralPath $thirdPartyNotices -Description '第三方声明 THIRD_PARTY_NOTICES.txt'
 Assert-PathExists -LiteralPath $license -Description '许可证 LICENSE'
 
+$desktopResources = @()
 if (-not $Light) {
+    # Check pinned bytes before either legacy or shared-runtime staging reads
+    # them. Both layouts must be built from the same source generation.
+    $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
+        -SourceDirectory $resourceSource `
+        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'))
     Assert-PathExists -LiteralPath $factoryConfig -Description '出厂配置 default_config\config.default.toml'
     Assert-PathExists -LiteralPath $pinyinTable -Description '完整拼音音节表 pinyin.txt'
     Assert-PathExists -LiteralPath $helpcodeSource -Description '辅助码目录'
@@ -197,16 +205,6 @@ if ($hasHandwritingModel) {
 $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
-
-$desktopResources = @()
-if (-not $Light) {
-    $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
-        $DesktopResourcesDirectory
-    } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
-    $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
-        -SourceDirectory $resourceSource `
-        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'))
-}
 
 if ($Light) {
     Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，刷新 TSF、Server 与 Tauri。'

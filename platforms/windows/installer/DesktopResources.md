@@ -18,6 +18,19 @@ from the installed application. Full packages likewise replace native-output
 resources with only verified files. Legacy app_data staging remains for the
 parts of the installer still being migrated.
 
+That legacy layout now reads the same verified DesktopResourcesDirectory,
+including its English database and Japanese notice; it no longer requires a
+separate MetasequoiaImeDict checkout. DictionaryDirectory is retained only as
+an ignored compatibility parameter. The legacy Japanese notice destination
+retains its historical name, while the shared resource directory keeps the
+manifest name. Pinyin and the application icon come from installer/assets;
+the unused old Server config.toml preflight is removed. HelpCodeDirectory now
+defaults to vendor/MSIME-Engine/helpcode in the pinned submodule.
+
+Third-party notice collection is not solved by this path migration: packaging
+still requires THIRD_PARTY_NOTICES.txt through NoticesDirectory. Do not bypass
+that requirement or treat these resource checks as a distribution license audit.
+
 `msime-client-prepare.exe` can consume the installed resource directory to
 create fresh per-user HostOptions. The production Server now uses the same
 preparation flow automatically only when its user state directory is absent.

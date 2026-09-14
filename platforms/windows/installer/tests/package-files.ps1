@@ -40,27 +40,20 @@ try {
         'vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model',
         'vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt',
         'vendor/MSIME-Engine/handwriting/provenance.json',
-        'server/assets/config/config.toml',
-        'server/src/resource/MetasequoiaIME.ico',
-        'vendor/MetasequoiaImeEngine/helpcode/helpcodes/helpcode.txt',
-        'MetasequoiaImeDict/out/msime.db',
-        'MetasequoiaImeDict/out/others.db',
-        'MetasequoiaImeDict/out/dict_japanese.dat',
-        'MetasequoiaImeDict/source/mozc_dictionary_oss/README.txt'
+        'vendor/MSIME-Engine/helpcode/helpcodes/helpcode.txt'
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
     Write-Fixture 'windows/build32-release/Release/synthetic-runtime.dll' 'synthetic x86 dependency'
     Write-Fixture 'windows/build64-release/Release/synthetic-runtime.dll' 'synthetic x64 dependency'
-    Write-Fixture 'server/assets/tables/pinyin.txt' 'xing'
-    Write-Fixture 'MetasequoiaImeDict/out/dictionary-manifest.json' '{"manifest_version":1}'
-    $english = Join-Path $fixture 'MetasequoiaImeDict/out/english.db'
+    $english = Join-Path $fixture 'target/desktop-resources/english.db'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $english) | Out-Null
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
         foreach ($name in @('msime.db', 'english.db', 'others.db', 'dict_japanese.dat',
                             'mozc_dictionary_oss_README.txt', 'dictionary-manifest.json')) {
-            Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name"
+            if ($name -ne 'english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
             $path = Join-Path $fixture "target/desktop-resources/$name"
             @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
         }
@@ -74,6 +67,10 @@ try {
     foreach ($artifact in $artifacts) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
+        $legacyName = if ($artifact.name -eq 'mozc_dictionary_oss_README.txt') { 'MOZC_DICTIONARY_LICENSE.txt' } else { $artifact.name }
+        if ((Get-FileHash (Join-Path $installer "app_data/$legacyName")).Hash -ne $artifact.sha256) {
+            throw 'Legacy and shared resource layouts differ'
+        }
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources/unlisted-private-file.txt')) {
         throw 'Packaged an unlisted resource'
@@ -222,7 +219,7 @@ try {
     if (-not $rejected) { throw 'Missing handwriting license was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing license damaged previous staging' }
     [IO.File]::WriteAllText($notice, 'fixture')
-    $pinyin = Join-Path $fixture 'server/assets/tables/pinyin.txt'
+    $pinyin = Join-Path $installer 'assets/tables/pinyin.txt'
     [IO.File]::WriteAllText($pinyin, 'invalid-fixture')
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'xing' }
