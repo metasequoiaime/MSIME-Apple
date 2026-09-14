@@ -3,6 +3,7 @@
 #include <cassert>
 
 @interface HTTPRequestFixture : NSObject
+@property(copy) void (^polishingHandler)(void);
 @property(copy) void (^completion)(NSString *, NSError *);
 @property NSUInteger cancellations;
 @property BOOL submitted;
@@ -52,9 +53,19 @@
 - (void)apply:(NSDictionary *)result { (void)result; ++self.applies; }
 @end
 
+@interface HTTPOverlayFixture : NSObject
+@property NSUInteger phase;
+@end
+@implementation HTTPOverlayFixture
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
+@end
+
 int main() {
     @autoreleasepool {
         HTTPControllerFixture *controller = [HTTPControllerFixture alloc];
+        HTTPOverlayFixture *overlay = [HTTPOverlayFixture new];
+        [controller setValue:overlay forKey:@"voiceOverlay"];
         MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
         [controller setValue:cues forKey:@"voiceCuePlayer"];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -72,9 +83,14 @@ int main() {
         [controller finishVoiceInputForDisable];
         [controller finishVoiceInputForDisable];
         assert(controller.requestFixture.submitted && !controller.requestFixture.cancellations);
+        assert(overlay.phase == 2);
+        controller.requestFixture.polishingHandler();
+        assert(overlay.phase == 3);
         controller.requestFixture.completion(@"synthetic", nil);
         controller.requestFixture.completion = nil;
         assert(session.submissions == 1 && controller.applies == 1 && !capture.active);
+        controller.requestFixture.polishingHandler();
+        assert(overlay.phase == 0);
         assert(cues.starts == 1 && cues.stops == 1);
         // Exercise all controller identity checks with deliberately late results.
         for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
@@ -82,6 +98,8 @@ int main() {
             [controller finishHTTPVoiceInput];
             id original = [controller valueForKey:field];
             [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            controller.requestFixture.polishingHandler();
+            assert(overlay.phase == 2);
             controller.requestFixture.completion(@"synthetic", nil);
             controller.requestFixture.completion = nil;
             [controller setValue:original forKey:field];
@@ -94,6 +112,8 @@ int main() {
         assert(old.cancellations == 1);
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         old.completion(@"synthetic", nil); old.completion = nil;
+        old.polishingHandler();
+        assert(overlay.phase == 0);
         assert(capture.active && controller.requestFixture.cancellations == 0);
         [controller cancelHTTPVoiceInput];
         capture.failStart = YES;

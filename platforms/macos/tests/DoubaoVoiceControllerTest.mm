@@ -42,13 +42,16 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+@property NSUInteger phase;
 - (void)setListening:(BOOL)listening;
+- (void)setProcessing:(BOOL)polishing;
 - (void)setInputLevel:(float)level;
 - (void)restore;
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
-- (void)setListening:(BOOL)listening { (void)listening; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)setInputLevel:(float)level { (void)level; }
 - (void)restore {}
 - (void)playStartCue {}
@@ -205,11 +208,18 @@ int main() {
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
         controller.usePolishFixture = YES;
         assert(Start(controller, capture, session, YES));
+        const auto beforePolishCaptureStops = capture.finishes;
+        controller.fixture.failAppend = YES;
+        capture.chunk([NSMutableData dataWithLength:32], nil); // A queued send failure after the server final is obsolete.
         controller.fixture.result(@"unpolished", YES, nil);
         controller.fixture.result(@"duplicate final", YES, nil);
+        Pump();
+        assert(capture.finishes == beforePolishCaptureStops + 1 && controller.fixture.finishes == 0);
         assert(client.commits.count == 2 && controller.polishFixture.submissions == 1);
+        assert([[controller valueForKey:@"voiceOverlay"] phase] == 3);
         controller.polishFixture.completion(@"synthetic polished", nil);
         assert(client.commits.count == 3 && [client.commits.lastObject isEqual:@"synthetic polished"]);
+        assert([[controller valueForKey:@"voiceOverlay"] phase] == 0);
         assert(Start(controller, capture, session, YES));
         controller.fixture.result(@"cancelled polish", YES, nil);
         DoubaoPolishFixture *oldPolish = controller.polishFixture;

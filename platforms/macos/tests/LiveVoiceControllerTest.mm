@@ -41,11 +41,14 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+@property NSUInteger phase;
 - (void)setListening:(BOOL)listening;
+- (void)setProcessing:(BOOL)polishing;
 - (void)restore;
 @end
 @implementation LivePresentationFixture
-- (void)setListening:(BOOL)listening { (void)listening; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; }
+- (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)restore {}
 @end
 @interface LivePolishFixture : NSObject
@@ -144,10 +147,15 @@ int main(int argc, char **) {
             [controller finishVoiceInputForDisable];
             [controller finishVoiceInputForDisable];
             session.providerPhase(1); session.providerPhase(2); session.providerPhase(0);
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+            assert(presentation.phase == 3);
             session.providerUpdate(@"socket final", YES);
             while ((capture.active || !session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(!capture.active && session.providerStops == 1 && session.providerCancels == 1);
+            session.providerPhase(2);
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+            assert(presentation.phase == 0); // Late progress cannot reopen a completed session.
             assert(client.commits.count == 1 && [client.commits[0] isEqual:@"socket final"]);
             assert(cues.starts == 1 && cues.stops == 1);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
@@ -162,8 +170,10 @@ int main(int argc, char **) {
         NSUInteger cancelled = capture.transcriptionStops;
         [controller toggleVoiceInput:nil];
         assert(capture.active && capture.captureStops && capture.transcriptionStops == cancelled);
+        assert(presentation.phase == 2);
         first(@"synthetic final", YES);
         assert(!capture.active && client.commits.count == 1 && [client.commits[0] isEqual:@"synthetic final"]);
+        assert(presentation.phase == 0);
         first(@"duplicate", YES); assert(client.commits.count == 1);
         assert(cues.starts == 1 && cues.stops == 1);
         [controller toggleVoiceInput:nil];
@@ -306,6 +316,7 @@ int main(int argc, char **) {
         capture.transcript(@"duplicate final", YES);
         capture.transcript(@"late partial", NO);
         assert(polish.submissions == 1 && [polish.input isEqual:@"synthetic original"]);
+        assert(presentation.phase == 3);
         assert([controller.polishOptions[@"polish_prompt"] isEqual:@"synthetic original prompt"]);
         assert([controller.polishOptions[@"polish_text"] isEqual:@YES] && [controller.polishOptions[@"polish_enabled"] isEqual:@NO]);
         assert(capture.captureStops > beforePolishStops && capture.active && client.commits.count == beforePolish);

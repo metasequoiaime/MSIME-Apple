@@ -25,11 +25,15 @@ int main(int argc, char **argv) {
         float samples[160] = {};
         NSMutableData *pcm = [NSMutableData dataWithBytes:samples length:sizeof(samples)];
         __block BOOL done = NO;
+        __block NSUInteger polishing = 0;
+        request.polishingHandler = ^{ assert(NSThread.isMainThread && !done); ++polishing; };
         assert([request recognizePCM:pcm completion:^(NSString *text, NSError *error) {
             assert(NSThread.isMainThread && !error && [text isEqual:@"synthetic polished"]); done = YES;
         } error:nil]);
+        request.polishingHandler = ^{ assert(false && "phase handler must be frozen at start"); };
         [pcm setLength:0];
         Wait(^BOOL { return done; });
+        assert(polishing == 1);
         assert(![request recognizePCM:pcm completion:^(NSString *, NSError *) {} error:nil]);
         options[@"asr_model"] = @"fixture-model"; options[@"asr_token"] = @"fixture-token";
         options[@"polish_endpoint"] = [base stringByAppendingString:@"/polish-failure"];

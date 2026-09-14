@@ -19,7 +19,7 @@ BOOL Endpoint(const std::string &value) {
     return url.host.length && !url.user && !url.password && !url.fragment &&
         ([url.scheme.lowercaseString isEqual:@"https"] || (loopback && [url.scheme.lowercaseString isEqual:@"http"]));
 }
-std::string Polish(std::string text, NSDictionary *options, const std::shared_ptr<std::atomic_bool> &cancelled) {
+std::string Polish(std::string text, NSDictionary *options, const std::shared_ptr<std::atomic_bool> &cancelled, void (^polishing)(void) = nil) {
     if (text.empty() || cancelled->load() ||
         !([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return text;
     try {
@@ -32,6 +32,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
             String(options, @"polish_prompt"), String(options, @"polish_prompt_custom_1"),
             String(options, @"polish_prompt_custom_2"), String(options, @"polish_prompt_custom_3")});
         if (Endpoint(endpoint)) {
+            if (polishing) dispatch_async(dispatch_get_main_queue(), ^{ if (!cancelled->load()) polishing(); });
             auto polished = msime::voice::polish_cloud_text(text, provider, endpoint, model,
                 String(options, @"polish_token"), prompt, cancelled);
             if (!polished.empty() && polished.size() <= 65536) text = std::move(polished);
@@ -108,6 +109,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
         _started = YES;
         auto cancelled = _cancelled;
         NSDictionary *options = _options;
+        void (^polishing)(void) = [self.polishingHandler copy];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             NSString *result = nil;
             NSError *failure = nil;
@@ -117,7 +119,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
                 if (language == "zh-CN") language = "zh-cn";
                 auto text = msime::voice::recognize_cloud_asr(samples, String(options, @"asr_provider"),
                     String(options, @"asr_endpoint"), String(options, @"asr_model"), String(options, @"asr_token"), language, cancelled);
-                text = Polish(std::move(text), options, cancelled);
+                text = Polish(std::move(text), options, cancelled, polishing);
                 result = [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
                 if (!result.length) failure = Failure();
             } catch (const std::exception &) { failure = Failure(); }

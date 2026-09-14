@@ -4,6 +4,8 @@
 // One request owns a frozen configuration and cancellation token. Completion is
 // delivered on the main queue; cancellation suppresses delivery. No audio capture.
 @interface MSIMEHTTPVoiceRequest : NSObject
+// Optional main-queue phase notification, snapshotted at request start.
+@property(copy) void (^polishingHandler)(void);
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 - (instancetype)initWithOptions:(NSDictionary *)options error:(NSError **)error;

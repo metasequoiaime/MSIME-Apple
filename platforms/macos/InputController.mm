@@ -1026,6 +1026,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         }
         controller->_doubaoFinalReceived = YES;
         MSIMEHTTPVoiceRequest *polisher = controller->_doubaoPolishRequest;
+        if (text.length && polisher) {
+            if (!controller->_doubaoVoiceProcessing) {
+                controller->_doubaoVoiceProcessing = YES;
+                // The server already ended recognition. Drain/stop capture,
+                // but never send another packet to its completed request.
+                [controller->_voiceService finishPCMStreamingWithError:nil];
+                [controller->_voiceAudioMuter restore];
+                [controller voiceCaptureDidEnd];
+            }
+            [controller->_voiceOverlay setProcessing:YES];
+        }
         if (text.length && polisher && [polisher polishText:text completion:^(NSString *polished, NSError *polishError) {
             [weakSelf applyDoubaoFinalText:!polishError && polished.length ? polished : text request:liveRequest];
         } error:nil]) return;
@@ -1044,6 +1055,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_doubaoVoiceRequest != liveRequest) return;
+            if (controller->_doubaoFinalReceived) return;
             if (!sent) [controller cancelDoubaoVoiceInput];
             else if (!controller->_doubaoVoiceProcessing) [controller->_voiceOverlay setInputLevel:level];
         });
@@ -1058,7 +1070,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSError *error = nil;
     NSData *tail = [_voiceService finishPCMStreamingWithError:&error];
     [_voiceAudioMuter restore];
-    [_voiceOverlay setListening:NO];
+    [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (!tail || error || (tail.length && ![_doubaoVoiceRequest appendPCM:tail error:&error]) ||
         ![_doubaoVoiceRequest finishWithError:&error]) [self cancelDoubaoVoiceInput];
@@ -1091,6 +1103,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _httpVoiceGeneration = _voiceGeneration;
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
+    __weak MSIMEHTTPVoiceRequest *weakRequest = request;
+    request.polishingHandler = ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || !weakRequest || controller->_httpVoiceRequest != weakRequest || !controller->_httpVoiceProcessing ||
+            controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+            controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
+        [controller->_voiceOverlay setProcessing:YES];
+    };
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
         float level = 0;
@@ -1117,7 +1137,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSError *error = nil;
     NSData *pcm = [_voiceService finishPCMRecordingWithError:&error];
     [_voiceAudioMuter restore];
-    [_voiceOverlay setListening:NO];
+    [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (!pcm.length || error) { [self cancelHTTPVoiceInput]; return; }
     MSIMEClientSession *session = _httpVoiceSession;
@@ -1202,6 +1222,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         // polishing, retaining only this session's final-result authorization.
         if (!_liveVoiceProcessing) [self finishLiveVoiceInput];
         [_voiceService stopTranscription];
+        [_voiceOverlay setProcessing:YES];
         NSString *original = [text copy];
         __weak MSIMEInputController *weakSelf = self;
         if ([_livePolishRequest polishText:original completion:^(NSString *polished, NSError *error) {
@@ -1215,7 +1236,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (phase == 0 && !_liveVoiceProcessing) [self voiceCaptureDidStart];
     else if (phase == 1 || phase == 2) {
         _liveVoiceProcessing = YES;
-        [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+        [_voiceAudioMuter restore]; [_voiceOverlay setProcessing:phase == 2];
         [self voiceCaptureDidEnd];
     }
 }
@@ -1225,7 +1246,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _liveVoiceProcessing = YES;
     // endAudio is sent by stopMicrophoneCapture; leave Speech alive for its final.
     [_voiceService stopMicrophoneCapture];
-    [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+    [_voiceAudioMuter restore]; [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (_liveVoiceSocket.length) {
         NSString *socket = _liveVoiceSocket; MSIMEClientSession *session = _liveVoiceSession;
