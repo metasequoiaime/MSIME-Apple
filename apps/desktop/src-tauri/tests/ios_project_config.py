@@ -85,12 +85,17 @@ class IOSProjectConfigTests(unittest.TestCase):
 
         manifest = (TAURI_ROOT / "Cargo.toml").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
         self.assertIn("msime-tauri-mobile-platform", manifest)
         self.assertIn("builder.plugin(msime_tauri_mobile_platform::init())", rust_entry)
+        self.assertIn("open_system_keyboard_settings", rust_entry)
         self.assertIn("app_icon_info", rust_entry)
         self.assertIn("app_icon_set", rust_entry)
+        self.assertIn('invoke("open_system_keyboard_settings")', desktop_entry)
+        self.assertIn("UIApplication.openSettingsURLString", swift)
+        self.assertIn("openSystemKeyboardSettings", swift)
         self.assertIn("application.supportsAlternateIcons", swift)
         self.assertIn("application.setAlternateIconName(requestedName)", swift)
         self.assertIn("application.alternateIconName != requestedName", swift)

@@ -283,7 +283,9 @@ function DesktopSettings() {
             host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon } : {}),
+          ...(host.platform === "ios" ? { appIcon, home: {
+            openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
+          } } : {}),
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),

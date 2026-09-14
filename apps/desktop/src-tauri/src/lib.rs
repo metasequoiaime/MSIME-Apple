@@ -3919,6 +3919,22 @@ fn ios_host_options_document(
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
+async fn open_system_keyboard_settings(
+    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
+) -> Result<(), CommandError> {
+    let platform = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || platform.open_system_keyboard_settings())
+        .await
+        .map_err(|_| CommandError {
+            code: "system_settings",
+        })?
+        .map_err(|_| CommandError {
+            code: "system_settings",
+        })
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
 async fn app_icon_info(
     state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
 ) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
@@ -4316,6 +4332,8 @@ pub fn run() {
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
             android_account::app_icon_set,
+            #[cfg(target_os = "ios")]
+            open_system_keyboard_settings,
             #[cfg(target_os = "ios")]
             app_icon_info,
             #[cfg(target_os = "ios")]

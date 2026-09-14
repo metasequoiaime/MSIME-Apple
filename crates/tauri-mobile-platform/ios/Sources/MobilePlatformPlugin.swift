@@ -43,6 +43,24 @@ final class MobilePlatformPlugin: Plugin {
     ])
   }
 
+  @objc public func openSystemKeyboardSettings(_ invoke: Invoke) {
+    onMain { [self] in
+      guard let url = URL(string: UIApplication.openSettingsURLString) else {
+        invoke.reject("system_settings", code: "system_settings")
+        return
+      }
+      UIApplication.shared.open(url, options: [:]) { opened in
+        self.onMain {
+          if opened {
+            invoke.resolve()
+          } else {
+            invoke.reject("system_settings", code: "system_settings")
+          }
+        }
+      }
+    }
+  }
+
   @objc public func appIconInfo(_ invoke: Invoke) {
     onMain { [self] in
       resolveInfo(invoke, application: UIApplication.shared)

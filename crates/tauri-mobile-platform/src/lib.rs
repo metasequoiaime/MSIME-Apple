@@ -39,6 +39,12 @@ impl<R: Runtime> Clone for MobilePlatform<R> {
 
 #[cfg(target_os = "ios")]
 impl<R: Runtime> MobilePlatform<R> {
+    pub fn open_system_keyboard_settings(&self) -> Result<(), ()> {
+        self.0
+            .run_mobile_plugin("openSystemKeyboardSettings", ())
+            .map_err(|_| ())
+    }
+
     pub fn app_icon_info(&self) -> Result<AppIconInfo, ()> {
         self.0.run_mobile_plugin("appIconInfo", ()).map_err(|_| ())
     }

@@ -84,6 +84,18 @@ test("opens Android on home and preserves the appearance fallback without home c
   expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
 });
 
+test("opens iOS system keyboard settings from the shared home", async () => {
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), home: {
+    openSystemKeyboardSettings,
+  } }} />);
+
+  await screen.findByRole("region", { name: "首页" });
+  fireEvent.click(screen.getByRole("button", { name: "系统键盘设置" }));
+  expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("button", { name: "选择输入法" })).toBeNull();
+});
+
 test("enables and selects thoughtful reply when opened from Android home", async () => {
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, home: {
     openKeyboard: vi.fn().mockResolvedValue(undefined),
