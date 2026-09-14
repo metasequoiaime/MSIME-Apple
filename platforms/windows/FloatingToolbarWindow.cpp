@@ -1,6 +1,7 @@
 #include "FloatingToolbarWindow.h"
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarIcons.h"
+#include "ToolbarLayout.h"
 #include "IconFont.h"
 #include <stdexcept>
 #include <windowsx.h>
@@ -93,8 +94,12 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const int width = dpi_scale(window_, static_cast<int>((16 + 72 * slots(items_).size()) * scale_));
-    const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
+    const auto metrics = toolbar_metrics(static_cast<double>(font_size_));
+    const int width = dpi_scale(
+        window_, static_cast<int>(
+                     toolbar_bar_width(slots(items_).size(), metrics) * scale_));
+    const int height =
+        dpi_scale(window_, static_cast<int>(metrics.height * scale_));
     const int margin = dpi_scale(window_, 20);
     FloatingToolbarPlacementInput placement;
     placement.width = width;
@@ -191,20 +196,29 @@ void FloatingToolbarWindow::paint() {
         std::nullopt, std::nullopt, std::nullopt,
         std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
+    const auto layout = toolbar_metrics(static_cast<double>(font_size_));
     // The drag strip and the divider that separates it from the buttons. The
     // strip is the only part that drags, so it has to be visible; upstream
-    // draws it in the accent colour.
+    // draws it in the accent colour. Both follow the bar height so they stay
+    // centred when the icon size changes.
+    const auto height = static_cast<float>(layout.height);
     const float handle_left = 3.0f * unit;
-    const D2D1_ROUNDED_RECT handle{
-        {handle_left, 14.0f * unit, handle_left + 2.0f * unit, 38.0f * unit},
-        1.0f * unit, 1.0f * unit};
+    const D2D1_ROUNDED_RECT handle{{handle_left, height * 0.269f * unit,
+                                    handle_left + 2.0f * unit,
+                                    height * 0.731f * unit},
+                                   1.0f * unit, 1.0f * unit};
     target->FillRoundedRectangle(handle, brush(palette_.accent));
-    target->DrawLine({7.0f * unit, 12.0f * unit}, {7.0f * unit, 40.0f * unit},
-                     brush(palette_.border), 1.0f * unit);
+    const float divider = static_cast<float>(layout.handle - 1.0) * unit;
+    target->DrawLine({divider, height * 0.231f * unit},
+                     {divider, height * 0.769f * unit}, brush(palette_.border),
+                     1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
-      const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
-                             (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
+      const auto box = toolbar_cell(i, layout);
+      const D2D1_RECT_F cell{static_cast<float>(box.left) * unit,
+                             static_cast<float>(box.top) * unit,
+                             static_cast<float>(box.right) * unit,
+                             static_cast<float>(box.bottom) * unit};
       // Hover and press fills, so a button looks like one. Pressed is drawn
       // with the selected colour rather than a darker hover, matching the card.
       if (hovered_ == i) {
@@ -265,7 +279,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // window as a caption meant a press on a button entered the system move
       // loop, and the click below only ran for whatever button-up survived it.
       const int unit = dpi_scale(window, 1);
-      if (GET_X_LPARAM(l) < 8 * unit) {
+      const auto drag = toolbar_metrics(static_cast<double>(self->font_size_));
+      if (GET_X_LPARAM(l) < static_cast<int>(drag.handle) * unit) {
         ReleaseCapture();
         SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return 0;
@@ -284,7 +299,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         RECT bounds{};
         if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
             GetClientRect(window, &bounds) &&
-            cursor.x < 8 * dpi_scale(window, 1)) {
+            cursor.x < static_cast<int>(
+                           toolbar_metrics(static_cast<double>(self->font_size_))
+                               .handle) *
+                           dpi_scale(window, 1)) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;
         }
@@ -296,13 +314,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const int x = GET_X_LPARAM(l);
       const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
-      std::optional<size_t> hovered;
-      if (x >= 8 * unit &&
-          x < static_cast<int>((8 + 72 * active.size()) * unit)) {
-        const size_t position = static_cast<size_t>((x - 8 * unit) / (72 * unit));
-        if (position < active.size())
-          hovered = position;
-      }
+      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto hovered = toolbar_button_at(
+          static_cast<double>(x) / unit, active.size(), layout);
       if (hovered != self->hovered_) {
         self->hovered_ = hovered;
         InvalidateRect(window, nullptr, FALSE);
@@ -333,9 +347,11 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const int x = GET_X_LPARAM(l);
       const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
-      if (value && x >= 8 * unit && x < static_cast<int>((8 + 72 * active.size()) * unit)) {
-        const size_t position = static_cast<size_t>((x - 8 * unit) / (72 * unit));
-        if (position >= active.size()) return 0;
+      const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
+      const auto position_at =
+          toolbar_button_at(static_cast<double>(x) / unit, active.size(), layout);
+      if (value && position_at) {
+        const size_t position = *position_at;
         const int slot = active[position];
         if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
         else if (slot == 1) self->click_(ModeClick{
