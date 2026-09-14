@@ -39,6 +39,16 @@ NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id po
     return displayCaret;
 }
 
+NSString *MSIMETextClientFollowingCharacter(id<MSIMETextClient> client) {
+    if (!client || ![client respondsToSelector:@selector(selectedRange)] ||
+        ![client respondsToSelector:@selector(attributedSubstringFromRange:)]) return nil;
+    NSRange selected = [client selectedRange];
+    if (selected.location == NSNotFound || selected.length != 0) return nil;
+    NSAttributedString *substring = [client attributedSubstringFromRange:NSMakeRange(selected.location, 1)];
+    NSString *text = substring.string;
+    return text.length == 1 ? [text substringWithRange:NSMakeRange(0, 1)] : nil;
+}
+
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {
     id commit = transition[@"commit"];
     if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];

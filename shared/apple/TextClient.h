@@ -13,3 +13,7 @@
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client);
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
+
+// Returns the single UTF-16 character immediately following the selection,
+// or nil when the host cannot safely expose document context.
+NSString * MSIMETextClientFollowingCharacter(id<MSIMETextClient> client);
