@@ -65,8 +65,6 @@ jobs:
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    env:
-      METASEQUOIA_SPARKLE_CACHE_DIR: ${{ runner.temp }}/sparkle
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,6 +76,9 @@ jobs:
       - name: Check formatting
         if: ${{ matrix.architecture == 'arm64' }}
         run: scripts/format.sh --check
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Cache the pinned Sparkle archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -134,14 +135,15 @@ jobs:
     name: Sanitizers
     runs-on: macos-15
     timeout-minutes: 90
-    env:
-      METASEQUOIA_SPARKLE_CACHE_DIR: ${{ runner.temp }}/sparkle
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Cache the pinned Sparkle archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
