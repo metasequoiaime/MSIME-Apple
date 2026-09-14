@@ -787,3 +787,7 @@ iOS 升级兼容会在共享输入会话创建前检查固定 Apple 来源遗留
 ### iOS 结构化键盘工具分组
 
 依据同一 Apple 固定提交迁移 `KeyboardToolSection`，工具面板不再通过 `UIMenu` 中文标题猜测列数、状态文案和卡片类型。为保留 Client 已完成的语音与全角能力并适应键盘高度，根页以三行双列展示表情、剪贴板、AI、语音、本地输入和键盘设置；八项本地模式与按键音、振动、全角、振动强度分别进入明确二级页。开关更新时保留当前页和组合状态，返回工具不关闭面板，本地模式仍由既有 Engine 入口处理。
+
+### iOS 真机手写识别构建链
+
+依据 Apple 固定提交补齐此前被生产扩展排除的 ML Kit 手写链。真机 target 编译真实 `HandwritingInputView` 与扩展后台下载共享容器适配，锁定 ML Kit Digital Ink 8.0.0；Apple Silicon 模拟器继续选择无 SDK fallback，避免把 device-only arm64 framework 错链为 simulator slice。模型下载与识别仍属于 iOS 平台能力，候选确认通过既有键盘插入路径，Engine 和共享组合状态不接管笔迹算法。
