@@ -27,6 +27,18 @@ void FocusedSession::attach_online_query(
     reply->translation_query = session_.translation_query(lease.epoch);
   }
 }
+std::optional<nlohmann::json>
+FocusedSession::dedicated_english(const FocusLease &lease, bool exit) {
+  check_thread();
+  if (!prepared(lease) || composer_->has_pending())
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    result = session_.dedicated_english(lease.epoch, exit);
+    if (exit) composer_->cancel();
+  });
+  return result;
+}
 bool FocusedSession::prepare(const FocusLease &lease) {
   check_thread();
   if (lease.transport.client != client_)

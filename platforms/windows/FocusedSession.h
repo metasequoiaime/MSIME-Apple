@@ -11,6 +11,8 @@ public:
   FocusedSession(FocusGate &gate, uint64_t client, const std::string &options)
       : gate_(gate), client_(client), session_(client, options) {}
   bool prepare(const FocusLease &lease);
+  // No operation may invalidate a key reply awaiting transport confirmation.
+  std::optional<nlohmann::json> dedicated_english(const FocusLease &lease, bool exit);
   std::optional<PendingReply>
   key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
       ReplyPath path, bool uiless = false,

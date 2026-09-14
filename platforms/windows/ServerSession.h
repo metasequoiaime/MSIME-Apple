@@ -39,6 +39,9 @@ public:
   void cancel_composition(uint64_t epoch);
   void set_input_enabled(uint64_t epoch, bool enabled);
   void set_chinese_punctuation(uint64_t epoch, bool enabled);
+  // Queue-owned runtime operation, never a write to default preferences.
+  // Exit cancels composition without committing and returns the Engine view.
+  nlohmann::json dedicated_english(uint64_t epoch, bool exit);
   bool input_enabled() const {
     check_thread();
     return input_enabled_;

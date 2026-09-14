@@ -81,6 +81,14 @@ void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));
 }
+nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
+  check_active(epoch);
+  auto current = view();
+  if (!exit || !current.at("dedicated_english").get<bool>())
+    return current;
+  cancel_composition(epoch);
+  return response(msime_client_set_english_mode(session_, false));
+}
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
   check_active(epoch);

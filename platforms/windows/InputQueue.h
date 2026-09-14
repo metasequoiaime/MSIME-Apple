@@ -45,6 +45,7 @@ public:
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
   bool cancel_composition(const FocusLease &lease);
+  std::optional<nlohmann::json> dedicated_english(const FocusLease &lease, bool exit);
   std::optional<nlohmann::json>
   apply_ai_candidates(const FocusLease &lease, const std::string &query,
                       const std::string &candidates);

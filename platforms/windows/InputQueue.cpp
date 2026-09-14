@@ -237,6 +237,12 @@ bool InputState::delivered(const FocusLease &lease, uint64_t request) {
   auto *owner = session(lease.transport);
   return owner && owner->confirm(lease, request);
 }
+std::optional<nlohmann::json>
+InputState::dedicated_english(const FocusLease &lease, bool exit) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->dedicated_english(lease, exit) : std::nullopt;
+}
 bool InputState::cancel_composition(const FocusLease &lease) {
   check_thread();
   auto *owner = session(lease.transport);
