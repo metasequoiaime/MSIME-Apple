@@ -275,10 +275,11 @@ function DesktopSettings() {
         ? {
           ...client,
           host,
-          // Windows resolves the offline gloss on its translation worker now,
-          // so the setting is real there too.
+          // Windows and macOS resolve the offline gloss in their native
+          // candidate controllers, so the setting is real on both hosts.
           candidateEnglishGloss: host.platform === "linux" ||
-            host.platform === "android" || host.platform === "windows",
+            host.platform === "android" || host.platform === "windows" ||
+            host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
           ...(host.platform === "linux" ? {
