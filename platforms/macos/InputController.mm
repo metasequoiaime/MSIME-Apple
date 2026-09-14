@@ -222,6 +222,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _doubaoVoiceInline;
     BOOL _doubaoVoiceMarked;
     id _liveVoiceToken;
+    MSIMEHTTPVoiceRequest *_livePolishRequest;
+    BOOL _liveVoiceFinalReceived;
     MSIMEClientSession *_liveVoiceSession;
     id _liveVoiceClient;
     NSString *_liveVoiceSocket;
@@ -934,7 +936,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
         [provider.lowercaseString isEqual:@"doubao"];
 }
-- (void)dealloc { [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; }
+- (void)dealloc { [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; [_livePolishRequest cancel]; }
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
@@ -1134,12 +1136,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)cancelLiveVoiceInput {
     if (!_liveVoiceToken) return;
+    [_livePolishRequest cancel]; _livePolishRequest = nil;
     if (_liveVoiceMarked && [self ownsLiveVoiceToken:_liveVoiceToken])
         [(id<MSIMETextClient>)_liveVoiceClient setMarkedText:@"" selectionRange:NSMakeRange(0, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     MSIMEDeactivateVoice(_voiceService, _liveVoiceSession, _voiceAudioMuter, _voiceOverlay, _liveVoiceSocket, _liveVoiceGeneration);
     [self voiceCaptureDidEnd];
     _liveVoiceToken = nil; _liveVoiceSession = nil; _liveVoiceClient = nil; _liveVoiceSocket = nil;
-    _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
+    _liveVoiceMarked = NO; _liveVoiceProcessing = NO; _liveVoiceFinalReceived = NO;
+}
+- (MSIMEHTTPVoiceRequest *)makeLiveVoicePolishRequest:(NSDictionary *)options {
+    if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
+    return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
 }
 - (id)beginLiveVoiceWithOptions:(NSDictionary *)options socket:(NSString *)socket {
     NSDictionary *finished = _session && _activeClient ? [_session command:MSIME_FINISH_COMPOSITION error:nil] : nil;
@@ -1150,6 +1157,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self apply:finished];
     _liveVoiceToken = [NSObject new]; _liveVoiceSession = _session; _liveVoiceClient = _activeClient;
     _liveVoiceGeneration = _voiceGeneration; _liveVoiceSocket = [socket copy];
+    // External providers already own their optional polish stage. Snapshot local
+    // settings at recording start through the shared native request adapter.
+    _livePolishRequest = socket.length ? nil : [self makeLiveVoicePolishRequest:options];
+    _liveVoiceFinalReceived = NO;
     _liveVoiceInline = [options[@"stream"] boolValue]; _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
     id token = _liveVoiceToken;
     __weak MSIMEInputController *weakSelf = self;
@@ -1159,9 +1170,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     });
     return token;
 }
+- (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
+    if (!token || token != _liveVoiceToken) return;
+    if ([self ownsLiveVoiceToken:token]) {
+        NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
+        if (result) { _liveVoiceMarked = NO; [self apply:result]; }
+    }
+    [self cancelLiveVoiceInput];
+}
 - (void)applyLiveVoiceText:(NSString *)text final:(BOOL)final token:(id)token {
     if (!token || token != _liveVoiceToken) return;
     if (![self ownsLiveVoiceToken:token]) { [self cancelLiveVoiceInput]; return; }
+    if (_liveVoiceFinalReceived) return;
     if (!final) {
         if (_liveVoiceInline && text.length <= 65536) {
             [(id<MSIMETextClient>)_liveVoiceClient setMarkedText:text ?: @"" selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
@@ -1169,9 +1189,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         }
         return;
     }
-    NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
-    if (result) { _liveVoiceMarked = NO; [self apply:result]; }
-    [self cancelLiveVoiceInput];
+    _liveVoiceFinalReceived = YES;
+    if (text.length && _livePolishRequest) {
+        // Final recognition may arrive before key release. Stop audio while
+        // polishing, retaining only this session's final-result authorization.
+        if (!_liveVoiceProcessing) [self finishLiveVoiceInput];
+        [_voiceService stopTranscription];
+        NSString *original = [text copy];
+        __weak MSIMEInputController *weakSelf = self;
+        if ([_livePolishRequest polishText:original completion:^(NSString *polished, NSError *error) {
+            [weakSelf applyLiveVoiceFinalText:!error && polished.length ? polished : original token:token];
+        } error:nil]) return;
+    }
+    [self applyLiveVoiceFinalText:text token:token];
 }
 - (void)applyLiveVoicePhase:(NSUInteger)phase token:(id)token {
     if (![self ownsLiveVoiceToken:token]) return;

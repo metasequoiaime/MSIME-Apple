@@ -8,6 +8,7 @@ int main() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         NSDictionary *base = @{@"generation": @42, @"language": @"en-us", @"asr_provider": @"doubao"};
         NSDictionary *query = MSIMEVoiceProviderOptions(base, defaults);
+        assert([query[@"polish_text"] isEqual:@NO]);
         assert(!query[@"doubao_auth_mode"]);
         assert([query[@"doubao_enable_itn"] isEqual:@YES]);
         assert([query[@"doubao_enable_punc"] isEqual:@YES]);
@@ -22,6 +23,10 @@ int main() {
         assert([query[@"doubao_enable_ddc"] isEqual:@YES]);
         for (NSString *key in base) assert([query[key] isEqual:base[key]]);
         assert(base.count == 3 && [NSJSONSerialization isValidJSONObject:query]);
+        MSIMEApplySharedVoicePreferences(@{@"polish_text": @YES, @"polish_enabled": @NO}, defaults);
+        assert([MSIMEVoiceProviderOptions(base, defaults)[@"polish_text"] isEqual:@YES]);
+        MSIMEApplySharedVoicePreferences(@{@"polish_text": @NO}, defaults);
+        assert([MSIMEVoiceProviderOptions(base, defaults)[@"polish_text"] isEqual:@NO]);
         MSIMEApplySharedVoicePreferences(@{@"doubao_auth_mode": @"legacy"}, defaults);
         assert([MSIMEVoiceProviderOptions(base, defaults)[@"doubao_auth_mode"] isEqual:@"legacy"]);
         for (id invalid in @[@"", @"unknown", @42, @[]]) {

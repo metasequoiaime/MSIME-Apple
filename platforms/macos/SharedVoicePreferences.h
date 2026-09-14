@@ -46,6 +46,7 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"start_sound": @"StartSound", @"end_sound": @"EndSound",
         @"sound_enabled": @"SoundEnabled", @"mute_system_audio": @"MuteSystemAudio",
         @"stream_inline_preedit": @"StreamInlinePreedit", @"polish_enabled": @"Polish",
+        @"polish_text": @"PolishText",
         @"doubao_enable_itn": @"DoubaoEnableITN",
         @"doubao_enable_punc": @"DoubaoEnablePunctuation",
         @"doubao_enable_ddc": @"DoubaoEnableDDC",

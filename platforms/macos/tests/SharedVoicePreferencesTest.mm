@@ -19,7 +19,7 @@ int main() {
             @"polish_prompt": @"fixture", @"polish_prompt_custom_1": @"one",
             @"polish_prompt_custom_2": @"two", @"polish_prompt_custom_3": @"three",
             @"sound_enabled": @NO, @"mute_system_audio": @YES, @"stream_inline_preedit": @NO,
-            @"polish_enabled": @YES, @"hotkey_ctrl_f9": @NO,
+            @"polish_enabled": @YES, @"polish_text": @YES, @"hotkey_ctrl_f9": @NO,
             @"hotkey_hold_space_lock": @NO, @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
         };
         MSIMEApplySharedVoicePreferences(voice, defaults);
@@ -30,6 +30,7 @@ int main() {
         assert([[defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] isEqual:voice[@"asr_endpoint"]]);
         assert([[defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] isEqual:@"three"]);
         assert([defaults boolForKey:@"MSIMEClientVoicePolish"]);
+        assert([defaults boolForKey:@"MSIMEClientVoicePolishText"]);
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]);
         assert(![defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]);
         NSDictionary *saved = [defaults persistentDomainForName:suite];
@@ -39,14 +40,15 @@ int main() {
         MSIMEApplySharedVoicePreferences(NSNull.null, defaults);
         MSIMEApplySharedVoicePreferences(@[], defaults);
         MSIMEApplySharedVoicePreferences(@{@"asr_token": NSNull.null, @"capture_device": @42,
-                                           @"polish_enabled": @0, @"sound_enabled": @"true",
+                                           @"polish_enabled": @0, @"polish_text": @1, @"sound_enabled": @"true",
                                            @"enabled": @"true", @"hotkey_rctrl_ralt": @0}, defaults);
         assert([[defaults persistentDomainForName:suite] isEqual:saved]);
         MSIMEApplySharedVoicePreferences(@{@"capture_device": @"", @"asr_token": @"",
-                                           @"polish_enabled": @NO}, defaults);
+                                           @"polish_enabled": @NO, @"polish_text": @NO}, defaults);
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"] isEqual:@""]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceASRToken"] isEqual:@""]);
         assert(![defaults boolForKey:@"MSIMEClientVoicePolish"]);
+        assert(![defaults boolForKey:@"MSIMEClientVoicePolishText"]);
         MSIMEApplySharedVoicePreferences(@{@"enabled": @YES, @"hotkey_rctrl_ralt": @NO}, defaults);
         assert(MSIMEVoiceInputEnabled(defaults));
         assert(![defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);

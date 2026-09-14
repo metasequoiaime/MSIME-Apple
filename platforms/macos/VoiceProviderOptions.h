@@ -11,6 +11,7 @@ static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUse
     else
         [result removeObjectForKey:@"doubao_auth_mode"];
     NSArray *options = @[
+        @[@"polish_text", @"MSIMEClientVoicePolishText", @NO],
         @[@"doubao_enable_itn", @"MSIMEClientVoiceDoubaoEnableITN", @YES],
         @[@"doubao_enable_punc", @"MSIMEClientVoiceDoubaoEnablePunctuation", @YES],
         @[@"doubao_enable_ddc", @"MSIMEClientVoiceDoubaoEnableDDC", @NO]
