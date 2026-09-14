@@ -102,6 +102,11 @@ $pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
 $appIcon = Join-Path $iconSource 'Metasequoia.ico'
 $thirdPartyNotices = Join-Path $RepoRoot (Join-Path $NoticesDirectory 'THIRD_PARTY_NOTICES.txt')
+$collectedNotices = Join-Path $RepoRoot 'target/windows-notices/THIRD_PARTY_NOTICES.txt'
+if (-not $PSBoundParameters.ContainsKey('NoticesDirectory') -and
+    (Test-Path -LiteralPath $collectedNotices -PathType Leaf)) {
+    $thirdPartyNotices = $collectedNotices
+}
 $license = Join-Path $RepoRoot 'LICENSE'
 $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
     $DesktopResourcesDirectory

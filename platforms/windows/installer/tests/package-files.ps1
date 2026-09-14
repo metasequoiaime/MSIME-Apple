@@ -262,6 +262,15 @@ try {
             throw 'Explicit TSF directory override was ignored'
         }
     }
+    Write-Fixture 'target/windows-notices/THIRD_PARTY_NOTICES.txt' 'synthetic collected notices'
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory 'server/build-release/bin/Release'
+    if ([IO.File]::ReadAllText((Join-Path $installer 'THIRD_PARTY_NOTICES.txt')) -ne 'synthetic collected notices') {
+        throw 'Collected notice default not selected'
+    }
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory 'server/build-release/bin/Release' -NoticesDirectory .
+    if ([IO.File]::ReadAllText((Join-Path $installer 'THIRD_PARTY_NOTICES.txt')) -ne 'fixture') {
+        throw 'Explicit notice directory override ignored'
+    }
     if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Legacy HTML reappeared in staging' }
     Write-Host 'Full/light package contracts, provenance, exclusions and failure staging passed'
 } finally {
