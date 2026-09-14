@@ -151,7 +151,7 @@ extension BackendAccountClient: DesktopSnapshotAPI {}
     case "snapshot_discard":
       guard let id = request["token"] as? String, id == preview?.token else { throw BackendAccountClient.Failure(status: 400) }
       preview = nil; return ["discarded":true]
-    case "snapshot_restore", "snapshot_restore_prepared":
+    case "snapshot_restore_native", "snapshot_restore", "snapshot_restore_prepared":
       guard let selected = preview, selected.target == nil, request["token"] as? String == selected.token else { throw BackendAccountClient.Failure(status: 400) }
       // Consume before network mutation: an uncertain acknowledgement is never retried.
       preview = nil

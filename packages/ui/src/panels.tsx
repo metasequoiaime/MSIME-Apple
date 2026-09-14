@@ -65,7 +65,8 @@ export type CloudDictionaryAction =
   | { operation: "snapshot_preview" }
   | { operation: "snapshot_export" }
   | { operation: "snapshot_restore_preview"; text: string }
-  | { operation: "snapshot_restore"; text?: string; expected_sha256?: string; revision?: number; token?: string }
+  | { operation: "snapshot_restore"; text: string; expected_sha256: string; revision: number }
+  | { operation: "snapshot_restore_native"; token: string }
   | { operation: "snapshot_enqueue"; token: string }
   | { operation: "snapshot_status" }
   | { operation: "snapshot_cancel" }
@@ -1195,7 +1196,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setSnapshotBusy(true);
     try {
       const result = await client.request(client.snapshotNative
-        ? { operation: "snapshot_restore", token: prepared.text }
+        ? { operation: "snapshot_restore_native", token: prepared.text }
         : { operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
       setRestorePreview(null);
       setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());

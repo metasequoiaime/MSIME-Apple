@@ -11,6 +11,7 @@ pub enum CloudDictionaryRequest {
         expected_sha256: String,
         revision: i64,
     },
+    SnapshotRestoreNative { token: String },
     SnapshotEnqueue { token: String },
     SnapshotStatus,
     SnapshotCancel,
@@ -172,6 +173,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             } else {
                 Err("invalid cloud dictionary request")
             }
+        }
+        CloudDictionaryRequest::SnapshotRestoreNative { token } => {
+            if valid_token(token) { Ok(()) } else { Err("invalid cloud dictionary request") }
         }
         CloudDictionaryRequest::SnapshotEnqueue { token } => {
             if valid_token(token) {
@@ -458,6 +462,10 @@ mod tests {
             revision: 0,
         })
         .is_err());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestoreNative {
+            token: "native-preview-token".into(),
+        })
+        .is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotEnqueue {
             token: "a-token".into(),
         })
