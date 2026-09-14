@@ -35,5 +35,18 @@ int main() {
          MSIME_NEXT_PAGE);
   assert(bindings.command(msime::linux_host::kTouchKeyboardPreviousPage, true) ==
          MSIME_PREVIOUS_PAGE);
+
+  const auto malformed_array = nlohmann::json{
+      {"navigation", nlohmann::json::array({"invalid"})}};
+  const auto fallback_array =
+      msime::linux_host::NavigationBindings::read(malformed_array);
+  assert(fallback_array.tab && fallback_array.page_up_down &&
+         fallback_array.arrows && !fallback_array.mouse_wheel);
+  const auto malformed_scalar =
+      nlohmann::json{{"navigation", nlohmann::json("invalid")}};
+  const auto fallback_scalar =
+      msime::linux_host::NavigationBindings::read(malformed_scalar);
+  assert(fallback_scalar.minus_equal && fallback_scalar.comma_period &&
+         !fallback_scalar.brackets);
   return 0;
 }

@@ -34,7 +34,8 @@ struct NavigationBindings {
   bool arrows = true;
 
   static NavigationBindings read(const nlohmann::json &preferences) {
-    if (!preferences.contains("navigation"))
+    if (!preferences.is_object() || !preferences.contains("navigation") ||
+        !preferences.at("navigation").is_object())
       return {};
     const auto &value = preferences.at("navigation");
     const auto get = [&](const char *key, bool fallback) {
