@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "水杉输入法",
+  "identifier": "com.metasequoiaime.client",
+  "bundle": {
+    "iOS": {
+      "minimumSystemVersion": "16.0"
+    }
+  }
+}

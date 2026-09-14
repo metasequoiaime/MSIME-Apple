@@ -3846,6 +3846,22 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     }
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_host_options_document(
+    contents: Option<&str>,
+    resources: &std::path::Path,
+    state_root: &std::path::Path,
+) -> Result<Value, String> {
+    match contents {
+        Some(contents) => serde_json::from_str(contents)
+            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_owned()),
+        None => Ok(serde_json::json!({
+            "resources": resources.to_string_lossy(),
+            "state_root": state_root.to_string_lossy(),
+        })),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -3968,7 +3984,9 @@ pub fn run() {
                 .path()
                 .app_data_dir()?
                 .join("files/runtime-options.json");
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_os = "ios")]
+            let host_options_path = directory.join("runtime-options.json");
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             let host_options_path = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
@@ -4000,7 +4018,22 @@ pub fn run() {
                         Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
                     }
                 }
-                #[cfg(not(target_os = "android"))]
+                #[cfg(target_os = "ios")]
+                {
+                    let resources = app.path().resource_dir()?.join("EngineResources");
+                    match fs::read_to_string(&host_options_path) {
+                        Ok(host_options) => ios_host_options_document(
+                            Some(&host_options),
+                            &resources,
+                            &directory,
+                        )?,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            ios_host_options_document(None, &resources, &directory)?
+                        }
+                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
+                    }
+                }
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 {
                     let host_options = fs::read_to_string(&host_options_path)
                         .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
@@ -4202,6 +4235,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
+        let document = super::ios_host_options_document(
+            None,
+            std::path::Path::new("/fixture/resources"),
+            std::path::Path::new("/fixture/shared-state"),
+        )
+        .expect("first-run options");
+        assert_eq!(document["resources"], "/fixture/resources");
+        assert_eq!(document["state_root"], "/fixture/shared-state");
+    }
+
+    #[test]
+    fn ios_prepared_host_options_are_preserved_and_malformed_json_is_rejected() {
+        let prepared = r#"{"resources":"/prepared","state_root":"/state","api_version":1}"#;
+        let document = super::ios_host_options_document(
+            Some(prepared),
+            std::path::Path::new("/unused/resources"),
+            std::path::Path::new("/unused/state"),
+        )
+        .expect("prepared options");
+        assert_eq!(document["resources"], "/prepared");
+        assert_eq!(document["state_root"], "/state");
+        assert!(super::ios_host_options_document(
+            Some("{"),
+            std::path::Path::new("/unused/resources"),
+            std::path::Path::new("/unused/state"),
+        )
+        .is_err());
+    }
+
     #[test]
     fn macos_voice_devices_match_the_picker_and_exclude_outputs() {
         let document = serde_json::json!({
