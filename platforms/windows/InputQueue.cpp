@@ -203,6 +203,15 @@ InputState::apply_cloud_response(const FocusLease &lease,
   return owner ? owner->apply_cloud_response(lease, query, body)
                : std::nullopt;
 }
+std::optional<nlohmann::json>
+InputState::apply_ai_candidates(const FocusLease &lease,
+                                 const std::string &query,
+                                 const std::string &candidates) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->apply_ai_candidates(lease, query, candidates)
+               : std::nullopt;
+}
 std::optional<std::string>
 InputState::translation_query(const FocusLease &lease) {
   check_thread();

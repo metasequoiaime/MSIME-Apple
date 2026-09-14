@@ -239,7 +239,8 @@ target_link_libraries(msime-windows-focused PUBLIC msime-windows-composer)
 add_library(msime-windows-input STATIC InputQueue.cpp)
 target_link_libraries(msime-windows-input PUBLIC msime-windows-focused)
 add_library(msime-windows-pump STATIC SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp
-            CloudCandidateWorker.cpp TranslationWorker.cpp)
+            CloudCandidateWorker.cpp TranslationWorker.cpp
+            AiCandidateWorker.cpp)
 target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl)
 target_link_libraries(windows-session-smoke PRIVATE msime-windows-pump)
 add_executable(windows-input-queue tests/input_queue.cpp)
