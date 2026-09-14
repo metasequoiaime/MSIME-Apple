@@ -244,6 +244,10 @@ void CandidateWindow::set_theme_palette(CandidatePalette palette) {
   set_palette(std::move(palette));
   invalidate_geometry();
 }
+void CandidateWindow::invalidate_skin_images() {
+  device_.ClearBitmapCache();
+  invalidate_geometry();
+}
 bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
   if (!settings.valid())
     return false;

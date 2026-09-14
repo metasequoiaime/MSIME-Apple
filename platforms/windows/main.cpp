@@ -3,6 +3,7 @@
 #include "VoiceTheme.h"
 #include "CandidateAppearance.h"
 #include "CandidateSkin.h"
+#include "SkinResourceRevision.h"
 #include "CandidateWindow.h"
 #include "ClipboardHistory.h"
 #include "DiagnosticListener.h"
@@ -907,6 +908,7 @@ int wmain(int argc, wchar_t **argv) {
     bool candidate_horizontal_applied = config.horizontal_candidates;
     std::string candidate_skin_applied = config.skin_id;
     uint64_t candidate_theme_check_at = 0;
+    SkinResourceRevision candidate_skin_revision;
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
@@ -1193,9 +1195,13 @@ int wmain(int argc, wchar_t **argv) {
       if (candidate_theme_dirty || candidate_horizontal != candidate_horizontal_applied ||
           theme_now >= candidate_theme_check_at) {
         candidate_theme_check_at = theme_now + 500;
+        const auto selected_skin = current_candidate_theme.value(
+            "candidate_skin", candidate_skin_applied);
+        const bool skin_resources_changed = candidate_skin_revision.changed(
+            config.skin_directory, selected_skin);
         const bool dark = candidate_theme_dark(current_candidate_theme,
                                                 system_prefers_dark());
-        if (candidate_theme_dirty || dark != candidate_dark_applied ||
+        if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
           auto theme_config = config;
           theme_config.skin_id = current_candidate_theme.value(
@@ -1207,8 +1213,9 @@ int wmain(int argc, wchar_t **argv) {
           if (config.candidate_selected_bar)
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
-          if (theme_config.skin_id != candidate_skin_applied) {
+          if (skin_resources_changed || theme_config.skin_id != candidate_skin_applied) {
             const auto assets = resolve_skin_assets(theme_config);
+            candidates.invalidate_skin_images();
             candidates.set_skin_min_width(assets.min_width);
             candidates.set_skin_decoration(assets.decoration.image,
                 assets.decoration.top_dip, assets.decoration.width_dip);

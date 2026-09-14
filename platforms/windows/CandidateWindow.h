@@ -47,6 +47,7 @@ public:
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
   void set_theme_palette(CandidatePalette palette);
+  void invalidate_skin_images();
   // Minimum card width asked for by the active skin package, in DIPs.
   void set_skin_min_width(double value) { skin_min_width_ = value; }
   // 候选窗口跟随光标. With this off the card keeps the position it first

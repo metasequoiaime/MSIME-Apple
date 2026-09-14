@@ -31,6 +31,8 @@ class DeviceResources
                                      DWRITE_TEXT_ALIGNMENT textAlignment, DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment,
                                      DWRITE_WORD_WRAPPING wordWrapping);
     ID2D1Bitmap *GetBitmapFromFile(const std::wstring &filePath, D2D1_SIZE_F *size = nullptr);
+    // UI thread only; drop file-backed images without discarding the device.
+    void ClearBitmapCache() { bitmapCache_.clear(); }
     bool UsesComposition() const;
 
   private:
