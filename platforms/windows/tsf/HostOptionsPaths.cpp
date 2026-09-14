@@ -1,4 +1,5 @@
 #include "HostOptionsPaths.h"
+#include "HostPathEncoding.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <chrono>
@@ -33,7 +34,7 @@ std::string default_state_directory() {
   if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData))) return {};
   std::filesystem::path state = std::filesystem::path(appData) / L"MSIME-Client";
   CoTaskMemFree(appData);
-  return state.u8string();
+  return path_to_utf8(state);
 }
 std::string default_host_options_json() {
   const auto state = default_state_directory();

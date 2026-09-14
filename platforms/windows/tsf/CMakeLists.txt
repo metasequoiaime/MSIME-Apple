@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 enable_testing()
+foreach(path_standard IN ITEMS 17 20)
+  add_executable(msime-tsf-host-path-${path_standard}-test tests/host_path_encoding.cpp)
+  set_target_properties(msime-tsf-host-path-${path_standard}-test PROPERTIES
+    CXX_STANDARD ${path_standard} CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+  if(MSVC)
+    target_compile_options(msime-tsf-host-path-${path_standard}-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+  else()
+    target_compile_options(msime-tsf-host-path-${path_standard}-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME msime-tsf-host-path-${path_standard} COMMAND msime-tsf-host-path-${path_standard}-test)
+endforeach()
 add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
