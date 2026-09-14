@@ -1,4 +1,5 @@
 #include "ServerLaunch.h"
+#include "ProductionPipeNames.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -45,6 +46,11 @@ int main() {
     require(parse({L"--watchdog-managed", L"extra"}).kind ==
             ServerLaunchKind::Invalid);
     require(parse({L"--PRODUCTION"}).kind == ServerLaunchKind::Invalid);
+
+    const auto production_pipes = production_pipe_names();
+    require(production_pipes[0] == FANY_IME_NAMED_PIPE);
+    require(production_pipes[1] == FANY_IME_TO_TSF_NAMED_PIPE);
+    require(production_pipes[2] == FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE);
 
     std::cout << "Server launch contract: watchdog and config forms accepted\n";
     return 0;

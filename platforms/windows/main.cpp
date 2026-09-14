@@ -18,6 +18,7 @@
 #include "PreviewConfig.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "ProductionPipeNames.h"
 #include "ServerLaunch.h"
 #include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
@@ -614,12 +615,8 @@ int wmain(int argc, wchar_t **argv) {
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
     WindowsServerOptions options;
-    options.pipes.names = production
-                              ? std::array<std::wstring, 3>{
-                                    FANY_IME_NAMED_PIPE,
-                                    FANY_IME_TO_TSF_NAMED_PIPE,
-                                    FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE}
-                              : config.pipe_names();
+    options.pipes.names = production ? production_pipe_names()
+                                     : config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
