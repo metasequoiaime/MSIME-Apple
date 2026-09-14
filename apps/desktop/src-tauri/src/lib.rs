@@ -163,7 +163,36 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
         )
         .map_err(|_| CommandError { code: "audio_devices" });
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("system_profiler")
+            .args(["SPAudioDataType", "-json"])
+            .output()
+            .map_err(|_| CommandError { code: "audio_devices" })?;
+        if !output.status.success() {
+            return Err(CommandError { code: "audio_devices" });
+        }
+        let document: Value = serde_json::from_slice(&output.stdout)
+            .map_err(|_| CommandError { code: "audio_devices" })?;
+        let mut devices = Vec::new();
+        fn collect(value: &Value, devices: &mut Vec<Value>) {
+            if let Some(object) = value.as_object() {
+                if let Some(name) = object.get("_name").and_then(Value::as_str) {
+                    let id = object
+                        .get("coreaudio_device_uid")
+                        .and_then(Value::as_str)
+                        .unwrap_or(name);
+                    devices.push(serde_json::json!({ "id": id, "name": name }));
+                }
+                for child in object.values() { collect(child, devices); }
+            } else if let Some(array) = value.as_array() {
+                for child in array { collect(child, devices); }
+            }
+        }
+        collect(&document, &mut devices);
+        return Ok(Value::Array(devices));
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     Err(CommandError { code: "unavailable" })
 }
 
