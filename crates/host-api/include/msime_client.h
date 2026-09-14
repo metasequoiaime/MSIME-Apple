@@ -166,6 +166,9 @@ char *msime_client_focus(uint64_t session, bool focused);
 char *msime_client_reset_cache(uint64_t session);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
+/* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
+ * must never be logged or persisted. */
+char *msime_client_voice_capture(uint32_t milliseconds);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
 /* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
