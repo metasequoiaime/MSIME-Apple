@@ -16,5 +16,7 @@ typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
 - (void)showFailure:(MSIMEVoiceFailure)failure;
 - (void)dismissFailure;
 - (void)setInputLevel:(float)level;
+- (void)setTranscript:(NSString *)text;
 @property(nonatomic, readonly, copy) NSString *statusText;
+@property(nonatomic, readonly, copy) NSString *transcriptText;
 @end

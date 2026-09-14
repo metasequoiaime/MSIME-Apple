@@ -1034,6 +1034,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 [(id<MSIMETextClient>)controller->_doubaoVoiceClient setMarkedText:text selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
                 controller->_doubaoVoiceMarked = YES;
             }
+            if (!controller->_doubaoVoiceInline && text.length <= 65536) [controller->_voiceOverlay setTranscript:text ?: @""];
             return; // Partial text must not consume the runtime's final-only token.
         }
         controller->_doubaoFinalReceived = YES;
@@ -1048,6 +1049,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 [controller voiceCaptureDidEnd];
             }
             [controller->_voiceOverlay setProcessing:YES];
+            if (!controller->_doubaoVoiceInline) [controller->_voiceOverlay setTranscript:text];
         }
         if (text.length && polisher && [polisher polishText:text completion:^(NSString *polished, NSError *polishError) {
             [weakSelf applyDoubaoFinalText:!polishError && polished.length ? polished : text request:liveRequest];
@@ -1239,6 +1241,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             [(id<MSIMETextClient>)_liveVoiceClient setMarkedText:text ?: @"" selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
             _liveVoiceMarked = YES;
         }
+        if (!_liveVoiceInline && text.length <= 65536) [_voiceOverlay setTranscript:text ?: @""];
         return;
     }
     _liveVoiceFinalReceived = YES;
@@ -1248,6 +1251,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!_liveVoiceProcessing) [self finishLiveVoiceInput];
         [_voiceService stopTranscription];
         [_voiceOverlay setProcessing:YES];
+        if (!_liveVoiceInline) [_voiceOverlay setTranscript:text];
         NSString *original = [text copy];
         __weak MSIMEInputController *weakSelf = self;
         if ([_livePolishRequest polishText:original completion:^(NSString *polished, NSError *error) {

@@ -11,12 +11,18 @@
     [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:10 yRadius:10] fill];
     [[NSColor systemBlueColor] setFill];
     CGFloat height = self.listening ? MAX(3, MIN(28, self.level * 28)) : 6;
-    NSRectFill(NSMakeRect(16, (self.bounds.size.height - height) / 2, 6, height));
-    [self.status drawInRect:NSMakeRect(34, 12, self.bounds.size.width - 42, 20)
+    NSRectFill(NSMakeRect(16, self.bounds.size.height - 22 - height / 2, 6, height));
+    [self.status drawInRect:NSMakeRect(34, self.bounds.size.height - 32, self.bounds.size.width - 42, 20)
         withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13], NSForegroundColorAttributeName:NSColor.whiteColor}];
 }
 @end
-@implementation MSIMEVoiceWaveOverlay { MSIMEVoiceWaveView *_view; NSUInteger _presentationGeneration; BOOL _showingFailure; }
+@implementation MSIMEVoiceWaveOverlay {
+    MSIMEVoiceWaveView *_view;
+    NSScrollView *_transcriptScroll;
+    NSTextView *_transcriptView;
+    NSUInteger _presentationGeneration;
+    BOOL _showingFailure;
+}
 - (instancetype)init {
     self = [super initWithContentRect:NSMakeRect(0,0,156,44)
         styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
@@ -25,31 +31,66 @@
         self.level = NSFloatingWindowLevel; self.ignoresMouseEvents = YES;
         self.floatingPanel = YES; self.hidesOnDeactivate = NO;
         _view = [MSIMEVoiceWaveView new]; _view.status = @""; self.contentView = _view;
+        _transcriptScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        _transcriptScroll.drawsBackground = NO; _transcriptScroll.hasVerticalScroller = YES;
+        _transcriptScroll.autohidesScrollers = YES; _transcriptScroll.hidden = YES;
+        _transcriptView = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,340,120)];
+        _transcriptView.editable = NO; _transcriptView.selectable = NO;
+        _transcriptView.richText = NO; _transcriptView.drawsBackground = NO;
+        _transcriptView.textColor = NSColor.whiteColor; _transcriptView.font = [NSFont systemFontOfSize:13];
+        _transcriptView.verticallyResizable = YES; _transcriptView.horizontallyResizable = NO;
+        _transcriptView.autoresizingMask = NSViewWidthSizable;
+        _transcriptView.textContainer.widthTracksTextView = YES;
+        _transcriptView.textContainer.containerSize = NSMakeSize(340, CGFLOAT_MAX);
+        _transcriptView.maxSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
+        _transcriptScroll.documentView = _transcriptView; [_view addSubview:_transcriptScroll];
     }
     return self;
 }
 - (NSString *)statusText { return _view.status; }
+- (NSString *)transcriptText { return _transcriptView.string; }
+- (void)layoutPresentation {
+    const BOOL transcript = _transcriptView.string.length > 0;
+    NSRect frame = self.frame;
+    CGFloat center = NSMidX(frame);
+    frame.size.width = MAX(transcript ? 380 : 156, ceil([_view.status sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width) + 50);
+    frame.size.height = transcript ? 180 : 44;
+    frame.origin.x = center - frame.size.width / 2;
+    [self setFrame:frame display:NO];
+    _transcriptScroll.hidden = !transcript;
+    _transcriptScroll.frame = NSMakeRect(12, 12, frame.size.width - 24, MAX(0, frame.size.height - 56));
+    // Only the scrollable preview handles pointer events; this panel still
+    // cannot become key/main or redirect typing away from the IMK client.
+    self.ignoresMouseEvents = !transcript;
+    [_view setNeedsDisplay:YES];
+}
+- (void)setTranscript:(NSString *)text {
+    if (!self.visible || _showingFailure || ![text isKindOfClass:NSString.class] || text.length > 65536) return;
+    _transcriptView.string = [text copy];
+    [self layoutPresentation];
+    [_transcriptView scrollRangeToVisible:NSMakeRange(text.length, 0)];
+}
 - (void)showStatus:(NSString *)status listening:(BOOL)listening {
     ++_presentationGeneration;
     _showingFailure = NO;
     _view.listening = listening; _view.level = 0; _view.status = status;
     _view.accessibilityLabel = status; [_view setNeedsDisplay:YES];
+    [self layoutPresentation];
     if (!status.length) { [self orderOut:nil]; return; }
-    NSRect frame = self.frame;
-    CGFloat center = NSMidX(frame);
-    frame.size.width = MAX(156, ceil([status sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13]}].width) + 50);
-    frame.origin.x = center - frame.size.width / 2;
-    [self setFrame:frame display:NO];
     if (!self.visible) {
         NSRect screen = (NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
         [self setFrameOrigin:NSMakePoint(NSMidX(screen) - self.frame.size.width / 2, NSMinY(screen) + 32)];
     }
     [self orderFront:nil];
 }
-- (void)setListening:(BOOL)listening { [self showStatus:listening ? @"正在录音…" : @"" listening:listening]; }
+- (void)setListening:(BOOL)listening {
+    _transcriptView.string = @"";
+    [self showStatus:listening ? @"正在录音…" : @"" listening:listening];
+}
 - (void)setProcessing:(BOOL)polishing { [self showStatus:polishing ? @"正在润色…" : @"正在识别…" listening:NO]; }
 - (NSTimeInterval)failureDisplayDuration { return 6; }
 - (void)showFailure:(MSIMEVoiceFailure)failure {
+    _transcriptView.string = @"";
     // Never surface raw transport errors, transcripts, URLs or credentials.
     NSString *message;
     switch (failure) {
