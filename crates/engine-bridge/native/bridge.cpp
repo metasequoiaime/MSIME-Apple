@@ -98,6 +98,18 @@ rust::Vec<rust::String> capture_device_names() {
     return names;
 #endif
 }
+rust::Vec<CaptureDevice> capture_devices() {
+    rust::Vec<CaptureDevice> devices;
+#if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+    for (const auto &device : metasequoia::voice::AudioCapture::devices()) {
+        CaptureDevice value;
+        value.id = device.id;
+        value.label = device.label;
+        devices.push_back(std::move(value));
+    }
+#endif
+    return devices;
+}
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
     for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));

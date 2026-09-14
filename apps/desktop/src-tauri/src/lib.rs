@@ -211,18 +211,26 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     }
     #[cfg(target_os = "windows")]
     {
+        let devices = tauri::async_runtime::spawn_blocking(msime_host_api::voice_capture_devices)
+            .await
+            .map_err(|_| CommandError {
+                code: "audio_devices",
+            })?;
         serde_json::to_value(
-            msime_host_api::voice_capture_device_names()
+            devices
                 .into_iter()
-                .enumerate()
-                .map(|(index, name)| serde_json::json!({
-                    "backend": "windows",
-                    "id": index.to_string(),
-                    "label": name
-                }))
+                .map(|(id, label)| {
+                    serde_json::json!({
+                        "backend": "windows",
+                        "id": id,
+                        "label": label
+                    })
+                })
                 .collect::<Vec<_>>(),
         )
-        .map_err(|_| CommandError { code: "audio_devices" })
+        .map_err(|_| CommandError {
+            code: "audio_devices",
+        })
     }
     #[cfg(target_os = "macos")]
     {

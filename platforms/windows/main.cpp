@@ -659,6 +659,7 @@ int wmain(int argc, wchar_t **argv) {
           publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
+          next.capture = voice_capture_selection(input);
           next.enabled = input.value("enabled", true);
           next.start_sound = input.value("start_sound", true);
           next.end_sound = input.value("end_sound", true);

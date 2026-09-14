@@ -10,6 +10,10 @@ pub use dictionary_stage::{stage_dictionary_state, DictionaryStateRecord, Snapsh
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    struct CaptureDevice {
+        id: String,
+        label: String,
+    }
     extern "Rust" {
         type DictionaryRevision;
         fn text(self: &mut DictionaryRevision, value: &str);
@@ -179,6 +183,7 @@ mod ffi {
         /// means the host could not open a capture device.
         fn capture_audio(milliseconds: u32) -> Vec<f32>;
         fn capture_device_names() -> Vec<String>;
+        fn capture_devices() -> Vec<CaptureDevice>;
         fn dictionary_entries(
             options: &EngineOptions,
             offset: usize,
@@ -320,8 +325,8 @@ mod ffi {
 }
 
 pub use ffi::{
-    DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem, EngineOptions, EngineResult,
-    EngineSnapshot, HandwritingPoint, OnlineQuerySnapshot,
+    CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem,
+    EngineOptions, EngineResult, EngineSnapshot, HandwritingPoint, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -348,6 +353,11 @@ pub fn capture_audio(milliseconds: u32) -> Vec<f32> {
 /// Enumerate capture devices without opening one or exposing device handles.
 pub fn capture_device_names() -> Vec<String> {
     ffi::capture_device_names()
+}
+
+/// Backend-qualified endpoint identities and display labels; never log them.
+pub fn capture_devices() -> Vec<ffi::CaptureDevice> {
+    ffi::capture_devices()
 }
 
 /// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the

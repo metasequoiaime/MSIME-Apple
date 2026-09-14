@@ -229,6 +229,8 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
   VoiceInputConfig config = config_provider_();
+  if (!config.capture.supported())
+    return false;
   if (review)
     config.language = std::string(language);
   const bool doubao = is_doubao_asr_provider(config.asr_provider);
@@ -337,7 +339,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
     }
     samples_.insert(samples_.end(), samples, samples + frames);
     captured_frames_ += frames;
-  });
+  }, config.capture.device_id);
   if (!started) {
     std::shared_ptr<DoubaoAsrClient> client;
     {

@@ -63,6 +63,14 @@ pub fn voice_capture_device_names() -> Vec<String> {
     msime_engine_bridge::capture_device_names()
 }
 
+/// Capture endpoint identities paired with labels. Neither belongs in logs.
+pub fn voice_capture_devices() -> Vec<(String, String)> {
+    msime_engine_bridge::capture_devices()
+        .into_iter()
+        .map(|device| (device.id, device.label))
+        .collect()
+}
+
 /// Capture bounded mono 16 kHz PCM for a platform host.
 pub fn voice_capture_pcm(milliseconds: u32) -> Result<Vec<f32>, &'static str> {
     if !(1..=60_000).contains(&milliseconds) {

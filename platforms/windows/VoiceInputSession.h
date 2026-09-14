@@ -1,5 +1,6 @@
 #pragma once
 #include "VoiceReviewResult.h"
+#include "VoiceCaptureSelection.h"
 #include "VoiceSessionEpoch.h"
 
 #include "FocusGate.h"
@@ -23,6 +24,7 @@ class AudioCapture;
 
 namespace msime::windows {
 struct VoiceInputConfig {
+  VoiceCaptureSelection capture;
   bool enabled = true;
   bool start_sound = true;
   bool end_sound = true;
