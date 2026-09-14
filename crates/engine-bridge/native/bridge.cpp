@@ -5,6 +5,7 @@
 #define MSIME_HAS_HANDWRITING_CANDIDATES 0
 #endif
 #include "bridge.h"
+#include <msime/voice/audio_capture.h>
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
 #include <user_dictionary/user_dictionary_journal.h>
@@ -12,12 +13,15 @@
 #include <metasequoia/handwriting.h>
 #endif
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
 #include <type_traits>
 #include <limits>
+#include <mutex>
+#include <condition_variable>
 #include <filesystem>
 #include "../../vendor/MSIME-Engine/contracts/assets/assets.h"
 #include "../../vendor/MSIME-Engine/english/english_dictionary.h"
@@ -30,6 +34,33 @@
 #include <string_view>
 
 namespace msime {
+
+rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
+    rust::Vec<float> samples;
+    if (milliseconds == 0 || milliseconds > 60000) return samples;
+    metasequoia::voice::AudioCapture capture;
+    std::mutex mutex;
+    std::condition_variable done;
+    bool failed = false;
+    std::size_t maximum = 16000u * milliseconds / 1000u;
+    auto callback = [&](const float *input, std::size_t frames) {
+        std::lock_guard lock(mutex);
+        if (samples.size() + frames > maximum) frames = maximum - samples.size();
+        for (std::size_t index = 0; index < frames; ++index) {
+            samples.push_back(input[index]);
+        }
+        if (samples.size() >= maximum) done.notify_one();
+    };
+    if (!capture.start(callback)) return samples;
+    std::unique_lock lock(mutex);
+    done.wait_for(lock, std::chrono::milliseconds(milliseconds), [&] {
+        return samples.size() >= maximum;
+    });
+    capture.stop();
+    failed = capture.callback_failed();
+    if (failed) samples.clear();
+    return samples;
+}
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
     for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));

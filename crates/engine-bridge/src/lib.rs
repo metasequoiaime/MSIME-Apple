@@ -174,6 +174,10 @@ mod ffi {
             sink: &mut DictionaryRevision,
         ) -> Result<()>;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        /// Capture bounded mono 16 kHz PCM samples through the Engine's
+        /// platform-neutral AudioCapture implementation. An empty result
+        /// means the host could not open a capture device.
+        fn capture_audio(milliseconds: u32) -> Vec<f32>;
         fn dictionary_entries(
             options: &EngineOptions,
             offset: usize,
@@ -321,6 +325,13 @@ pub fn dictionary_entries(
     limit: usize,
 ) -> Result<DictionaryPage, cxx::Exception> {
     ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Capture bounded mono 16 kHz samples through the pinned Engine audio layer.
+/// An empty vector indicates that capture could not be started or produced no
+/// samples; the caller owns session cancellation and provider transport.
+pub fn capture_audio(milliseconds: u32) -> Vec<f32> {
+    ffi::capture_audio(milliseconds)
 }
 
 /// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the
