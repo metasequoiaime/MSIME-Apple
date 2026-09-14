@@ -57,7 +57,9 @@ redistribution and dynamically loaded modules outside those prefixes still need
 explicit provisioning and verification. Distribution must retain the licenses
 for supplied dependency packages; prefix collection is not a license audit.
 
-The legacy `installer/test.ps1` and `test-light.ps1` are not yet migrated to this
-entry and should not be used as Client build verification. Legacy asset removal,
-full dependency closure and Windows build/installation verification remain
-unfinished.
+`installer/test.ps1` and `test-light.ps1` now call this entry through the shared
+local install workflow. They require both dependency prefixes and an explicit
+notice directory, then stage, self-sign, compile and launch the installer. Use
+this build-only entry when those local-machine side effects are not intended.
+See installer/LocalInstall.md for scope and verification limits. Full dependency
+closure and Windows build/installation verification remain unfinished.
