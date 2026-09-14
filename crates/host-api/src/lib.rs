@@ -1,6 +1,7 @@
 //! Versioned, thread-confined C interface for native IME hosts.
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
+use msime_client_core::ai::AiSuggestionRequest;
 use msime_client_core::dictionary_access::DictionaryAccess;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
 pub mod cloud_clipboard;
@@ -1939,6 +1940,50 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
             value["ai_assistant"] =
                 serde_json::to_value(session.ai_provider_config()).map_err(|e| e.to_string())?;
             Ok(value)
+        })
+    })
+}
+
+/// Build a validated AI HTTP descriptor for a copied OnlineQuery.
+/// Credentials stay inside the host session; only the returned descriptor is
+/// consumed by the platform transport worker and the query must still match
+/// the current AI preferences.
+/// # Safety
+/// `query` references `query_length` readable UTF-8 JSON bytes. No buffers are retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ai_request_for_query(
+    handle: u64,
+    query: *const u8,
+    query_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || query_length > 16384 {
+            return Err("invalid AI query buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        with_session(handle, |session| {
+            if !query.ai_eligible || !session.ai_query_is_current(&query) {
+                return Ok(Value::Null);
+            }
+            let preferences = session
+                .requested
+                .as_ref()
+                .map(|snapshot| &snapshot.preferences)
+                .unwrap_or(&session.applied);
+            let request = AiSuggestionRequest {
+                segmented_pinyin: query.pinyin_segments,
+                context: query.ai_context,
+                candidate_limit: query
+                    .ai_assistant
+                    .as_ref()
+                    .map_or(3, |config| config.candidate_limit),
+            };
+            msime_client_core::ai::chat_completion_http_request(preferences, &request)
+                .map(|value| value.unwrap_or(Value::Null))
+                .map_err(|error| error.to_string())
         })
     })
 }
@@ -4540,6 +4585,17 @@ mod tests {
         let original = read(msime_client_online_query(handle))["value"].clone();
         assert_eq!(original["ai_eligible"], true);
         assert!(!original.to_string().contains("synthetic-private"));
+        let original_bytes = original.to_string();
+        let descriptor = read(unsafe {
+            msime_client_ai_request_for_query(
+                handle,
+                original_bytes.as_ptr(),
+                original_bytes.len(),
+            )
+        });
+        assert_eq!(descriptor["ok"], true);
+        assert_eq!(descriptor["value"]["method"], "POST");
+        assert_eq!(descriptor["value"]["headers"]["Content-Type"], "application/json");
         for revision in 1..=5 {
             let old = read(msime_client_online_query(handle))["value"].clone();
             match revision {

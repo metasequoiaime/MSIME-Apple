@@ -7,6 +7,7 @@
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
+#include <user_dictionary/user_dictionary_journal.h>
 #if !defined(__ANDROID__) && MSIME_HAS_HANDWRITING_CANDIDATES
 #include <metasequoia/handwriting.h>
 #endif
@@ -408,6 +409,12 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
     if (!replacement.empty()) after = entry_for(replacement[0]);
     auto result = metasequoia::edit_personal_dictionary(paths_for(options), before, after, std::string(request_id));
     if (!result.success) throw std::runtime_error(result.error);
+}
+DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
+                                                rust::Str english_db_path) {
+    const auto result = user_dictionary::replay(std::string(user_db_path), std::string(main_db_path),
+                                                std::string(english_db_path));
+    return {result.applied, result.skipped, result.failed, rust::String(result.error)};
 }
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),

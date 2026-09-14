@@ -43,6 +43,8 @@ VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --x-manifest-root="$repo_root/platforms/windows" --x-install-root="$deps_root"
 env "MSIME_WINDOWS_DEPS=$prefix" "$linker_var=$compiler-gcc" \
   cargo build --locked -p msime-host-api --target "$triple"
+env "MSIME_WINDOWS_DEPS=$prefix" "$linker_var=$compiler-gcc" \
+  cargo build --locked -p msime-engine-bridge --bin MetasequoiaImeDictionaryReplay --target "$triple"
 output="$repo_root/target/windows-full/$arch"
 cmake -S platforms/windows -B "$output" \
   -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$compiler-g++" \
@@ -51,4 +53,6 @@ cmake -S platforms/windows -B "$output" \
   -DMSIME_HOST_LIBRARY="$repo_root/target/$triple/debug/libmsime_host_api.dll.a"
 cmake --build "$output" --parallel 4
 cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output"
+cmake -E copy_if_different \
+  "$repo_root/target/$triple/debug/MetasequoiaImeDictionaryReplay.exe" "$output"
 echo "Full $arch Windows GNU host DLL and native tests linked; Windows execution not performed; MinGW runtime DLLs are not bundled."

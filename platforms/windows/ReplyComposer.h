@@ -29,6 +29,9 @@ struct PendingReply {
   // A copied, bounded query for the optional asynchronous cloud provider.
   // It is submitted only after this reply has been delivered and confirmed.
   std::optional<std::string> online_query = std::nullopt;
+  // A host-owned AI HTTP descriptor for the copied query. Credentials are
+  // resolved inside ServerSession and consumed only by the native worker.
+  std::optional<std::string> ai_request = std::nullopt;
   // A copied, bounded candidate-translation query, submitted after delivery.
   std::optional<std::string> translation_query = std::nullopt;
   bool traditional_output = false;
