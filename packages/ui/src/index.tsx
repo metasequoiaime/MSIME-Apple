@@ -759,6 +759,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
+  const macosPlatform = client.host?.platform === "macos";
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -1963,15 +1964,15 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             polish_provider: voiceInput.polish_provider ?? "siliconflow", polish_model: voiceInput.polish_model ?? "",
           }, !(voiceInput.polish_text === true || voiceInput.polish_enabled === true))}
         </div>}
-        {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
+        {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : macosPlatform ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消，Ctrl+F9 切换录音。首次授权后请重新按键。" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
           {([[
             "hotkey_ctrl_f9", "Ctrl+F9 切换语音",
           ], [
-            "hotkey_ralt", "右 Alt 切换语音",
+            "hotkey_ralt", macosPlatform ? "按住右 Option 录音" : "右 Alt 切换语音",
           ], [
-            "hotkey_rctrl_ralt", "Ctrl+右 Alt 切换语音",
+            "hotkey_rctrl_ralt", macosPlatform ? "按住右 Control+右 Option 录音" : "Ctrl+右 Alt 切换语音",
           ], [
-            "hotkey_ctrl_win", "Ctrl+Win 切换语音",
+            "hotkey_ctrl_win", macosPlatform ? "按住 Control+Command 录音" : "Ctrl+Win 切换语音",
           ], [
             "hotkey_hold_space_lock", "空格锁定语音",
           ]] as const).map(([key, label]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={draft.voice_input?.[key] !== false} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}

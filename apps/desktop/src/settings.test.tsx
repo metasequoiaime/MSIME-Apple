@@ -10,6 +10,17 @@ import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel,
 
 afterEach(cleanup);
 
+test("macOS voice shortcuts use native key names and space-lock semantics", async () => {
+  render(<SettingsPage initialPage="voice" client={{ load: async () => initial, save: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities }} />);
+  await screen.findByRole("checkbox", { name: "按住右 Option 录音" });
+  expect(screen.getByRole("checkbox", { name: "按住右 Control+右 Option 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "按住 Control+Command 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "空格锁定语音" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "Ctrl+Win 切换语音" })).toBeNull();
+  expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
+});
+
 test("titlebar sits above the shared sidebar and content body", async () => {
   const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
     windowControl: vi.fn().mockResolvedValue(undefined) }} />);

@@ -5,9 +5,12 @@
 @property(copy) void (^transcript)(NSString *, BOOL);
 @property NSUInteger captureStops;
 @property NSUInteger transcriptionStops;
+@property BOOL needsMicrophonePermission;
+@property(copy) void (^permission)(BOOL);
 @end
 @implementation LiveCaptureFixture
-- (AVAuthorizationStatus)microphoneAuthorizationStatus { return AVAuthorizationStatusAuthorized; }
+- (AVAuthorizationStatus)microphoneAuthorizationStatus { return self.needsMicrophonePermission ? AVAuthorizationStatusNotDetermined : AVAuthorizationStatusAuthorized; }
+- (void)requestMicrophonePermission:(void (^)(BOOL))completion { self.permission = completion; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return SFSpeechRecognizerAuthorizationStatusAuthorized; }
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error {
     (void)language; (void)error; self.transcript = handler; return YES;
@@ -41,6 +44,7 @@
 @interface LiveControllerFixture : MSIMEInputController
 @end
 @implementation LiveControllerFixture
+- (void)ensureAppearance {}
 - (void)apply:(NSDictionary *)transition { MSIMEApplyTransition(transition, [self valueForKey:@"activeClient"]); }
 @end
 @interface LiveHostFixture : MSIMEClientSession
@@ -85,7 +89,7 @@ int main(int argc, char **) {
         for (NSString *key in @[@"voiceOverlay", @"voiceAudioMuter", @"voiceCuePlayer"]) [controller setValue:presentation forKey:key];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES} forName:NSArgumentDomain];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} forName:NSArgumentDomain];
         if (argc == 2) {
             session.providerDone = dispatch_semaphore_create(0);
             [controller toggleVoiceInput:nil];
@@ -138,6 +142,34 @@ int main(int argc, char **) {
         while ((!session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         assert(session.providerStops == 1 && session.providerCancels == 1);
+        auto key = [](unsigned short code, NSEventModifierFlags flags, NSEventType type) {
+            return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:code];
+        };
+        const auto option = NSEventModifierFlagOption | NX_DEVICERALTKEYMASK;
+        assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.active);
+        assert([controller handleEvent:key(49, option, NSEventTypeKeyDown) client:client]);
+        assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        assert([controller handleEvent:key(49, 0, NSEventTypeKeyUp) client:client]);
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.active && [[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        capture.transcript(@"locked final", YES);
+        assert(!capture.active && client.commits.count == 3 && [client.commits.lastObject isEqual:@"locked final"]);
+        assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        [controller cancelLiveVoiceInput];
+        [controller toggleVoiceInput:nil]; // A separately started recording owns a new generation.
+        assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        [controller cancelLiveVoiceInput];
+        capture.needsMicrophonePermission = YES;
+        assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
+        assert(capture.permission && !capture.active);
+        assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
+        capture.needsMicrophonePermission = NO;
+        capture.permission(YES);
+        assert(!capture.active);
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
