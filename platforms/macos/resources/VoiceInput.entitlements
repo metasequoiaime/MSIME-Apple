@@ -2,10 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>com.apple.security.device.audio-input</key><true/>
-<!-- 没有这条,ASAuthorizationServices 直接拒绝,界面上只看到「Apple 登录未完成」。iOS 一直带着它,
-     macOS 这边漏了,所以候选翻译、云同步这些要账号的功能在 macOS 上从来登不进去。 -->
-<key>com.apple.developer.applesignin</key>
-<array>
-<string>Default</string>
-</array>
+<!-- com.apple.developer.applesignin 曾经加在这里,加完当天发的 v0.48.6-build.1002.66.1 启动即被 SIGKILL。
+     它是受限权限:Developer ID 分发时必须由 Contents/embedded.provisionprofile 授权,否则 AMFI 在
+     exec 时直接杀掉进程 —— 同一个二进制、同一把身份,只差这一条,带上 rc=137,去掉 rc=0。
+     要真正启用 macOS 的 Sign in with Apple,顺序是:在开发者后台给 app.msime.inputmethod.MetasequoiaIME
+     的 macOS App ID 打开 Sign in with Apple,签发一份 Developer ID provisioning profile,由
+     package_release.sh 把它拷成 Contents/embedded.provisionprofile,然后才能把这条权限加回来。
+     只加权限不嵌 profile 的结果不是「登录失败」,是整个输入法起不来。 -->
 </dict></plist>

@@ -64,6 +64,13 @@ enum BackendAnonymousAccount {
     return BackendLocalStore.write(data, to: fileName)
   }
 
+  /// 绑定到真实身份或注销之后,这份自动生成的凭据就没有用了。留着的后果是下次启动仍然把它当成一个
+  /// 可用账号 —— 于是同一个人有两条并行的登录状态。
+  static func discard() {
+    try? BackendLocalStore(fileName: fileName).clear()
+    try? sessionStorage().clear()
+  }
+
   /// 匿名账号换来的会话也留在本机文件里。把自动生成的凭据锁进钥匙串、却让它换来的 token 也去问一次
   /// 登录密码,是把保护级别加在了错误的东西上 —— 真正关于用户的个人词库就在同一个目录,是普通文件。
   static func sessionStorage() -> any BackendSessionStorage {
