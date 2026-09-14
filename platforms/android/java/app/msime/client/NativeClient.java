@@ -1,6 +1,13 @@
 package app.msime.client;
 
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** JNI transport for an Android IME host. Session operations use the creating thread.
  * JSON response ownership is handled inside JNI. The host parses the envelope,
@@ -18,6 +25,29 @@ public final class NativeClient {
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
     public static String create(String options) { return text(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
+    /** Reads the current native dictionary version without creating a session. */
+    public static String snapshotVersion(String options) {
+        return text(snapshotVersionRaw(options.getBytes(StandardCharsets.UTF_8)));
+    }
+    /** Streams one NDJSON record at a time into native preparation. Call on a worker. */
+    public static String snapshotPrepare(String request, String file) {
+        try {
+            String adjusted = replaceRecordCount(request, inspectSnapshot(file));
+            return text(snapshotPrepareRaw(adjusted.getBytes(StandardCharsets.UTF_8),
+                file.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception error) {
+            return text(snapshotPrepareRaw("{}".getBytes(StandardCharsets.UTF_8),
+                "invalid".getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+    public static String snapshotDiscard(long handle) {
+        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
+        return text(snapshotDiscardRaw(handle));
+    }
+    public static String snapshotActivate(long handle, String expectedVersion) {
+        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
+        return text(snapshotActivateRaw(handle, expectedVersion.getBytes(StandardCharsets.UTF_8)));
+    }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
     /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
@@ -111,6 +141,10 @@ public final class NativeClient {
     public static String destroy(long session) { return text(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
+    private static native byte[] snapshotVersionRaw(byte[] options);
+    private static native byte[] snapshotPrepareRaw(byte[] request, byte[] file);
+    private static native byte[] snapshotDiscardRaw(long handle);
+    private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
@@ -136,4 +170,86 @@ public final class NativeClient {
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] destroyRaw(long session);
+
+    private static final Pattern TYPE = Pattern.compile("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+    private static final Pattern RECORDS = Pattern.compile("(\\\"records\\\"\\s*:\\s*)\\d+");
+    private static final Pattern FOOTER_RECORDS = Pattern.compile("\\\"records\\\"\\s*:\\s*(\\d+)");
+    private static final Pattern SHA256 = Pattern.compile("\\\"sha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
+
+    private static String replaceRecordCount(String request, int records) {
+        Matcher matcher = RECORDS.matcher(request);
+        if (!matcher.find()) throw new IllegalArgumentException("Snapshot request is missing records");
+        return matcher.replaceFirst(Matcher.quoteReplacement(matcher.group(1) + records));
+    }
+
+    private static int inspectSnapshot(String file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        int engineRecords = 0;
+        int dataRecords = 0;
+        boolean header = false;
+        boolean ended = false;
+        String footerHash = null;
+        int footerRecords = -1;
+        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file))) {
+            ByteArrayOutputStream line = new ByteArrayOutputStream();
+            int value;
+            while ((value = input.read()) != -1) {
+                if (value == '\n') {
+                    if (line.size() == 0) throw new IOException("empty snapshot line");
+                    byte[] bytes = line.toByteArray();
+                    if (bytes.length > 65_535) throw new IOException("snapshot line too large");
+                    String text = new String(bytes, StandardCharsets.UTF_8);
+                    Matcher type = TYPE.matcher(text);
+                    if (!type.find()) throw new IOException("missing snapshot type");
+                    String kind = type.group(1);
+                    if ("header".equals(kind)) {
+                        if (header || dataRecords != 0 || ended) throw new IOException("invalid snapshot header");
+                        header = true;
+                        // The header counts and hashes like any other record, which is what
+                        // the Server's footer was written against; skipping it rejects every
+                        // valid snapshot.
+                        digest.update(bytes);
+                        digest.update((byte) '\n');
+                        dataRecords++;
+                    } else if ("footer".equals(kind)) {
+                        if (!header || footerHash != null) throw new IOException("invalid snapshot footer");
+                        Matcher count = FOOTER_RECORDS.matcher(text);
+                        Matcher hash = SHA256.matcher(text);
+                        if (!count.find() || !hash.find()) throw new IOException("invalid snapshot footer");
+                        footerRecords = Integer.parseInt(count.group(1));
+                        footerHash = hash.group(1);
+                        ended = true;
+                    } else if ("entry".equals(kind) || "overlay".equals(kind)
+                            || "position".equals(kind) || "selection".equals(kind)) {
+                        if (!header || ended) throw new IOException("invalid snapshot record");
+                        digest.update(bytes);
+                        digest.update((byte) '\n');
+                        dataRecords++;
+                        if (!"entry".equals(kind)) engineRecords++;
+                    } else throw new IOException("unknown snapshot record");
+                    line.reset();
+                } else {
+                    line.write(value);
+                    if (line.size() > 65_535) throw new IOException("snapshot line too large");
+                }
+            }
+            if (line.size() != 0) throw new IOException("unterminated snapshot line");
+        }
+        if (!header || footerHash == null || footerRecords != dataRecords
+                || !footerHash.equals(hex(digest.digest())) || engineRecords > 500_000) {
+            throw new IOException("invalid snapshot envelope");
+        }
+        return engineRecords;
+    }
+
+    private static String hex(byte[] bytes) {
+        char[] digits = "0123456789abcdef".toCharArray();
+        char[] output = new char[bytes.length * 2];
+        for (int index = 0; index < bytes.length; index++) {
+            int value = bytes[index] & 0xff;
+            output[index * 2] = digits[value >>> 4];
+            output[index * 2 + 1] = digits[value & 0x0f];
+        }
+        return new String(output);
+    }
 }

@@ -5,6 +5,7 @@
 #define MSIME_HAS_HANDWRITING_CANDIDATES 0
 #endif
 #include "bridge.h"
+#include <msime/voice/audio_capture.h>
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
 #include <user_dictionary/user_dictionary_journal.h>
@@ -12,14 +13,19 @@
 #include <metasequoia/handwriting.h>
 #endif
 #include <algorithm>
+#include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
 #include <type_traits>
 #include <limits>
+#include <mutex>
+#include <condition_variable>
 #include <filesystem>
 #include "../../vendor/MSIME-Engine/contracts/assets/assets.h"
 #include "../../vendor/MSIME-Engine/english/english_dictionary.h"
+#include "../../vendor/MSIME-Engine/quanpin/quanpin_query.h"
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_map>
@@ -28,6 +34,33 @@
 #include <string_view>
 
 namespace msime {
+
+rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
+    rust::Vec<float> samples;
+    if (milliseconds == 0 || milliseconds > 60000) return samples;
+    metasequoia::voice::AudioCapture capture;
+    std::mutex mutex;
+    std::condition_variable done;
+    bool failed = false;
+    std::size_t maximum = 16000u * milliseconds / 1000u;
+    auto callback = [&](const float *input, std::size_t frames) {
+        std::lock_guard lock(mutex);
+        if (samples.size() + frames > maximum) frames = maximum - samples.size();
+        for (std::size_t index = 0; index < frames; ++index) {
+            samples.push_back(input[index]);
+        }
+        if (samples.size() >= maximum) done.notify_one();
+    };
+    if (!capture.start(callback)) return samples;
+    std::unique_lock lock(mutex);
+    done.wait_for(lock, std::chrono::milliseconds(milliseconds), [&] {
+        return samples.size() >= maximum;
+    });
+    capture.stop();
+    failed = capture.callback_failed();
+    if (failed) samples.clear();
+    return samples;
+}
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
     for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));
@@ -270,6 +303,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
         (value.autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
     options.fuzzy_pinyin.rules = value.fuzzy_pinyin_rules & 0x7ffu;
+    options.wubi.mixed_pinyin = value.wubi_mixed_pinyin;
     options.chinese_punctuation = value.chinese_punctuation;
     options.paired_punctuation = value.paired_punctuation;
     options.punctuation_lock = value.punctuation_lock;
@@ -495,6 +529,51 @@ rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text) {
     sqlite3_close(database);
     return result;
 }
+rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables) {
+    std::string source(input);
+    source.erase(std::remove_if(source.begin(), source.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    }), source.end());
+    std::transform(source.begin(), source.end(), source.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (source.empty() || source.front() == '\'' || source.back() == '\'' || source.find("''") != std::string::npos)
+        return {};
+
+    quanpin::Segments segments;
+    if (source.find('\'') != std::string::npos) {
+        segments = quanpin::split_segments(source);
+    } else {
+        const auto cuts = quanpin::cut_pinyin_by_mode(source, "correction");
+        if (cuts.empty()) return {};
+        segments = cuts.front();
+        if (expected_syllables != 0 && segments.size() != expected_syllables) {
+            const auto alternatives = quanpin::enumerate_complete_segmentations(
+                quanpin::build_syllable_graph(source));
+            const auto match = std::find_if(alternatives.begin(), alternatives.end(),
+                [expected_syllables](const quanpin::Segments& cut) {
+                    return cut.size() == expected_syllables;
+                });
+            if (match != alternatives.end()) segments = *match;
+        }
+    }
+
+    if (expected_syllables != 0 && segments.size() != expected_syllables) return {};
+
+    const auto& valid = quanpin::intact_pinyin_set();
+    if (segments.empty() || !std::all_of(segments.begin(), segments.end(), [&valid](const std::string& segment) {
+        return !segment.empty() && valid.find(segment) != valid.end();
+    })) return {};
+
+    const std::string normalized = quanpin::join_segments(segments);
+    std::string without_delimiters = normalized;
+    without_delimiters.erase(std::remove(without_delimiters.begin(), without_delimiters.end(), '\''),
+                             without_delimiters.end());
+    std::string source_without_delimiters = source;
+    source_without_delimiters.erase(std::remove(source_without_delimiters.begin(), source_without_delimiters.end(), '\''),
+                                    source_without_delimiters.end());
+    return without_delimiters == source_without_delimiters ? rust::String(normalized) : rust::String();
+}
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
@@ -508,6 +587,9 @@ EngineSnapshot EngineSession::snapshot() const {
     output.shuangpin_profile = rust::String(shuangpin_profile_);
     output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
+    output.reading = value.scheme == SchemeType::JapaneseRomaji
+                         ? value.normalized_segmentation
+                         : std::string{};
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
     for (std::size_t index = 0; index < value.candidates.size(); ++index) {
@@ -844,6 +926,8 @@ EngineResult EngineSession::command(std::uint8_t value) {
         case 6: return result_for(session_.command(Command::MoveHome));
         case 7: return result_for(session_.command(Command::MoveEnd));
         case 8: return result_for(session_.command(Command::DeleteForward));
+        case 9: return result_for(session_.command(Command::CycleKanaVariant));
+        case 10: return result_for(session_.command(Command::CommitReading));
         default: throw std::invalid_argument("Unsupported input command");
     }
 }

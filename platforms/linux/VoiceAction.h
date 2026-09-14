@@ -2,6 +2,21 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
+
+inline bool msime_voice_overlay_light_theme(std::string_view surface_theme,
+                                            std::string_view global_theme,
+                                            bool system_dark) {
+  if (surface_theme == "light")
+    return true;
+  if (surface_theme == "dark")
+    return false;
+  if (global_theme == "light")
+    return true;
+  if (global_theme == "system")
+    return !system_dark;
+  return false;
+}
 
 inline bool msime_voice_overlay_light_theme(std::string_view surface_theme,
                                             std::string_view global_theme,
@@ -44,6 +59,19 @@ inline std::string msime_voice_bound_result(std::string value,
     value.resize(start);
   }
   return value;
+}
+
+// A streaming provider may have shown useful text before its final response
+// is lost. Keep that text available for the host's final commit path; the
+// final response always wins, while inline-preedit text is the last resort.
+inline std::string msime_voice_result_or_transcript(std::string result,
+                                                    std::string transcript,
+                                                    std::string preedit) {
+  if (!result.empty())
+    return msime_voice_bound_result(std::move(result));
+  if (!transcript.empty())
+    return msime_voice_bound_result(std::move(transcript));
+  return msime_voice_bound_result(std::move(preedit));
 }
 
 // Platform adapter contract: implementations run capture/provider work off

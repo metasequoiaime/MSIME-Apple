@@ -5,8 +5,8 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RectF;
 import android.util.AttributeSet;
-import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -21,7 +21,7 @@ public final class HandwritingCanvas extends View {
     private final Paint background = new Paint();
     private final Paint guide = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint placeholder = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF cardRect = new RectF();
     private Listener listener;
     private boolean acceptsInk = true;
 
@@ -36,9 +36,6 @@ public final class HandwritingCanvas extends View {
         stroke.setStrokeWidth(3 * getResources().getDisplayMetrics().density);
         guide.setStyle(Paint.Style.STROKE);
         guide.setStrokeWidth(getResources().getDisplayMetrics().density);
-        placeholder.setTextAlign(Paint.Align.CENTER);
-        placeholder.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 21,
-            getResources().getDisplayMetrics()));
         applySkin(KeyboardSkin.from("forest"));
     }
 
@@ -48,6 +45,15 @@ public final class HandwritingCanvas extends View {
     public long revision() { return ink.revision(); }
     public java.util.List<java.util.List<HandwritingInk.Point>> strokes() { return ink.snapshot(); }
 
+    /** The card is visual guidance only; ink remains valid across the entire view. */
+    public void setCardRect(float left, float top, float right, float bottom) {
+        RectF next = new RectF(left, top, right, bottom);
+        if (!cardRect.equals(next)) {
+            cardRect.set(next);
+            invalidate();
+        }
+    }
+
     public void applySkin(KeyboardSkin skin) {
         int keyBackground = Color.parseColor(skin.keyBackground());
         int foreground = Color.parseColor(skin.keyForeground());
@@ -55,8 +61,6 @@ public final class HandwritingCanvas extends View {
         background.setColor(keyBackground);
         stroke.setColor(foreground);
         guide.setColor(Color.argb(31, Color.red(accent), Color.green(accent), Color.blue(accent)));
-        placeholder.setColor(Color.argb(77, Color.red(foreground), Color.green(foreground),
-            Color.blue(foreground)));
         invalidate();
     }
 
@@ -76,9 +80,12 @@ public final class HandwritingCanvas extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        canvas.drawRect(0, 0, getWidth(), getHeight(), background);
-        float[] lines = {getWidth() / 2f, 0, getWidth() / 2f, getHeight(),
-            0, getHeight() / 2f, getWidth(), getHeight() / 2f};
+        RectF card = cardRect.isEmpty()
+            ? new RectF(0, 0, getWidth(), getHeight()) : cardRect;
+        float radius = 10 * getResources().getDisplayMetrics().density;
+        canvas.drawRoundRect(card, radius, radius, background);
+        float[] lines = {card.centerX(), card.top, card.centerX(), card.bottom,
+            card.left, card.centerY(), card.right, card.centerY()};
         canvas.drawLines(lines, guide);
         for (java.util.List<HandwritingInk.Point> points : ink.snapshot()) {
             if (points.isEmpty()) continue;
@@ -93,10 +100,6 @@ public final class HandwritingCanvas extends View {
                 path.lineTo(points.get(index).x(), points.get(index).y());
             }
             canvas.drawPath(path, stroke);
-        }
-        if (!ink.hasInk()) {
-            float baseline = getHeight() / 2f - (placeholder.ascent() + placeholder.descent()) / 2;
-            canvas.drawText("在此手写", getWidth() / 2f, baseline, placeholder);
         }
     }
 

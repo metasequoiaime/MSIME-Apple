@@ -52,4 +52,15 @@ int main() {
     assert(willow.selected_text == 0xFFFFFFu);
     assert(willow.selected_number == 0xFFFFFFu);
   }
+
+  assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 0) ==
+         "|nihao");
+  assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 2) ==
+         "ni|hao");
+  assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 5) ==
+         "nihao|");
+  assert(msime::linux_host::candidate_preedit_with_caret("ni'hao", "nihao", 2) ==
+         "ni'hao");
+  assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 9) ==
+         "nihao");
 }

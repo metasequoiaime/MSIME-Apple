@@ -94,6 +94,7 @@ pub enum ImportIssue {
     EmptyKey,
     KeyTooLong,
     KeyAlphabet,
+    Pinyin,
     EmptyValue,
     ValueTooLong,
     QuickPhraseTooLong,
@@ -576,7 +577,22 @@ mod tests {
         assert_eq!(report.failed, REPORTED_FAILURES + 3);
         assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
     }
+
+
+    #[test]
+    fn the_code_prefix_is_case_insensitive_and_starts_at_the_key() {
+        assert!(dictionary_row_matches(true, "wq", "w"));
+        assert!(dictionary_row_matches(true, "WQ", "w"));
+        assert!(dictionary_row_matches(true, "wq", "WQ"));
+        assert!(dictionary_row_matches(true, " wq ", "wq"));
+        assert!(!dictionary_row_matches(true, "awq", "wq"));
+        assert!(!dictionary_row_matches(true, "wq", "wqx"));
+        assert!(dictionary_row_matches(true, "anything", ""));
+        assert!(!dictionary_row_matches(false, "wq", ""));
+        assert!(!dictionary_row_matches(false, "wq", "wq"));
+    }
 }
+
 
 /// Server-side paging for the dictionary browser.
 ///

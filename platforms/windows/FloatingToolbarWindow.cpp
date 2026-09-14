@@ -23,8 +23,8 @@ bool same(const FocusLease &a, const FocusLease &b) {
          same_ticket(a.transport, b.transport);
 }
 // The preference array is ordered as character_set, punctuation, fullwidth,
-// emoji, screen_keyboard, settings. Language is always present; the other
-// buttons follow the shared shell order.
+// emoji, screen_keyboard, settings. Language and handwriting are always
+// present; the other buttons follow the shared shell order.
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
   result.push_back(0); // language
@@ -34,9 +34,10 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   if (items[3]) result.push_back(4); // emoji
   if (items[4]) result.push_back(5); // screen keyboard
   if (items[5]) result.push_back(6); // settings
-  result.push_back(7); // voice
-  result.push_back(8); // about
-  result.push_back(9); // hide
+  result.push_back(7); // handwriting
+  result.push_back(8); // voice
+  result.push_back(9); // about
+  result.push_back(10); // hide
   return result;
 }
 } // namespace
@@ -85,13 +86,15 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     shown_ = value;
     shown_character_set_ = character_set;
     RECT work{};
-    // Before the first placement the toolbar has no position of its own, so it
-    // follows the focused window's monitor. After that it stays on whichever
-    // screen the user dragged it to - clamping a dragged toolbar against the
+    // With no position of its own the toolbar follows the focused window's
+    // monitor. Once it has one - dragged or restored from the config - it stays
+    // on whichever screen that position is on, because clamping it against the
     // foreground window's monitor would drag it back across the desktop.
     const HMONITOR monitor =
-        placed_ ? MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST)
-                : MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+        dragged_position_
+            ? MonitorFromPoint(*dragged_position_, MONITOR_DEFAULTTONEAREST)
+        : placed_ ? MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST)
+                  : MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO info{};
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
@@ -112,13 +115,15 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     placement.work_top = work.top;
     placement.work_right = work.right;
     placement.work_bottom = work.bottom;
-    placement.placed = placed_;
-    RECT current{};
-    if (placed_ && GetWindowRect(window_, &current)) {
-      placement.current_x = current.left;
-      placement.current_y = current.top;
-    } else {
-      placement.placed = false;
+    // The remembered position, not the live window rect, is what survives a
+    // restart: a drag records it and the config restores it through
+    // set_position before the first refresh. It stays empty until the user
+    // actually moves the toolbar, so an untouched one keeps following the
+    // focused window and re-anchoring to the corner.
+    placement.placed = dragged_position_.has_value();
+    if (dragged_position_) {
+      placement.current_x = dragged_position_->x;
+      placement.current_y = dragged_position_->y;
     }
     const auto placed = floating_toolbar_placement(placement);
     if (!SetWindowPos(window_, HWND_TOPMOST, placed.x, placed.y, width, height,
@@ -210,7 +215,7 @@ void FloatingToolbarWindow::paint() {
         value->chinese_punctuation,
         shown_character_set_,
         std::nullopt, std::nullopt, std::nullopt,
-        std::nullopt, std::nullopt, std::nullopt};
+        std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
     const auto layout = toolbar_metrics(static_cast<double>(font_size_));
     // The drag strip and the divider that separates it from the buttons. The
@@ -307,6 +312,46 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
+    case WM_ENTERSIZEMOVE:
+      self->moving_ = true;
+      return 0;
+    case WM_MOVE:
+      // Only a move the user drove counts. refresh()'s own SetWindowPos raises
+      // WM_MOVE too, and treating that as a drag would record the default
+      // corner as a chosen position - after which the toolbar would stop
+      // following the focused window's monitor and stop re-anchoring when its
+      // width changes.
+      if (!self->moving_)
+        return 0;
+      self->dragged_position_ = POINT{static_cast<LONG>(static_cast<short>(LOWORD(l))),
+                                      static_cast<LONG>(static_cast<short>(HIWORD(l)))};
+      {
+        RECT rect{};
+        if (GetWindowRect(window, &rect)) {
+          const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+          MONITORINFO info{};
+          info.cbSize = sizeof(info);
+          if (GetMonitorInfoW(monitor, &info)) {
+            const int width = rect.right - rect.left;
+            const int height = rect.bottom - rect.top;
+            self->dragged_position_->x = std::clamp(self->dragged_position_->x,
+                                                     info.rcWork.left,
+                                                     info.rcWork.right - width);
+            self->dragged_position_->y = std::clamp(self->dragged_position_->y,
+                                                     info.rcWork.top,
+                                                     info.rcWork.bottom - height);
+          }
+        }
+      }
+      return 0;
+    case WM_EXITSIZEMOVE:
+      // Once, when the drag ends. The move loop raises WM_MOVE for every frame
+      // of the drag, and the listener rewrites the whole configuration file, so
+      // persisting there rewrote it dozens of times per second on the UI thread.
+      self->moving_ = false;
+      if (self->position_changed_ && self->dragged_position_)
+        self->position_changed_(*self->dragged_position_);
+      return 0;
     case WM_LBUTTONDOWN: {
       // Only the strip left of the first button drags. Treating the whole
       // window as a caption meant a press on a button entered the system move
@@ -403,11 +448,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           self->keyboard_action_();
         else if (slot == 6 && self->settings_action_)
           self->settings_action_();
-        else if (slot == 7 && self->voice_action_)
+        else if (slot == 7 && self->handwriting_action_)
+          self->handwriting_action_();
+        else if (slot == 8 && self->voice_action_)
           self->voice_action_();
-        else if (slot == 8 && self->about_action_)
+        else if (slot == 9 && self->about_action_)
           self->about_action_();
-        else if (slot == 9 && self->hide_action_)
+        else if (slot == 10 && self->hide_action_)
           self->hide_action_();
       }
       return 0;

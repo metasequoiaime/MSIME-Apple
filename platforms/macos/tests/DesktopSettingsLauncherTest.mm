@@ -46,5 +46,8 @@ int main() {
         while (fallbacks < 2 && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         assert(fallbacks == 2);
+        MSIMEOpenDesktopRoute(@"settings:help", workspace, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=settings:help"]]);
+        assert(workspace.launches == 3);
     }
 }

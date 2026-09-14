@@ -10,7 +10,7 @@ const snapshot: Snapshot = {
   preferences: {
     scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
     learning: true, chinese_punctuation: true,
-    voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao", asr_token: "secret-token" },
+    voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao", doubao_auth_mode: "legacy", asr_token: "secret-token" },
   },
 };
 
@@ -24,7 +24,7 @@ async function openVoice(platform: string) {
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   // The token fields are hidden on Linux, where credentials belong to the
   // provider service, so wait on a control both platforms render.
-  return await screen.findByLabelText("识别服务");
+  return await screen.findByLabelText(platform === "android" ? "识别语言" : "识别服务");
 }
 
 test("a pasted recognition token can be revealed to check it", async () => {
@@ -70,4 +70,36 @@ test("Linux keeps the wording that is accurate there", async () => {
   expect(screen.getByText(/IBus 属性/)).toBeTruthy();
   expect(screen.queryByText("语音快捷键")).toBeNull();
   expect(screen.queryByText("录音行为")).toBeNull();
+});
+
+test("Linux exposes Doubao auth mode without exposing provider credentials", async () => {
+  const linuxSnapshot: Snapshot = { ...snapshot, preferences: { ...snapshot.preferences,
+    voice_input: { enabled: true, language: "zh-CN", ...snapshot.preferences.voice_input, doubao_auth_mode: "api_key" },
+  } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...linuxSnapshot, revision: 3, preferences }));
+  render(<SettingsPage client={{ load: async () => linuxSnapshot, save, host: host("linux") }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const mode = await screen.findByLabelText("豆包鉴权方式") as HTMLSelectElement;
+  expect(mode.value).toBe("api_key");
+  expect(screen.queryByLabelText("Doubao API Key")).toBeNull();
+  expect(screen.queryByLabelText("Doubao App Key")).toBeNull();
+  fireEvent.change(mode, { target: { value: "legacy" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("legacy");
+});
+
+test("Android uses the system recognizer and hides desktop voice controls", async () => {
+  await openVoice("android");
+  expect(screen.getByText("Android 系统语音")).toBeTruthy();
+  expect(screen.getByText("从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。")).toBeTruthy();
+  expect(screen.getByLabelText("识别语言")).toBeTruthy();
+  expect(screen.queryByLabelText("识别服务")).toBeNull();
+  expect(screen.queryByLabelText("识别 API Token")).toBeNull();
+  expect(screen.queryByLabelText("结果提交策略")).toBeNull();
+  expect(screen.queryByText("录音行为")).toBeNull();
+  expect(screen.queryByText("文本润色 provider")).toBeNull();
+  expect(screen.queryByText("语音快捷键")).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
 });

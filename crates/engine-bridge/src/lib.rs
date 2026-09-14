@@ -60,6 +60,7 @@ mod ffi {
         pub autocorrect_transposition: bool,
         pub autocorrect_neighbor: bool,
         pub fuzzy_pinyin_rules: u32,
+        pub wubi_mixed_pinyin: bool,
         pub helpcode: bool,
         pub show_helpcode: bool,
         pub helpcode_schema: String,
@@ -91,6 +92,8 @@ mod ffi {
         pub microsoft_shuangpin: bool,
         pub shuangpin_profile: String,
         pub preedit: String,
+        /// Japanese kana reading shown to the user instead of the romaji editing text.
+        pub reading: String,
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
@@ -171,6 +174,10 @@ mod ffi {
             sink: &mut DictionaryRevision,
         ) -> Result<()>;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        /// Capture bounded mono 16 kHz PCM samples through the Engine's
+        /// platform-neutral AudioCapture implementation. An empty result
+        /// means the host could not open a capture device.
+        fn capture_audio(milliseconds: u32) -> Vec<f32>;
         fn dictionary_entries(
             options: &EngineOptions,
             offset: usize,
@@ -194,6 +201,7 @@ mod ffi {
             content_id: &str,
         ) -> Result<EngineOptions>;
         fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
+        fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
@@ -319,10 +327,23 @@ pub fn dictionary_entries(
     ffi::dictionary_entries(options, offset, limit)
 }
 
+/// Capture bounded mono 16 kHz samples through the pinned Engine audio layer.
+/// An empty vector indicates that capture could not be started or produced no
+/// samples; the caller owns session cancellation and provider transport.
+pub fn capture_audio(milliseconds: u32) -> Vec<f32> {
+    ffi::capture_audio(milliseconds)
+}
+
 /// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the
 /// verified Engine dictionary for native dictionary import tooling.
 pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
     ffi::hanzi_to_pinyin(options, text)
+}
+
+/// Normalize an unsegmented full-pinyin code using the Engine's canonical
+/// syllable table. An expected Han-character count resolves ambiguous cuts.
+pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
+    ffi::normalize_full_pinyin(input, expected_syllables)
 }
 
 /// Atomically add, replace, or remove one personal-dictionary entry.
@@ -506,6 +527,8 @@ pub enum Command {
     MoveHome,
     MoveEnd,
     DeleteForward,
+    CycleKanaVariant,
+    CommitReading,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -627,6 +650,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn normalizes_full_pinyin_using_the_expected_word_length() {
+        assert_eq!(normalize_full_pinyin("xian", 1), "xian");
+        assert_eq!(normalize_full_pinyin("xian", 2), "xi'an");
+        assert_eq!(
+            normalize_full_pinyin("a'ba'la'ti'ya'yun'hai", 7),
+            "a'ba'la'ti'ya'yun'hai"
+        );
+        assert_eq!(normalize_full_pinyin("xian", 3), "");
+        assert_eq!(normalize_full_pinyin("ni'hao'", 2), "");
+    }
+
+    #[test]
     fn learned_glosses_survive_unavailable_packaged_dictionary() {
         let resources = tempfile::tempdir().unwrap();
         let user = tempfile::tempdir().unwrap();
@@ -709,6 +744,7 @@ mod tests {
             autocorrect_transposition: true,
             autocorrect_neighbor: true,
             fuzzy_pinyin_rules: 0,
+            wubi_mixed_pinyin: false,
             helpcode: false,
             show_helpcode: true,
             helpcode_schema: "ziranma".into(),

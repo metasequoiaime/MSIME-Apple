@@ -27,6 +27,7 @@ import uuid
 import wave
 
 from msime_provider_runtime import claim_socket
+from msime_voice_doubao import normalize_doubao_auth_mode
 
 
 RATE = 16000
@@ -1101,12 +1102,15 @@ def load_config(path):
         if doubao:
             entry.setdefault("model", "")
             entry.setdefault("resource_id", "volc.seedasr.sauc.duration")
+            entry["doubao_auth_mode"] = normalize_doubao_auth_mode(
+                entry.get("doubao_auth_mode"), entry.get("app_key"))
             entry.setdefault("app_key", "")
             for key in ("model", "resource_id", "app_key"):
                 value = entry[key]
                 if not isinstance(value, str) or len(value) > 512 or any(ord(c) < 33 or ord(c) > 126 for c in value):
                     raise ValueError()
-            if not entry["resource_id"] or entry["app_key"].startswith(("<", "FAKESECRET_")):
+            if (not entry["resource_id"] or entry["app_key"].startswith(("<", "FAKESECRET_")) or
+                    (entry["doubao_auth_mode"] == "legacy" and not entry["app_key"])):
                 raise ValueError()
         elif not isinstance(entry.get("model"), str) or not entry["model"].strip():
             raise ValueError()

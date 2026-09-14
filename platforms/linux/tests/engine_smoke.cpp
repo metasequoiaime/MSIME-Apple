@@ -37,6 +37,7 @@ struct Observation {
   bool mode_registered = false;
   bool input_enabled = false;
   bool english_mode = false;
+  bool traditional_output = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool punctuation_enabled = false;
@@ -81,6 +82,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
     if (std::string(ibus_property_get_key(property)) == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (std::string(ibus_property_get_key(property)) == "TraditionalOutput")
+      seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -441,7 +444,8 @@ int main(int argc, char **argv) {
     {
       auto offline = options;
       offline.erase("preferences_directory");
-      offline["preferences"]["candidate_translations"] = true;
+      offline["preferences"]["candidate_translations"] = false;
+      offline["preferences"]["candidate_english_gloss"] = true;
       msime_preview_configure(offline.dump());
       engine = create_engine();
       seen = Observation{};
@@ -459,6 +463,29 @@ int main(int argc, char **argv) {
               "Offline gloss changed the active composition");
       require(key(IBUS_space) && seen.committed == "你好",
               "Offline gloss leaked into committed candidate text");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
+      auto offline = options;
+      offline.erase("preferences_directory");
+      offline["preferences"]["candidate_translations"] = false;
+      offline["preferences"]["candidate_english_gloss"] = false;
+      msime_preview_configure(offline.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto deadline = g_get_monotonic_time() + 800000;
+      while (g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(std::none_of(seen.candidates.begin(), seen.candidates.end(),
+                           [](const std::string &text) {
+                             return text.find(" · ") != std::string::npos;
+                           }),
+              "Disabled English gloss unexpectedly rendered");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
@@ -1089,6 +1116,9 @@ int main(int argc, char **argv) {
             "Selected candidate color attribute missing");
     require(seen.first_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
+    require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
+            "Candidate auxiliary text did not expose the preedit caret");
+    invoke("Reset");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");
@@ -1154,6 +1184,51 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "R",
             "Shift+R did not enter temporary Japanese mode");
     require(key(IBUS_Escape), "Temporary Japanese mode could not be canceled");
+
+    // R mode owns the visible prefix but never forwards it to the Japanese
+    // Engine. A candidate commit must therefore restore the Chinese session,
+    // and the next letter must start a normal Chinese composition again.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK), "Temporary Japanese mode could not restart");
+    require(key('k') && key('a'), "Temporary Japanese Romaji input was not consumed");
+    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
+                        [](const std::string &candidate) { return candidate.find("か") != std::string::npos; }),
+            "Temporary Japanese Romaji candidates were not exposed");
+    require(key(IBUS_space), "Temporary Japanese candidate was not committed");
+    require(seen.committed.find("か") != std::string::npos,
+            "Temporary Japanese candidate commit did not reach IBus");
+    require(key('n') && seen.preedit == "n",
+            "Temporary Japanese candidate commit did not restore Chinese input");
+
+    // Enter commits the raw Romaji spelling, without the display-only R
+    // prefix, and also returns to the original Chinese session.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK) && key('k') && key('a') && key(IBUS_Return),
+            "Temporary Japanese raw Enter path was not consumed");
+    require(seen.committed == "ka",
+            "Temporary Japanese raw Enter committed the display-only prefix");
+    require(key('n') && seen.preedit == "n",
+            "Temporary Japanese raw Enter did not restore Chinese input");
+
+    // Backspace on the bare display prefix cancels R mode without emitting R.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('r', IBUS_SHIFT_MASK) && seen.preedit == "R" && key(IBUS_BackSpace),
+            "Backspace did not cancel a bare temporary Japanese prefix");
+    require(seen.committed.empty() && !seen.preedit_visible,
+            "Bare temporary Japanese prefix escaped after Backspace");
+
+    // The Linux local-mode preference is the shared equivalent of Windows'
+    // r_mode switch. Disabled modes must leave Shift+R to the application.
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_UNCHECKED));
+    seen.committed.clear();
+    require(!key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
+            "Disabled temporary Japanese mode swallowed Shift+R");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
@@ -1267,6 +1342,22 @@ int main(int argc, char **argv) {
         g_usleep(1000);
       }
     };
+    require(!seen.traditional_output, "Traditional output did not start disabled");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F was not consumed");
+    settle();
+    std::ifstream saved_preferences(root / "preferences.json");
+    nlohmann::json saved_snapshot;
+    saved_preferences >> saved_snapshot;
+    require(saved_snapshot.at("preferences").at("traditional_chinese_output").get<bool>(),
+            "Ctrl+Shift+F did not persist traditional output");
+    require(seen.traditional_output,
+            "Persisted traditional output was not applied to the active session");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "TraditionalOutput", PROP_STATE_UNCHECKED));
+    settle();
+    require(!seen.traditional_output,
+            "Traditional output preference did not restore after the shortcut test");
     auto save = [&](uint64_t revision, size_t page_size) {
       auto preferences = options.at("preferences");
       preferences["candidate_page_size"] = page_size;
@@ -1499,6 +1590,26 @@ int main(int argc, char **argv) {
                 seen.committed.find(shifted) == 0 &&
                 seen.committed.size() > shifted.size(),
             "Shifted symbol triggered word-to-character selection");
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    auto external_skin = options;
+    external_skin.erase("preferences_directory");
+    external_skin["candidate_skin_catalog"] = {
+        {"scanned", true},
+        {"packages",
+         {{{"id", "custom"},
+           {"candidate", {{"light", {{"surface", "#654321"}}}}}}}}};
+    external_skin["preferences"]["candidate_skin"] = "custom";
+    external_skin["preferences"]["candidate_theme"] = "light";
+    external_skin["preferences"]["candidate_surface_color"] = "#123456";
+    msime_preview_configure(external_skin.dump());
+    engine = create_engine();
+    seen = Observation{};
+    invoke("FocusIn");
+    phrase();
+    require(
+        seen.first_candidate_background == 0x123456,
+        "Custom candidate surface color was overwritten by an external skin");
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);

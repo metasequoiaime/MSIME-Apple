@@ -23,6 +23,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     window_chrome: true,
     floating_toolbar: true,
     floating_toolbar_appearance: true,
+    floating_toolbar_components: true,
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     voice_capture_devices: false,
@@ -117,15 +118,16 @@ test("the restart action needs both the capability and an injected handler", asy
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
 });
 
-test("toolbar scale and components are hidden on a host that cannot apply them", async () => {
+test("toolbar scale is hidden while Linux component choices remain available", async () => {
   // The Linux host stands the toolbar up as an IBus property menu: the enable
-  // switch works, but scale, icon size and component visibility have no surface.
-  const menuOnly = mount({ host: capabilities({ platform: "linux", floating_toolbar_appearance: false }) });
+  // switch and component visibility work, but scale and icon size have no surface.
+  const menuOnly = mount({ host: capabilities({ platform: "linux", floating_toolbar_appearance: false, floating_toolbar_components: true }) });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
   expect(screen.queryByLabelText("图标尺寸")).toBeNull();
+  expect(screen.getByText("工具栏组件")).toBeTruthy();
   menuOnly.unmount();
 
   // A host that draws its own toolbar keeps the full set.
@@ -136,8 +138,14 @@ test("toolbar scale and components are hidden on a host that cannot apply them",
   expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
 });
 
+test("the floating-toolbar settings page is hidden when the host has no toolbar", async () => {
+  mount({ host: capabilities({ platform: "android", floating_toolbar: false, floating_toolbar_appearance: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+});
+
 test("candidate appearance follows host capabilities", async () => {
-  mount({ host: capabilities({ platform: "linux", candidate_font_controls: false, candidate_selection_appearance: false }) });
+  mount({ host: capabilities({ platform: "linux", candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
   expect(screen.queryByLabelText("候选字号")).toBeNull();
@@ -149,7 +157,7 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
-  expect(screen.getByText("当前宿主的 IBus 候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
   expect(screen.getByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeTruthy();
 });
 

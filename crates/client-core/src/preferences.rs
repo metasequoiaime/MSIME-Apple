@@ -342,6 +342,8 @@ pub struct Preferences {
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
+    pub niutrans: NiuTransPreferences,
+    #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub character_width: CharacterWidthPreference,
@@ -384,6 +386,9 @@ pub struct Preferences {
     /// `None` preserves the default-on behavior without rewriting legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wubi_code_hint: Option<bool>,
+    /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
+    #[serde(default)]
+    pub wubi_mixed_pinyin: bool,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
@@ -515,6 +520,11 @@ pub struct VoiceInputPreferences {
     pub asr_provider: String,
     #[serde(default)]
     pub asr_app_key: String,
+    /// Doubao authentication mode (`api_key` or `legacy`). Empty preserves
+    /// compatibility with older files and lets each host infer the mode from
+    /// the stored App ID.
+    #[serde(default)]
+    pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_token: String,
     /// One recognition token per provider id.
@@ -592,6 +602,7 @@ impl Default for VoiceInputPreferences {
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
             asr_app_key: String::new(),
+            doubao_auth_mode: "api_key".into(),
             asr_token: String::new(),
             asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
@@ -668,6 +679,14 @@ pub struct TencentTmtPreferences {
     pub secret_id: String,
     pub secret_key: String,
     pub region: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NiuTransPreferences {
+    pub enabled: bool,
+    pub app_id: String,
+    pub apikey: String,
 }
 
 impl Default for TencentTmtPreferences {
@@ -975,6 +994,7 @@ impl Default for KeybindingPreferences {
 fn enabled_by_default() -> bool {
     true
 }
+
 fn default_candidate_font_size() -> u8 {
     16
 }
@@ -1006,6 +1026,7 @@ impl Default for Preferences {
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
+            niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             character_width: CharacterWidthPreference::default(),
@@ -1027,6 +1048,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,
+            wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
             custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
@@ -1284,6 +1306,18 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTencentTmt);
         }
+        let niutrans = &self.niutrans;
+        if niutrans.app_id.len() > 4096
+            || niutrans.apikey.len() > 4096
+            || niutrans.app_id.chars().any(char::is_control)
+            || niutrans.apikey.chars().any(char::is_control)
+            || (!niutrans.app_id.is_empty()
+                && !crate::translation::usable_niutrans_credential(&niutrans.app_id))
+            || (!niutrans.apikey.is_empty()
+                && !crate::translation::usable_niutrans_credential(&niutrans.apikey))
+        {
+            return Err(PreferencesError::InvalidNiuTrans);
+        }
         let translation = &self.custom_translation;
         if translation.endpoint.len() > 2048
             || translation.api_key.len() > 4096
@@ -1474,6 +1508,8 @@ pub enum PreferencesError {
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
     InvalidTencentTmt,
+    #[error("NiuTrans translation credentials are invalid")]
+    InvalidNiuTrans,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
@@ -1696,6 +1732,23 @@ mod tests {
     }
 
     #[test]
+    fn doubao_auth_mode_defaults_and_roundtrips() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["voice_input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("doubao_auth_mode");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.doubao_auth_mode, "");
+
+        let mut explicit = Preferences::default();
+        explicit.voice_input.doubao_auth_mode = "legacy".into();
+        let roundtripped: Preferences =
+            serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
+        assert_eq!(roundtripped.voice_input.doubao_auth_mode, "legacy");
+    }
+
+    #[test]
     fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
         // A file written by a build that offered "local_whisper" must still load.
         // No backend implements it: the Linux provider builds
@@ -1838,6 +1891,29 @@ mod tests {
             !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
                 .unwrap()
                 .wubi_code_hint_enabled()
+        );
+    }
+
+    #[test]
+    fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
+        let defaults = Preferences::default();
+        assert!(!defaults.wubi_mixed_pinyin);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("wubi_mixed_pinyin");
+        assert!(
+            !serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .wubi_mixed_pinyin
+        );
+
+        let enabled = Preferences {
+            wubi_mixed_pinyin: true,
+            ..defaults
+        };
+        assert!(
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+                .unwrap()
+                .wubi_mixed_pinyin
         );
     }
 
@@ -3148,6 +3224,34 @@ mod tests {
                 preferences.validate(),
                 Err(PreferencesError::InvalidTencentTmt)
             ));
+        }
+    }
+
+    #[test]
+    fn niutrans_translation_defaults_migrate_and_validate() {
+        let defaults = Preferences::default();
+        assert!(!defaults.niutrans.enabled);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("niutrans");
+        let restored: Preferences = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.niutrans, defaults.niutrans);
+        let mut configured = defaults.clone();
+        configured.niutrans.enabled = true;
+        configured.niutrans.app_id = "synthetic-app".into();
+        configured.niutrans.apikey = "synthetic-key".into();
+        assert!(configured.validate().is_ok());
+        for (app_id, apikey) in [
+            ("x".repeat(4097), String::new()),
+            (String::new(), "x".repeat(4097)),
+            ("bad\napp".into(), String::new()),
+            (String::new(), "bad\rkey".into()),
+            ("<YOUR_APP_ID>".into(), String::new()),
+            (String::new(), "FAKESECRET_key".into()),
+        ] {
+            let mut invalid = defaults.clone();
+            invalid.niutrans.app_id = app_id;
+            invalid.niutrans.apikey = apikey;
+            assert!(matches!(invalid.validate(), Err(PreferencesError::InvalidNiuTrans)));
         }
     }
 

@@ -35,6 +35,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 26 键\"]')";
     private static final String NINE_KEY_SELECT =
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 9 键\"]')";
+    private static final String WUBI_MIXED_PINYIN =
+        "document.querySelector('[aria-label=\"编码打不出时用拼音候选\"]')";
     private static final String KEYBOARD_HEIGHT =
         "document.querySelector('[aria-label=\"键盘高度\"]')";
     private static final String KEY_SPACING =
@@ -108,6 +110,9 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             js("(" + NINE_KEY_TOGGLE + ").click(); true");
             awaitJs("!(" + NINE_KEY_TOGGLE + ").checked && (" + NINE_KEY_SELECT
                 + ").disabled && (" + QUANPIN_SELECT + ").getAttribute('aria-pressed') === 'true'");
+            awaitJs("!!(" + WUBI_MIXED_PINYIN + ")");
+            js("(" + WUBI_MIXED_PINYIN + ").click(); true");
+            awaitJs("(" + WUBI_MIXED_PINYIN + ").checked");
             stage = "React keyboard skin settings";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '屏幕键盘').click(); true");
             awaitJs("!!(" + KEYBOARD_HEIGHT + ")");
@@ -226,6 +231,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Engine scheme did not use the fallback");
             if (!"twenty_six_key".equals(savedPreferences.getString("touch_keyboard_layout")))
                 throw new AssertionError("Touch layout did not use the fallback");
+            if (!savedPreferences.getBoolean("wubi_mixed_pinyin"))
+                throw new AssertionError("Wubi mixed-pinyin preference did not reach shared storage");
             stage = "React reset keyboard geometry";
             js("window.confirm = () => true; (" + RESET_KEYBOARD_SETTINGS + ").click(); true");
             awaitJs("(" + KEYBOARD_HEIGHT + ").value === '0' && (" + KEY_SPACING

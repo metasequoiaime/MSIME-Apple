@@ -742,6 +742,9 @@ macOS 原生候选设置补齐 Windows 基线的候选窗口跟随光标开关�
 
 Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据：已固定到 1–5 的候选对应菜单项显示选中状态，“取消固定”只在候选确实有位置时可用。固定、取消固定、置顶和删除仍携带当前候选的会话、代次与全局索引，并拒绝不可持久化的动态或日文候选；不修改 Engine 的排序和组合状态。
 
+### Linux IBus 工具栏位置适配
+
+Windows 原生工具栏在首次显示时使用工作区右下角，用户拖动后保留自身坐标并在显示器工作区变化时钳制；Linux 不复制这套窗口状态。Linux 的工具栏是 IBus 属性菜单中的输入上下文入口，没有独立的非激活窗口或客户端可控坐标，菜单位置由 IBus 面板和桌面环境决定，因此不新增或保存拖动位置；工具栏开关和 IBus 能表达的组件偏好仍沿共享 `floating_toolbar` 保存。
 ### Linux 整句候选学习
 
 同步固定 Engine 的整句 fallback 修复：全拼和双拼的 Google/词库整句候选现在携带完整规范拼音。Linux IBus 通过共享 Engine 完成造词时，选中带规范读音的 `Generated` 或 `Fallback` 整句作为最后一段也能写入用户词库，保留原有候选顺序、代次校验和平台输入边界；候选没有规范读音时仍按 Engine 原有规则只上屏而不落库。
@@ -751,3 +754,17 @@ Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据�
 Linux Tauri 设置外壳复用 Windows 的单实例与短暂驻留语义，并按 Linux 特性使用 session D-Bus 和 IBus/X11/Sway 的输入目标捕获。`msime-client-settings --panel …` 将受限 surface route 同时放入环境和 argv；已有外壳收到二次启动后在主线程切换设置页或重新打开辅助面板。主设置窗口关闭时隐藏并保留十分钟，之后才真正退出，避免 IBus 菜单每次操作都创建新进程。
 
 本地验证通过启动器静态契约、shell 语法检查、Cargo metadata、client-core 测试和 clippy。桌面 crate 的完整编译仍受当前 macOS 工作区缺少固定 Engine 子模块及 Linux 交叉编译器影响，Linux session D-Bus 与实际桌面窗口需在 Linux 主机验证。
+
+### Linux 简繁快捷键持久化
+
+Linux IBus 的 `Ctrl+Shift+F` 简繁切换现在与属性菜单共用 revision 化偏好保存路径；有共享偏好目录时会更新 `traditional_chinese_output` 并热更新当前会话，没有该目录时仍只改变当前会话。写入进行中快捷键透传，避免覆盖并发偏好。
+
+### macOS 候选卡片位置迟滞
+
+macOS 自绘候选面板沿用 Windows 候选卡片的定位语义：竖排候选页在当前组词期间记录出现过的最高卡片高度，用最高高度决定是否从光标下方翻到上方，但实际放置仍使用当前页高度。候选面板隐藏后清除该记忆，短页不会在同一组词中因暂时变矮而跳回光标下方，也不会在翻转后留下按最高页高度计算的空洞。Linux IBus 候选位置仍由桌面 panel 管理，保持已记录的平台边界。
+
+### Linux 词典导入的全拼切分一致性
+
+依据 Windows 固定提交 `6e03f577`，共享导入路径现在把 Pinyin 词条交给固定 Engine 的全拼切分逻辑，并按词条中的汉字数选择完整切分；例如两字词 `西安` 的无分隔输入 `xian` 会规范化为 `xi'an`。显式 apostrophe、非法音节和无法满足汉字数的切分会被跳过并进入脱敏失败报告；Wubi、快捷短语、英文以及不带 Engine 选项的纯共享解析路径保持原行为。普通字典和个人字典导入都通过 Host API 传入 Engine 选项，输入算法仍归 Engine，Host 只负责导入编排和报告。
+
+本地验证通过 `msime-client-core` 186 项、`msime-engine-bridge` 18 项和 `msime-host-api` 76 项测试；覆盖 `xian` 的一字/两字切分、错误音节数、非法分隔符、失败行号和非 Pinyin 导入回归。未执行 Linux 原生 IBus 宿主或安装后的系统输入验收，CI 保持禁用。

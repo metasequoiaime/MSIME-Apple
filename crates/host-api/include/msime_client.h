@@ -166,6 +166,9 @@ char *msime_client_focus(uint64_t session, bool focused);
 char *msime_client_reset_cache(uint64_t session);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
+/* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
+ * must never be logged or persisted. */
+char *msime_client_voice_capture(uint32_t milliseconds);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
 /* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
@@ -181,6 +184,9 @@ char *msime_client_custom_translation_plan(const uint8_t *request, size_t length
  * secret_key,region},texts:[string],source_language,target_language,timestamp}.
  * Send body_utf8 bytes unchanged. Never log this credential-bearing descriptor. */
 char *msime_client_tencent_translation_http_request(const uint8_t *request, size_t length);
+/* Pure NiuTrans v2 descriptor <=64 KiB. Input: {config:{enabled,app_id,apikey},
+ * text,source_language,target_language,timestamp}. */
+char *msime_client_niutrans_translation_http_request(const uint8_t *request, size_t length);
 // Pure AI descriptor from {config:AI preferences,input:{segmented_pinyin,context,candidate_limit}}.
 // Input <=64KiB. Result contains credentials; never log it. Host must forbid redirects.
 char *msime_client_ai_http_request(const uint8_t *request, size_t length);
@@ -196,6 +202,8 @@ char *msime_client_parse_ai_response(const uint8_t *body, size_t length, uint8_t
 char *msime_client_learned_translation_request(const uint8_t *request, size_t length);
 /* Returns [string|null] with exact expected count (1..9), or null for invalid body. */
 char *msime_client_parse_tencent_translation_response(const uint8_t *body, size_t length, size_t expected);
+/* Provider body <=1 MiB. Returns a formatted translation string or null. */
+char *msime_client_parse_niutrans_translation_response(const uint8_t *body, size_t length);
 /* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
  * malformed/no result. No session mutation; host validates original identity. */
 char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t length);
@@ -235,6 +243,7 @@ enum MsimeCommand {
     MSIME_CANCEL = 3, MSIME_MOVE_LEFT = 4, MSIME_MOVE_RIGHT = 5,
     MSIME_MOVE_HOME = 6, MSIME_MOVE_END = 7, MSIME_DELETE_FORWARD = 8,
     MSIME_FINISH_COMPOSITION = 9,
+    MSIME_CYCLE_KANA_VARIANT = 10, MSIME_COMMIT_READING = 11,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
     MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
@@ -287,9 +296,10 @@ char *msime_client_ai_request_for_query(uint64_t session,
                                         size_t query_length);
 /* Return null or {generation,target_language,candidates:[{text}],
  * custom_translation:{enabled,endpoint,api_key}|null,
- * tencent_tmt:{enabled,secret_id,secret_key,region}|null} for visible candidates.
- * Tencent credentials are returned only when usable and enabled, and custom
- * translation is not selected. These fields are for host-owned transport;
+ * tencent_tmt:{enabled,secret_id,secret_key,region}|null,
+ * niutrans:{enabled,app_id,apikey}|null} for visible candidates.
+ * Credentials are returned only for the selected usable provider. These fields
+ * are for host-owned transport;
  * never log the query. The existing target_language applies to both providers.
  */
 char *msime_client_translation_query(uint64_t session);

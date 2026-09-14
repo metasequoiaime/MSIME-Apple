@@ -28,26 +28,27 @@ use msime_client_core::typing_statistics::{
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
+use tauri::Emitter;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(any(target_os = "android", target_os = "linux", target_os = "windows"))]
-use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
-#[cfg(unix)]
+#[cfg(any(target_os = "windows", test))]
+mod voice_output;
+#[cfg(any(unix, target_os = "windows"))]
 mod voice_sessions;
 use msime_host_api::system_fonts;
 
@@ -155,21 +156,21 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
 struct DictionaryHostOptions {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     path: PathBuf,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     document: Arc<Value>,
 }
 
 impl DictionaryHostOptions {
     fn snapshot(&self) -> Result<Value, CommandError> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
             // Keep the installer-selected path separate from the IBus runtime
             // path; deployments can supply different files for these roles.
             read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
         {
             Ok((*self.document).clone())
         }
@@ -396,9 +397,9 @@ impl RuntimeOptionsState {
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         let mut document = document;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Some(path) = self.path.as_ref() {
             *document = read_runtime_options(path)?;
         }
@@ -406,7 +407,7 @@ impl RuntimeOptionsState {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
     let document: Value = serde_json::from_slice(&fs::read(path)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -511,7 +512,7 @@ async fn save_preferences(
         if !snapshot.preferences.clipboard_history {
             store.clear_disabled_clipboard_history().map_err(CommandError::from)?;
         }
-        sync_linux_runtime_options(&runtime, &snapshot.preferences)
+        sync_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
         Ok(snapshot)
     })
@@ -544,11 +545,11 @@ async fn mutate_custom_skin_library(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-fn sync_linux_runtime_options(
+fn sync_runtime_options(
     runtime: &RuntimeOptionsState,
     preferences: &Preferences,
 ) -> Result<(), std::io::Error> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let Some(path) = runtime.path.as_ref() else {
             return Ok(());
@@ -567,7 +568,7 @@ fn sync_linux_runtime_options(
         atomic_write(path, &bytes)?;
         *document = current;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = (runtime, preferences);
     }
@@ -613,7 +614,7 @@ fn start_desktop_preferences_monitor(
         });
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
@@ -1649,7 +1650,7 @@ fn send_panel_text_to_target(
     sent.then_some(()).ok_or(HostActionError { code: "unavailable" })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn record_panel_typing_statistics(
     store: &TypingStatisticsStore,
     text: &str,
@@ -1769,10 +1770,26 @@ fn send_panel_voice_text(
 // Windows panels are ordinary Tauri windows that never activate, so the host
 // injects input on their behalf through the Windows host layer; this shell
 // itself stays free of unsafe code.
+
 #[cfg(target_os = "windows")]
 fn remember_panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    // Editable panels invoke this again after mounting. Do not replace the
+    // original editor with our own newly focused webview.
+    if !msime_host_windows::foreground_is_external() {
+        return state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .as_ref()
+            .map(|_| ())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
+    }
     let target = msime_host_windows::foreground_window().ok_or(HostActionError {
         code: "unavailable",
     })?;
@@ -2049,6 +2066,36 @@ async fn recognize_handwriting(
         })?;
         return Ok(result);
     }
+    // Windows ships a recognizer with the language pack, and it is the only one
+    // a stock machine has: the packaged Engine model is optional in the
+    // installer. Try it first, and fall through to the model when Windows has
+    // no Chinese handwriting feature installed.
+    #[cfg(windows)]
+    {
+        let strokes: Vec<msime_host_windows::ink::Stroke> = query
+            .strokes
+            .iter()
+            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+            .collect();
+        let recognized =
+            tauri::async_runtime::spawn_blocking(move || msime_host_windows::ink::recognize(&strokes))
+                .await
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        match recognized {
+            Ok(candidates) if !candidates.is_empty() => {
+                let result = HandwritingRecognitionResult { candidates };
+                result.validate().map_err(|_| HostActionError {
+                    code: "invalid_stroke",
+                })?;
+                return Ok(result);
+            }
+            // Recognized nothing, or Windows has no Chinese recognizer. Either
+            // way the packaged model below is still worth asking.
+            _ => {}
+        }
+    }
     let Some(model) = model else {
         return Err(HostActionError {
             code: "unavailable",
@@ -2220,6 +2267,7 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
         "capture_device",
         "commit_mode",
         "asr_provider",
+        "doubao_auth_mode",
         "asr_model",
         "asr_resource_id",
         "polish_provider",
@@ -2228,6 +2276,9 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
         "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
+            if key == "doubao_auth_mode" && !matches!(value, "api_key" | "legacy") {
+                continue;
+            }
             let bounded = value.chars().take(512).collect::<String>();
             options.insert(key.to_owned(), Value::String(bounded));
         }
@@ -2484,7 +2535,18 @@ async fn submit_handwriting_candidate(
         )
         .await;
     }
-    #[cfg(not(target_os = "linux"))]
+    // Recognition without a way to commit is half a panel: Windows could
+    // produce candidates and then refuse to insert the one the user picked.
+    #[cfg(target_os = "windows")]
+    {
+        // Windows panels inject through the host rather than the runtime, so
+        // they do not pass through the typing counter, matching send_text.
+        let _ = (&app, &typing_statistics);
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text_windows(&state, &candidate);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, candidate);
         Err(HostActionError {
@@ -2568,20 +2630,77 @@ async fn send_voice_text(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .as_ref()
+            .map(|target| target.0)
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let store = store.inner().clone();
+        let statistics = typing_statistics.0.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let mode = store
+                .load()
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
+                .preferences
+                .voice_input
+                .commit_mode;
+            voice_output::submit(&text, &mode, |mode, text| match mode {
+                // The TSF mode must use the Server's active-client/epoch lease;
+                // do not bypass that boundary with an unacknowledged fallback.
+                voice_output::OutputMode::Tsf => false,
+                voice_output::OutputMode::SendInput => {
+                    msime_host_windows::focus_external(target)
+                        && msime_host_windows::send_text(text)
+                }
+                voice_output::OutputMode::Clipboard => {
+                    msime_host_windows::paste_voice_text(target, text)
+                }
+            })
+            .map_err(|error| HostActionError {
+                code: match error {
+                    voice_output::OutputError::InvalidText => "invalid_text",
+                    voice_output::OutputError::Unavailable => "unavailable",
+                },
+            })?;
+            record_panel_typing_statistics(&statistics, &text, TypingSource::Voice);
+            Ok(())
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    }
     #[cfg(target_os = "linux")]
     {
         let target = state
             .0
             .lock()
-            .map_err(|_| HostActionError { code: "unavailable" })?
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
             .clone()
-            .ok_or(HostActionError { code: "unavailable" })?;
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             let commit_mode = store
                 .load()
-                .map_err(|_| HostActionError { code: "unavailable" })?
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?
                 .preferences
                 .voice_input
                 .commit_mode;
@@ -2592,9 +2711,11 @@ async fn send_voice_text(
             result
         })
         .await
-        .map_err(|_| HostActionError { code: "unavailable" })?;
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, typing_statistics, store, text);
         Err(HostActionError {
@@ -2889,34 +3010,29 @@ fn open_voice_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = &state;
+    #[cfg(target_os = "linux")]
+    let position = {
+        let _ = remember_panel_input_target(&state, true);
+        panel_position(&state, 620.0, 520.0)
+    };
     #[cfg(target_os = "windows")]
-    {
-        let _ = (app, state);
-        Err(HostActionError {
-            code: "unavailable",
-        })
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 620.0, 520.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "voice-panel",
-            "voice",
-            "水杉语音输入",
-            620.0,
-            520.0,
-            position,
-        )
-    }
+    let position = {
+        let _ = remember_panel_input_target(&state);
+        windows_panel_position(620.0, 520.0)
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let position = None;
+    open_panel_window(
+        &app,
+        "voice-panel",
+        "voice",
+        "水杉语音输入",
+        620.0,
+        520.0,
+        position,
+    )
 }
 
 #[tauri::command]
@@ -3588,18 +3704,41 @@ pub fn run() {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
                         .to_string()
                 })?;
-            let host_options = fs::read_to_string(&host_options_path)
-                .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
-            let host_document: Value = serde_json::from_str(&host_options)
-                .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?;
+            let host_document: Value = {
+                #[cfg(target_os = "android")]
+                {
+                    match fs::read_to_string(&host_options_path) {
+                        Ok(host_options) => serde_json::from_str(&host_options)
+                            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            // The Tauri shell owns the first-run guide. Before the
+                            // native bootstrap publishes HostOptions, keep the
+                            // managed states valid while resource-backed commands
+                            // correctly fail closed until preparation completes.
+                            serde_json::json!({
+                                "resources": "",
+                                "state_root": app.path().app_data_dir()?.join("files/bootstrap/state"),
+                            })
+                        }
+                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    let host_options = fs::read_to_string(&host_options_path)
+                        .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
+                    serde_json::from_str(&host_options)
+                        .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?
+                }
+            };
             let runtime_path = std::env::var_os("MSIME_IBUS_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
             app.manage(DictionaryHostOptions {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 path: host_options_path,
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
                 document: Arc::new(host_document.clone()),
             });
             app.manage(RuntimeOptionsState {
@@ -3698,6 +3837,18 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "android")]
+            android_account::android_open_input_method_settings,
+            #[cfg(target_os = "android")]
+            android_account::android_show_input_method_picker,
+            #[cfg(target_os = "android")]
+            android_account::android_bootstrap_status,
+            #[cfg(target_os = "android")]
+            android_account::android_prepare_bootstrap,
+            #[cfg(target_os = "android")]
+            android_account::ai_models,
+            #[cfg(target_os = "android")]
+            android_account::ai_test,
+            #[cfg(target_os = "android")]
             android_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
@@ -3705,6 +3856,10 @@ pub fn run() {
             android_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
+            #[cfg(target_os = "android")]
+            android_account::account_chat_models,
+            #[cfg(target_os = "android")]
+            android_account::account_chat,
             #[cfg(target_os = "android")]
             android_account::account_rename,
             #[cfg(target_os = "android")]
@@ -3768,6 +3923,28 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "doubao_auth_mode": "legacy",
+                "asr_app_key": "private-app-id",
+                "asr_token": "private-token"
+            }}
+        });
+        let options = super::voice_provider_options(&document).unwrap();
+        assert_eq!(options.get("doubao_auth_mode").and_then(|v| v.as_str()), Some("legacy"));
+        assert!(options.get("asr_app_key").is_none());
+        assert!(options.get("asr_token").is_none());
+
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {"doubao_auth_mode": "unknown"}}
+        });
+        let options = super::voice_provider_options(&document).unwrap();
+        assert!(options.get("doubao_auth_mode").is_none());
+    }
+
     #[test]
     fn second_launch_routes_are_taken_from_explicit_arguments() {
         use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
@@ -4022,7 +4199,7 @@ themes = ['light']
         };
         let mut preferences = Preferences::default();
         preferences.candidate_page_size = 9;
-        sync_linux_runtime_options(&state, &preferences).unwrap();
+        sync_runtime_options(&state, &preferences).unwrap();
         let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(updated["preferences"]["candidate_page_size"], 9);
     }

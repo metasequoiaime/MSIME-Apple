@@ -7,7 +7,10 @@ import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
@@ -27,9 +30,10 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
-import android.view.ViewConfiguration;
+import android.widget.PopupWindow;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
@@ -45,6 +49,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -62,11 +67,16 @@ public final class MSIMEInputService extends InputMethodService {
     private static final int JAPANESE_NINE_KEY_LAYOUT = 2;
     private static final int HANDWRITING_LAYOUT = 3;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
+    private static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
+    private static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
+    private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
     private static final String EMOJI_RECENTS_KEY = "items";
+    private static final String KEYBOARD_LAYOUT_PREFERENCES = "keyboard-layout";
+    private static final String FULL_WIDTH_INPUT_KEY = "full-width-input";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
     private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
@@ -77,6 +87,7 @@ public final class MSIMEInputService extends InputMethodService {
     private FrameLayout keyboardRoot;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
+    private FrameLayout candidateViewport;
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
@@ -85,6 +96,7 @@ public final class MSIMEInputService extends InputMethodService {
     private ScrollView expandedCandidateScroll;
     private TextView preedit;
     private TextView candidatePage;
+    private Button exitLocalModeButton;
     private LinearLayout nineKeySpellings;
     private HorizontalScrollView nineKeySpellingScroll;
     private final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
@@ -93,10 +105,13 @@ public final class MSIMEInputService extends InputMethodService {
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private JSONObject candidatePanelSnapshot;
+    private PopupWindow nineKeyHoldPopup;
     private ScrollView clipboardScroll;
     private LinearLayout clipboardPanel;
     private ScrollView schemeScroll;
     private LinearLayout schemePanel;
+    private ScrollView skinScroll;
+    private LinearLayout skinPanel;
     private ScrollView layoutSettingsScroll;
     private LinearLayout layoutSettingsPanel;
     private ScrollView moreToolsScroll;
@@ -120,6 +135,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
     private boolean wubiCodeHint = true;
+    private boolean wubiMixedPinyin;
     private String candidateGlossResources = "";
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
@@ -145,18 +161,24 @@ public final class MSIMEInputService extends InputMethodService {
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
     private Button microsoftFinalKey;
+    private final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
+        new java.util.ArrayList<>();
+    private final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null);
     private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
     private SharedPreferences feedbackPreferences;
+    private SharedPreferences keyboardLayoutPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
     private KeyboardFeedbackPreferences.HapticStrength hapticStrength =
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private HorizontalScrollView keyboardControls;
+    private JapaneseFlickPreview japaneseFlickPreview;
     private LinearLayout shortcutBar;
     private HorizontalScrollView shortcutScroll;
     private final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
@@ -179,10 +201,20 @@ public final class MSIMEInputService extends InputMethodService {
     private Button languageButton;
     private Button enterButton;
     private Button spaceButton;
+    private Button japaneseSpaceKey;
+    private Button japaneseReturnKey;
+    private Button japaneseVariantsButton;
+    private Integer japaneseConversionIndex;
+    private String japaneseConversionEditingText = "";
     private TextView status;
+    private TextView diagnosticView;
     private String message = "MSIME Preview";
+    private String diagnosticMessage = "";
+    private long diagnosticGeneration;
+    private Runnable diagnosticDismissTask;
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
+    private boolean fullWidthInput;
     private boolean traditionalChineseOutput;
     private int editorInputType;
     private long currentDocumentIdentifier;
@@ -192,6 +224,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean allowLearning;
     private String preferencesNotice = "";
     private String preferencesDirectory = "";
+    private String runtimeOptionsForSnapshot = "";
     private JSONObject preferencesSnapshot;
     private long preferenceSaveGeneration;
     private boolean schemeSaving;
@@ -237,7 +270,6 @@ public final class MSIMEInputService extends InputMethodService {
     private Button replyPolishModeButton;
     private Button replySourceButton;
     private Button replyTemplateButton;
-    private Button replySkinButton;
     private CommunityReplyLibrary communityReplyLibrary;
     private final ReplyKeyboardModel replyModel = new ReplyKeyboardModel();
     private AiPolishClient.Operation replyOperation;
@@ -256,6 +288,12 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean emojiLoading;
     private long emojiLoadGeneration;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private Runnable backspaceRepeatTask;
+    private Button backspaceRepeatButton;
+    private boolean backspaceRepeated;
+    private long personalDictionarySyncGeneration;
+    private Runnable personalDictionarySyncTask;
+    private long engineStartGeneration;
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
@@ -297,6 +335,8 @@ public final class MSIMEInputService extends InputMethodService {
     private record SchemeConfiguration(
         java.util.List<KeyboardScheme> enabled, KeyboardScheme selected, boolean shared) {}
 
+    private record SkinChoice(String id, String title, KeyboardSkin skin, JSONObject design) {}
+
     private SchemeConfiguration schemeConfiguration(
             JSONObject preferences, KeyboardScheme engineScheme) {
         JSONObject shared = preferences == null ? null
@@ -324,6 +364,23 @@ public final class MSIMEInputService extends InputMethodService {
         String selected = shared.has("selected") ? shared.optString("selected", null) : null;
         return new SchemeConfiguration(enabled,
             KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
+    }
+
+    /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
+    private void alignEngineSchemeWithSelection(
+            JSONObject preferences, KeyboardScheme engineScheme,
+            SchemeConfiguration configuration) throws JSONException {
+        if (preferences == null || !configuration.shared()
+                || configuration.selected() == KeyboardScheme.THOUGHTFUL_REPLY
+                || configuration.selected() == engineScheme) return;
+        KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
+            engineScheme, configuration.selected(),
+            preferences.optString("last_chinese_scheme", preferences.optString("scheme", "quanpin")),
+            preferences.optString("shuangpin_profile", "xiaohe"));
+        preferences.put("scheme", mapping.scheme());
+        preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
+        preferences.put("shuangpin_profile", mapping.shuangpinProfile());
+        preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
     }
 
     private JSONObject value(String response) throws JSONException {
@@ -407,6 +464,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        long startGeneration = ++engineStartGeneration;
+        cancelPersonalDictionarySynchronization();
         if (!restarting || currentDocumentIdentifier == 0) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
         }
@@ -416,6 +475,7 @@ public final class MSIMEInputService extends InputMethodService {
         editorContextRevision++;
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
+        loadKeyboardLayoutPreferences();
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         letterCase.reset();
@@ -440,6 +500,7 @@ public final class MSIMEInputService extends InputMethodService {
                     preferences == null ? "twenty_six_key"
                         : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
                 SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
+                alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
                 enabledSchemes = schemeConfiguration.enabled();
                 selectedScheme = schemeConfiguration.selected();
                 sharedSchemePreferences = schemeConfiguration.shared();
@@ -455,35 +516,12 @@ public final class MSIMEInputService extends InputMethodService {
                 applyChineseOutputPreference(preferences);
                 applyCandidateGlossPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
+                wubiMixedPinyin = preferences != null
+                    && preferences.optBoolean("wubi_mixed_pinyin", false);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
-                // Settings edits are queued in the shared PersonalDictionary
-                // journal. There is no live Engine session yet, so this is a
-                // safe idle boundary at which to apply a bounded batch and
-                // refresh the confirmed page.
-                try {
-                    JSONObject sync = value(NativeClient.personalDictionarySync(options.toString()));
-                    if (sync.optString("snapshot_error", "").length() > 0) {
-                        preferencesNotice = " · 个人词库同步稍后重试";
-                    }
-                } catch (JSONException | LinkageError ignored) {
-                    // Personal dictionary maintenance is optional; never make
-                    // a new editor session unavailable because it is busy.
-                }
-                view = value(NativeClient.create(options.toString()));
-                session = view.getLong("session");
-                String resources = options.optString("resources", "");
-                if (new File(resources).isAbsolute()) {
-                    emojiResources = resources;
-                    candidateGlossResources = resources;
-                }
-                apply(NativeClient.focus(session, true));
-                view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
-                message = "MSIME Preview";
-                String directory = options.optString("preferences_directory", "");
-                if (!directory.isEmpty() && new File(directory).isAbsolute()) {
-                    preferencesDirectory = directory;
-                    preferencesReloader.start(directory, this::reloadPreferences);
-                }
+                runtimeOptionsForSnapshot = options.toString();
+                message = "共享运行时准备中";
+                scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
             } catch (Exception | LinkageError error) {
                 stop(false);
                 message = "共享运行时未就绪：仅直接输入";
@@ -497,8 +535,12 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        cancelBackspaceRepeat();
+        engineStartGeneration++;
         resetSpaceCursor();
         stop(true);
+        schedulePersonalDictionarySynchronization(false);
+        scheduleDictionarySnapshotProcessing();
         connection = null;
         currentDocumentIdentifier = 0;
         super.onFinishInput();
@@ -514,7 +556,11 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
     @Override public void onDestroy() {
+        cancelBackspaceRepeat();
+        engineStartGeneration++;
+        cancelPersonalDictionarySynchronization();
         stop(false);
+        schedulePersonalDictionarySynchronization(true);
         preferencesWorker.shutdown();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
@@ -526,6 +572,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     private void stop(boolean finish) {
+        cancelBackspaceRepeat();
+        clearDiagnostic();
         deactivateHandwriting();
         invalidateCandidateGlosses();
         preferencesReloader.stop();
@@ -535,13 +583,14 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossResources = "";
         candidateEnglishGloss = false;
         wubiCodeHint = true;
+        wubiMixedPinyin = false;
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
         skinSaving = false;
         traditionalOutputSaving = false;
         if (session != 0) {
-            try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
+            try { if (finish && connection != null) apply(NativeClient.command(session, 2)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
@@ -551,12 +600,126 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
+        closeSkinPicker();
         closeLayoutSettings();
         closeMoreTools();
         closeEmojiPicker();
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
+    }
+
+    /**
+     * Apply queued personal-dictionary edits only after the Engine session is gone.
+     * Android has no keyboard-extension full-access callback, so the service lifecycle
+     * is the safe maintenance boundary; the next input start retries before creating
+     * another session.
+     */
+    private void cancelPersonalDictionarySynchronization() {
+        personalDictionarySyncGeneration++;
+        if (personalDictionarySyncTask != null) {
+            main.removeCallbacks(personalDictionarySyncTask);
+            personalDictionarySyncTask = null;
+        }
+    }
+
+    /**
+     * Dictionary maintenance owns an exclusive lock, while Engine creation owns a
+     * shared session lock. Keep both operations off the input thread and only create
+     * the session after the bounded maintenance transaction has finished.
+     */
+    private void scheduleEngineStartup(String options, long generation) {
+        Runnable complete = () -> {
+            if (generation != engineStartGeneration || connection == null || session != 0) return;
+            startEngineSession(options);
+        };
+        try {
+            preferencesWorker.execute(() -> {
+                String notice = "";
+                try {
+                    JSONObject sync = value(NativeClient.personalDictionarySync(options));
+                    if (sync.optString("snapshot_error", "").length() > 0) {
+                        notice = " · 个人词库同步稍后重试";
+                    }
+                } catch (Exception | LinkageError ignored) {
+                    // Personal dictionary maintenance is optional; session startup continues.
+                }
+                String finalNotice = notice;
+                main.post(() -> {
+                    if (generation != engineStartGeneration || connection == null || session != 0) return;
+                    if (!finalNotice.isEmpty()) preferencesNotice = finalNotice;
+                    complete.run();
+                });
+            });
+        } catch (RuntimeException ignored) {
+            // A worker shutdown must not leave a still-valid editor without its session.
+            main.post(complete);
+        }
+    }
+
+    private void startEngineSession(String optionsText) {
+        try {
+            JSONObject options = new JSONObject(optionsText);
+            view = value(NativeClient.create(optionsText));
+            session = view.getLong("session");
+            String resources = options.optString("resources", "");
+            if (new File(resources).isAbsolute()) {
+                emojiResources = resources;
+                candidateGlossResources = resources;
+            }
+            apply(NativeClient.focus(session, true));
+            view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
+            message = "MSIME Preview";
+            String directory = options.optString("preferences_directory", "");
+            if (!directory.isEmpty() && new File(directory).isAbsolute()) {
+                preferencesDirectory = directory;
+                preferencesReloader.start(directory, this::reloadPreferences);
+            }
+        } catch (Exception | LinkageError error) {
+            stop(false);
+            message = "共享运行时未就绪：仅直接输入";
+        }
+    }
+
+    private void schedulePersonalDictionarySynchronization(boolean immediate) {
+        if (runtimeOptionsForSnapshot.isEmpty()) return;
+        String options = runtimeOptionsForSnapshot;
+        long generation = ++personalDictionarySyncGeneration;
+        Runnable task = () -> {
+            if (generation != personalDictionarySyncGeneration || session != 0) return;
+            personalDictionarySyncTask = null;
+            try {
+                preferencesWorker.execute(() -> {
+                    try {
+                        NativeClient.personalDictionarySync(options);
+                    } catch (Exception | LinkageError ignored) {
+                        // The next idle boundary retries a busy or unavailable journal.
+                    }
+                });
+            } catch (RuntimeException ignored) {
+                // Service shutdown owns the final worker state.
+            }
+        };
+        personalDictionarySyncTask = task;
+        if (immediate) {
+            task.run();
+        } else {
+            main.postDelayed(task, PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS);
+        }
+    }
+
+    /** The session has been destroyed, so native maintenance may take the exclusive lock. */
+    private void scheduleDictionarySnapshotProcessing() {
+        if (runtimeOptionsForSnapshot.isEmpty()) return;
+        String options = runtimeOptionsForSnapshot;
+        Path root = new File(getFilesDir(), "bootstrap/state/dictionary-snapshots").toPath();
+        Path staging = root.resolve("staging");
+        try {
+            preferencesWorker.execute(() -> {
+                try { DictionarySnapshotWorker.process(root, staging, options); }
+                catch (Exception | LinkageError ignored) { /* Retry at the next idle boundary. */ }
+            });
+        } catch (RuntimeException ignored) { /* Service shutdown owns the final worker state. */ }
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -686,6 +849,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousWubiCodeHint = wubiCodeHint;
+        boolean previousWubiMixedPinyin = wubiMixedPinyin;
         KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
@@ -705,6 +869,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousWubiCodeHint != wubiCodeHint
+                || previousWubiMixedPinyin != wubiMixedPinyin
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
@@ -736,6 +901,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
+        boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -765,6 +931,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
         wubiCodeHint = nextWubiCodeHint;
+        wubiMixedPinyin = nextWubiMixedPinyin;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();
@@ -790,12 +957,20 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject next = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
-        if (commit != null) commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+        if (commit != null) {
+            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // Android's dedicated-English path is Engine-owned, while Apple commits those
+            // letters directly. Apply the keyboard's direct-output width at this boundary only;
+            // Chinese, Japanese, local-mode and handwriting commits stay canonical.
+            if (fullWidthInput && dedicatedEnglish) commit = fullWidthOutput(commit);
+        }
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
+        showDiagnostic(result.isNull("diagnostic") ? null
+            : result.optString("diagnostic", ""));
         if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         render();
@@ -871,6 +1046,33 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private void showDiagnostic(String value) {
+        diagnosticGeneration++;
+        if (diagnosticDismissTask != null) {
+            main.removeCallbacks(diagnosticDismissTask);
+            diagnosticDismissTask = null;
+        }
+        diagnosticMessage = InputDiagnosticPolicy.normalize(value);
+        if (diagnosticMessage.isEmpty()) return;
+        long generation = diagnosticGeneration;
+        diagnosticDismissTask = () -> {
+            if (generation != diagnosticGeneration) return;
+            diagnosticMessage = "";
+            diagnosticDismissTask = null;
+            render();
+        };
+        main.postDelayed(diagnosticDismissTask, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    private void clearDiagnostic() {
+        diagnosticGeneration++;
+        if (diagnosticDismissTask != null) {
+            main.removeCallbacks(diagnosticDismissTask);
+            diagnosticDismissTask = null;
+        }
+        diagnosticMessage = "";
+    }
+
     private void fail() { stop(false); message = "输入连接失败：仅直接输入"; render(); }
 
     private boolean character(int ascii) {
@@ -918,7 +1120,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
-        if (!character(output)) commitText(String.valueOf(output));
+        if (!character(output)) commitText(fullWidthOutput(String.valueOf(output)));
         if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();
@@ -931,19 +1133,56 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
-        if (session != 0) command(9);
-        if (connection != null) commitText(String.valueOf((char) value));
+        if (session != 0) command(2);
+        if (connection != null) commitText(fullWidthOutput(String.valueOf((char) value)));
     }
 
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        if (japaneseSchemeActive() && view != null) {
+            String editingText = view.optString("editing_text", "");
+            JSONArray candidates = view.optJSONArray("candidates");
+            if (!editingText.isEmpty() && candidates != null && candidates.length() > 0) {
+                int count = candidates.length();
+                if (japaneseConversionIndex == null
+                        || !editingText.equals(japaneseConversionEditingText)) {
+                    japaneseConversionIndex = 0;
+                    japaneseConversionEditingText = editingText;
+                    render();
+                } else {
+                    int next = japaneseConversionIndex + 1;
+                    japaneseConversionIndex = next < count ? next : 0;
+                    command(next < count ? 102 : 104);
+                }
+                return;
+            }
+        }
         if (dedicatedEnglish) {
             if (session != 0) command(1);
-            if (connection != null) commitText(" ");
+            if (connection != null) commitText(fullWidthOutput(" "));
         } else if (!command(1)) {
-            commitText(" ");
+            commitText(fullWidthOutput(" "));
         }
+    }
+
+    private boolean japaneseSchemeActive() {
+        return view != null && view.optInt("scheme", -1) == 3;
+    }
+
+    private boolean japaneseNineKeyActive() {
+        return displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT;
+    }
+
+    private String spaceKeyTitle() {
+        return japaneseSchemeActive()
+            ? JapaneseNineKeyActions.spaceTitle(view != null
+                && !view.optString("editing_text", "").isEmpty()) : "空格";
+    }
+
+    private String spaceKeyDescription() {
+        return japaneseSchemeActive()
+            ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
     private int displayedTouchLayout(JSONObject value) {
@@ -1009,6 +1248,28 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private void updateShuangpinKeyHints() {
+        int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        String profile = view == null ? "" : view.optString("shuangpin_profile", "");
+        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        boolean chineseMode = !dedicatedEnglish;
+        boolean local = view != null && !"none".equals(localMode);
+        boolean shifted = letterCase.usesUppercase();
+        for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
+            ShuangpinHintButton button = shuangpinKeyButtons.get(index);
+            String input = shuangpinKeyInputs.get(index);
+            String hint = ShuangpinKeyHintPolicy.hint(
+                profile, input, dedicatedEnglish, scheme, localMode);
+            button.setHintText(hint);
+            button.setHintColor(Color.parseColor(skin.accent()));
+            if (";".equals(input)) continue;
+            String description = LetterKeyFacePolicy.accessibilityLabel(
+                input, chineseMode, local, shifted);
+            button.setContentDescription(hint.isEmpty()
+                ? description : description + "；双拼提示 " + hint);
+        }
+    }
+
     private void updateAutomaticCapitalization() {
         if (!dedicatedEnglish) {
             letterCase.reset();
@@ -1031,7 +1292,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void toggleInputLanguage() {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
-        if (dedicatedEnglish) command(3); else command(9);
+        if (dedicatedEnglish) command(3); else command(2);
         if (session == 0) return;
         int previousLayout = displayedTouchLayout(view);
         boolean previousUppercase = letterCase.usesUppercase();
@@ -1064,34 +1325,64 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
-        command(9);
+        if (japaneseSchemeActive() && view != null
+                && !view.optString("editing_text", "").isEmpty()) {
+            if (japaneseConversionIndex != null && command(1)) return;
+            if (command(11)) return;
+        }
+        if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
-        if (ReturnKeyAction.performsEditorAction(action, disabled)
+        if (ReturnKeyAction.shouldPerformEditorAction(action, disabled, false)
                 && connection.performEditorAction(action)) return;
         commitText("\n");
     }
 
     private void updateReturnKey() {
-        if (enterButton == null) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE
                 : info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
+        boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
         String title = ReturnKeyAction.title(action, disabled);
-        enterButton.setText(title);
-        enterButton.setContentDescription(title);
+        String shownTitle = japaneseSchemeActive() && composing ? "確定" : title;
+        if (enterButton != null) {
+            enterButton.setText(shownTitle);
+            enterButton.setContentDescription(shownTitle);
+        }
+        if (japaneseReturnKey != null) {
+            String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
+            japaneseReturnKey.setText(japaneseTitle);
+            japaneseReturnKey.setContentDescription(japaneseTitle);
+        }
+        if (japaneseSpaceKey != null) {
+            japaneseSpaceKey.setText(spaceKeyTitle());
+            japaneseSpaceKey.setContentDescription(spaceKeyDescription());
+        }
+        if (japaneseVariantsButton != null) {
+            boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+            boolean enabled = symbols ? japaneseNineKeyActive() : JapaneseVariantPolicy.enabled(
+                japaneseNineKeyActive(), false, composing);
+            japaneseVariantsButton.setEnabled(enabled);
+            japaneseVariantsButton.setContentDescription(
+                symbols ? "括号；长按选择其他括号"
+                    : JapaneseVariantPolicy.accessibilityLabel(enabled));
+        }
+        if (spaceButton != null && !cursorMovement.isActive()) {
+            spaceButton.setText(spaceKeyTitle());
+            spaceButton.setContentDescription(spaceKeyDescription());
+        }
     }
 
     private void resetSpaceCursor() {
         cursorMovement.cancel();
         if (spaceButton == null) return;
         spaceButton.setPressed(false);
-        spaceButton.setText("空格");
-        spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
+        spaceButton.setText(spaceKeyTitle());
+        spaceButton.setContentDescription(spaceKeyDescription());
     }
 
     private void moveEditorCursor(int offset) {
@@ -1126,7 +1417,7 @@ public final class MSIMEInputService extends InputMethodService {
                             button.setPressed(false);
                             return true;
                         }
-                        command(9);
+                        command(2);
                         cursorMovement.begin(origin[0], connection);
                         dragging[0] = cursorMovement.isActive();
                         cancelled[0] = !dragging[0];
@@ -1237,8 +1528,37 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button brandButton(LinearLayout row, Runnable action) {
+        KeyboardBrandButton button = new KeyboardBrandButton(this,
+            () -> Color.parseColor(skin.accent()));
+        button.setAllCaps(false);
+        button.setText("更多");
+        styleButton(button, true);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
+    private Button borderlessButton(LinearLayout row, String label, Runnable action) {
+        Button button = new KeyboardBorderlessButton(this);
+        button.setAllCaps(false);
+        button.setText(label);
+        styleButton(button, true);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
     private Button keyboardKey(String label, String description, Runnable action) {
-        Button button = new Button(this);
+        Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
         button.setText(label);
         button.setContentDescription("按键 " + description);
@@ -1248,6 +1568,75 @@ public final class MSIMEInputService extends InputMethodService {
             action.run();
         });
         return button;
+    }
+
+    private ShuangpinHintButton shuangpinKeyboardKey(
+            String label, String description, Runnable action) {
+        ShuangpinHintButton button = new ShuangpinHintButton(this);
+        button.setText(label);
+        button.setContentDescription("按键 " + description);
+        styleButton(button, false);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        return button;
+    }
+
+    /** Matches the Apple delete key: a short tap deletes once, a held press repeats. */
+    private void bindBackspaceRepeat(Button button, Runnable action) {
+        button.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    cancelBackspaceRepeat();
+                    backspaceRepeatButton = button;
+                    backspaceRepeated = false;
+                    button.setPressed(true);
+                    backspaceRepeatTask = new Runnable() {
+                        @Override public void run() {
+                            if (backspaceRepeatButton != button || !button.isPressed()) return;
+                            backspaceRepeated = true;
+                            playFeedback(button);
+                            action.run();
+                            main.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MILLIS);
+                        }
+                    };
+                    main.postDelayed(backspaceRepeatTask, BACKSPACE_REPEAT_DELAY_MILLIS);
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (event.getX() < 0 || event.getY() < 0
+                            || event.getX() >= button.getWidth()
+                            || event.getY() >= button.getHeight()) {
+                        cancelBackspaceRepeat();
+                        button.setPressed(false);
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    boolean active = backspaceRepeatButton == button;
+                    boolean repeated = active && backspaceRepeated;
+                    cancelBackspaceRepeat();
+                    button.setPressed(false);
+                    if (active && !repeated) button.performClick();
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                    cancelBackspaceRepeat();
+                    button.setPressed(false);
+                    return true;
+                }
+                default -> { return true; }
+            }
+        });
+    }
+
+    private void cancelBackspaceRepeat() {
+        if (backspaceRepeatTask != null) main.removeCallbacks(backspaceRepeatTask);
+        backspaceRepeatTask = null;
+        if (backspaceRepeatButton != null) backspaceRepeatButton.setPressed(false);
+        backspaceRepeatButton = null;
+        backspaceRepeated = false;
     }
 
     private int pixels(int value) {
@@ -1337,6 +1726,8 @@ public final class MSIMEInputService extends InputMethodService {
             button.setBackground(drawable);
         }
         button.setTextColor(Color.parseColor(foreground));
+        if (button instanceof ShuangpinHintButton hintButton)
+            hintButton.setHintColor(Color.parseColor(skin.accent()));
         button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         int shadowAlpha = (int) Math.round(255 * skin.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
@@ -1376,6 +1767,8 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(clipboardPanel);
         if (schemePanel != null)
             applySkinBackground(schemePanel);
+        if (skinPanel != null)
+            applySkinBackground(skinPanel);
         if (layoutSettingsPanel != null)
             applySkinBackground(layoutSettingsPanel);
         if (moreToolsPanel != null)
@@ -1426,6 +1819,23 @@ public final class MSIMEInputService extends InputMethodService {
         vibrator = getSystemService(Vibrator.class);
     }
 
+    private void loadKeyboardLayoutPreferences() {
+        keyboardLayoutPreferences = getSharedPreferences(KEYBOARD_LAYOUT_PREFERENCES, MODE_PRIVATE);
+        fullWidthInput = keyboardLayoutPreferences.getBoolean(FULL_WIDTH_INPUT_KEY, false);
+    }
+
+    private String fullWidthOutput(String text) {
+        return FullWidthInputPolicy.output(text, fullWidthInput);
+    }
+
+    private void toggleFullWidthInput() {
+        fullWidthInput = !fullWidthInput;
+        if (keyboardLayoutPreferences != null) {
+            keyboardLayoutPreferences.edit().putBoolean(FULL_WIDTH_INPUT_KEY, fullWidthInput).apply();
+        }
+        renderMoreTools();
+    }
+
     private void saveFeedbackPreferences() {
         if (feedbackPreferences == null) return;
         feedbackPreferences.edit()
@@ -1454,6 +1864,22 @@ public final class MSIMEInputService extends InputMethodService {
         return !dedicatedEnglish && scheme != 2 && scheme != 3;
     }
 
+    private void showLocalInputMenu() {
+        if (preedit == null || !supportsLocalTools() || view == null
+                || !view.optString("editing_text", "").isEmpty()
+                || !"none".equals(view.optString("local_mode", "none"))) return;
+        PopupMenu popup = new PopupMenu(this, preedit);
+        for (LocalInputMode mode : LocalInputMode.values()) {
+            MenuItem item = popup.getMenu().add(mode.title());
+            item.setEnabled(localModeEnabled(mode));
+            item.setOnMenuItemClickListener(ignored -> {
+                openLocalInputMode(mode);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
     private boolean localModeEnabled(LocalInputMode mode) {
         return localModes.optBoolean(mode.preferenceKey(), true);
     }
@@ -1471,6 +1897,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void closeSchemePicker() {
         if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
         synchronizeReplyKeyboard();
+    }
+
+    private void closeSkinPicker() {
+        if (skinScroll != null) skinScroll.setVisibility(View.GONE);
     }
 
     private void closeLayoutSettings() {
@@ -1694,7 +2124,7 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "表情目录尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
-        command(9);
+        command(2);
         if (session == 0 || connection == null) return;
         closeCandidatePanel();
         closeClipboardHistory();
@@ -1741,7 +2171,17 @@ public final class MSIMEInputService extends InputMethodService {
     private void closeReplyKeyboard() {
         replyModel.resetResults();
         clearReplyRequestReferences();
-        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
+        setReplyKeyboardVisible(false);
+    }
+
+    /** Keep the shared candidate/shortcut bar visible while the reply surface owns the key area. */
+    private void setReplyKeyboardVisible(boolean visible) {
+        if (replyKeyboard != null)
+            replyKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (keyRows != null)
+            keyRows.setVisibility(visible ? View.GONE : View.VISIBLE);
+        if (keyboardControls != null)
+            keyboardControls.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
     private void invalidateReplyContext(String message) {
@@ -1768,11 +2208,11 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         if (replySuppressed) {
-            replyKeyboard.setVisibility(View.GONE);
+            setReplyKeyboardVisible(false);
             return;
         }
         renderReplyKeyboard();
-        replyKeyboard.setVisibility(View.VISIBLE);
+        setReplyKeyboardVisible(true);
     }
 
     private void showReplyKeyboard() {
@@ -1880,7 +2320,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         clearReplyRequestReferences();
         renderReplyKeyboard();
-        if (inserted) replyKeyboard.setVisibility(View.GONE);
+        if (inserted) setReplyKeyboardVisible(false);
     }
 
     private void showReplyTemplates() {
@@ -1913,21 +2353,94 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showSkinMenu(Button anchor) {
-        if (anchor == null || !canSaveKeyboardSkin()) return;
-        PopupMenu popup = new PopupMenu(this, anchor);
+        if (anchor == null || !canSaveKeyboardSkin() || skinScroll == null) return;
+        closeEmojiPicker();
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeMoreTools();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        renderSkinPicker();
+        skinScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void renderSkinPicker() {
+        if (skinPanel == null) return;
+        skinPanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("选择皮肤");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button close = button(header, "返回键盘", this::closeSkinPicker);
+        close.setContentDescription("返回键盘");
+        skinPanel.addView(header);
+
+        java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
+        try {
+            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Path.of(preferencesDirectory))) {
+                JSONObject design = item.design();
+                saved.add(new SkinChoice("custom", item.name(),
+                    KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
+            }
+        } catch (Exception ignored) {
+            // A partially written library must not hide built-in skins.
+        }
+        if (!saved.isEmpty()) addSkinSection(skinPanel, "我的设计", saved);
+
+        java.util.List<SkinChoice> builtIns = new java.util.ArrayList<>();
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
         JSONObject customDesign = preferences == null ? null
             : preferences.optJSONObject("custom_touch_keyboard_skin");
-        for (KeyboardSkin choice : KeyboardSkin.choices(skin.dark(), customDesign)) {
-            MenuItem item = popup.getMenu().add(choice.title());
-            item.setCheckable(true).setChecked(skin.id().equals(choice.id()));
-            item.setOnMenuItemClickListener(ignored -> {
-                saveKeyboardSkin(choice.id());
-                return true;
-            });
+        for (KeyboardSkin choice : KeyboardSkin.builtIns(skin.dark()))
+            builtIns.add(new SkinChoice(choice.id(), choice.title(), choice, null));
+        KeyboardSkin custom = KeyboardSkin.from("custom", skin.dark(), customDesign);
+        builtIns.add(new SkinChoice("custom", custom.title(), custom, customDesign));
+        addSkinSection(skinPanel, null, builtIns);
+        applySkin();
+    }
+
+    private void addSkinSection(LinearLayout parent, String heading, java.util.List<SkinChoice> choices) {
+        if (heading != null) {
+            TextView label = new TextView(this);
+            label.setText(heading);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            parent.addView(label, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
-        popup.show();
+        for (int start = 0; start < choices.size(); start += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int slot = 0; slot < 2; slot++) {
+                int index = start + slot;
+                if (index >= choices.size()) {
+                    row.addView(new View(this), new LinearLayout.LayoutParams(0, pixels(124), 1));
+                    continue;
+                }
+                SkinChoice choice = choices.get(index);
+                KeyboardSkinCard card = new KeyboardSkinCard(this, choice.skin(), choice.title());
+                card.setSelected(skin.id().equals(choice.id())
+                    && skin.key().equals(choice.skin().key()));
+                card.setContentDescription("屏幕键盘皮肤 " + choice.title());
+                if (Build.VERSION.SDK_INT >= 30)
+                    card.setStateDescription(card.isSelected() ? "已选中" : "未选中");
+                card.setOnClickListener(ignored -> {
+                    playFeedback(card);
+                    closeSkinPicker();
+                    saveKeyboardSkin(choice.id(), choice.design());
+                });
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, pixels(124), 1);
+                params.setMargins(pixels(4), pixels(4), pixels(4), pixels(4));
+                row.addView(card, params);
+            }
+            parent.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, pixels(132)));
+        }
     }
 
     private void showKeyboardSkinStatus(String value) {
@@ -1944,8 +2457,12 @@ public final class MSIMEInputService extends InputMethodService {
             : preferencesSnapshot.optJSONObject("preferences");
         JSONObject customDesign = currentPreferences == null ? null
             : currentPreferences.optJSONObject("custom_touch_keyboard_skin");
+        saveKeyboardSkin(identifier, customDesign);
+    }
+
+    private void saveKeyboardSkin(String identifier, JSONObject customDesign) {
         KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark(), customDesign);
-        if (skin.id().equals(next.id()) || skinSaving || traditionalOutputSaving || session == 0
+        if (skin.key().equals(next.key()) || skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
@@ -1954,7 +2471,10 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = pending.getLong("revision");
-            pending.getJSONObject("preferences").put("touch_keyboard_skin", next.id());
+            JSONObject preferences = pending.getJSONObject("preferences");
+            preferences.put("touch_keyboard_skin", next.id());
+            if ("custom".equals(identifier) && customDesign != null)
+                preferences.put("custom_touch_keyboard_skin", new JSONObject(customDesign.toString()));
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
             return;
@@ -1994,6 +2514,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         applySkin();
         render();
+    }
+
+    /** Finish the Engine composition before handing the input connection to another IME. */
+    private void switchToNextInputMethodAfterCommit() {
+        if (session != 0) command(2);
+        switchToNextInputMethod(false);
     }
 
     private boolean canSaveChineseOutput() {
@@ -2097,14 +2623,11 @@ public final class MSIMEInputService extends InputMethodService {
             renderReplyKeyboard();
         });
         replyPolishModeButton.setContentDescription("帮润色模式");
-        Button schemes = button(header, "⌨", this::showSchemePicker);
-        schemes.setContentDescription("选择输入方案");
         replyTemplateButton = button(header, "模板", this::showReplyTemplates);
         replyTemplateButton.setContentDescription("回复模板");
-        replySkinButton = button(header, "皮肤", () -> showSkinMenu(replySkinButton));
-        replySkinButton.setContentDescription("切换皮肤");
-        Button dismiss = button(header, "⌄", () -> requestHideSelf(0));
-        dismiss.setContentDescription("收起键盘");
+        View spacer = new View(this);
+        header.addView(spacer, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
         root.addView(header, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(42)));
 
@@ -2162,9 +2685,6 @@ public final class MSIMEInputService extends InputMethodService {
         styleButton(replyReplyModeButton, true);
         styleButton(replyPolishModeButton, true);
         replyTemplateButton.setEnabled(!replyModel.busy());
-        replySkinButton.setEnabled(canSaveKeyboardSkin());
-        replySkinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
-        if (Build.VERSION.SDK_INT >= 30) replySkinButton.setStateDescription(skin.title());
         replySourceButton.setText(replyModel.source().isEmpty()
             ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
         if (replyModel.replies().isEmpty()) {
@@ -2731,7 +3251,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeVoiceResult();
         closeAiPolish();
-        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
+        closeReplyKeyboard();
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -2745,37 +3265,75 @@ public final class MSIMEInputService extends InputMethodService {
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         header.addView(title, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button settings = borderlessButton(header, "⚙", this::showFeedbackMenu);
+        settings.setContentDescription("键盘设置");
         Button close = button(header, "返回键盘", this::closeSchemePicker);
         close.setContentDescription("返回键盘");
         schemePanel.addView(header);
+        LinearLayout schemeSurface = new LinearLayout(this);
+        schemeSurface.setOrientation(LinearLayout.VERTICAL);
+        schemeSurface.setPadding(pixels(8), pixels(6), pixels(8), pixels(6));
+        schemeSurface.setContentDescription("输入方案卡片区域");
+        schemePanel.addView(schemeSurface, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         java.util.List<KeyboardScheme> schemes = enabledSchemes;
-        for (int start = 0; start < schemes.size(); start += 4) {
+        int cardCount = schemes.size() + 1;
+        // The English card sits third when there are enough schemes to put it there, and last
+        // otherwise. Pinning it to index 2 made a single enabled scheme index past the end of
+        // the list, which threw on the main thread and took the IME down with it.
+        final int englishIndex = Math.min(2, schemes.size());
+        for (int start = 0; start < cardCount; start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int slot = 0; slot < 4; slot++) {
                 int index = start + slot;
-                if (index >= schemes.size()) {
+                if (index >= cardCount) {
                     View spacer = new View(this);
                     row.addView(spacer, new LinearLayout.LayoutParams(0, pixels(72), 1));
                     continue;
                 }
-                KeyboardScheme scheme = schemes.get(index);
-                Button card = button(row, scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title(),
-                    () -> selectKeyboardScheme(scheme));
+                if (index == englishIndex) {
+                    Button card = new KeyboardPressButton(this);
+                    card.setAllCaps(false);
+                    card.setText("EN 26\n英文 26 键");
+                    card.setOnClickListener(ignored -> {
+                        playFeedback(card);
+                        selectEnglishScheme();
+                    });
+                    row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
+                    card.setSelected(dedicatedEnglish);
+                    card.setEnabled(!schemeSaving);
+                    card.setContentDescription("输入方案卡片 英文 26 键");
+                    if (Build.VERSION.SDK_INT >= 30)
+                        card.setStateDescription(dedicatedEnglish ? "已选中" : "未选中");
+                    styleButton(card, true);
+                    continue;
+                }
+                int schemeIndex = index > englishIndex ? index - 1 : index;
+                KeyboardScheme scheme = schemes.get(schemeIndex);
+                // Apple renders scheme cards with the same press-feedback surface as keys. Keep
+                // the Android-specific scheme persistence and selection guards in the callback.
+                Button card = new KeyboardPressButton(this);
+                card.setAllCaps(false);
+                card.setText(scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title());
+                card.setOnClickListener(ignored -> {
+                    playFeedback(card);
+                    selectKeyboardScheme(scheme);
+                });
+                row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
                 card.setSelected(scheme == selectedScheme);
                 card.setEnabled(!schemeSaving);
                 card.setContentDescription("输入方案卡片 " + scheme.title());
                 if (Build.VERSION.SDK_INT >= 30)
                     card.setStateDescription(scheme == selectedScheme ? "已选中" : "未选中");
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) card.getLayoutParams();
-                params.height = pixels(72);
                 card.setLayoutParams(params);
                 styleButton(card, true);
             }
-            schemePanel.addView(row);
+            schemeSurface.addView(row);
         }
         if (!sharedSchemePreferences) {
-            Button toggleReply = button(schemePanel, thoughtfulReplyEnabled()
+            Button toggleReply = button(schemeSurface, thoughtfulReplyEnabled()
                 ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
             toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -2786,14 +3344,35 @@ public final class MSIMEInputService extends InputMethodService {
         hint.setText(sharedSchemePreferences
             ? "显示的方案由共享设置管理；切换会先完成当前组词并同步当前方案"
             : "切换会先完成当前组词，并迁移到共享输入方案设置");
-        schemePanel.addView(hint);
+        schemeSurface.addView(hint);
         applySkin();
+        // Apple keeps the selectable scheme area on a filled key surface, so a short list does not
+        // leave a bare keyboard backdrop below the cards. Apply this after the recursive skin pass:
+        // the picker itself remains the patterned backdrop while this inner surface follows the
+        // selected skin's key material, including custom Android skins.
+        schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin,
+            Color.parseColor(skin.keyBackground()), false,
+            getResources().getDisplayMetrics().density));
+    }
+
+    private void selectEnglishScheme() {
+        if (schemeSaving || touchGeometrySaving || traditionalOutputSaving || session == 0) return;
+        if (!dedicatedEnglish) toggleInputLanguage();
+        if (session == 0) return;
+        closeSchemePicker();
+        render();
     }
 
     private void selectKeyboardScheme(KeyboardScheme scheme) {
         if (schemeSaving || touchGeometrySaving || traditionalOutputSaving
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
+        // Match Apple's scheme picker: choosing a Chinese scheme from the English card
+        // returns to Chinese mode before applying the persisted Engine scheme.
+        if (dedicatedEnglish) {
+            toggleInputLanguage();
+            if (session == 0) return;
+        }
         if (scheme == selectedScheme) {
             closeSchemePicker();
             if (scheme == KeyboardScheme.THOUGHTFUL_REPLY) showReplyKeyboard();
@@ -2807,7 +3386,7 @@ public final class MSIMEInputService extends InputMethodService {
         final long expectedRevision;
         try {
             // Scheme replacement is never deferred: complete Engine composition first.
-            apply(NativeClient.command(targetSession, 9));
+            apply(NativeClient.command(targetSession, 2));
             if (session != targetSession || preferencesSnapshot == null
                     || !targetDirectory.equals(preferencesDirectory)) return;
             pending = new JSONObject(preferencesSnapshot.toString());
@@ -2902,7 +3481,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void insertClipboardText(String text) {
         if (connection == null || !ClipboardHistoryPolicy.acceptable(text)) return;
-        command(9);
+        command(2);
         commitText(text);
         closeClipboardHistory();
     }
@@ -3034,7 +3613,9 @@ public final class MSIMEInputService extends InputMethodService {
     private Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
                                  boolean enabled, boolean playBeforeAction, String caption,
                                  Runnable action) {
-        Button card = new Button(this);
+        // Apple renders every tool card with the same press-feedback surface as a key. Keep the
+        // Android card's existing state, accessibility and navigation behavior unchanged.
+        Button card = new KeyboardPressButton(this);
         card.setAllCaps(false);
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
         boolean navigates = section == MoreToolsLayout.Section.TOOLS
@@ -3090,8 +3671,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void installShortcutBar(Button dismissButton) {
         shortcutBar.removeAllViews();
-        Button[] buttons = {moreButton, schemeButton, replyShortcutButton, emojiShortcutButton,
-            voiceShortcutButton, skinButton, layoutSettingsButton, dismissButton};
+        // Keep the Apple shortcut order: more/brand, keyboard settings, reply, emoji, skin,
+        // scheme and dismiss. Android keeps its optional voice-result entry as a platform-specific
+        // extra beside the content tools rather than moving the deliberate scheme switch forward.
+        Button[] buttons = {moreButton, layoutSettingsButton, replyShortcutButton,
+            emojiShortcutButton, voiceShortcutButton, skinButton, schemeButton, dismissButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             shortcutBar.addView(button, new LinearLayout.LayoutParams(
@@ -3216,6 +3800,8 @@ public final class MSIMEInputService extends InputMethodService {
         appendMoreToolsSection(MoreToolsLayout.Section.SETTINGS,
             moreToolsCard("繁体输出", MoreToolsLayout.Section.SETTINGS, traditionalChineseOutput,
                 traditionalOutputToolAvailable(), true, null, this::toggleChineseOutput),
+            moreToolsCard("全角输入", MoreToolsLayout.Section.SETTINGS, fullWidthInput,
+                true, false, this::toggleFullWidthInput),
             moreToolsCard("按键音", MoreToolsLayout.Section.SETTINGS, soundEnabled,
                 true, false, this::toggleSoundFromMoreTools),
             moreToolsCard("按键振动", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
@@ -3245,7 +3831,7 @@ public final class MSIMEInputService extends InputMethodService {
                 case REMOVE -> NativeClient.removeCandidate(session, generation, index);
             };
             if (!apply(result)) {
-                Toast.makeText(this, "当前候选不支持此操作", Toast.LENGTH_SHORT).show();
+                showDiagnostic("当前候选不支持此操作");
             } else if (keyboardRoot != null) {
                 keyboardRoot.announceForAccessibility(action.announcement());
             }
@@ -3335,7 +3921,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button makeCandidateButton(int slot) {
-        Button button = new Button(this);
+        // Apple uses the same press-feedback button for candidate chips as for keys. Android's
+        // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
+        // feedback without changing the existing scroll-versus-select boundary.
+        Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
         button.setOnClickListener(ignored -> selectVisibleCandidate(button, slot));
         button.setOnLongClickListener(ignored -> {
@@ -3388,7 +3977,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
-        Button button = new Button(this);
+        Button button = new KeyboardPressButton(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = candidatePanelSnapshot == null ? ""
@@ -3464,7 +4053,9 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView composition = new TextView(this);
-        String compositionText = candidatePanelSnapshot.optString("preedit", "");
+        String reading = candidatePanelSnapshot.optString("reading", "");
+        String compositionText = reading.isEmpty()
+            ? candidatePanelSnapshot.optString("preedit", "") : reading;
         composition.setText(compositionText);
         composition.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
         composition.setContentDescription("当前组合文本：" + compositionText);
@@ -3505,7 +4096,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean handwritingActive() {
-        return session != 0 && keyboardLayer == KeyboardLayout.Layer.LETTERS
+        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        return session != 0 && !dedicatedEnglish
+            && "none".equals(localMode)
+            && keyboardLayer == KeyboardLayout.Layer.LETTERS
             && displayedTouchLayout(view) == HANDWRITING_LAYOUT && handwritingCanvas != null;
     }
 
@@ -3530,10 +4124,18 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showHandwritingStatus(String text) {
-        if (handwritingCandidates == null || handwritingStatus == null) return;
-        handwritingCandidates.removeAllViews();
+        if (handwritingStatus == null) return;
         handwritingStatus.setText(text);
-        handwritingCandidates.addView(handwritingStatus);
+        handwritingStatus.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
+        if (handwritingStatus.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
+            boolean downloadVisible = handwritingDownload != null
+                && handwritingDownload.getVisibility() == View.VISIBLE;
+            params.gravity = downloadVisible
+                ? Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL : Gravity.CENTER;
+            params.bottomMargin = downloadVisible ? pixels(8) : 0;
+            handwritingStatus.setLayoutParams(params);
+        }
+        if (candidates != null) render();
     }
 
     private void refreshHandwritingAvailability() {
@@ -3702,21 +4304,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void renderHandwritingCandidates(HandwritingRequestTracker.Token token) {
-        if (handwritingCandidates == null || handwritingStatus == null) return;
-        handwritingCandidates.removeAllViews();
-        if (handwritingResults.isEmpty()) {
-            showHandwritingStatus("未识别，请撤销或重新书写");
-            return;
-        }
-        for (int index = 0; index < handwritingResults.size(); index++) {
-            String candidate = handwritingResults.get(index);
-            Button choice = keyboardKey(candidate, "手写候选 " + (index + 1),
-                () -> commitHandwritingCandidate(token, candidate));
-            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
-            handwritingCandidates.addView(choice, new LinearLayout.LayoutParams(
-                pixels(48), LinearLayout.LayoutParams.MATCH_PARENT));
-        }
-        applySkin();
+        render();
     }
 
     private void clearHandwriting() {
@@ -3743,7 +4331,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!acceptsHandwriting(token) || !handwritingResults.contains(candidate)
                 || connection == null) return false;
         long targetSession = session;
-        command(9);
+        command(2);
         if (targetSession != session || !acceptsHandwriting(token) || connection == null) return false;
         if (!commitText(chineseOutput(candidate, view), TypingSource.HANDWRITING)) return false;
         clearHandwriting();
@@ -3751,24 +4339,34 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void rebuildHandwritingRows() {
-        handwritingCandidates = new LinearLayout(this);
-        handwritingCandidates.setOrientation(LinearLayout.HORIZONTAL);
         handwritingStatus = new TextView(this);
         handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
-        candidateScroll.setHorizontalScrollBarEnabled(false);
-        candidateScroll.setContentDescription("手写候选");
-        candidateScroll.addView(handwritingCandidates);
-        keyRows.addView(candidateScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(48)));
+        handwritingStatus.setGravity(Gravity.CENTER);
+        handwritingStatus.setText("在此手写，停笔后选字");
+        handwritingStatus.setContentDescription("手写状态");
+        handwritingStatus.setClickable(false);
+        handwritingStatus.setFocusable(false);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        FrameLayout canvasFrame = new FrameLayout(this);
+        FrameLayout row = new FrameLayout(this);
         handwritingCanvas = new HandwritingCanvas(this);
         handwritingCanvas.applySkin(skin);
-        canvasFrame.addView(handwritingCanvas, new FrameLayout.LayoutParams(
+        row.addView(handwritingCanvas, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        FrameLayout cardFrame = new FrameLayout(this);
+        cardFrame.setClickable(false);
+        cardFrame.setFocusable(false);
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        cardParams.rightMargin = pixels(64);
+        row.addView(cardFrame, cardParams);
+        cardFrame.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> handwritingCanvas.setCardRect(
+                    left, top, right, bottom));
+        cardFrame.addView(handwritingStatus, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER));
+
         handwritingDownload = new Button(this);
         handwritingDownload.setAllCaps(false);
         handwritingDownload.setOnClickListener(ignored -> {
@@ -3780,9 +4378,7 @@ public final class MSIMEInputService extends InputMethodService {
         downloadParams.gravity = Gravity.CENTER;
         downloadParams.leftMargin = pixels(16);
         downloadParams.rightMargin = pixels(16);
-        canvasFrame.addView(handwritingDownload, downloadParams);
-        row.addView(canvasFrame, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        cardFrame.addView(handwritingDownload, downloadParams);
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
@@ -3791,8 +4387,8 @@ public final class MSIMEInputService extends InputMethodService {
         }));
         addNineKey(tools, keyboardKey("清空", "清空手写", this::clearHandwriting));
         addNineKey(tools, keyboardKey("⌫", "删除", this::deleteFromHandwriting));
-        row.addView(tools, new LinearLayout.LayoutParams(pixels(64),
-            LinearLayout.LayoutParams.MATCH_PARENT));
+        row.addView(tools, new FrameLayout.LayoutParams(pixels(64),
+            FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END));
         adjustFixedHeight(row, KeyboardGeometry.HANDWRITING_BODY_HEIGHT_DP);
         keyRows.addView(row);
 
@@ -3813,11 +4409,22 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void rebuildKeyRows() {
         if (keyRows == null) return;
+        hideJapaneseFlickPreview();
         deactivateHandwriting();
         symbolKeyButtons.clear();
         symbolKeyInputs.clear();
+        shuangpinKeyButtons.clear();
+        shuangpinKeyInputs.clear();
         microsoftFinalKey = null;
+        japaneseSpaceKey = null;
+        japaneseReturnKey = null;
+        japaneseVariantsButton = null;
         keyRows.removeAllViews();
+        if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+            rebuildJapaneseNineKeyRows();
+            applyKeyboardGeometry();
+            return;
+        }
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
             if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
                 rebuildHandwritingRows();
@@ -3829,14 +4436,15 @@ public final class MSIMEInputService extends InputMethodService {
                 applyKeyboardGeometry();
                 return;
             }
-            if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
-                rebuildJapaneseNineKeyRows();
-                applyKeyboardGeometry();
-                return;
-            }
         }
+        boolean chineseMode = !dedicatedEnglish;
+        boolean localMode = view != null
+            && !"none".equals(view.optString("local_mode", "none"));
+        boolean shifted = letterCase.usesUppercase();
+        boolean uppercaseFaces = LetterKeyFacePolicy.displaysUppercase(
+            chineseMode, localMode, shifted);
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(
-            keyboardLayer, letterCase.usesUppercase());
+            keyboardLayer, uppercaseFaces);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(this);
@@ -3847,8 +4455,22 @@ public final class MSIMEInputService extends InputMethodService {
             for (String key : keys) {
                 final String input = key;
                 String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                    ? ChineseSymbolFaces.face(key, sendsChinesePunctuation()) : key;
-                Button keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                    ? ChineseSymbolFaces.face(key, sendsChinesePunctuation())
+                    : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
+                Button keyButton;
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+                    ShuangpinHintButton hintButton = shuangpinKeyboardKey(
+                        face, face, () -> type(input.charAt(0)));
+                    keyButton = hintButton;
+                    shuangpinKeyButtons.add(hintButton);
+                    shuangpinKeyInputs.add(input);
+                } else {
+                    keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                }
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+                    keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
+                        input, chineseMode, localMode, shifted));
+                }
                 if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
                     symbolKeyButtons.add(keyButton);
                     symbolKeyInputs.add(input);
@@ -3857,7 +4479,9 @@ public final class MSIMEInputService extends InputMethodService {
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
             if (keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1) {
-                microsoftFinalKey = keyboardKey(";", "微软双拼 ing", () -> type(';'));
+                microsoftFinalKey = shuangpinKeyboardKey(";", "微软双拼 ing", () -> type(';'));
+                shuangpinKeyButtons.add((ShuangpinHintButton) microsoftFinalKey);
+                shuangpinKeyInputs.add(";");
                 row.addView(microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
@@ -3873,6 +4497,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void rebuildNineKeyRows() {
+        dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
         adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
@@ -3886,7 +4511,14 @@ public final class MSIMEInputService extends InputMethodService {
             punctuation.addView(key, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
-        container.addView(punctuation, new LinearLayout.LayoutParams(0,
+        FrameLayout sidebar = new FrameLayout(this);
+        sidebar.addView(punctuation, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (nineKeySpellingScroll != null) {
+            sidebar.addView(nineKeySpellingScroll, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+        container.addView(sidebar, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
 
         LinearLayout grid = new LinearLayout(this);
@@ -3894,8 +4526,17 @@ public final class MSIMEInputService extends InputMethodService {
         for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
             LinearLayout row = new LinearLayout(this);
             for (NineKeyLayout.Key key : keys) {
-                addNineKey(row, keyboardKey(key.label(), key.description(),
-                    () -> character(key.input())));
+                Button keyButton = keyboardKey(key.label(), key.description(),
+                    () -> character(key.input()));
+                if (Character.isDigit(key.input()) && key.label().length() > 1) {
+                    keyButton.setContentDescription("按键 " + key.description()
+                        + "；长按输入数字或字母");
+                    keyButton.setOnLongClickListener(ignored -> {
+                        showNineKeyHoldOptions(keyButton, key);
+                        return true;
+                    });
+                }
+                addNineKey(row, keyButton);
             }
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
@@ -3905,9 +4546,11 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
-        Button delete = keyboardKey("⌫", "删除", () -> {
+        Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
-        });
+        };
+        Button delete = keyboardKey("⌫", "删除", deleteAction);
+        bindBackspaceRepeat(delete, deleteAction);
         addNineKey(actions, delete);
         addNineKey(actions, keyboardKey("重输", "清空当前拼音重新输入", () -> command(3)));
         addNineKey(actions, keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")));
@@ -3915,8 +4558,73 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
     }
 
+    /** Show the digit and literal letters printed on a nine-key key, like Apple's hold popup. */
+    private void showNineKeyHoldOptions(Button anchor, NineKeyLayout.Key key) {
+        dismissNineKeyHoldOptions();
+        if (keyboardRoot == null) return;
+        playFeedback(anchor);
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.HORIZONTAL);
+        int padding = pixels(5);
+        options.setPadding(padding, padding, padding, padding);
+        GradientDrawable surface = new GradientDrawable();
+        surface.setColor(Color.parseColor(skin.background()));
+        surface.setCornerRadius(pixels(10));
+        surface.setStroke(Math.max(1, pixels(1)), Color.parseColor(skin.accent()));
+        options.setBackground(surface);
+
+        String letters = key.label().toLowerCase(java.util.Locale.ROOT);
+        String[] choices = new String[letters.length() + 1];
+        choices[0] = String.valueOf(key.input());
+        for (int index = 0; index < letters.length(); index++)
+            choices[index + 1] = String.valueOf(letters.charAt(index));
+        for (String choice : choices) {
+            Button option = keyboardKey(choice, "输入 " + choice,
+                () -> commitNineKeyHoldOption(choice));
+            option.setContentDescription("输入 " + choice);
+            option.setPadding(0, 0, 0, 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                pixels(36), pixels(38));
+            if (options.getChildCount() > 0) params.setMarginStart(pixels(2));
+            options.addView(option, params);
+        }
+
+        options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final PopupWindow[] holder = new PopupWindow[1];
+        PopupWindow popup = new PopupWindow(options, options.getMeasuredWidth(),
+            options.getMeasuredHeight(), true);
+        holder[0] = popup;
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setClippingEnabled(true);
+        popup.setElevation(pixels(4));
+        popup.setOnDismissListener(() -> {
+            if (nineKeyHoldPopup == holder[0]) nineKeyHoldPopup = null;
+        });
+        nineKeyHoldPopup = popup;
+        int xOffset = (anchor.getWidth() - options.getMeasuredWidth()) / 2;
+        int yOffset = -anchor.getHeight() - options.getMeasuredHeight() - pixels(6);
+        popup.showAsDropDown(anchor, xOffset, yOffset);
+    }
+
+    private void commitNineKeyHoldOption(String text) {
+        dismissNineKeyHoldOptions();
+        if (connection == null) return;
+        command(2);
+        commitText(fullWidthOutput(text));
+    }
+
+    private void dismissNineKeyHoldOptions() {
+        if (nineKeyHoldPopup != null) {
+            nineKeyHoldPopup.dismiss();
+            nineKeyHoldPopup = null;
+        }
+    }
+
     private static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
-        return key.kana().get(0) + "\n" + String.join(" ", key.kana().subList(1, 5));
+        return key.kana().get(0) + "\n" + key.kana().subList(1, 5).stream()
+            .filter(label -> !label.isEmpty()).collect(java.util.stream.Collectors.joining(" "));
     }
 
     private void inputJapaneseStroke(String input) {
@@ -3926,40 +4634,26 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void selectJapaneseKey(JapaneseNineKeyLayout.Key key, int direction) {
         if (direction < 0 || direction >= key.kana().size()) return;
+        if (key.kana().get(direction).isEmpty()) return;
         String stroke = key.strokes().get(direction);
         if (stroke.isEmpty()) commitNineKeyLiteral(key.kana().get(direction));
         else inputJapaneseStroke(stroke);
     }
 
-    private void showJapaneseKeyChoices(Button anchor, JapaneseNineKeyLayout.Key key) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (int index = 0; index < key.kana().size(); index++) {
-            final int direction = index;
-            popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
-                playFeedback(anchor);
-                selectJapaneseKey(key, direction);
-                return true;
-            });
-        }
-        popup.show();
+    private void showJapaneseFlickPreview(Button button, JapaneseNineKeyLayout.Key key, int direction) {
+        if (japaneseFlickPreview != null && keyboardRoot != null)
+            japaneseFlickPreview.show(button, key, direction, keyboardRoot);
+    }
+
+    private void hideJapaneseFlickPreview() {
+        if (japaneseFlickPreview != null) japaneseFlickPreview.hide();
     }
 
     private void bindJapaneseFlick(Button button, JapaneseNineKeyLayout.Key key) {
         final float[] origin = new float[2];
         final int[] direction = new int[1];
         final boolean[] longPressed = new boolean[1];
-        final String label = japaneseKeyLabel(key);
-        button.setOnLongClickListener(ignored -> {
-            playFeedback(button);
-            showJapaneseKeyChoices(button, key);
-            return true;
-        });
-        Runnable longPress = () -> {
-            if (!button.isAttachedToWindow() || !button.isPressed()) return;
-            longPressed[0] = true;
-            button.setPressed(false);
-            button.performLongClick();
-        };
+        final Runnable[] longPressTask = new Runnable[1];
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
@@ -3968,20 +4662,31 @@ public final class MSIMEInputService extends InputMethodService {
                     direction[0] = 0;
                     longPressed[0] = false;
                     button.setPressed(true);
-                    main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
+                    longPressTask[0] = () -> {
+                        if (!button.isPressed() || direction[0] != 0) return;
+                        longPressed[0] = true;
+                        hideJapaneseFlickPreview();
+                        showJapaneseKeyOptions(button, key);
+                    };
+                    main.postDelayed(longPressTask[0], ViewConfiguration.getLongPressTimeout());
+                    showJapaneseFlickPreview(button, key, 0);
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     direction[0] = JapaneseNineKeyLayout.direction(
                         event.getX() - origin[0], event.getY() - origin[1], pixels(12));
-                    if (direction[0] != 0) main.removeCallbacks(longPress);
-                    button.setText(key.kana().get(direction[0]));
+                    if (direction[0] != 0 && longPressTask[0] != null) {
+                        main.removeCallbacks(longPressTask[0]);
+                        longPressTask[0] = null;
+                    }
+                    showJapaneseFlickPreview(button, key, direction[0]);
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    main.removeCallbacks(longPress);
+                    if (longPressTask[0] != null) main.removeCallbacks(longPressTask[0]);
+                    longPressTask[0] = null;
                     button.setPressed(false);
-                    button.setText(label);
+                    hideJapaneseFlickPreview();
                     if (longPressed[0]) return true;
                     if (direction[0] == 0) button.performClick();
                     else {
@@ -3991,9 +4696,10 @@ public final class MSIMEInputService extends InputMethodService {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    main.removeCallbacks(longPress);
+                    if (longPressTask[0] != null) main.removeCallbacks(longPressTask[0]);
+                    longPressTask[0] = null;
                     button.setPressed(false);
-                    button.setText(label);
+                    hideJapaneseFlickPreview();
                     return true;
                 }
                 default -> {
@@ -4003,8 +4709,24 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
+    private void showJapaneseKeyOptions(Button anchor, JapaneseNineKeyLayout.Key key) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (int index = 0; index < key.kana().size(); index++) {
+            if (key.kana().get(index).isEmpty()) continue;
+            int direction = index;
+            popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
+                playFeedback(anchor);
+                selectJapaneseKey(key, direction);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
     private Button japaneseKey(JapaneseNineKeyLayout.Key key) {
-        Button button = keyboardKey(japaneseKeyLabel(key), String.join("、", key.kana()),
+        String description = key.kana().stream().filter(label -> !label.isEmpty())
+            .collect(java.util.stream.Collectors.joining("、"));
+        Button button = keyboardKey(japaneseKeyLabel(key), description,
             () -> selectJapaneseKey(key, 0));
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "；左、上、右、下滑动选择其他假名；长按显示全部选项");
@@ -4028,6 +4750,31 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
+    private void showJapaneseBracketOptions(Button anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (String bracket : JapaneseNineKeyLayout.digitBrackets()) {
+            popup.getMenu().add(bracket).setOnMenuItemClickListener(ignored -> {
+                playFeedback(anchor);
+                commitNineKeyLiteral(bracket);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private Button japaneseVariantsKey() {
+        boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        Button variants = keyboardKey(symbols ? "（）" : "小゛゜",
+            symbols ? "括号；长按选择其他括号" : "小假名、浊音和半浊音", () -> {});
+        japaneseVariantsButton = variants;
+        variants.setOnClickListener(ignored -> {
+            playFeedback(variants);
+            if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) showJapaneseBracketOptions(variants);
+            else command(10);
+        });
+        return variants;
+    }
+
     private void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
@@ -4037,38 +4784,113 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        java.util.List<JapaneseNineKeyLayout.Key> keys = JapaneseNineKeyLayout.keys();
-        for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
+        java.util.List<JapaneseNineKeyLayout.Key> keys = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
+        for (int rowIndex = 0; rowIndex < 4; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
-            for (int column = 0; column < 3; column++) {
-                addNineKey(row, japaneseKey(keys.get(rowIndex * 3 + column)));
+            if (rowIndex < 3) {
+                for (int column = 0; column < 3; column++) {
+                    addNineKey(row, japaneseKey(keys.get(rowIndex * 3 + column)));
+                }
+            } else {
+                addNineKey(row, japaneseVariantsKey());
+                addNineKey(row, japaneseKey(keys.get(9)));
+                addNineKey(row, japaneseKey(keys.get(10)));
             }
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
         container.addView(grid, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.81f));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.VERTICAL);
-        addNineKey(actions, japaneseKey(keys.get(9)));
-        Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
-        variants.setOnClickListener(ignored -> {
-            playFeedback(variants);
-            showJapaneseVariants(variants);
-        });
-        addNineKey(actions, variants);
-        addNineKey(actions, keyboardKey("⌫", "删除", () -> {
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
+        Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
-        }));
-        container.addView(actions, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+        };
+        Button delete = keyboardKey("⌫", "删除", deleteAction);
+        bindBackspaceRepeat(delete, deleteAction);
+        addNineKey(side, delete);
+        container.addView(side, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.19f));
+    }
+
+    /** Non-interactive overlay showing the five choices while a Japanese key is being flicked. */
+    private final class JapaneseFlickPreview extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private static final int[] X_OFFSETS = {0, -1, 0, 1, 0};
+        private static final int[] Y_OFFSETS = {0, 0, -1, 0, 1};
+        private String[] labels = new String[5];
+        private int selectedDirection;
+        private float centerX;
+        private float centerY;
+        private float cellWidth;
+        private float cellHeight;
+        private float gap;
+
+        JapaneseFlickPreview(android.content.Context context) {
+            super(context);
+            setVisibility(View.GONE);
+            setClickable(false);
+            setFocusable(false);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
+            labels = key.kana().toArray(String[]::new);
+            selectedDirection = Math.max(0, Math.min(direction, labels.length - 1));
+            int[] rootLocation = new int[2];
+            int[] anchorLocation = new int[2];
+            root.getLocationOnScreen(rootLocation);
+            anchor.getLocationOnScreen(anchorLocation);
+            centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
+            centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
+            float density = getResources().getDisplayMetrics().density;
+            cellWidth = Math.max(anchor.getWidth(), Math.round(40 * density));
+            cellHeight = Math.max(anchor.getHeight(), Math.round(36 * density));
+            gap = Math.round(6 * density);
+            root.bringChildToFront(this);
+            setVisibility(View.VISIBLE);
+            invalidate();
+        }
+
+        void hide() { setVisibility(View.GONE); }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 22,
+                getResources().getDisplayMetrics());
+            float radius = 8 * getResources().getDisplayMetrics().density;
+            paint.setTextSize(textSize);
+            paint.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            Paint.FontMetrics metrics = paint.getFontMetrics();
+            float stepX = cellWidth + gap;
+            float stepY = cellHeight + gap;
+            for (int index = 0; index < labels.length; index++) {
+                String label = labels[index];
+                if (label == null || label.isEmpty()) continue;
+                boolean selected = index == selectedDirection;
+                float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
+                float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
+                paint.setColor(Color.parseColor(selected ? skin.accent() : skin.keyBackground()));
+                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight,
+                    radius, radius, paint);
+                paint.setColor(Color.parseColor(
+                    selected ? skin.actionForeground() : skin.keyForeground()));
+                float baseline = y + (cellHeight - metrics.bottom - metrics.top) / 2
+                    - metrics.top;
+                float textWidth = paint.measureText(label);
+                canvas.drawText(label, x + (cellWidth - textWidth) / 2, baseline, paint);
+            }
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent event) { return false; }
     }
 
     private void commitNineKeyLiteral(String text) {
         if (connection == null) return;
-        command(9);
-        commitText(text);
+        command(2);
+        commitText(fullWidthOutput(text));
     }
 
     private void chooseNineKeySpelling(long generation, int index) {
@@ -4134,6 +4956,7 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
+        loadKeyboardLayoutPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
         voiceResultStore = files == null ? null
@@ -4146,6 +4969,9 @@ public final class MSIMEInputService extends InputMethodService {
         WindowLayout.fitSystemBars(keyboard);
         keyboardRoot.addView(keyboard, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        japaneseFlickPreview = new JapaneseFlickPreview(this);
+        keyboardRoot.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         status = new TextView(this);
         keyboard.addView(status);
         LinearLayout candidateRegion = new LinearLayout(this);
@@ -4153,6 +4979,10 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout candidateHeader = new LinearLayout(this);
         preedit = new TextView(this);
         preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+        preedit.setOnClickListener(ignored -> {
+            playFeedback(preedit);
+            showLocalInputMenu();
+        });
         candidateHeader.addView(preedit, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         candidatePage = new TextView(this);
@@ -4188,9 +5018,28 @@ public final class MSIMEInputService extends InputMethodService {
         });
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        exitLocalModeButton = new KeyboardBorderlessButton(this);
+        exitLocalModeButton.setAllCaps(false);
+        exitLocalModeButton.setText("×");
+        exitLocalModeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        exitLocalModeButton.setContentDescription("退出本地模式");
+        exitLocalModeButton.setPadding(0, 0, 0, 0);
+        styleButton(exitLocalModeButton, true);
+        exitLocalModeButton.setOnClickListener(ignored -> {
+            playFeedback(exitLocalModeButton);
+            command(3);
+        });
+        candidateHeader.addView(exitLocalModeButton, new LinearLayout.LayoutParams(
+            pixels(40), LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
+        diagnosticView = new TextView(this);
+        diagnosticView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        diagnosticView.setContentDescription("输入提示");
+        diagnosticView.setVisibility(View.GONE);
+        candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
         nineKeySpellings = new LinearLayout(this);
         nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
         nineKeySpellingScroll = new HorizontalScrollView(this);
@@ -4198,7 +5047,6 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingScroll.setContentDescription("九键拼音选择");
         nineKeySpellingScroll.addView(nineKeySpellings);
         nineKeySpellingScroll.setVisibility(View.GONE);
-        candidateRegion.addView(nineKeySpellingScroll);
         candidates = new LinearLayout(this);
         candidates.setOrientation(LinearLayout.HORIZONTAL);
         horizontalCandidateScroll = new HorizontalScrollView(this);
@@ -4207,26 +5055,34 @@ public final class MSIMEInputService extends InputMethodService {
         verticalCandidates.setOrientation(LinearLayout.VERTICAL);
         verticalCandidateScroll = new ScrollView(this);
         verticalCandidateScroll.addView(verticalCandidates);
-        FrameLayout candidateViewport = new FrameLayout(this);
+        candidateViewport = new FrameLayout(this);
         candidateViewport.addView(horizontalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-        candidateRegion.addView(candidateViewport);
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        candidateViewport.setVisibility(View.GONE);
+        candidateRegion.addView(candidateViewport, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
         candidatePaging = new LinearLayout(this);
         candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
         candidateRegion.addView(candidatePaging);
         keyboard.addView(candidateRegion);
+        // Like Apple, keep the shared candidate/shortcut strip above the reply surface. The
+        // ordinary key rows and controls are hidden while this weighted child is visible.
+        replyKeyboard = createReplyKeyboard();
+        replyKeyboard.setVisibility(View.GONE);
+        keyboard.addView(replyKeyboard, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         keyRows = new LinearLayout(this);
         keyRows.setOrientation(LinearLayout.VERTICAL);
         keyboard.addView(keyRows);
         rebuildKeyRows();
         LinearLayout controls = new LinearLayout(this);
-        HorizontalScrollView controlScroll = new HorizontalScrollView(this);
-        controlScroll.setHorizontalScrollBarEnabled(false);
-        controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
+        keyboardControls = new HorizontalScrollView(this);
+        keyboardControls.setHorizontalScrollBarEnabled(false);
+        keyboardControls.addView(controls, new HorizontalScrollView.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        keyboard.addView(controlScroll);
+        keyboard.addView(keyboardControls);
         shiftButton = button(controls, "⇧", () -> {
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()) {
                 toggleInputLanguage();
@@ -4258,7 +5114,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "←", () -> command(4));
         button(controls, "→", () -> command(5));
         button(controls, "尾", () -> command(7));
-        button(controls, "⌫", this::deleteFromHandwriting);
+        Button delete = button(controls, "⌫", this::deleteFromHandwriting);
+        bindBackspaceRepeat(delete, this::deleteFromHandwriting);
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
         spaceButton = button(controls, "空格", this::space);
@@ -4266,14 +5123,14 @@ public final class MSIMEInputService extends InputMethodService {
         bindSpaceCursor(spaceButton);
         enterButton = button(controls, "换行", this::enter);
         enterButton.setContentDescription("换行");
-        button(controls, "切换", () -> switchToNextInputMethod(false));
-        schemeButton = button(controls, "方案", this::showSchemePicker);
+        button(controls, "切换", this::switchToNextInputMethodAfterCommit);
+        schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
         skinButton = button(controls, "皮肤", () -> showSkinMenu(skinButton));
         skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = button(controls, "设置", this::showLayoutSettings);
         layoutSettingsButton.setContentDescription("键盘设置");
-        moreButton = button(controls, "更多", this::showFeedbackMenu);
+        moreButton = brandButton(controls, this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
         Button dismissButton = button(controls, "收起", () -> requestHideSelf(0));
         dismissButton.setContentDescription("收起键盘");
@@ -4312,9 +5169,23 @@ public final class MSIMEInputService extends InputMethodService {
         schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         schemePanel.setContentDescription("输入方案选择器");
         schemeScroll = new ScrollView(this);
-        schemeScroll.addView(schemePanel);
+        schemeScroll.addView(schemePanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        schemeScroll.setFillViewport(true);
         schemeScroll.setVisibility(View.GONE);
         keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        skinPanel = new LinearLayout(this);
+        skinPanel.setOrientation(LinearLayout.VERTICAL);
+        skinPanel.setPadding(24, 16, 24, 16);
+        skinPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        skinPanel.setContentDescription("键盘皮肤选择器");
+        skinScroll = new ScrollView(this);
+        skinScroll.addView(skinPanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        skinScroll.setFillViewport(true);
+        skinScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(skinScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         layoutSettingsPanel = new LinearLayout(this);
         layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
@@ -4419,10 +5290,6 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishContainer.setVisibility(View.GONE);
         keyboardRoot.addView(aiPolishContainer, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        replyKeyboard = createReplyKeyboard();
-        replyKeyboard.setVisibility(View.GONE);
-        keyboardRoot.addView(replyKeyboard, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         moreToolsPanel = new LinearLayout(this);
         moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
         moreToolsPanel.setPadding(pixels(12), 0, pixels(12), pixels(10));
@@ -4496,7 +5363,17 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void render() {
         updateSymbolKeyFaces();
+        updateShuangpinKeyHints();
         updateQuickPunctuation();
+        String currentEditingText = view == null ? "" : view.optString("editing_text", "");
+        if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
+            japaneseConversionIndex = null;
+            japaneseConversionEditingText = "";
+        } else if (japaneseConversionIndex != null
+                && !currentEditingText.equals(japaneseConversionEditingText)) {
+            japaneseConversionIndex = null;
+            japaneseConversionEditingText = "";
+        }
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
@@ -4517,17 +5394,57 @@ public final class MSIMEInputService extends InputMethodService {
                 case SHIFTED -> " · Shift";
                 case CAPS_LOCK -> " · Caps Lock";
             });
-        if (preedit != null) {
-            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
-            preedit.setText(view == null ? "" : view.optString("editing_text", ""));
-        }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
+        boolean handwriting = handwritingActive();
+        boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
+            && handwritingCandidateToken != null;
         boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
-            && (visibleCandidates == null || visibleCandidates.length() == 0));
+            && (visibleCandidates == null || visibleCandidates.length() == 0)
+            && !hasHandwritingResults);
+        if (preedit != null) {
+            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+            String editingText = view == null ? "" : view.optString("editing_text", "");
+            boolean offersLocalModes = idle && supportsLocalTools();
+            String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
+            String reading = view == null ? "" : view.optString("reading", "");
+            String localModeTitle = "none".equals(localModeKey)
+                ? (reading.isEmpty() ? editingText : reading) : editingText;
+            for (LocalInputMode mode : LocalInputMode.values()) {
+                if (mode.preferenceKey().equals(localModeKey)
+                        && mode.trigger().equals(editingText)) {
+                    localModeTitle = mode.title();
+                    break;
+                }
+            }
+            boolean idleTitle = idle && editingText.isEmpty();
+            String displayText = idleTitle
+                ? (dedicatedEnglish ? "英文输入" : "水杉输入法") : localModeTitle;
+            preedit.setText(displayText);
+            preedit.setContentDescription(offersLocalModes ? "本地输入模式" : displayText);
+            preedit.setClickable(offersLocalModes);
+            preedit.setFocusable(offersLocalModes);
+        }
+        if (exitLocalModeButton != null) {
+            boolean localModeActive = view != null
+                && !"none".equals(view.optString("local_mode", "none"));
+            exitLocalModeButton.setVisibility(localModeActive ? View.VISIBLE : View.GONE);
+            exitLocalModeButton.setEnabled(localModeActive && session != 0);
+            exitLocalModeButton.setContentDescription("退出本地模式");
+            styleButton(exitLocalModeButton, true);
+        }
+        boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
+        if (diagnosticView != null) {
+            diagnosticView.setText(diagnosticMessage);
+            diagnosticView.setContentDescription("提示：" + diagnosticMessage);
+            diagnosticView.setTextColor(Color.parseColor(skin.accent()));
+            diagnosticView.setVisibility(hasDiagnostic ? View.VISIBLE : View.GONE);
+        }
         if (shortcutScroll != null)
-            shortcutScroll.setVisibility(idle ? View.VISIBLE : View.GONE);
+            shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+        if (candidateViewport != null)
+            candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (scriptShortcutButton != null) {
             scriptShortcutButton.setVisibility(View.GONE);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
@@ -4632,27 +5549,35 @@ public final class MSIMEInputService extends InputMethodService {
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         renderNineKeySpellings();
+        if (hasDiagnostic && nineKeySpellingScroll != null)
+            nineKeySpellingScroll.setVisibility(View.GONE);
         scheduleCandidateGlosses();
         if (candidates == null) {
             applySkin();
             return;
         }
         if (horizontalCandidateScroll != null)
-            horizontalCandidateScroll.setVisibility(candidateHorizontal ? View.VISIBLE : View.GONE);
+            horizontalCandidateScroll.setVisibility(
+                candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (verticalCandidateScroll != null)
-            verticalCandidateScroll.setVisibility(candidateHorizontal ? View.GONE : View.VISIBLE);
+            verticalCandidateScroll.setVisibility(
+                !candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
+        if (candidatePaging != null)
+            candidatePaging.setVisibility(hasDiagnostic ? View.GONE : View.VISIBLE);
         if (view == null) {
             closeCandidatePanel();
             applySkin();
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
-        if (entries != null) {
+        if (handwriting) {
+            renderSharedHandwritingCandidates(activeCandidates);
+        } else if (entries != null) {
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
@@ -4666,21 +5591,43 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (view.optInt("page_count", 0) > 1 && expandCandidates != null)
+            if (!hasDiagnostic && view.optInt("page_count", 0) > 1 && expandCandidates != null)
                 expandCandidates.setVisibility(View.VISIBLE);
         }
         int visibleSlots = entries == null ? 0 : entries.length();
         for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)
             candidateButtons.get(slot).setVisibility(View.GONE);
-        if (candidatePaging != null) {
+        if (!handwriting && candidatePaging != null) {
             button(candidatePaging, "上词", () -> command(103));
             button(candidatePaging, "下词", () -> command(102));
             button(candidatePaging, "上一页", () -> command(101));
             button(candidatePaging, "下一页", () -> command(100));
         }
+        if (hasDiagnostic) closeCandidatePanel();
         renderExpandedCandidates();
         if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
             renderMoreTools();
         applySkin();
+    }
+
+    private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
+        if (handwritingStatus == null) return;
+        if (handwritingResults.isEmpty() || handwritingCandidateToken == null) {
+            handwritingStatus.setVisibility(View.VISIBLE);
+            return;
+        }
+        handwritingStatus.setVisibility(View.GONE);
+        for (int index = 0; index < handwritingResults.size(); index++) {
+            String candidate = handwritingResults.get(index);
+            HandwritingRequestTracker.Token token = handwritingCandidateToken;
+            Button choice = keyboardKey(chineseOutput(candidate, view),
+                "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
+            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
+                    : LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+            activeCandidates.addView(choice, params);
+        }
     }
 }

@@ -38,6 +38,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
 mod learned_translation;
+mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
     dictionary_request_json, msime_client_dictionary, msime_client_personal_dictionary_sync,
@@ -167,6 +168,7 @@ impl HostSession {
             snapshot.preferences.quanpin_autocorrect_transposition();
         options.autocorrect_neighbor = snapshot.preferences.quanpin_autocorrect_neighbor();
         options.fuzzy_pinyin_rules = snapshot.preferences.fuzzy_pinyin.active_rules();
+        options.wubi_mixed_pinyin = snapshot.preferences.wubi_mixed_pinyin;
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
         options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
@@ -353,6 +355,7 @@ impl HostOptions {
             autocorrect_transposition: self.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: self.preferences.quanpin_autocorrect_neighbor(),
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
+            wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -1057,6 +1060,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             autocorrect_transposition: options.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: options.preferences.quanpin_autocorrect_neighbor(),
             fuzzy_pinyin_rules: options.preferences.fuzzy_pinyin.active_rules(),
+            wubi_mixed_pinyin: options.preferences.wubi_mixed_pinyin,
             frequency_mode: options.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: options.preferences.frequency.trigger_count,
             frequency_linear_step: options.preferences.frequency.linear_step,
@@ -1160,6 +1164,23 @@ pub extern "C" fn msime_client_voice_cancel(handle: u64) -> *mut c_char {
             session.voice.cancel();
             Ok(Value::Null)
         })
+    })
+}
+
+/// Capture a bounded PCM16-compatible sample buffer through the Engine audio
+/// layer. The returned JSON contains only the samples for this call; callers
+/// must transport them immediately and must not log or persist them.
+#[no_mangle]
+pub extern "C" fn msime_client_voice_capture(milliseconds: u32) -> *mut c_char {
+    response(|| {
+        if !(1..=60_000).contains(&milliseconds) {
+            return Err("invalid voice capture duration".into());
+        }
+        let samples = msime_engine_bridge::capture_audio(milliseconds);
+        if samples.is_empty() {
+            return Err("voice capture unavailable".into());
+        }
+        Ok(json!({ "sample_rate": 16000, "channels": 1, "samples": samples }))
     })
 }
 
@@ -1316,6 +1337,23 @@ pub unsafe extern "C" fn msime_client_tencent_translation_http_request(
     })
 }
 
+/// Build a NiuTrans v2 form descriptor. No network or credential persistence.
+/// # Safety
+/// `request` must reference `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_niutrans_translation_http_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid NiuTrans request buffer".into());
+        }
+        niutrans_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(String::from)
+    })
+}
+
 /// Parse a bounded response preserving batch positions (unusable slots are null).
 /// # Safety
 /// `body` must reference `length` readable bytes for this call.
@@ -1334,6 +1372,23 @@ pub unsafe extern "C" fn msime_client_parse_tencent_translation_response(
             expected,
         )
         .unwrap_or(Value::Null))
+    })
+}
+
+/// Parse one bounded NiuTrans response into a formatted gloss, or null.
+/// # Safety
+/// `body` must reference `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_parse_niutrans_translation_response(
+    body: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if body.is_null() || length > 1048576 {
+            return Err("invalid NiuTrans response buffer".into());
+        }
+        Ok(niutrans_translation::parse(unsafe { std::slice::from_raw_parts(body, length) })
+            .unwrap_or(Value::Null))
     })
 }
 
@@ -1766,6 +1821,8 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         7 => Action::Command(Command::MoveEnd),
         8 => Action::Command(Command::DeleteForward),
         9 => Action::Finish,
+        10 => Action::Command(Command::CycleKanaVariant),
+        11 => Action::Command(Command::CommitReading),
         100 => Action::NextPage,
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,
@@ -1973,15 +2030,17 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                 .as_ref()
                 .map(|snapshot| &snapshot.preferences)
                 .unwrap_or(&session.applied);
+            // The limit has to come from the same config the descriptor is
+            // built from: chat_completion_http_request rejects a request whose
+            // limit disagrees with its config, and the query document's copy
+            // can lag the pending preferences this call is meant to follow.
+            let config = &preferences.ai_assistant;
             let request = AiSuggestionRequest {
                 segmented_pinyin: query.pinyin_segments,
                 context: query.ai_context,
-                candidate_limit: query
-                    .ai_assistant
-                    .as_ref()
-                    .map_or(3, |config| config.candidate_limit),
+                candidate_limit: config.candidate_limit,
             };
-            msime_client_core::ai::chat_completion_http_request(preferences, &request)
+            msime_client_core::ai::chat_completion_http_request(config, &request)
                 .map(|value| value.unwrap_or(Value::Null))
                 .map_err(|error| error.to_string())
         })
@@ -2022,6 +2081,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let tencent = &preferences.tencent_tmt;
             // Selecting custom translation must never silently fall back to TMT.
             let tencent_tmt = (!custom_translation.enabled
+                && !preferences.niutrans.enabled
                 && tencent.enabled
                 && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
                 && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key))
@@ -2029,6 +2089,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             .transpose()
             .map_err(|_| "invalid Tencent translation configuration")?;
             let custom_translation = (custom_translation.enabled
+                && !preferences.niutrans.enabled
                 && !custom_translation.endpoint.is_empty())
             .then(|| {
                 json!({
@@ -2037,6 +2098,16 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     "api_key": &custom_translation.api_key,
                 })
             });
+            let niutrans = (preferences.niutrans.enabled
+                && msime_client_core::translation::usable_niutrans_credential(
+                    &preferences.niutrans.app_id,
+                )
+                && msime_client_core::translation::usable_niutrans_credential(
+                    &preferences.niutrans.apikey,
+                ))
+            .then(|| serde_json::to_value(&preferences.niutrans))
+            .transpose()
+            .map_err(|_| "invalid NiuTrans translation configuration")?;
             Ok(json!({
                 "generation": view.generation,
                 "target_language": serde_json::to_value(preferences.translation_target_language)
@@ -2044,6 +2115,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "candidates": candidates,
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
+                "niutrans": niutrans,
             }))
         })
     })
@@ -3277,6 +3349,40 @@ mod tests {
         });
         read(msime_client_destroy(handle));
     }
+
+    #[test]
+    fn wubi_mixed_pinyin_reaches_engine_and_applies_after_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'a', false));
+        let mut preferences = Preferences {
+            scheme: InputScheme::Wubi,
+            wubi_mixed_pinyin: true,
+            ..Preferences::default()
+        };
+        let queued = update(handle, 1, &preferences);
+        assert_eq!(queued["value"]["deferred"], true);
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+        });
+
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(session.options.wubi_mixed_pinyin);
+            assert!(session.applied.wubi_mixed_pinyin);
+        });
+
+        preferences.wubi_mixed_pinyin = false;
+        let disabled = update(handle, 2, &preferences);
+        assert_eq!(disabled["value"]["deferred"], false);
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+        });
+        read(msime_client_destroy(handle));
+    }
+
     #[test]
     fn japanese_mode_switch_defers_and_restores_chinese_profile() {
         use msime_client_core::preferences::ChineseScheme;
@@ -3314,9 +3420,20 @@ mod tests {
         let kana = read(msime_client_character(handle, b'a', false));
         assert_eq!(kana["ok"], true);
         assert_eq!(kana["value"]["view"]["preedit"], "a");
+        assert_eq!(kana["value"]["view"]["reading"], "あ");
         assert_eq!(kana["value"]["view"]["scheme"], 3);
         assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
         assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
+        let small_kana = read(msime_client_command(handle, 10));
+        assert_eq!(small_kana["value"]["handled"], true);
+        assert_eq!(small_kana["value"]["view"]["reading"], "ぁ");
+        let committed_small_kana = read(msime_client_command(handle, 11));
+        assert_eq!(committed_small_kana["value"]["commit"], "ぁ");
+        assert_eq!(committed_small_kana["value"]["view"]["reading"], "");
+        read(msime_client_character(handle, b'a', false));
+        let committed_kana = read(msime_client_command(handle, 11));
+        assert_eq!(committed_kana["value"]["commit"], "あ");
+        assert_eq!(committed_kana["value"]["view"]["reading"], "");
         read(msime_client_command(handle, 3));
         read(msime_client_character(handle, b'n', false));
         let syllable_separator = read(msime_client_character(handle, b'\'', false));
@@ -3336,6 +3453,51 @@ mod tests {
             read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],
             "b;"
         );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn japanese_commands_are_unhandled_for_non_japanese_schemes() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["reading"], "");
+
+        let variant = read(msime_client_command(handle, 10));
+        assert_eq!(variant["value"]["handled"], false);
+        assert_eq!(variant["value"]["view"]["editing_text"], "a");
+        assert_eq!(variant["value"]["view"]["reading"], "");
+
+        let reading = read(msime_client_command(handle, 11));
+        assert_eq!(reading["value"]["handled"], false);
+        assert!(reading["value"]["commit"].is_null());
+        assert_eq!(reading["value"]["view"]["reading"], "");
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn japanese_commands_apply_to_the_twenty_six_key_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host_preferences(
+            dir.path(),
+            Preferences {
+                scheme: InputScheme::Japanese,
+                touch_keyboard_layout: TouchKeyboardLayout::TwentySixKey,
+                ..Preferences::default()
+            },
+        );
+        read(msime_client_focus(handle, true));
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["touch_keyboard_layout"], "twenty_six_key");
+        assert_eq!(typed["value"]["view"]["reading"], "あ");
+
+        let variant = read(msime_client_command(handle, 10));
+        assert_eq!(variant["value"]["handled"], true);
+        assert_eq!(variant["value"]["view"]["reading"], "ぁ");
+        let committed = read(msime_client_command(handle, 11));
+        assert_eq!(committed["value"]["commit"], "ぁ");
+        assert_eq!(committed["value"]["view"]["reading"], "");
         read(msime_client_destroy(handle));
     }
 
@@ -4549,6 +4711,9 @@ mod tests {
         preferences.ai_assistant.enabled = true;
         preferences.ai_assistant.model = "synthetic-original".into();
         preferences.ai_assistant.token = "synthetic-private".into();
+        // An enabled assistant with no endpoint has nowhere to send anything;
+        // a real one is always configured with the provider's URL.
+        preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
         let handle = test_host_preferences(dir.path(), preferences.clone());
         read(msime_client_focus(handle, true));
         for byte in b"nihaoshijie" {

@@ -108,9 +108,30 @@ fn main() {
     let mut bridge = cxx_build::bridge("src/lib.rs");
     bridge
         .file("native/bridge.cpp")
+        .include("../../vendor/MSIME-Engine/voice/include")
         .include("native")
         .include(&engine)
         .include(engine.join("include"));
+    // capture_audio() in bridge.cpp calls the Engine's AudioCapture, which
+    // lives in a voice target the bridge does not build: enabling that target
+    // would drag CURL and nlohmann_json into every platform's bridge just to
+    // reach one file. Compile the one file instead. It needs only miniaudio,
+    // which is header-only, and ole32, which is already linked below.
+    let capture = engine.join("voice/src/audio_capture.cpp");
+    let miniaudio = engine.join("voice/third_party/miniaudio/miniaudio.h");
+    if capture.is_file() && miniaudio.is_file() {
+        bridge
+            .file(&capture)
+            .include(engine.join("voice/include/msime/voice"))
+            .include(engine.join("voice/third_party/miniaudio"));
+    } else {
+        // A checkout without the miniaudio submodule cannot capture audio.
+        // Say so at build time rather than failing to link a symbol whose
+        // name explains nothing.
+        panic!(
+            "voice/third_party/miniaudio is required for audio capture;              initialize the Engine's submodules"
+        );
+    }
     if let Some(include) = android_include {
         bridge.include(include);
     }
