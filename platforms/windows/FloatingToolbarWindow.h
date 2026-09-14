@@ -104,6 +104,7 @@ private:
   // Pointer feedback. Without these the buttons gave no sign of being buttons.
   std::optional<size_t> hovered_;
   std::optional<size_t> pressed_;
+  std::optional<FocusLease> pressed_lease_;
   bool tracking_mouse_ = false;
   // Caps Lock and Japanese input mode, which the language button reflects.
   ToolbarLanguageState language_;

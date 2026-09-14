@@ -3,6 +3,7 @@
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
 #include "ToolbarCoordinates.h"
+#include "ToolbarClick.h"
 #include "WindowShadow.h"
 #include "IconFont.h"
 #include <algorithm>
@@ -360,6 +361,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         self->position_changed_(*self->dragged_position_);
       return 0;
     case WM_LBUTTONDOWN: {
+      self->pressed_.reset();
+      self->pressed_lease_.reset();
       // Only the strip left of the first button drags. Treating the whole
       // window as a caption meant a press on a button entered the system move
       // loop, and the click below only ran for whatever button-up survived it.
@@ -374,8 +377,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       self->pressed_ = toolbar_button_at_pixel(
           GET_X_LPARAM(l), GET_Y_LPARAM(l), GetDpiForWindow(window),
           self->scale_, slots(self->items_).size(), drag);
-      if (self->pressed_)
+      const auto value = self->reader_();
+      if (self->pressed_ && value && self->shown_ &&
+          same(value->lease, self->shown_->lease)) {
+        self->pressed_lease_ = value->lease;
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+        self->tracking_mouse_ = TrackMouseEvent(&track) != FALSE;
+        if (!self->tracking_mouse_) self->pressed_.reset();
         InvalidateRect(window, nullptr, FALSE);
+      } else {
+        self->pressed_.reset();
+      }
       return 0;
     }
     case WM_SETCURSOR:
@@ -402,6 +414,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
       const auto hovered = toolbar_button_at_pixel(
           x, GET_Y_LPARAM(l), GetDpiForWindow(window), self->scale_, active.size(), layout);
+      if (self->pressed_ && self->pressed_ != hovered) {
+        self->pressed_.reset();
+        InvalidateRect(window, nullptr, FALSE);
+      }
       if (hovered != self->hovered_) {
         self->hovered_ = hovered;
         InvalidateRect(window, nullptr, FALSE);
@@ -416,8 +432,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     }
     case WM_MOUSELEAVE:
       self->tracking_mouse_ = false;
-      if (self->hovered_) {
+      [[fallthrough]];
+    case WM_CANCELMODE:
+    case WM_CAPTURECHANGED:
+      if (self->hovered_ || self->pressed_) {
         self->hovered_.reset();
+        self->pressed_.reset();
+        self->pressed_lease_.reset();
         InvalidateRect(window, nullptr, FALSE);
       }
       return 0;
@@ -425,7 +446,6 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Release always clears the pressed look, whether or not the release
       // lands on a button - otherwise a press that slid off stays lit.
       if (self->pressed_) {
-        self->pressed_.reset();
         InvalidateRect(window, nullptr, FALSE);
       }
       const auto value = self->reader_();
@@ -435,7 +455,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const auto position_at =
           toolbar_button_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
                                   self->scale_, active.size(), layout);
-      if (value && position_at) {
+      const bool valid_click = toolbar_release(
+          self->pressed_, position_at,
+          value && self->pressed_lease_ && self->shown_ &&
+              same(value->lease, *self->pressed_lease_) &&
+              same(value->lease, self->shown_->lease));
+      self->pressed_lease_.reset();
+      if (valid_click) {
         const size_t position = *position_at;
         const int slot = active[position];
         if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
@@ -466,13 +492,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       }
       return 0;
     }
-    case WM_NCLBUTTONDOWN:
-      if (w == HTCLIENT || w == HTCAPTION) {
-        ReleaseCapture();
-        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-        return 0;
-      }
-      break;
+    // Let DefWindowProc handle the caption message sent by the drag strip.
+    // Sending that same synchronous message again here recurses indefinitely.
   }} catch (...) { self->failed_ = true; self->hide(); return 0; }
   return DefWindowProcW(window, message, w, l);
 }
