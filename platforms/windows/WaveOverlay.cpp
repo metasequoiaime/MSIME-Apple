@@ -16,6 +16,7 @@ constexpr wchar_t kClassName[] = L"MviWaveOverlayWindow";
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kTimerMs = 16;
 constexpr UINT kTranscriptChangedMessage = WM_APP + 186;
+constexpr UINT kVisibilityMessage = WM_APP + 187;
 constexpr int kCompactWidth = 78;
 constexpr int kCompactHeight = 32;
 constexpr int kProcessingWidth = 112;
@@ -158,21 +159,13 @@ void WaveOverlay::shutdown()
 void WaveOverlay::show()
 {
     if (hwnd_)
-    {
-        // 每次显示时根据当前显示器重新定位
-        update_window_bounds();
-
-        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-        UpdateWindow(hwnd_);
-    }
+        PostMessageW(hwnd_, kVisibilityMessage, TRUE, 0);
 }
 
 void WaveOverlay::hide()
 {
     if (hwnd_)
-    {
-        ShowWindow(hwnd_, SW_HIDE);
-    }
+        PostMessageW(hwnd_, kVisibilityMessage, FALSE, 0);
 }
 
 void WaveOverlay::set_listening(bool listening)
@@ -324,6 +317,19 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
     }
     case WM_CAPTURECHANGED:
         action_pressed_ = false;
+        return 0;
+    case kVisibilityMessage:
+        // Always queue, including calls from the window thread, to preserve
+        // ordering with worker completions. Never make a worker synchronously
+        // wait on this thread while it owns the voice generation gate.
+        if (wParam)
+        {
+            update_window_bounds();
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            UpdateWindow(hwnd);
+        }
+        else
+            ShowWindow(hwnd, SW_HIDE);
         return 0;
     case kTranscriptChangedMessage:
         if (!actions_visible_.load())

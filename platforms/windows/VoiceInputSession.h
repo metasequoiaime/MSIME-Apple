@@ -1,4 +1,5 @@
 #pragma once
+#include "VoiceSessionEpoch.h"
 
 #include "FocusGate.h"
 #include "SessionController.h"
@@ -100,7 +101,7 @@ private:
   std::atomic<bool> starting_{false};
   std::atomic<bool> locked_{false};
   std::atomic<bool> cancel_requested_{false};
-  std::atomic<uint64_t> session_{0};
+  VoiceSessionEpoch session_;
   std::mutex samples_mutex_;
   std::vector<float> samples_;
   std::size_t captured_frames_ = 0;

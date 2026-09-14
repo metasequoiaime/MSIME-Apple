@@ -111,28 +111,27 @@ void send_text_via_ctrl_v(std::wstring_view text) {
   (void)SendInput(4, input, sizeof(INPUT));
 }
 
-// Require the live lvalue: const-reference binding also accepts a temporary
-// atomic constructed from an integer snapshot, defeating both epoch checks.
-void show_voice_failure(WaveOverlay &overlay, std::atomic<uint64_t> &session,
+// The epoch gate prevents generation changes during each visible effect.
+void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
                         uint64_t expected, const wchar_t *message) {
-  if (session.load() != expected)
+  if (!session.with_current(expected, [&] {
+    overlay.set_show_transcript(true);
+    overlay.set_compact_status(WaveOverlay::CompactStatus::None);
+    overlay.set_actions_visible(false);
+    overlay.set_transcript(message);
+    overlay.show();
+  }))
     return;
-  overlay.set_show_transcript(true);
-  overlay.set_compact_status(WaveOverlay::CompactStatus::None);
-  overlay.set_actions_visible(false);
-  overlay.set_transcript(message);
-  overlay.show();
   Sleep(1200);
-  if (session.load() == expected)
-    overlay.hide();
+  session.with_current(expected, [&] { overlay.hide(); });
 }
 static_assert(std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
-                                  std::atomic<uint64_t> &, uint64_t,
+                                  VoiceSessionEpoch &, uint64_t,
                                   const wchar_t *>);
 static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                    uint64_t, uint64_t, const wchar_t *>);
 static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
-                                   std::atomic<uint64_t> &&, uint64_t,
+                                   VoiceSessionEpoch &&, uint64_t,
                                    const wchar_t *>);
 } // namespace
 
@@ -195,6 +194,7 @@ bool VoiceInputSession::start() {
   bool expected = false;
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
+  const uint64_t session = session_.fetch_add(1) + 1;
   {
     std::lock_guard lock(config_mutex_);
     active_config_ = config;
@@ -207,7 +207,6 @@ bool VoiceInputSession::start() {
     samples_.clear();
     captured_frames_ = 0;
   }
-  const uint64_t session = session_.fetch_add(1) + 1;
   lease_ = *lease;
   const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
   if (doubao) {
@@ -219,13 +218,15 @@ bool VoiceInputSession::start() {
          stream_inline](const std::string &text) {
           if (session_.load() != session || cancel_requested_.load())
             return;
-          const auto converted = wide(text);
-          if (stream_inline) {
-            (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
-                          converted, generation);
-            return;
-          }
-          overlay_.set_transcript(converted);
+          session_.with_current(session, [&] {
+            const auto converted = wide(text);
+            if (stream_inline) {
+              (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
+                            converted, generation);
+            } else {
+              overlay_.set_transcript(converted);
+            }
+          });
         });
     {
       std::lock_guard lock(doubao_mutex_);
@@ -333,7 +334,8 @@ void VoiceInputSession::stop() {
   if (config.sound_enabled && config.end_sound)
     cue_player_.play_end();
   const auto lease = lease_;
-  lease_.reset();
+  // Keep the target on the control thread so cancel during recognition can
+  // retire its inline composition without relying on a stale worker callback.
   std::shared_ptr<DoubaoAsrClient> doubao;
   {
     std::lock_guard lock(doubao_mutex_);
@@ -406,6 +408,9 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
                                VoiceInputConfig config, uint64_t session,
                                std::shared_ptr<DoubaoAsrClient> doubao,
                                std::shared_ptr<std::atomic_bool> cancelled) {
+  const auto clear_current_overlay = [&] {
+    session_.with_current(session, [&] { clear_overlay(); });
+  };
   const auto release_doubao = [&] {
     if (!doubao)
       return;
@@ -422,11 +427,13 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     const auto encoded = voice_composition_bytes(
         FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
     if (encoded)
-      (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition, L"",
-                    generation);
+      session_.with_current(session, [&] {
+        (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition, L"",
+                      generation);
+      });
   };
   if (session_.load() != session || cancel_requested_.load()) {
-    clear_overlay();
+    clear_current_overlay();
     release_doubao();
     return;
   }
@@ -436,7 +443,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       text = doubao->Finish();
       if (text.empty() && !doubao->LastError().empty()) {
         cancel_inline();
-        clear_overlay();
+        clear_current_overlay();
         release_doubao();
         return;
       }
@@ -452,23 +459,24 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     cancel_inline();
     if (!cancel_requested_.load())
       show_voice_failure(overlay_, session_, session, L"语音识别失败");
-    if (session_.load() == session)
-      clear_overlay();
+    clear_current_overlay();
     release_doubao();
     return;
   }
   if (session_.load() != session || cancel_requested_.load() || text.empty()) {
     cancel_inline();
-    clear_overlay();
+    clear_current_overlay();
     release_doubao();
     return;
   }
-  overlay_.set_transcript(wide(text));
+  session_.with_current(session, [&] { overlay_.set_transcript(wide(text)); });
   std::string final_text = text;
   if (should_polish(config, text)) {
-    overlay_.set_compact_status(WaveOverlay::CompactStatus::Processing);
-    overlay_.set_actions_visible(true);
-    overlay_.show();
+    session_.with_current(session, [&] {
+      overlay_.set_compact_status(WaveOverlay::CompactStatus::Processing);
+      overlay_.set_actions_visible(true);
+      overlay_.show();
+    });
     const auto endpoint = config.polish_endpoint.empty()
                               ? default_polish_endpoint(config.polish_provider)
                               : config.polish_endpoint;
@@ -490,38 +498,45 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       final_text = text;
     }
   }
-  if (session_.load() != session || cancel_requested_.load() || final_text.empty()) {
+  if (session_.load() != session || cancel_requested_.load() ||
+      final_text.empty()) {
     cancel_inline();
-    clear_overlay();
+    clear_current_overlay();
     release_doubao();
     return;
   }
-  overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
-  overlay_.set_transcript(wide(final_text));
-  const auto converted = wide(final_text);
-  const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
-  if (config.commit_mode == "sendinput") {
-    send_text_via_send_input(converted);
-    clear_overlay();
-  } else if (config.commit_mode == "ctrl_v") {
-    send_text_via_ctrl_v(converted);
-    clear_overlay();
-  } else {
-    const auto encoded = voice_composition_bytes(
-        FanyImeWorkerReplyType::CommitVoiceComposition, converted, generation);
-    if (encoded && sender_(lease, FanyImeWorkerReplyType::CommitVoiceComposition,
-                          converted, generation) ==
-                      VoiceCompositionResult::Sent) {
-      clear_overlay();
-    } else {
-      // The TSF route was refused - focus moved to a window with no text
-      // service, or the transaction lock was busy. Upstream falls back to
-      // SendInput rather than dropping the text, which is the whole recording.
-      cancel_inline();
+  session_.with_current(session, [&] {
+    overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
+    overlay_.set_transcript(wide(final_text));
+    const auto converted = wide(final_text);
+    const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+    if (config.commit_mode == "sendinput") {
       send_text_via_send_input(converted);
       clear_overlay();
+    } else if (config.commit_mode == "ctrl_v") {
+      send_text_via_ctrl_v(converted);
+      clear_overlay();
+    } else {
+      const auto encoded = voice_composition_bytes(
+          FanyImeWorkerReplyType::CommitVoiceComposition, converted,
+          generation);
+      if (encoded &&
+          sender_(lease, FanyImeWorkerReplyType::CommitVoiceComposition,
+                  converted, generation) == VoiceCompositionResult::Sent) {
+        clear_overlay();
+      } else {
+        // The TSF route was refused - focus moved to a window with no text
+        // service, or the transaction lock was busy. Upstream falls back to
+        // SendInput rather than dropping the text, which is the whole
+        // recording.
+        if (stream_inline)
+          (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition,
+                        L"", generation);
+        send_text_via_send_input(converted);
+        clear_overlay();
+      }
     }
-  }
+  });
   release_doubao();
   {
     std::lock_guard lock(config_mutex_);
@@ -533,7 +548,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
 void VoiceInputSession::cancel() {
   const bool was_recording = recording_.exchange(false);
   cancel_requested_.store(true);
-  const auto session = session_.fetch_add(1) + 1;
+  const auto session = session_.fetch_add(1);
   locked_.store(false);
   VoiceInputConfig config;
   {
@@ -560,7 +575,7 @@ void VoiceInputSession::cancel() {
     restore_other_system_audio();
   if (was_recording && config.sound_enabled && config.end_sound)
     cue_player_.play_end();
-  if (was_recording && lease) {
+  if (lease) {
     const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
     const auto encoded = voice_composition_bytes(
         FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
