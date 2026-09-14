@@ -5,7 +5,6 @@ use msime_client_core::personal_dictionary::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
 };
-use msime_client_core::dictionary_import::{dictionary_row_matches, PageSelector};
 use msime_engine_bridge::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -909,6 +908,7 @@ mod tests {
             helpcode: false,
             show_helpcode: true,
             helpcode_schema: "ziranma".into(),
+            wubi_mixed_pinyin: false,
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,
