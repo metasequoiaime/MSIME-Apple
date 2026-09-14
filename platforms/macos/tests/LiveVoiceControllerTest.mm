@@ -43,11 +43,31 @@
 - (void)setListening:(BOOL)listening { (void)listening; }
 - (void)restore {}
 @end
+@interface LivePolishFixture : NSObject
+@property(copy) void (^completion)(NSString *, NSError *);
+@property(copy) NSString *input;
+@property NSUInteger submissions;
+@property NSUInteger cancellations;
+@property BOOL failStart;
+@end
+@implementation LivePolishFixture
+- (BOOL)polishText:(NSString *)text completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
+    (void)error; ++self.submissions; self.input = text; self.completion = completion; return !self.failStart;
+}
+- (void)cancel { ++self.cancellations; }
+@end
 @interface LiveControllerFixture : MSIMEInputController
+@property BOOL usePolishFixture;
+@property LivePolishFixture *polishFixture;
+@property(copy) NSDictionary *polishOptions;
 @end
 @implementation LiveControllerFixture
 - (void)ensureAppearance {}
 - (void)apply:(NSDictionary *)transition { MSIMEApplyTransition(transition, [self valueForKey:@"activeClient"]); }
+- (MSIMEHTTPVoiceRequest *)makeLiveVoicePolishRequest:(NSDictionary *)options {
+    if (!self.usePolishFixture) return [super makeLiveVoicePolishRequest:options];
+    self.polishOptions = options; self.polishFixture = [LivePolishFixture new]; return (id)self.polishFixture;
+}
 @end
 @interface LiveHostFixture : MSIMEClientSession
 @property(atomic) NSUInteger providerStops;
@@ -98,13 +118,20 @@ int main(int argc, char **) {
         NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
         NSMutableDictionary *voiceArguments = [@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} mutableCopy];
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        // Never inherit real polish settings in the synthetic capture fixture.
+        voiceArguments[@"MSIMEClientVoicePolish"] = @NO;
+        voiceArguments[@"MSIMEClientVoicePolishText"] = @NO;
+        voiceArguments[@"MSIMEClientVoicePolishToken"] = @"";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         if (argc == 2) {
+            controller.usePolishFixture = YES;
             session.providerDone = dispatch_semaphore_create(0);
             [controller toggleVoiceInput:nil];
             NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
             while (!session.providerStarted && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(session.providerStarted && !capture.transcript);
+            assert(!controller.polishFixture); // External provider owns its polish stage.
             session.providerUpdate(@"socket partial", NO);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert(cues.starts == 1 && cues.stops == 0);
@@ -250,6 +277,68 @@ int main(int argc, char **) {
             assert(cues.starts == starts + (master.boolValue && start.boolValue));
             assert(cues.stops == stops + (master.boolValue && end.boolValue));
         }
+        MSIMEInputController *builder = [MSIMEInputController alloc];
+        assert((![builder makeLiveVoicePolishRequest:@{@"polish_enabled": @NO, @"polish_token": @"fixture-only"}]));
+        assert(![builder makeLiveVoicePolishRequest:@{@"polish_enabled": @YES}]);
+        MSIMEHTTPVoiceRequest *configured = [builder makeLiveVoicePolishRequest:@{@"polish_enabled": @YES, @"polish_token": @"fixture-only"}];
+        assert(configured); [configured cancel];
+        configured = [builder makeLiveVoicePolishRequest:@{@"polish_enabled": @NO, @"polish_text": @YES, @"polish_token": @"fixture-only"}];
+        assert(configured); [configured cancel];
+        controller.usePolishFixture = YES;
+        voiceArguments[@"MSIMEClientVoicePolishText"] = @YES;
+        voiceArguments[@"MSIMEClientVoicePolishToken"] = @"fixture-only";
+        voiceArguments[@"MSIMEClientVoicePolishPrompt"] = @"synthetic original prompt";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller toggleVoiceInput:nil];
+        LivePolishFixture *polish = controller.polishFixture;
+        const auto beforePolish = client.commits.count;
+        const auto beforePolishStops = capture.captureStops;
+        capture.transcript(@"synthetic partial before polish", NO);
+        assert(!polish.submissions);
+        voiceArguments[@"MSIMEClientVoicePolishPrompt"] = @"synthetic later prompt";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        capture.transcript(@"synthetic original", YES);
+        capture.transcript(@"duplicate final", YES);
+        capture.transcript(@"late partial", NO);
+        assert(polish.submissions == 1 && [polish.input isEqual:@"synthetic original"]);
+        assert([controller.polishOptions[@"polish_prompt"] isEqual:@"synthetic original prompt"]);
+        assert([controller.polishOptions[@"polish_text"] isEqual:@YES] && [controller.polishOptions[@"polish_enabled"] isEqual:@NO]);
+        assert(capture.captureStops > beforePolishStops && capture.active && client.commits.count == beforePolish);
+        assert([client.marked isEqual:@"synthetic partial before polish"]);
+        polish.completion(@"synthetic polished", nil);
+        polish.completion(@"duplicate polished", nil);
+        assert(!capture.active && client.commits.count == beforePolish + 1 && [client.commits.lastObject isEqual:@"synthetic polished"]);
+        assert(polish.cancellations == 1);
+        for (NSUInteger failure = 0; failure < 3; ++failure) {
+            [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
+            polish.failStart = failure == 2;
+            NSMutableString *original = [@"synthetic fallback" mutableCopy];
+            capture.transcript(original, YES);
+            [original setString:@"mutated after callback"];
+            if (failure < 2) polish.completion(failure ? @"ignored" : @"", failure ? [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil] : nil);
+            assert(!capture.active && [client.commits.lastObject isEqual:@"synthetic fallback"]);
+        }
+        const auto beforeStale = client.commits.count;
+        [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
+        capture.transcript(@"cancel during polish", YES);
+        [controller toggleVoiceInput:nil]; // Second stop cancels pending polish.
+        assert(!capture.active && polish.cancellations == 1);
+        [controller toggleVoiceInput:nil];
+        polish.completion(@"old polished result", nil);
+        assert(capture.active && client.commits.count == beforeStale);
+        [controller cancelLiveVoiceInput];
+        for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
+            [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
+            capture.transcript(@"synthetic stale focus", YES);
+            id original = [controller valueForKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [NSObject new] forKey:field];
+            polish.completion(@"wrong owner", nil);
+            [controller setValue:original forKey:field];
+            assert(!capture.active && client.commits.count == beforeStale);
+        }
+        [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
+        capture.transcript(@"", YES);
+        assert(!capture.active && !polish.submissions && client.commits.count == beforeStale);
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
