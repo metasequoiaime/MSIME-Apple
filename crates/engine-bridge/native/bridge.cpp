@@ -6,6 +6,7 @@
 #endif
 #include "bridge.h"
 #include <msime/voice/audio_capture.h>
+#include "miniaudio.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
 #include <user_dictionary/user_dictionary_journal.h>
@@ -60,6 +61,24 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     failed = capture.callback_failed();
     if (failed) samples.clear();
     return samples;
+}
+
+rust::Vec<rust::String> capture_device_names() {
+    rust::Vec<rust::String> names;
+    ma_context context{};
+    if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS) return names;
+    ma_device_info *playback = nullptr;
+    ma_device_info *capture = nullptr;
+    ma_uint32 playback_count = 0;
+    ma_uint32 capture_count = 0;
+    if (ma_context_get_devices(&context, &playback, &playback_count,
+                               &capture, &capture_count) == MA_SUCCESS) {
+        for (ma_uint32 index = 0; index < capture_count; ++index) {
+            if (capture[index].name[0] != '\0') names.push_back(capture[index].name);
+        }
+    }
+    ma_context_uninit(&context);
+    return names;
 }
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;

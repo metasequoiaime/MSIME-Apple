@@ -148,6 +148,17 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
             .await.map_err(|_| CommandError { code: "audio_devices" })?;
         serde_json::to_value(devices).map_err(|_| CommandError { code: "audio_devices" })
     }
+    #[cfg(target_os = "windows")]
+    {
+        return serde_json::to_value(
+            msime_engine_bridge::capture_device_names()
+                .into_iter()
+                .enumerate()
+                .map(|(index, name)| serde_json::json!({ "id": index.to_string(), "name": name }))
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|_| CommandError { code: "audio_devices" });
+    }
     #[cfg(not(target_os = "linux"))]
     Err(CommandError { code: "unavailable" })
 }
