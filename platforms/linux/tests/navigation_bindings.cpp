@@ -1,8 +1,16 @@
 #include "NavigationBindings.h"
+#include "WordCharacterBinding.h"
 
 #include <cassert>
 
 int main() {
+  auto word_character =
+      msime::linux_host::WordCharacterBinding::read(nlohmann::json::object());
+  assert(word_character.enabled);
+  assert(word_character.edge(IBUS_bracketleft, false) == MSIME_FIRST_HAN);
+  assert(word_character.edge(IBUS_bracketright, false) == MSIME_LAST_HAN);
+  assert(!word_character.edge(IBUS_minus, false));
+
   msime::linux_host::NavigationBindings bindings;
   assert(bindings.command(msime::linux_host::kTouchKeyboardNextPage, false) ==
          MSIME_NEXT_PAGE);
