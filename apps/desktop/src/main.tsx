@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -50,6 +50,12 @@ const basicAccount: AccountClient = {
 const accountChat: ChatClient = {
   models: () => invoke("account_chat_models"),
   complete: (messages, model) => invoke<{ content: string }>("account_chat", { messages, model }).then(response => response.content),
+};
+const accountSettingsSync: SettingsSyncClient = {
+  schema: () => invoke("account_preferences_schema"),
+  load: () => invoke("account_preferences_load"),
+  upload: () => invoke("account_preferences_upload"),
+  apply: (userId, preferences) => invoke("account_preferences_apply", { userId, preferences }),
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
@@ -101,12 +107,7 @@ const client: SettingsClient = {
     mutate: action => invoke("mutate_custom_skin_library", { action }),
   }, appIcon, account: {
     ...basicAccount,
-    settingsSync: {
-      schema: () => invoke("account_preferences_schema"),
-      load: () => invoke("account_preferences_load"),
-      upload: () => invoke("account_preferences_upload"),
-      apply: (userId, preferences) => invoke("account_preferences_apply", { userId, preferences }),
-    },
+    settingsSync: accountSettingsSync,
   }, chat: accountChat, aiAssistant: {
     fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
     test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
@@ -294,7 +295,7 @@ function DesktopSettings() {
             host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon, account: basicAccount, chat: accountChat,
+          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, settingsSync: accountSettingsSync }, chat: accountChat,
             touchKeyboardSchemes: true,
             customTouchKeyboardSkins: true,
             customSkinLibrary: {

@@ -48,3 +48,4 @@ workspace = true
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }

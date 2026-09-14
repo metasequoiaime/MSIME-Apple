@@ -1,13 +1,19 @@
 use msime_client_core::account::{
-    AccountChallenge, AccountChatModels, AccountProfile, AccountUser,
+    AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
+
+#[path = "ios_account_preferences.rs"]
+mod account_preferences;
 
 #[cfg(target_os = "ios")]
 use msime_client_core::account::{
-    AccountChatMessage, AccountError, AccountSessionStorage, BackendAccountClient,
-    BackendAccountSession, SavedAccountSession,
+    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferences,
+    AccountSessionStorage, BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
+#[cfg(target_os = "ios")]
+use msime_client_core::preferences::PreferencesStore;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
 #[cfg(target_os = "ios")]
@@ -122,6 +128,26 @@ pub struct ChatResponse {
     content: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferenceSchemaResponse {
+    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
+    maximum_bytes: usize,
+    update_mode: String,
+    revision_required: bool,
+}
+
+impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
+    fn from(schema: AccountPreferenceSchema) -> Self {
+        Self {
+            fields: schema.fields,
+            maximum_bytes: schema.maximum_bytes,
+            update_mode: schema.update_mode,
+            revision_required: schema.revision_required,
+        }
+    }
+}
+
 #[cfg(target_os = "ios")]
 #[derive(Clone)]
 struct IosAccountStorage<R: Runtime>(MobilePlatform<R>);
@@ -156,6 +182,7 @@ type Session = BackendAccountSession<BackendAccountClient, IosAccountStorage<Wry
 #[cfg(target_os = "ios")]
 pub struct AccountState {
     session: Arc<Session>,
+    platform: MobilePlatform<Wry>,
 }
 
 #[cfg(target_os = "ios")]
@@ -169,8 +196,9 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
     app.manage(AccountState {
         session: Arc::new(BackendAccountSession::new(
             client,
-            IosAccountStorage(platform),
+            IosAccountStorage(platform.clone()),
         )),
+        platform,
     });
     Ok(())
 }
@@ -310,18 +338,110 @@ pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super:
     call(state, |session| session.forget()).await
 }
 
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_preferences_schema(
+    state: State<'_, AccountState>,
+) -> Result<PreferenceSchemaResponse, super::CommandError> {
+    call(state, |session| session.preference_schema().map(Into::into)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_preferences_load(
+    state: State<'_, AccountState>,
+) -> Result<AccountPreferences, super::CommandError> {
+    call(state, |session| session.preferences()).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_preferences_upload(
+    state: State<'_, AccountState>,
+    store: State<'_, Arc<PreferencesStore>>,
+) -> Result<AccountPreferences, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let platform = state.platform.clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let schema = session.preference_schema()?;
+        let cloud = session.preferences()?;
+        let native = platform
+            .load_keyboard_preferences()
+            .map_err(|_| AccountError::Storage)?;
+        let local = store.load().map_err(|_| AccountError::Storage)?;
+        let values = account_preferences::local_account_preferences(
+            &native,
+            &local.preferences.custom_touch_keyboard_skin,
+        )?
+        .into_iter()
+        .filter(|(key, _)| schema.fields.contains_key(key))
+        .collect::<BTreeMap<_, _>>();
+        if values.is_empty() {
+            return Err(AccountError::Unavailable);
+        }
+        let merged = merge_account_preferences(&cloud, &values, &schema)?;
+        session.put_preferences(&merged)
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "account_unavailable",
+    })?
+    .map_err(|error| super::CommandError { code: error.code() })
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_preferences_apply(
+    state: State<'_, AccountState>,
+    store: State<'_, Arc<PreferencesStore>>,
+    user_id: String,
+    preferences: AccountPreferences,
+) -> Result<(), super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let platform = state.platform.clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session.credentials(None, Some(&user_id))?;
+        let plan = account_preferences::IosPreferencePlan::from_cloud(&preferences)?;
+        let local = store.load().map_err(|_| AccountError::Storage)?;
+        let previous_native = platform
+            .load_keyboard_preferences()
+            .map_err(|_| AccountError::Storage)?;
+        let requested = plan.requested_native(&previous_native)?;
+        let saved_native = platform
+            .save_keyboard_preferences(&requested)
+            .map_err(|_| AccountError::Storage)?;
+        let mut next = local.preferences.clone();
+        if let Err(error) = plan.apply_shared(&saved_native, &mut next) {
+            let _ = platform.save_keyboard_preferences(&previous_native);
+            return Err(error);
+        }
+        if store.save(local.revision, next).is_err() {
+            let _ = platform.save_keyboard_preferences(&previous_native);
+            return Err(AccountError::Storage);
+        }
+        Ok::<(), AccountError>(())
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "account_unavailable",
+    })?
+    .map_err(|error| super::CommandError { code: error.code() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        providers_response, ChallengeResponse, ChatModelsResponse, ChatResponse, ProfileResponse,
-        StatusResponse,
+        providers_response, ChallengeResponse, ChatModelsResponse, ChatResponse,
+        PreferenceSchemaResponse, ProfileResponse, StatusResponse,
     };
     use msime_client_core::account::{
-        AccountChallenge, AccountChatModel, AccountChatModels, AccountProfile,
-        AccountProfileIdentity, AccountUser,
+        AccountChallenge, AccountChatModel, AccountChatModels, AccountPreferenceField,
+        AccountPreferenceSchema, AccountProfile, AccountProfileIdentity, AccountUser,
     };
     use serde_json::json;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn user() -> AccountUser {
         AccountUser {
@@ -406,6 +526,30 @@ mod tests {
         assert_eq!(
             serde_json::to_value(response).unwrap(),
             json!({"content":"synthetic-response"})
+        );
+    }
+
+    #[test]
+    fn preference_schema_response_matches_the_shared_webview_contract() {
+        let response = PreferenceSchemaResponse::from(AccountPreferenceSchema {
+            fields: BTreeMap::from([(
+                "platform.ios.nine_key".into(),
+                AccountPreferenceField {
+                    value_type: "boolean".into(),
+                },
+            )]),
+            maximum_bytes: 65_536,
+            update_mode: "replace".into(),
+            revision_required: true,
+        });
+        assert_eq!(
+            serde_json::to_value(response).unwrap(),
+            json!({
+                "fields":{"platform.ios.nine_key":{"type":"boolean"}},
+                "maximumBytes":65536,
+                "updateMode":"replace",
+                "revisionRequired":true
+            })
         );
     }
 }

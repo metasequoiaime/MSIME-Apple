@@ -11,6 +11,126 @@ private struct SaveAccountSessionArgs: Decodable {
   let value: String
 }
 
+private struct SaveKeyboardPreferencesArgs: Decodable {
+  let inputScheme: String
+  let traditionalChineseOutput: Bool
+  let soundEnabled: Bool
+  let hapticsEnabled: Bool
+  let hapticStrength: String
+  let dictionaryLearning: Bool
+  let keyboardSkin: String
+  let customKeyboardSkin: String?
+}
+
+/// App Group adapter for preferences that the keyboard extension can change
+/// without opening the Tauri settings app. The keys and fallback behaviour are
+/// fixed to MSIME-Apple develop@81e79abec7b53e7243fb8cbe82a42a4dde1e528f.
+private struct IOSKeyboardPreferenceStore {
+  static let maximumCustomSkinBytes = 800_000
+  static let schemeOrder = [
+    "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+    "japaneseNineKey", "japanese", "handwriting", "thoughtfulReply",
+  ]
+  static let skinOrder = [
+    "forest", "ocean", "rose", "porcelain", "typewriter", "candy", "midnight",
+    "blueprint", "custom",
+  ]
+  static let hapticStrengths = ["light", "medium", "strong"]
+
+  private var defaults: UserDefaults {
+    UserDefaults(suiteName: "group.app.msime.ios") ?? .standard
+  }
+
+  private func migrateJapaneseSchemes() {
+    guard !defaults.bool(forKey: "japaneseSchemesSplit") else { return }
+    if var enabled = defaults.stringArray(forKey: "enabledInputSchemes"),
+       enabled.contains("japanese"), !enabled.contains("japaneseNineKey") {
+      enabled.append("japaneseNineKey")
+      defaults.set(enabled, forKey: "enabledInputSchemes")
+    }
+    if defaults.string(forKey: "chineseInputScheme") == "japanese",
+       !defaults.bool(forKey: "japaneseRomanKeys") {
+      defaults.set("japaneseNineKey", forKey: "chineseInputScheme")
+    }
+    defaults.set(true, forKey: "japaneseSchemesSplit")
+  }
+
+  private func enabledSchemes() -> [String] {
+    migrateJapaneseSchemes()
+    guard let stored = defaults.stringArray(forKey: "enabledInputSchemes") else {
+      return Self.schemeOrder
+    }
+    let enabled = Self.schemeOrder.filter(stored.contains)
+    return enabled.isEmpty ? ["quanpin"] : enabled
+  }
+
+  private func selectedScheme() -> String {
+    let enabled = enabledSchemes()
+    let legacy = defaults.bool(forKey: "inputSchemeUsesShuangpin") ? "shuangpin" : "quanpin"
+    let selected = defaults.string(forKey: "chineseInputScheme") ?? legacy
+    return enabled.contains(selected) ? selected : enabled[0]
+  }
+
+  private func customSkinJSON() -> String? {
+    guard let data = defaults.data(forKey: "customKeyboardSkin.v1"),
+          !data.isEmpty, data.count <= Self.maximumCustomSkinBytes,
+          let document = try? JSONSerialization.jsonObject(with: data),
+          document is [String: Any] else {
+      return nil
+    }
+    return String(data: data, encoding: .utf8)
+  }
+
+  func snapshot() -> [String: Any] {
+    let strength = defaults.string(forKey: "keyboardHapticStrength") ?? "medium"
+    let skin = defaults.string(forKey: "keyboardSkin") ?? "forest"
+    return [
+      "inputScheme": selectedScheme(),
+      "traditionalChineseOutput": defaults.bool(forKey: "chineseOutputUsesTraditional"),
+      "soundEnabled": defaults.object(forKey: "keyboardSoundEnabled") as? Bool ?? true,
+      "hapticsEnabled": defaults.bool(forKey: "keyboardHapticsEnabled"),
+      "hapticStrength": Self.hapticStrengths.contains(strength) ? strength : "medium",
+      "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
+      "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
+      "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
+    ]
+  }
+
+  func save(_ args: SaveKeyboardPreferencesArgs) throws -> [String: Any] {
+    guard Self.schemeOrder.contains(args.inputScheme),
+          Self.hapticStrengths.contains(args.hapticStrength),
+          Self.skinOrder.contains(args.keyboardSkin) else {
+      throw NSError(domain: "keyboard_preferences", code: 1)
+    }
+    if let custom = args.customKeyboardSkin {
+      let data = Data(custom.utf8)
+      guard !data.isEmpty, data.count <= Self.maximumCustomSkinBytes,
+            let document = try? JSONSerialization.jsonObject(with: data),
+            document is [String: Any] else {
+        throw NSError(domain: "keyboard_preferences", code: 2)
+      }
+    }
+
+    let enabled = enabledSchemes()
+    let selected = enabled.contains(args.inputScheme) ? args.inputScheme : enabled[0]
+    defaults.set(selected, forKey: "chineseInputScheme")
+    defaults.set(["shuangpin", "ziranma", "microsoft", "shoudao"].contains(selected),
+                 forKey: "inputSchemeUsesShuangpin")
+    defaults.set(args.traditionalChineseOutput, forKey: "chineseOutputUsesTraditional")
+    defaults.set(args.soundEnabled, forKey: "keyboardSoundEnabled")
+    defaults.set(args.hapticsEnabled, forKey: "keyboardHapticsEnabled")
+    defaults.set(args.hapticStrength, forKey: "keyboardHapticStrength")
+    defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
+    defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
+    if let custom = args.customKeyboardSkin {
+      defaults.set(Data(custom.utf8), forKey: "customKeyboardSkin.v1")
+    } else {
+      defaults.removeObject(forKey: "customKeyboardSkin.v1")
+    }
+    return snapshot()
+  }
+}
+
 private struct AccountSessionKeychain {
   static let maximumPayloadBytes = 16 * 1024
 
@@ -100,6 +220,7 @@ private struct AccountSessionKeychain {
 
 final class MobilePlatformPlugin: Plugin {
   private let accountSession = AccountSessionKeychain()
+  private let keyboardPreferences = IOSKeyboardPreferenceStore()
 
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
@@ -219,6 +340,19 @@ final class MobilePlatformPlugin: Plugin {
       invoke.resolve()
     } catch {
       invoke.reject("secure_storage", code: "secure_storage")
+    }
+  }
+
+  @objc public func loadKeyboardPreferences(_ invoke: Invoke) {
+    invoke.resolve(keyboardPreferences.snapshot())
+  }
+
+  @objc public func saveKeyboardPreferences(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(SaveKeyboardPreferencesArgs.self)
+      invoke.resolve(try keyboardPreferences.save(args))
+    } catch {
+      invoke.reject("keyboard_preferences", code: "keyboard_preferences")
     }
   }
 }

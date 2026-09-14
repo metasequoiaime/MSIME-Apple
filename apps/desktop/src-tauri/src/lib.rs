@@ -4538,6 +4538,14 @@ pub fn run() {
             ios_account::account_delete,
             #[cfg(target_os = "ios")]
             ios_account::account_forget,
+            #[cfg(target_os = "ios")]
+            ios_account::account_preferences_schema,
+            #[cfg(target_os = "ios")]
+            ios_account::account_preferences_load,
+            #[cfg(target_os = "ios")]
+            ios_account::account_preferences_upload,
+            #[cfg(target_os = "ios")]
+            ios_account::account_preferences_apply,
             #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]

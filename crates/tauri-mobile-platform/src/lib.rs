@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 #[cfg(any(target_os = "ios", test))]
-use serde_json::{json, Value};
+use serde_json::json;
+use serde_json::Value;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::Runtime;
 
@@ -17,6 +18,57 @@ tauri::ios_plugin_binding!(init_plugin_msime_mobile_platform);
 pub struct AppIconInfo {
     pub supported: bool,
     pub selected: String,
+}
+
+const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IosKeyboardPreferences {
+    pub input_scheme: String,
+    pub traditional_chinese_output: bool,
+    pub sound_enabled: bool,
+    pub haptics_enabled: bool,
+    pub haptic_strength: String,
+    pub dictionary_learning: bool,
+    pub keyboard_skin: String,
+    pub custom_keyboard_skin: Option<String>,
+}
+
+impl IosKeyboardPreferences {
+    pub fn is_valid(&self) -> bool {
+        matches!(
+            self.input_scheme.as_str(),
+            "quanpin"
+                | "nineKey"
+                | "shuangpin"
+                | "ziranma"
+                | "microsoft"
+                | "shoudao"
+                | "wubi"
+                | "japaneseNineKey"
+                | "japanese"
+                | "handwriting"
+                | "thoughtfulReply"
+        ) && matches!(self.haptic_strength.as_str(), "light" | "medium" | "strong")
+            && matches!(
+                self.keyboard_skin.as_str(),
+                "forest"
+                    | "ocean"
+                    | "rose"
+                    | "porcelain"
+                    | "typewriter"
+                    | "candy"
+                    | "midnight"
+                    | "blueprint"
+                    | "custom"
+            )
+            && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
+                value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES
+                    && serde_json::from_str::<Value>(value)
+                        .is_ok_and(|document| document.is_object())
+            })
+    }
 }
 
 #[cfg(target_os = "ios")]
@@ -182,6 +234,28 @@ impl<R: Runtime> MobilePlatform<R> {
     pub fn clear_account_session(&self) -> Result<(), ()> {
         self.0.run_mobile_plugin("clearSession", ()).map_err(|_| ())
     }
+
+    pub fn load_keyboard_preferences(&self) -> Result<IosKeyboardPreferences, ()> {
+        let preferences = self
+            .0
+            .run_mobile_plugin::<IosKeyboardPreferences>("loadKeyboardPreferences", ())
+            .map_err(|_| ())?;
+        preferences.is_valid().then_some(preferences).ok_or(())
+    }
+
+    pub fn save_keyboard_preferences(
+        &self,
+        preferences: &IosKeyboardPreferences,
+    ) -> Result<IosKeyboardPreferences, ()> {
+        if !preferences.is_valid() {
+            return Err(());
+        }
+        let saved = self
+            .0
+            .run_mobile_plugin::<IosKeyboardPreferences>("saveKeyboardPreferences", preferences)
+            .map_err(|_| ())?;
+        saved.is_valid().then_some(saved).ok_or(())
+    }
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
@@ -203,7 +277,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload,
-        migrated_account_session_payload, MAX_ACCOUNT_SESSION_BYTES,
+        migrated_account_session_payload, IosKeyboardPreferences, MAX_ACCOUNT_SESSION_BYTES,
     };
     use serde_json::Value;
 
@@ -256,5 +330,39 @@ mod tests {
         assert_eq!(document["tokens"]["expires_in"], 900);
         assert_eq!(document["tokens"]["user"]["id"], "synthetic-user");
         assert_eq!(document["expires_at_unix_ms"], 978_308_100_000_u64);
+    }
+
+    fn keyboard_preferences() -> IosKeyboardPreferences {
+        IosKeyboardPreferences {
+            input_scheme: "japaneseNineKey".into(),
+            traditional_chinese_output: true,
+            sound_enabled: true,
+            haptics_enabled: true,
+            haptic_strength: "strong".into(),
+            dictionary_learning: false,
+            keyboard_skin: "custom".into(),
+            custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
+        }
+    }
+
+    #[test]
+    fn ios_keyboard_preferences_use_bounded_allowlisted_values() {
+        assert!(keyboard_preferences().is_valid());
+
+        let mut invalid = keyboard_preferences();
+        invalid.input_scheme = "future".into();
+        assert!(!invalid.is_valid());
+
+        let mut invalid = keyboard_preferences();
+        invalid.haptic_strength = "maximum".into();
+        assert!(!invalid.is_valid());
+
+        let mut invalid = keyboard_preferences();
+        invalid.keyboard_skin = "../skin".into();
+        assert!(!invalid.is_valid());
+
+        let mut invalid = keyboard_preferences();
+        invalid.custom_keyboard_skin = Some("[]".into());
+        assert!(!invalid.is_valid());
     }
 }

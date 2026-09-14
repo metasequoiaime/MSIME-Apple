@@ -1,0 +1,551 @@
+use msime_client_core::account::{
+    validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
+};
+use msime_client_core::preferences::{
+    ChineseScheme, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
+    TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+};
+use msime_tauri_mobile_platform::IosKeyboardPreferences;
+use std::collections::BTreeMap;
+
+fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
+    settings.insert(
+        key.to_owned(),
+        AccountPreferenceValue::String(value.to_owned()),
+    );
+}
+
+fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
+    settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
+}
+
+fn decoded_custom_skin(
+    value: Option<&str>,
+    fallback: &TouchKeyboardSkinDesign,
+) -> TouchKeyboardSkinDesign {
+    value
+        .and_then(|value| serde_json::from_str::<TouchKeyboardSkinDesign>(value).ok())
+        .map(TouchKeyboardSkinDesign::normalized)
+        .unwrap_or_else(|| fallback.clone())
+}
+
+pub(crate) fn local_account_preferences(
+    native: &IosKeyboardPreferences,
+    fallback_custom_skin: &TouchKeyboardSkinDesign,
+) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
+    if !native.is_valid() {
+        return Err(AccountError::Storage);
+    }
+    let mut settings = BTreeMap::new();
+    let (schema, profile, nine_key) = match native.input_scheme.as_str() {
+        "quanpin" | "handwriting" | "thoughtfulReply" => ("quanpin", None, false),
+        "nineKey" => ("quanpin", None, true),
+        "shuangpin" => ("shuangpin", Some("xiaohe"), false),
+        "ziranma" => ("shuangpin", Some("ziranma"), false),
+        "microsoft" => ("shuangpin", Some("microsoft"), false),
+        "shoudao" => ("shuangpin", Some("shoudao"), false),
+        "wubi" => ("wubi", None, false),
+        "japanese" => ("japanese", None, false),
+        "japaneseNineKey" => ("japanese", None, true),
+        _ => return Err(AccountError::Storage),
+    };
+    insert_string(&mut settings, "input.schema", schema);
+    if let Some(profile) = profile {
+        insert_string(&mut settings, "input.shuangpin_schema", profile);
+    }
+    insert_string(
+        &mut settings,
+        "input.character_set",
+        if native.traditional_chinese_output {
+            "traditional"
+        } else {
+            "simplified"
+        },
+    );
+    insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    insert_bool(
+        &mut settings,
+        "platform.ios.sound_enabled",
+        native.sound_enabled,
+    );
+    insert_bool(
+        &mut settings,
+        "platform.ios.haptics_enabled",
+        native.haptics_enabled,
+    );
+    insert_string(
+        &mut settings,
+        "platform.ios.haptic_strength",
+        &native.haptic_strength,
+    );
+    insert_bool(
+        &mut settings,
+        "platform.ios.dictionary_learning",
+        native.dictionary_learning,
+    );
+    insert_string(
+        &mut settings,
+        "platform.ios.keyboard_skin",
+        &native.keyboard_skin,
+    );
+    let custom = decoded_custom_skin(native.custom_keyboard_skin.as_deref(), fallback_custom_skin);
+    let custom = serde_json::to_string(&custom).map_err(|_| AccountError::Invalid)?;
+    insert_string(&mut settings, "platform.ios.custom_keyboard_skin", &custom);
+    Ok(settings)
+}
+
+fn string_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<String>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(AccountError::Invalid),
+    }
+}
+
+fn bool_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<bool>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::Boolean(value)) => Ok(Some(*value)),
+        Some(_) => Err(AccountError::Invalid),
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct IosPreferencePlan {
+    input_scheme: Option<String>,
+    traditional_chinese_output: Option<bool>,
+    sound_enabled: Option<bool>,
+    haptics_enabled: Option<bool>,
+    haptic_strength: Option<String>,
+    dictionary_learning: Option<bool>,
+    keyboard_skin: Option<String>,
+    custom_keyboard_skin: Option<TouchKeyboardSkinDesign>,
+}
+
+impl IosPreferencePlan {
+    pub(crate) fn from_cloud(cloud: &AccountPreferences) -> Result<Self, AccountError> {
+        validate_account_preferences(cloud)?;
+        let values = &cloud.settings;
+        let nine_key = bool_setting(values, "platform.ios.nine_key")? == Some(true);
+        let input_scheme = match string_setting(values, "input.schema")?.as_deref() {
+            None => None,
+            Some("quanpin") => Some(if nine_key { "nineKey" } else { "quanpin" }.into()),
+            Some("shuangpin") => {
+                let profile = string_setting(values, "input.shuangpin_schema")?
+                    .unwrap_or_else(|| "xiaohe".into());
+                match profile.as_str() {
+                    "xiaohe" => Some("shuangpin".into()),
+                    "ziranma" | "microsoft" | "shoudao" => Some(profile),
+                    _ => return Err(AccountError::Invalid),
+                }
+            }
+            Some("wubi") => {
+                if string_setting(values, "input.wubi_schema")?
+                    .as_deref()
+                    .unwrap_or("wubi86")
+                    != "wubi86"
+                {
+                    return Err(AccountError::Invalid);
+                }
+                Some("wubi".into())
+            }
+            Some("japanese") => {
+                if string_setting(values, "input.japanese_schema")?
+                    .as_deref()
+                    .unwrap_or("romaji")
+                    != "romaji"
+                {
+                    return Err(AccountError::Invalid);
+                }
+                Some(
+                    if nine_key {
+                        "japaneseNineKey"
+                    } else {
+                        "japanese"
+                    }
+                    .into(),
+                )
+            }
+            Some(_) => return Err(AccountError::Invalid),
+        };
+        let traditional_chinese_output =
+            match string_setting(values, "input.character_set")?.as_deref() {
+                None => None,
+                Some("simplified") => Some(false),
+                Some("traditional") => Some(true),
+                Some(_) => return Err(AccountError::Invalid),
+            };
+        let haptic_strength = string_setting(values, "platform.ios.haptic_strength")?;
+        if haptic_strength
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "light" | "medium" | "strong"))
+        {
+            return Err(AccountError::Invalid);
+        }
+        let keyboard_skin = string_setting(values, "platform.ios.keyboard_skin")?;
+        if keyboard_skin.as_deref().is_some_and(|value| {
+            !matches!(
+                value,
+                "forest"
+                    | "ocean"
+                    | "rose"
+                    | "porcelain"
+                    | "typewriter"
+                    | "candy"
+                    | "midnight"
+                    | "blueprint"
+                    | "custom"
+            )
+        }) {
+            return Err(AccountError::Invalid);
+        }
+        let custom_keyboard_skin = string_setting(values, "platform.ios.custom_keyboard_skin")?
+            .map(|value| {
+                serde_json::from_str::<TouchKeyboardSkinDesign>(&value)
+                    .map(TouchKeyboardSkinDesign::normalized)
+                    .map_err(|_| AccountError::Invalid)
+            })
+            .transpose()?;
+        Ok(Self {
+            input_scheme,
+            traditional_chinese_output,
+            sound_enabled: bool_setting(values, "platform.ios.sound_enabled")?,
+            haptics_enabled: bool_setting(values, "platform.ios.haptics_enabled")?,
+            haptic_strength,
+            dictionary_learning: bool_setting(values, "platform.ios.dictionary_learning")?,
+            keyboard_skin,
+            custom_keyboard_skin,
+        })
+    }
+
+    pub(crate) fn requested_native(
+        &self,
+        current: &IosKeyboardPreferences,
+    ) -> Result<IosKeyboardPreferences, AccountError> {
+        if !current.is_valid() {
+            return Err(AccountError::Storage);
+        }
+        let mut requested = current.clone();
+        if let Some(value) = &self.input_scheme {
+            requested.input_scheme.clone_from(value);
+        }
+        if let Some(value) = self.traditional_chinese_output {
+            requested.traditional_chinese_output = value;
+        }
+        if let Some(value) = self.sound_enabled {
+            requested.sound_enabled = value;
+        }
+        if let Some(value) = self.haptics_enabled {
+            requested.haptics_enabled = value;
+        }
+        if let Some(value) = &self.haptic_strength {
+            requested.haptic_strength.clone_from(value);
+        }
+        if let Some(value) = self.dictionary_learning {
+            requested.dictionary_learning = value;
+        }
+        if let Some(value) = &self.keyboard_skin {
+            requested.keyboard_skin.clone_from(value);
+        }
+        if let Some(value) = &self.custom_keyboard_skin {
+            requested.custom_keyboard_skin =
+                Some(serde_json::to_string(value).map_err(|_| AccountError::Invalid)?);
+        }
+        requested
+            .is_valid()
+            .then_some(requested)
+            .ok_or(AccountError::Invalid)
+    }
+
+    pub(crate) fn apply_shared(
+        &self,
+        native: &IosKeyboardPreferences,
+        preferences: &mut Preferences,
+    ) -> Result<(), AccountError> {
+        if !native.is_valid() {
+            return Err(AccountError::Storage);
+        }
+        if self.input_scheme.is_some() {
+            select_touch_scheme(preferences, touch_scheme(&native.input_scheme)?);
+        }
+        if self.traditional_chinese_output.is_some() {
+            preferences.traditional_chinese_output = native.traditional_chinese_output;
+        }
+        if self.dictionary_learning.is_some() {
+            preferences.learning = native.dictionary_learning;
+        }
+        if self.keyboard_skin.is_some() {
+            preferences.touch_keyboard_skin = touch_skin(&native.keyboard_skin)?;
+        }
+        if let Some(value) = &self.custom_keyboard_skin {
+            preferences.custom_touch_keyboard_skin = value.clone();
+        }
+        preferences.validate().map_err(|_| AccountError::Invalid)
+    }
+}
+
+fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
+    match value {
+        "quanpin" => Ok(TouchKeyboardScheme::Quanpin),
+        "nineKey" => Ok(TouchKeyboardScheme::NineKey),
+        "shuangpin" => Ok(TouchKeyboardScheme::Xiaohe),
+        "ziranma" => Ok(TouchKeyboardScheme::Ziranma),
+        "microsoft" => Ok(TouchKeyboardScheme::Microsoft),
+        "shoudao" => Ok(TouchKeyboardScheme::Shoudao),
+        "wubi" => Ok(TouchKeyboardScheme::Wubi),
+        "japaneseNineKey" => Ok(TouchKeyboardScheme::JapaneseNineKey),
+        "japanese" => Ok(TouchKeyboardScheme::Japanese),
+        "handwriting" => Ok(TouchKeyboardScheme::Handwriting),
+        "thoughtfulReply" => Ok(TouchKeyboardScheme::ThoughtfulReply),
+        _ => Err(AccountError::Invalid),
+    }
+}
+
+fn touch_skin(value: &str) -> Result<TouchKeyboardSkin, AccountError> {
+    match value {
+        "forest" => Ok(TouchKeyboardSkin::Forest),
+        "ocean" => Ok(TouchKeyboardSkin::Ocean),
+        "rose" => Ok(TouchKeyboardSkin::Rose),
+        "porcelain" => Ok(TouchKeyboardSkin::Porcelain),
+        "typewriter" => Ok(TouchKeyboardSkin::Typewriter),
+        "candy" => Ok(TouchKeyboardSkin::Candy),
+        "midnight" => Ok(TouchKeyboardSkin::Midnight),
+        "blueprint" => Ok(TouchKeyboardSkin::Blueprint),
+        "custom" => Ok(TouchKeyboardSkin::Custom),
+        _ => Err(AccountError::Invalid),
+    }
+}
+
+fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardScheme) {
+    let selected = if preferences
+        .touch_keyboard_schemes
+        .enabled
+        .contains(&requested)
+    {
+        requested
+    } else {
+        TouchKeyboardScheme::ALL
+            .into_iter()
+            .find(|scheme| preferences.touch_keyboard_schemes.enabled.contains(scheme))
+            .unwrap_or(TouchKeyboardScheme::Quanpin)
+    };
+    preferences.touch_keyboard_schemes.selected = Some(selected);
+    match selected {
+        TouchKeyboardScheme::Xiaohe
+        | TouchKeyboardScheme::Ziranma
+        | TouchKeyboardScheme::Microsoft
+        | TouchKeyboardScheme::Shoudao => {
+            preferences.scheme = InputScheme::Shuangpin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Shuangpin);
+            preferences.shuangpin_profile = match selected {
+                TouchKeyboardScheme::Xiaohe => ShuangpinProfile::Xiaohe,
+                TouchKeyboardScheme::Ziranma => ShuangpinProfile::Ziranma,
+                TouchKeyboardScheme::Microsoft => ShuangpinProfile::Microsoft,
+                TouchKeyboardScheme::Shoudao => ShuangpinProfile::Shoudao,
+                _ => unreachable!(),
+            };
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Japanese | TouchKeyboardScheme::JapaneseNineKey => {
+            if preferences.scheme != InputScheme::Japanese {
+                preferences.last_chinese_scheme = Some(match preferences.scheme {
+                    InputScheme::Quanpin => ChineseScheme::Quanpin,
+                    InputScheme::Shuangpin => ChineseScheme::Shuangpin,
+                    InputScheme::Wubi => ChineseScheme::Wubi,
+                    InputScheme::Japanese => unreachable!(),
+                });
+            }
+            preferences.scheme = InputScheme::Japanese;
+            preferences.touch_keyboard_layout = if selected == TouchKeyboardScheme::JapaneseNineKey
+            {
+                TouchKeyboardLayout::NineKey
+            } else {
+                TouchKeyboardLayout::TwentySixKey
+            };
+        }
+        TouchKeyboardScheme::Wubi => {
+            preferences.scheme = InputScheme::Wubi;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Wubi);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Quanpin
+        | TouchKeyboardScheme::NineKey
+        | TouchKeyboardScheme::Handwriting
+        | TouchKeyboardScheme::ThoughtfulReply => {
+            preferences.scheme = InputScheme::Quanpin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Quanpin);
+            preferences.touch_keyboard_layout = match selected {
+                TouchKeyboardScheme::NineKey => TouchKeyboardLayout::NineKey,
+                TouchKeyboardScheme::Handwriting => TouchKeyboardLayout::Handwriting,
+                _ => TouchKeyboardLayout::TwentySixKey,
+            };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{local_account_preferences, IosPreferencePlan};
+    use msime_client_core::account::{AccountError, AccountPreferenceValue, AccountPreferences};
+    use msime_client_core::preferences::{
+        InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
+        TouchKeyboardSkin,
+    };
+    use msime_tauri_mobile_platform::IosKeyboardPreferences;
+    use std::collections::BTreeMap;
+
+    fn native() -> IosKeyboardPreferences {
+        IosKeyboardPreferences {
+            input_scheme: "japaneseNineKey".into(),
+            traditional_chinese_output: true,
+            sound_enabled: true,
+            haptics_enabled: true,
+            haptic_strength: "strong".into(),
+            dictionary_learning: false,
+            keyboard_skin: "custom".into(),
+            custom_keyboard_skin: None,
+        }
+    }
+
+    #[test]
+    fn upload_maps_the_complete_apple_ios_preference_surface() {
+        let settings = local_account_preferences(&native(), &Default::default()).unwrap();
+        assert_eq!(
+            settings["input.schema"],
+            AccountPreferenceValue::String("japanese".into())
+        );
+        assert_eq!(
+            settings["platform.ios.nine_key"],
+            AccountPreferenceValue::Boolean(true)
+        );
+        assert_eq!(
+            settings["input.character_set"],
+            AccountPreferenceValue::String("traditional".into())
+        );
+        for key in [
+            "platform.ios.sound_enabled",
+            "platform.ios.haptics_enabled",
+            "platform.ios.haptic_strength",
+            "platform.ios.dictionary_learning",
+            "platform.ios.keyboard_skin",
+            "platform.ios.custom_keyboard_skin",
+        ] {
+            assert!(settings.contains_key(key), "missing {key}");
+        }
+    }
+
+    #[test]
+    fn download_validates_every_value_before_building_an_apply_plan() {
+        let cloud = AccountPreferences {
+            revision: 7,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("shuangpin".into()),
+                ),
+                (
+                    "input.shuangpin_schema".into(),
+                    AccountPreferenceValue::String("ziranma".into()),
+                ),
+                (
+                    "platform.ios.haptic_strength".into(),
+                    AccountPreferenceValue::String("light".into()),
+                ),
+            ]),
+        };
+        let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+        let mut requested = native();
+        requested.input_scheme = "quanpin".into();
+        let requested = plan.requested_native(&requested).unwrap();
+        assert_eq!(requested.input_scheme, "ziranma");
+        assert_eq!(requested.haptic_strength, "light");
+
+        for value in [
+            AccountPreferenceValue::String("unsupported".into()),
+            AccountPreferenceValue::Boolean(true),
+        ] {
+            let invalid = AccountPreferences {
+                revision: 7,
+                settings: BTreeMap::from([("platform.ios.haptic_strength".into(), value)]),
+            };
+            assert_eq!(
+                IosPreferencePlan::from_cloud(&invalid),
+                Err(AccountError::Invalid)
+            );
+        }
+    }
+
+    #[test]
+    fn download_updates_shared_input_state_without_touching_private_settings() {
+        let cloud = AccountPreferences {
+            revision: 8,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("japanese".into()),
+                ),
+                (
+                    "platform.ios.nine_key".into(),
+                    AccountPreferenceValue::Boolean(true),
+                ),
+                (
+                    "input.character_set".into(),
+                    AccountPreferenceValue::String("traditional".into()),
+                ),
+                (
+                    "platform.ios.dictionary_learning".into(),
+                    AccountPreferenceValue::Boolean(false),
+                ),
+                (
+                    "platform.ios.keyboard_skin".into(),
+                    AccountPreferenceValue::String("ocean".into()),
+                ),
+            ]),
+        };
+        let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+        let mut native = native();
+        native.input_scheme = "japaneseNineKey".into();
+        native.keyboard_skin = "ocean".into();
+        let mut preferences = Preferences::default();
+        preferences.clipboard_history = true;
+        plan.apply_shared(&native, &mut preferences).unwrap();
+        assert_eq!(preferences.scheme, InputScheme::Japanese);
+        assert_eq!(
+            preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::NineKey
+        );
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::JapaneseNineKey)
+        );
+        assert!(preferences.traditional_chinese_output);
+        assert!(!preferences.learning);
+        assert_eq!(preferences.touch_keyboard_skin, TouchKeyboardSkin::Ocean);
+        assert!(preferences.clipboard_history);
+
+        let cloud = AccountPreferences {
+            revision: 9,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("shuangpin".into()),
+                ),
+                (
+                    "input.shuangpin_schema".into(),
+                    AccountPreferenceValue::String("microsoft".into()),
+                ),
+            ]),
+        };
+        let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+        native.input_scheme = "microsoft".into();
+        plan.apply_shared(&native, &mut preferences).unwrap();
+        assert_eq!(preferences.scheme, InputScheme::Shuangpin);
+        assert_eq!(preferences.shuangpin_profile, ShuangpinProfile::Microsoft);
+    }
+}

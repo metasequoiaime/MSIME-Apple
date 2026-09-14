@@ -148,14 +148,46 @@ class IOSProjectConfigTests(unittest.TestCase):
             "account_logout",
             "account_delete",
             "account_forget",
+            "account_preferences_schema",
+            "account_preferences_load",
+            "account_preferences_upload",
+            "account_preferences_apply",
         ]:
             self.assertIn(f"ios_account::{command}", rust_entry)
             self.assertIn(f"pub async fn {command}", account)
         self.assertIn("BackendAccountSession::new", account)
-        self.assertIn("IosAccountStorage(platform)", account)
-        self.assertIn('host.platform === "ios" ? { appIcon, account: basicAccount, chat: accountChat,', desktop_entry)
+        self.assertIn("IosAccountStorage(platform.clone())", account)
+        self.assertIn('account: { ...basicAccount, settingsSync: accountSettingsSync }', desktop_entry)
         self.assertIn('invoke("account_chat_models")', desktop_entry)
         self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', desktop_entry)
+
+    def test_ios_account_settings_sync_bridges_app_group_keyboard_preferences(self):
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        rust = (plugin / "src/lib.rs").read_text()
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        mapping = (TAURI_ROOT / "src/ios_account_preferences.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+
+        self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("loadKeyboardPreferences", ())', rust)
+        self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("saveKeyboardPreferences", preferences)', rust)
+        self.assertIn('UserDefaults(suiteName: "group.app.msime.ios")', swift)
+        for key in [
+            "chineseInputScheme",
+            "chineseOutputUsesTraditional",
+            "keyboardSoundEnabled",
+            "keyboardHapticsEnabled",
+            "keyboardHapticStrength",
+            "dictionaryLearningEnabled",
+            "keyboardSkin",
+            "customKeyboardSkin.v1",
+        ]:
+            self.assertIn(key, swift)
+        self.assertIn("merge_account_preferences", account)
+        self.assertIn("platform.save_keyboard_preferences(&previous_native)", account)
+        self.assertIn('"platform.ios.nine_key"', mapping)
+        self.assertIn('"platform.ios.custom_keyboard_skin"', mapping)
+        self.assertIn("settingsSync: accountSettingsSync", desktop_entry)
 
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
