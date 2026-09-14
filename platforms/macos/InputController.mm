@@ -1580,6 +1580,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    // A newly activated IME session may target a different document/client.
+    // Never carry host-owned closings across that boundary.
+    _pairedPunctuation.clear();
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
