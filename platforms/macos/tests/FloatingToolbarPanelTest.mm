@@ -105,6 +105,17 @@ int main() {
         [panel applyLightSkin:light darkSkin:dark];
         assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(dark.surface)]);
 
+        // Candidate card colors and toolbar colors are separate host inputs.
+        // A toolbar theme change must continue using the toolbar palette after
+        // the candidate palette has been supplied.
+        msime::mac::SkinTokens toolbarLight = light;
+        msime::mac::SkinTokens toolbarDark = dark;
+        toolbarLight.surface = {0.2, 0.4, 0.6, 1};
+        toolbarDark.surface = {0.6, 0.2, 0.4, 1};
+        [panel applyLightToolbarSkin:toolbarLight darkSkin:toolbarDark];
+        [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+        assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.surface)]);
+
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
         NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");
         NSButton *fullWidth = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarFullWidth");

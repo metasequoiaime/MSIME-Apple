@@ -643,6 +643,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self syncPunctuation];
     [self syncCharacterWidth];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
+    [_toolbar applyLightToolbarSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, NO)
+                            darkSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, YES)];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -1000,6 +1002,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
+    [_toolbar applyLightToolbarSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, NO)
+                            darkSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, YES)];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     _preferenceLoadState.reset();
