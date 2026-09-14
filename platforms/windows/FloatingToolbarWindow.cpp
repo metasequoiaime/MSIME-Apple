@@ -2,6 +2,7 @@
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
+#include "ToolbarCoordinates.h"
 #include "WindowShadow.h"
 #include "IconFont.h"
 #include <algorithm>
@@ -100,12 +101,10 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
     const auto metrics = toolbar_metrics(static_cast<double>(font_size_));
-    const int width = dpi_scale(
-        window_, static_cast<int>(
-                     toolbar_window_width(slots(items_).size(), metrics) *
-                     scale_));
-    const int height = dpi_scale(
-        window_, static_cast<int>(toolbar_window_height(metrics) * scale_));
+    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    const int width = static_cast<int>(std::ceil(
+        toolbar_window_width(slots(items_).size(), metrics) * unit));
+    const int height = static_cast<int>(std::ceil(toolbar_window_height(metrics) * unit));
     const int margin = dpi_scale(window_, 20);
     FloatingToolbarPlacementInput placement;
     placement.width = width;
@@ -175,7 +174,7 @@ void FloatingToolbarWindow::paint() {
       throw std::runtime_error("Toolbar brush unavailable");
     return created;
   };
-  const float unit = static_cast<float>(dpi_scale(window_, 1)) * static_cast<float>(scale_);
+  const float unit = static_cast<float>(scale_);
   auto *format = device_.GetTextFormat(
       L"Segoe UI", static_cast<float>(font_size_) * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
@@ -308,9 +307,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
   try { switch (message) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ERASEBKGND: return 1;
-    case WM_DPICHANGED:
-      if (self->shown_) self->refresh(true);
+    case WM_DPICHANGED: {
+      const bool visible = IsWindowVisible(window) != FALSE;
+      self->shown_.reset();
+      self->hovered_.reset();
+      self->pressed_.reset();
+      // Cached composition surfaces retain their old DPI even when large
+      // enough for the new window. Recreate this window's target only.
+      self->device_.DiscardTarget();
+      if (visible) self->refresh(true);
       return 0;
+    }
     case WM_PAINT: self->paint(); return 0;
     case WM_ENTERSIZEMOVE:
       self->moving_ = true;
@@ -356,16 +363,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Only the strip left of the first button drags. Treating the whole
       // window as a caption meant a press on a button entered the system move
       // loop, and the click below only ran for whatever button-up survived it.
-      const int unit = dpi_scale(window, 1);
       const auto drag = toolbar_metrics(static_cast<double>(self->font_size_));
-      if (toolbar_is_drag_strip(
-              static_cast<double>(GET_X_LPARAM(l)) / unit, drag)) {
+      if (toolbar_drag_at_pixel(GET_X_LPARAM(l), GET_Y_LPARAM(l),
+                                GetDpiForWindow(window), self->scale_, drag)) {
         ReleaseCapture();
         SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return 0;
       }
       // Pressing a button shows it pressed until the release is handled.
-      self->pressed_ = self->hovered_;
+      self->pressed_ = toolbar_button_at_pixel(
+          GET_X_LPARAM(l), GET_Y_LPARAM(l), GetDpiForWindow(window),
+          self->scale_, slots(self->items_).size(), drag);
       if (self->pressed_)
         InvalidateRect(window, nullptr, FALSE);
       return 0;
@@ -378,8 +386,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         RECT bounds{};
         if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
             GetClientRect(window, &bounds) &&
-            toolbar_is_drag_strip(
-                static_cast<double>(cursor.x) / dpi_scale(window, 1),
+            toolbar_drag_at_pixel(
+                cursor.x, cursor.y, GetDpiForWindow(window), self->scale_,
                 toolbar_metrics(static_cast<double>(self->font_size_)))) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;
@@ -390,11 +398,10 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Hover feedback needs to know where the pointer is; without tracking,
       // the buttons gave no sign that they were buttons at all.
       const int x = GET_X_LPARAM(l);
-      const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
       const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
-      const auto hovered = toolbar_button_at(
-          static_cast<double>(x) / unit, active.size(), layout);
+      const auto hovered = toolbar_button_at_pixel(
+          x, GET_Y_LPARAM(l), GetDpiForWindow(window), self->scale_, active.size(), layout);
       if (hovered != self->hovered_) {
         self->hovered_ = hovered;
         InvalidateRect(window, nullptr, FALSE);
@@ -423,11 +430,11 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       }
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
-      const int unit = dpi_scale(window, 1);
       const auto active = slots(self->items_);
       const auto layout = toolbar_metrics(static_cast<double>(self->font_size_));
       const auto position_at =
-          toolbar_button_at(static_cast<double>(x) / unit, active.size(), layout);
+          toolbar_button_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
+                                  self->scale_, active.size(), layout);
       if (value && position_at) {
         const size_t position = *position_at;
         const int slot = active[position];
