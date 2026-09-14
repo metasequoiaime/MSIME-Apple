@@ -1148,6 +1148,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    NSDictionary *voice = preferences[@"voice_input"];
+    if ([voice isKindOfClass:NSDictionary.class]) {
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSDictionary *keys = @{@"language": @"MSIMEClientVoiceLanguage", @"asr_provider": @"MSIMEClientVoiceASRProvider", @"asr_endpoint": @"MSIMEClientVoiceASREndpoint", @"asr_model": @"MSIMEClientVoiceASRModel", @"asr_token": @"MSIMEClientVoiceASRToken", @"capture_device": @"MSIMEClientVoiceCaptureDevice", @"polish_endpoint": @"MSIMEClientVoicePolishEndpoint", @"polish_model": @"MSIMEClientVoicePolishModel", @"polish_token": @"MSIMEClientVoicePolishToken"};
+        [keys enumerateKeysAndObjectsUsingBlock:^(NSString *source, NSString *target, BOOL *stop) {
+            id value = voice[source];
+            if ([value isKindOfClass:NSString.class]) [defaults setObject:value forKey:target];
+        }];
+    }
     BOOL translationChanged = NO;
     id glossEnabled = preferences[@"candidate_translations"];
     if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
