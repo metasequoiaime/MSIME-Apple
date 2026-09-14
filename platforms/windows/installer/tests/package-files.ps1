@@ -28,6 +28,7 @@ try {
         'windows/build64-release/Release/MetasequoiaImeTsf.pdb',
         'THIRD_PARTY_NOTICES.txt',
         'LICENSE',
+        'target/release/msime-desktop.exe',
         'vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model',
         'vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt',
         'vendor/MSIME-Engine/handwriting/provenance.json',
@@ -55,6 +56,7 @@ try {
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'server_exe/MetasequoiaImeServer.pdb',
                          'server_exe/MetasequoiaImeDictionaryReplay.pdb',
+                         'server_exe/msime-client-settings.exe',
                          'server_exe/handwriting/handwriting-zh_CN.model',
                          'server_exe/handwriting/HandwritingModel-LICENSE.txt',
                          'server_exe/handwriting/provenance.json',
@@ -77,8 +79,24 @@ try {
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
     $database = Join-Path $installer 'app_data/msime.db'
     [IO.File]::WriteAllText($database, 'preserved user data')
+    $desktop = Join-Path $fixture 'target/release/msime-desktop.exe'
+    Remove-Item -LiteralPath $desktop
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light } catch { $rejected = $_.Exception.Message -match 'Tauri' }
+    if (-not $rejected) { throw 'Missing Tauri shell was accepted' }
+    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing shell damaged previous staging' }
+    [IO.File]::WriteAllText($desktop, 'fixture')
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
+    if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
+    Write-Fixture 'custom build/shell.exe' 'synthetic alternate shell'
+    foreach ($shellPath in @('custom build/shell.exe', (Join-Path $fixture 'custom build/shell.exe'))) {
+        & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable $shellPath
+        if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.exe')) -ne 'synthetic alternate shell') {
+            throw 'Explicit Tauri shell path was not packaged'
+        }
+        if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Shell override replaced dictionary data' }
+    }
     foreach ($name in @('handwriting-zh_CN.model', 'HandwritingModel-LICENSE.txt', 'provenance.json')) {
         if (-not (Test-Path (Join-Path $installer "server_exe/handwriting/$name"))) {
             throw "Light package lost handwriting resource: $name"

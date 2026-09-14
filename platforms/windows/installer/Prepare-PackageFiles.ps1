@@ -12,6 +12,8 @@ param(
     [string]$HelpCodeDirectory = 'vendor/MetasequoiaImeEngine/helpcode',
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
+    # Tauri release binary; relative overrides are resolved against RepoRoot.
+    [string]$DesktopExecutable = 'target/release/msime-desktop.exe',
     [string]$Tsf32ReleaseDirectory = '',
     [string]$Tsf64ReleaseDirectory = '',
     # THIRD_PARTY_NOTICES.txt used to sit next to the tip's sources. In the consolidated repository
@@ -52,6 +54,11 @@ $clientNativeBin = Join-Path $RepoRoot 'target\windows-full\x64\bin'
 if (-not $ServerReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
     $serverRelease = $clientNativeBin
 }
+$desktopSource = if ([IO.Path]::IsPathRooted($DesktopExecutable)) {
+    $DesktopExecutable
+} else {
+    Join-Path $RepoRoot $DesktopExecutable
+}
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 $tsf32Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.dll')
 $tsf64Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.dll')
@@ -88,6 +95,9 @@ $handwritingLicense = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\model
 $handwritingProvenance = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\provenance.json'
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
+if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
+    throw "缺少 Tauri 外壳，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
+}
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
@@ -218,6 +228,8 @@ Copy-DirectoryContents -Source (Join-Path $webviewRoot 'settings\ime-settings\di
 # 其他 PDB 保留在对应 EXE 旁边，方便安装后直接进行崩溃分析。
 Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
+# Match ShellSurfaces.h, independent of Cargo/Tauri's build artifact filename.
+Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $targetServer 'msime-client-settings.exe') -Force
 # Both package modes replace Server output. Copy model resources afterwards,
 # otherwise Reset-Directory silently removes them from an otherwise valid package.
 if ($hasHandwritingModel) {
