@@ -1,31 +1,32 @@
+#include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
+#include "AuxListener.h"
 #include "CandidateAppearance.h"
-#include "PreviewConfig.h"
-#include "TrayMenuWindow.h"
 #include "CandidateSkin.h"
 #include "CandidateWindow.h"
-#include "ModeWindow.h"
-#include "FloatingToolbarWindow.h"
+#include "ClipboardHistory.h"
+#include "DiagnosticListener.h"
 #include "FloatingToolbarVisibilityPolicy.h"
+#include "FloatingToolbarWindow.h"
 #include "FullscreenForeground.h"
+#include "MaintenanceHotkey.h"
+#include "ModeAuthority.h"
+#include "ModeWindow.h"
+#include "PreviewConfig.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
+#include "ServerLaunch.h"
 #include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
+#include "SystemAudioMuter.h"
+#include "TrayMenuDispatch.h"
+#include "TrayMenuWindow.h"
+#include "VoiceControllerListener.h"
+#include "VoiceHotkey.h"
+#include "VoiceInputSession.h"
 #include "WatchdogPolicy.h"
 #include "WindowsServer.h"
-#include "VoiceInputSession.h"
-#include "VoiceHotkey.h"
-#include "SystemAudioMuter.h"
-#include "ClipboardHistory.h"
-#include "AuxListener.h"
-#include "DiagnosticListener.h"
-#include "ServerLaunch.h"
-#include "TrayMenuDispatch.h"
-#include "MaintenanceHotkey.h"
-#include "ModeAuthority.h"
 #include "ipc_negotiation.h"
-#include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -732,6 +733,24 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         });
     voice_session = voice.get();
+    VoiceControllerMailbox voice_controller_mailbox;
+    VoiceControllerDispatch voice_controller_dispatch(
+        {[&]() -> std::optional<FocusLease> {
+           const auto view = server.mode_view();
+           return view ? std::optional<FocusLease>(view->lease) : std::nullopt;
+         },
+         [&](const FocusLease &lease) { return server.focus_current(lease); },
+         [&](std::string_view language) {
+           return voice->start_review(language);
+         },
+         [&](const auto &result) { return voice->stop_review(result); },
+         [&](const auto &result) { return voice->cancel_review(result); }});
+    DWORD voice_controller_error = ERROR_SUCCESS;
+    auto voice_controller = VoiceControllerListener::create(
+        voice_controller_mailbox, voice_controller_error);
+    if (!voice_controller)
+      std::cerr
+          << "Voice controller unavailable; native input remains enabled\n";
     configure_audio_mute_state_path(
         (config.state_root / "voice_system_audio_mute_state.txt").wstring());
     (void)voice->init_cues(voice_audio_path(config, L"start.mp3"),
@@ -1131,6 +1150,10 @@ int wmain(int argc, wchar_t **argv) {
       }
       if (stopping.load())
         break;
+      voice_controller_dispatch.maintain();
+      if (auto request = voice_controller_mailbox.take())
+        request->complete(voice_controller_dispatch.dispatch(request->channel,
+                                                             request->request));
       candidates.refresh();
       modes.refresh();
       // The settings page may have published a new value since the last pass.
@@ -1246,6 +1269,11 @@ int wmain(int argc, wchar_t **argv) {
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
+    // Stop I/O first; it invalidates queued work without waiting for this
+    // thread. Retire the matching review before Server/focus teardown.
+    if (voice_controller)
+      voice_controller->stop();
+    voice_controller_dispatch.retire();
     modes.hide();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a

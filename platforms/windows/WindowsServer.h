@@ -32,6 +32,9 @@ public:
     return controller_->candidate_view();
   }
   std::optional<ModePresentation> mode_view() { return controller_->mode_view(); }
+  bool focus_current(const FocusLease &lease) {
+    return controller_->focus_current(lease);
+  }
   SelectionRequestResult request_selection(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index) {
     return controller_->request_selection(lease, session, generation, index);

@@ -59,6 +59,9 @@ public:
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
   std::optional<ModePresentation> mode_view();
+  // Control-thread lease validation, not a best-effort UI snapshot. Waits for
+  // an existing focus transaction instead of treating a busy gate as loss.
+  bool focus_current(const FocusLease &lease);
   // External I/O thread only, never a window/input callback. Busy is a dropped
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
   SelectionRequestResult request_selection(const FocusLease &lease,

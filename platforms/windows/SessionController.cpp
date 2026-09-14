@@ -348,6 +348,18 @@ std::optional<ModePresentation> SessionController::mode_view() {
     return std::nullopt;
   return value;
 }
+bool SessionController::focus_current(const FocusLease &lease) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error(
+        "Focus validation cannot reenter controller callbacks");
+  if (stopping_ || !input_.stats().accepting)
+    return false;
+  bool current = false;
+  focus_.with_active(lease, [&] {
+    current = !stopping_ && transport_.current(lease.transport);
+  });
+  return current && !stopping_;
+}
 bool SessionController::send_caps_lock(const FocusLease &lease, bool enabled) {
   if (input_.on_worker_thread() || active_controller == this || stopping_)
     return false;
