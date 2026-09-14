@@ -9,3 +9,5 @@ dist/
 !pnpm-lock.yaml
 /apps/desktop/src-tauri/gen/*
 !/apps/desktop/src-tauri/gen/android/
+/platforms/ios/Pods/
+/platforms/ios/MSIMEClient.xcworkspace/

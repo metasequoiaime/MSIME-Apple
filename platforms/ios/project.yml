@@ -44,10 +44,15 @@ targets:
       - path: SharedUI
       - path: ../../target/ios/EngineResources/dictionary-manifest.json
         buildPhase: resources
+      - path: SharedResources/MLKit-NOTICES.txt
+        buildPhase: resources
+      - path: SharedResources/MLKit-Dependencies.txt
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
         PRODUCT_NAME: MSIMEClientApp
+        CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
         OTHER_LDFLAGS:
@@ -83,7 +88,6 @@ targets:
     sources:
       - path: KeyboardExtension/Sources
         excludes:
-          - HandwritingInputView.swift
           - KeyboardServiceFallback.swift
       - path: SharedUI
       - path: ../../shared/backend/BackendAccountClient.swift
@@ -97,6 +101,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
+        CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h"
+        EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
+        EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]: HandwritingInputView.swift HandwritingDownloadSession.m
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lmsime_host_api"

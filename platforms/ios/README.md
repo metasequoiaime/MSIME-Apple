@@ -14,6 +14,8 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 
 “更多”工具面板使用显式分组模型，不从中文标题推断布局或开关语义。根页保留表情、剪贴板、AI、语音、本地输入和键盘设置六个入口；本地模式与键盘开关使用各自二级页，避免新增功能把首屏内容挤出键盘高度。
 
+手写方案在真机构建中使用锁定的 ML Kit Digital Ink 8.0.0。模型下载会为键盘扩展创建的后台 URLSession 注入 App Group 共享容器；没有完全访问或共享容器不可用时明确失败，不把模型写入扩展私有临时目录。Apple Silicon 模拟器继续编译不依赖 ML Kit 的同界面 fallback，因为该 SDK 的 arm64 slice 是 device 平台而不是 simulator 平台；fallback 不冒充识别成功。真机构建通过 CocoaPods workspace 链接 SDK。
+
 ## 开发构建
 
 先初始化固定的 Engine gitlink 与递归子模块，并准备包含 iOS 版 Boost 的依赖前缀：
