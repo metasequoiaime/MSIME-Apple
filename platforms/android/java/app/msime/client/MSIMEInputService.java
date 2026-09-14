@@ -3808,7 +3808,7 @@ public final class MSIMEInputService extends InputMethodService {
                 case REMOVE -> NativeClient.removeCandidate(session, generation, index);
             };
             if (!apply(result)) {
-                Toast.makeText(this, "当前候选不支持此操作", Toast.LENGTH_SHORT).show();
+                showDiagnostic("当前候选不支持此操作");
             } else if (keyboardRoot != null) {
                 keyboardRoot.announceForAccessibility(action.announcement());
             }
