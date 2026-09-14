@@ -326,6 +326,7 @@ function DesktopSettings() {
           ? {
             ...hosted,
             openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
+            openCloudDictionary: async () => setMobilePanel("cloud-dictionary"),
           }
         : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);

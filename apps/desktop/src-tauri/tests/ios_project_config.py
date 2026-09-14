@@ -213,6 +213,31 @@ class IOSProjectConfigTests(unittest.TestCase):
             2,
         )
 
+    def test_ios_cloud_dictionary_uses_shared_account_without_snapshot_state(self):
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+
+        self.assertIn("ios_account::cloud_dictionary_request(state, action).await", rust_entry)
+        self.assertIn("pub async fn cloud_dictionary_request", account)
+        for method in [
+            "session.dictionary(kind, &search, offset)",
+            "dictionary_catalog(kind, &code, offset, &scheme, &profile)",
+            ".add_dictionary(",
+            ".update_dictionary(",
+            ".personal_candidates(",
+            ".rank_candidate(",
+            ".remove_candidate(",
+            ".import_dictionary(",
+            ".export_dictionary(",
+        ]:
+            self.assertIn(method, account)
+        self.assertIn(
+            'openCloudDictionary: async () => setMobilePanel("cloud-dictionary")',
+            desktop_entry,
+        )
+        self.assertIn('code: "invalid_cloud_dictionary"', account)
+
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("revision: a83e2b2f196e3fa9605cb21c7d3b82652205c279", project)

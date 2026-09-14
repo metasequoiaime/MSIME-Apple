@@ -1063,7 +1063,7 @@ fn cloud_clipboard_can_send_text(app: tauri::AppHandle, window: tauri::WebviewWi
     cfg!(any(target_os = "linux", target_os = "windows"))
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_dictionary_request(
     app: tauri::AppHandle,
@@ -1123,6 +1123,26 @@ async fn cloud_dictionary_request(
     .map_err(|_| CommandError {
         code: "unavailable",
     })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn cloud_dictionary_request(
+    state: tauri::State<'_, ios_account::AccountState>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    let request = serde_json::from_value::<msime_host_api::cloud_dictionary::CloudDictionaryRequest>(
+        action.clone(),
+    )
+    .map_err(|_| CommandError {
+        code: "invalid_cloud_dictionary",
+    })?;
+    msime_host_api::cloud_dictionary::validate_cloud_request(&request).map_err(|_| {
+        CommandError {
+            code: "invalid_cloud_dictionary",
+        }
+    })?;
+    ios_account::cloud_dictionary_request(state, action).await
 }
 
 #[cfg(target_os = "android")]
