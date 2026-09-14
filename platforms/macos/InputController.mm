@@ -2116,6 +2116,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)commitComposition:(id)sender {
     if (sender != _activeClient || !_session) return;
+    _pairedPunctuation.clear();
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
 }
 
