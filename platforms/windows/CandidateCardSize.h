@@ -140,4 +140,55 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   };
   return {clamp(width, input.max_width), clamp(height, input.max_height)};
 }
+// Where the card sits relative to the caret. All values are physical pixels
+// except scale, which is dpi/96; the design offsets below are DIPs so the gaps
+// stay visually stable at 150% and 200%.
+struct CandidatePlacementInput {
+  // The line's bottom-left, as TSF reports the text extent.
+  int anchor_x = 0;
+  int anchor_y = 0;
+  int width = 0;
+  int height = 0;
+  // The height the flip decision is made with. For a vertical list this is the
+  // tallest the list has been this composition, not its current height, so a
+  // list that grows as the user types does not jump below-to-above mid-word.
+  // The card is still *placed* with its current height.
+  int decision_height = 0;
+  int work_left = 0, work_top = 0, work_right = 0, work_bottom = 0;
+  double scale = 1.0;
+};
+struct CandidatePlacement {
+  int x = 0;
+  int y = 0;
+  bool above = false;
+};
+// Position the card against the caret, flipping above the input line when a
+// full list would not fit below it. Clamping alone is not enough: near the
+// bottom of a screen it slides the card up over the very text being composed.
+inline CandidatePlacement
+candidate_card_placement(const CandidatePlacementInput &input) {
+  const double scale = input.scale > 0.0 ? input.scale : 1.0;
+  const int caret_gap = static_cast<int>(std::lround(3.0 * scale));
+  const int edge_pad = static_cast<int>(std::lround(2.0 * scale));
+  CandidatePlacement placement{input.anchor_x, input.anchor_y + caret_gap,
+                               false};
+  if (placement.x + input.width > input.work_right - edge_pad)
+    placement.x = input.work_right - input.width - edge_pad;
+  if (placement.x < input.work_left + edge_pad)
+    placement.x = input.work_left + edge_pad;
+  if (placement.y < input.work_top + edge_pad)
+    placement.y = input.work_top + edge_pad;
+  const int decision = (std::max)(input.decision_height, input.height);
+  if (placement.y + decision > input.work_bottom) {
+    // anchor_y is the line's bottom, so stepping back one line height puts the
+    // card's lower edge at the line's top. A fixed gap instead of a line height
+    // leaves a hole under short cards.
+    const int line_height = static_cast<int>(std::lround(24.0 * scale));
+    placement.y = input.anchor_y - input.height - line_height;
+    placement.above = true;
+    if (placement.y < input.work_top + edge_pad)
+      placement.y = input.work_top + edge_pad;
+  }
+  return placement;
+}
 } // namespace msime::windows

@@ -5,6 +5,7 @@ use msime_client_core::personal_dictionary::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
 };
+use msime_client_core::dictionary_import::{dictionary_row_matches, PageSelector};
 use msime_engine_bridge::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -82,6 +83,13 @@ enum Operation {
     List {
         offset: usize,
         limit: usize,
+        /// Restrict the page to one dictionary. Absent means every kind, which
+        /// is what older callers sent.
+        #[serde(default)]
+        kind: Option<Kind>,
+        /// Code prefix to search for, matched case-insensitively.
+        #[serde(default)]
+        query: Option<String>,
     },
     Edit {
         previous: Option<Entry>,
@@ -182,21 +190,79 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .map_err(|_| "invalid dictionary options".to_owned())?;
     let options = request.options.into_engine_options();
     match request.action {
-        Operation::List { offset, limit } => {
+        Operation::List {
+            offset,
+            limit,
+            kind,
+            query,
+        } => {
             let _access = DictionaryAccess::try_session(
                 Path::new(&options.user_data),
                 Path::new(&options.dictionaries),
             )
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
-            let page = msime_engine_bridge::dictionary_entries(&options, offset, limit)
-                .map_err(|_| "dictionary read rejected")?;
-            let entries: Vec<Entry> = page
-                .entries
-                .into_iter()
-                .map(Entry::try_from)
-                .collect::<Result<_, _>>()?;
-            Ok(json!({ "entries": entries, "has_more": page.has_more }))
+            if limit == 0 || limit > 1000 {
+                return Err("invalid dictionary page".into());
+            }
+            let prefix = query.unwrap_or_default();
+            if prefix.len() > 256 {
+                return Err("invalid dictionary page".into());
+            }
+            // Unfiltered pages still go straight through, so the common case
+            // costs exactly what it did before.
+            if kind.is_none() && prefix.is_empty() {
+                let page = msime_engine_bridge::dictionary_entries(&options, offset, limit)
+                    .map_err(|_| "dictionary read rejected")?;
+                let entries: Vec<Entry> = page
+                    .entries
+                    .into_iter()
+                    .map(Entry::try_from)
+                    .collect::<Result<_, _>>()?;
+                return Ok(json!({ "entries": entries, "has_more": page.has_more }));
+            }
+            // The Engine pages the whole store in one sequence with no kind or
+            // prefix filter, so the selection happens here. Doing it on the
+            // client meant asking for 100 rows and discarding most of them: a
+            // user with more than a page of pinyin words who selected 五笔 saw
+            // an empty page 1 even though wubi entries existed.
+            let mut selector = PageSelector::new(offset, limit);
+            let mut entries: Vec<Entry> = Vec::new();
+            let mut has_more = false;
+            let mut scanned = 0usize;
+            // Bound the work: a store with very few matches must not turn one
+            // request into an unbounded scan. Reaching the budget is reported
+            // as "there may be more" rather than silently ending the list.
+            const SCAN_BUDGET: usize = 20_000;
+            const CHUNK: usize = 500;
+            loop {
+                let page = msime_engine_bridge::dictionary_entries(&options, scanned, CHUNK)
+                    .map_err(|_| "dictionary read rejected")?;
+                let count = page.entries.len();
+                for raw in page.entries {
+                    let entry = Entry::try_from(raw)?;
+                    let same_kind = kind.map(|wanted| wanted == entry.kind).unwrap_or(true);
+                    if !dictionary_row_matches(same_kind, &entry.key, &prefix) {
+                        continue;
+                    }
+                    if selector.full() {
+                        has_more = true;
+                        break;
+                    }
+                    if selector.accept() {
+                        entries.push(entry);
+                    }
+                }
+                scanned += count;
+                if has_more || count == 0 || !page.has_more {
+                    break;
+                }
+                if scanned >= SCAN_BUDGET {
+                    has_more = true;
+                    break;
+                }
+            }
+            Ok(json!({ "entries": entries, "has_more": has_more }))
         }
         Operation::Edit {
             previous,
@@ -241,24 +307,44 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
             let mut applied = 0usize;
+            // Rows the Engine refuses are counted and named, not fatal. The
+            // shared parser only checks the key alphabet and length, while the
+            // Engine additionally demands complete pinyin syllables and one
+            // syllable per Han character - so ordinary real files (jianpin
+            // rows, a two-syllable code on a three-character word) contain
+            // some. Aborting discarded the rows already committed and told the
+            // user nothing but "check the format", leaving the dictionary
+            // half-written with no way to know how far it got.
+            let mut rejected_lines: Vec<usize> = Vec::new();
             for (index, entry) in entries.iter().enumerate() {
                 let receipt = format!("{request_id}-{index}");
                 // The batch already owns the maintenance lock; use the Engine bridge directly.
                 let result =
                     msime_engine_bridge::dictionary_edit(&options, None, Some(entry), &receipt);
                 if result.is_err() {
-                    return Err("dictionary import rejected".into());
+                    rejected_lines.push(index + 1);
+                    continue;
                 }
                 applied += 1;
             }
+            // Nothing landed and the Engine refused everything: that is a
+            // failed import, not a partial one, and the caller should say so.
+            if applied == 0 && !rejected_lines.is_empty() {
+                return Err("dictionary import rejected".into());
+            }
+            let mut report = report.unwrap_or(msime_client_core::dictionary_import::ImportReport {
+                entries: Vec::new(),
+                failed: 0,
+                first_failures: Vec::new(),
+                truncated: false,
+            });
+            report.record_rejected(&rejected_lines);
             let mut result = json!({ "applied": applied });
             // Tell the caller what was skipped instead of reporting a clean import.
-            if let Some(report) = report {
-                result["failed"] = json!(report.failed);
-                result["truncated"] = json!(report.truncated);
-                result["first_failures"] = serde_json::to_value(&report.first_failures)
-                    .map_err(|error| error.to_string())?;
-            }
+            result["failed"] = json!(report.failed);
+            result["truncated"] = json!(report.truncated);
+            result["first_failures"] = serde_json::to_value(&report.first_failures)
+                .map_err(|error| error.to_string())?;
             Ok(result)
         }
         Operation::ImportPersonal { .. } => {

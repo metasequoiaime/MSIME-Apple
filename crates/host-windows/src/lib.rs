@@ -67,22 +67,76 @@ pub fn focus(target: InputTarget) -> bool {
     unsafe { IsWindow(window) != 0 && SetForegroundWindow(window) != 0 }
 }
 
+/// Is the foreground window a usable destination for synthetic input?
+///
+/// The panels are `WS_EX_NOACTIVATE`, so the foreground really is whatever the
+/// user last clicked, and the reference deliberately never calls
+/// SetForegroundWindow: it just sends to whatever is in front. The only case to
+/// refuse is the foreground belonging to this process, which would make the
+/// panel type into itself.
+pub fn foreground_is_external() -> bool {
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+    // SAFETY: all three calls validate their arguments themselves.
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_null() {
+            return false;
+        }
+        let mut process = 0u32;
+        GetWindowThreadProcessId(window, &mut process);
+        process != 0 && process != GetCurrentProcessId()
+    }
+}
+
+/// Keys that must carry `KEYEVENTF_EXTENDEDKEY`.
+///
+/// Without the flag these arrive as their numeric-keypad twins: the arrow
+/// cluster becomes 2/4/6/8, Home/End/PgUp/PgDn/Ins/Del become 7/1/9/3/0/., and
+/// applications that read scan codes rather than virtual keys see the wrong
+/// key entirely. The ported React layout exposes all of them, so this matters
+/// more here than it did upstream.
+fn extended_key(virtual_key: u16) -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        VK_APPS, VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT,
+        VK_LWIN, VK_NEXT, VK_NUMLOCK, VK_PRIOR, VK_RCONTROL, VK_RIGHT, VK_RMENU,
+        VK_RWIN, VK_UP,
+    };
+    matches!(
+        virtual_key,
+        VK_DELETE | VK_LWIN | VK_RWIN | VK_RMENU | VK_RCONTROL | VK_INSERT
+            | VK_HOME | VK_END | VK_PRIOR | VK_NEXT | VK_LEFT | VK_RIGHT | VK_UP
+            | VK_DOWN | VK_NUMLOCK | VK_DIVIDE | VK_APPS
+    )
+}
+
 fn key_input(
     virtual_key: u16,
     release: bool,
 ) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+        MapVirtualKeyW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
     };
+    let mut flags = if release { KEYEVENTF_KEYUP } else { 0 };
+    if extended_key(virtual_key) {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: virtual_key,
-                wScan: 0,
-                dwFlags: if release { KEYEVENTF_KEYUP } else { 0 },
+                // Applications that read the scan code instead of the virtual
+                // key saw 0 for every synthetic stroke.
+                wScan: unsafe { MapVirtualKeyW(virtual_key as u32, MAPVK_VK_TO_VSC) } as u16,
+                dwFlags: flags,
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::GetMessageExtraInfo() as usize
+                },
             },
         },
     }
@@ -275,5 +329,55 @@ mod tests {
         assert!(!open_directory(Path::new(
             "C:\\definitely-missing-msime-path"
         )));
+    }
+
+    #[test]
+    fn extended_keys_cover_the_cluster_the_panel_exposes() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+        // Without KEYEVENTF_EXTENDEDKEY these arrive as their numeric-keypad
+        // twins: the arrows become 2/4/6/8 and Home/End/PgUp/PgDn/Ins/Del
+        // become 7/1/9/3/0/. - so the panel would type digits.
+        for key in [
+            VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_HOME, VK_END, VK_PRIOR,
+            VK_NEXT, VK_INSERT, VK_DELETE, VK_APPS, VK_NUMLOCK, VK_DIVIDE,
+            VK_LWIN, VK_RWIN, VK_RMENU, VK_RCONTROL,
+        ] {
+            assert!(extended_key(key), "{key} should be extended");
+        }
+        // Ordinary keys must not carry the flag, or they would be misread the
+        // other way round.
+        for key in [
+            VK_SPACE, VK_RETURN, VK_BACK, VK_TAB, VK_SHIFT, VK_LCONTROL,
+            VK_LMENU, VK_NUMPAD0, VK_NUMPAD9, VK_MULTIPLY, VK_ADD,
+            VK_SUBTRACT, VK_DECIMAL, VK_CAPITAL,
+        ] {
+            assert!(!extended_key(key), "{key} should not be extended");
+        }
+    }
+
+    #[test]
+    fn a_synthetic_stroke_carries_a_scan_code() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+        // Applications that read the scan code rather than the virtual key saw
+        // zero for every synthetic stroke.
+        let down = key_input(VK_SPACE, false);
+        let ki = unsafe { down.Anonymous.ki };
+        assert_ne!(ki.wScan, 0);
+        assert_eq!(ki.wVk, VK_SPACE);
+        assert_eq!(ki.dwFlags & KEYEVENTF_KEYUP, 0);
+        assert_eq!(ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0);
+
+        let up = key_input(VK_SPACE, true);
+        assert_ne!(unsafe { up.Anonymous.ki }.dwFlags & KEYEVENTF_KEYUP, 0);
+
+        // An extended key carries both the flag and a scan code, and keeps the
+        // flag on release - a Win key released without it stays stuck down.
+        let left = key_input(VK_LEFT, false);
+        let left_ki = unsafe { left.Anonymous.ki };
+        assert_ne!(left_ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0);
+        assert_ne!(left_ki.wScan, 0);
+        let left_up = unsafe { key_input(VK_LEFT, true).Anonymous.ki };
+        assert_ne!(left_up.dwFlags & KEYEVENTF_EXTENDEDKEY, 0);
+        assert_ne!(left_up.dwFlags & KEYEVENTF_KEYUP, 0);
     }
 }

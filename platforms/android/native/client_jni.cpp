@@ -1,7 +1,54 @@
 #include <jni.h>
 #include "msime_client.h"
 #include <cstring>
+#include <fstream>
 #include <limits>
+#include <string>
+
+struct SnapshotReader {
+    explicit SnapshotReader(const std::string &path) : input(path, std::ios::in | std::ios::binary) {}
+    std::ifstream input;
+};
+
+static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) noexcept {
+    auto *reader = static_cast<SnapshotReader *>(context);
+    if (!reader || !buffer || capacity == 0) return -1;
+    for (;;) {
+        size_t length = 0;
+        bool ended = false;
+        while (length < capacity) {
+            const int value = reader->input.get();
+            if (value == EOF) {
+                if (!reader->input.eof()) return -1;
+                ended = true;
+                break;
+            }
+            if (value == '\n') {
+                ended = true;
+                break;
+            }
+            if (value == '\r' && reader->input.peek() == '\n') {
+                reader->input.get();
+                ended = true;
+                break;
+            }
+            buffer[length++] = static_cast<uint8_t>(value);
+        }
+        if (!ended || length == 0) return ended && length == 0 ? 0 : -1;
+        buffer[length] = 0;
+        const char *type = std::strstr(reinterpret_cast<const char *>(buffer), "\"type\":\"");
+        if (!type) return -1;
+        type += 8;
+        const bool engine_record = std::strncmp(type, "overlay\"", 8) == 0
+            || std::strncmp(type, "position\"", 9) == 0
+            || std::strncmp(type, "selection\"", 10) == 0;
+        if (engine_record) return static_cast<intptr_t>(length);
+        if (std::strncmp(type, "header\"", 7) == 0
+                || std::strncmp(type, "entry\"", 6) == 0
+                || std::strncmp(type, "footer\"", 7) == 0) continue;
+        return -1;
+    }
+}
 
 // Use UTF-8 byte arrays, not JNI modified UTF-8: supplementary characters in
 // candidates and resource paths must survive the Java/native boundary unchanged.
@@ -117,6 +164,51 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_prepareHostRaw(J
     if (!bytes) return nullptr;
     char *result = msime_client_prepare_host(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
     env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_snapshotVersionRaw(JNIEnv *env, jclass, jbyteArray options) {
+    if (!options) return response(env, msime_client_snapshot_version(nullptr, 0));
+    jsize length = env->GetArrayLength(options);
+    jbyte *bytes = env->GetByteArrayElements(options, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_snapshot_version(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_snapshotPrepareRaw(JNIEnv *env, jclass, jbyteArray request, jbyteArray file) {
+    if (!request || !file) return response(env, msime_client_snapshot_prepare(nullptr, 0, nullptr, nullptr));
+    jsize request_length = env->GetArrayLength(request);
+    jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
+    if (!request_bytes) return nullptr;
+    jsize file_length = env->GetArrayLength(file);
+    jbyte *file_bytes = env->GetByteArrayElements(file, nullptr);
+    if (!file_bytes) {
+        env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    std::string path(reinterpret_cast<const char *>(file_bytes), static_cast<size_t>(file_length));
+    SnapshotReader reader(path);
+    char *result = msime_client_snapshot_prepare(
+        reinterpret_cast<const uint8_t *>(request_bytes), static_cast<size_t>(request_length),
+        snapshotNext, &reader);
+    env->ReleaseByteArrayElements(file, file_bytes, JNI_ABORT);
+    env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_snapshotDiscardRaw(JNIEnv *env, jclass, jlong handle) {
+    if (handle <= 0) return response(env, msime_client_snapshot_discard(0));
+    return response(env, msime_client_snapshot_discard(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_snapshotActivateRaw(JNIEnv *env, jclass, jlong handle, jbyteArray expected) {
+    if (!expected || handle <= 0) return response(env, msime_client_snapshot_activate(0, nullptr, 0));
+    jsize length = env->GetArrayLength(expected);
+    jbyte *bytes = env->GetByteArrayElements(expected, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_snapshot_activate(
+        static_cast<uint64_t>(handle), reinterpret_cast<const uint8_t *>(bytes),
+        static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(expected, bytes, JNI_ABORT);
     return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_updatePreferencesRaw(JNIEnv *env, jclass, jlong handle, jbyteArray snapshot) {

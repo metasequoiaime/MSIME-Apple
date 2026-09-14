@@ -72,3 +72,22 @@ test("a failed import surfaces the host's reason rather than a generic hint", as
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("dictionary import is too large");
 });
+
+test("an engine rejection is explained differently from a malformed line", () => {
+  // These parse cleanly but the engine refuses them, so "check the text
+  // format" would send the user looking in the wrong place.
+  const message = describeImportResult("全拼", {
+    applied: 40, failed: 2,
+    first_failures: [{ line: 7, issue: "rejected" }, { line: 12, issue: "rejected" }],
+  });
+  expect(message).toContain("40");
+  expect(message).toContain("跳过 2 行");
+  expect(message).toContain("7、12");
+  expect(message).toContain("音节");
+
+  // A purely malformed file keeps the original wording.
+  const malformed = describeImportResult("全拼", {
+    applied: 3, failed: 1, first_failures: [{ line: 2, issue: "column_count" }],
+  });
+  expect(malformed).not.toContain("音节");
+});

@@ -1,3 +1,4 @@
+#include <set>
 #include "TrayMenuLayout.h"
 #include <cmath>
 #include <stdexcept>
@@ -93,4 +94,37 @@ int main() {
   require(rejected([] {
     (void)tray_menu_bounds(0, 0, 0, 0, 100, 100, 20, TrayMenuSize{220.0, 100.0});
   }));
+
+  // Every row carries a leading glyph and a text fallback. The rows used to be
+  // plain text with no icon column reserved at all.
+  {
+    TrayMenuCapabilities every;
+    const auto rows = tray_menu_items(every, true);
+    std::set<wchar_t> glyphs;
+    for (const auto &row : rows) {
+      require(row.icon != 0);
+      require(row.icon_fallback && row.icon_fallback[0] != L'\0');
+      // Two rows sharing a glyph would make the card ambiguous.
+      require(glyphs.insert(row.icon).second);
+    }
+    // Only the toolbar row is a switch; the rest open a surface.
+    require(rows[0].toggle);
+    for (size_t i = 1; i < rows.size(); ++i)
+      require(!rows[i].toggle);
+    // The toolbar row reflects the state it was built with, both ways.
+    require(rows[0].checked);
+    require(!tray_menu_items(every, false)[0].checked);
+  }
+  // Labels start after the icon column, so they line up whatever the icon is,
+  // and the icon is centred inside that column.
+  {
+    TrayMenuMetrics icons;
+    require(tray_menu_label_x(icons) == icons.padding + icons.icon_column);
+    require(tray_menu_icon_x(icons) ==
+            icons.padding + icons.icon_column / 2.0);
+    require(tray_menu_icon_x(icons) < tray_menu_label_x(icons));
+    // The switch has to fit inside a row.
+    require(icons.toggle_height < icons.row_height);
+    require(icons.toggle_width + icons.icon_column < icons.width);
+  }
 }

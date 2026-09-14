@@ -5,13 +5,21 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 @InvokeArg
 class SaveAccountSessionArgs {
@@ -35,11 +43,79 @@ class CopyTextArgs {
     lateinit var text: String
 }
 
+@InvokeArg
+class EnqueueSnapshotArgs {
+    lateinit var source: String
+    lateinit var accountId: String
+    var cloudRevision: Long = -1
+    lateinit var expectedLocalVersion: String
+    lateinit var fileSha256: String
+}
+
+@InvokeArg
+class CancelSnapshotArgs {
+    lateinit var accountId: String
+}
+
+@InvokeArg
+class AiModelsArgs {
+    lateinit var endpoint: String
+    lateinit var token: String
+}
+
+@InvokeArg
+class AiTestArgs {
+    lateinit var endpoint: String
+    lateinit var model: String
+    lateinit var prompt: String
+    lateinit var token: String
+    lateinit var text: String
+}
+
 @TauriPlugin
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
     private val feedback = activity.getSharedPreferences("keyboard-feedback", Context.MODE_PRIVATE)
+    private val bootstrapWorker: ExecutorService = Executors.newSingleThreadExecutor()
+
+    private fun snapshotQueue(): DictionarySnapshotQueue {
+        val files = hostActivity.filesDir
+            ?: throw IllegalStateException("private files unavailable")
+        return DictionarySnapshotQueue(File(files, "bootstrap/state/dictionary-snapshots").toPath())
+    }
+
+    private fun snapshotQueueRoot(): Path {
+        val files = hostActivity.filesDir
+            ?: throw IllegalStateException("private files unavailable")
+        return File(files, "bootstrap/state/dictionary-snapshots").toPath().toAbsolutePath().normalize()
+    }
+
+    private fun privateSnapshotSource(value: String): Path {
+        val source = Path.of(value).toAbsolutePath().normalize()
+        val root = snapshotQueueRoot()
+        if (!source.startsWith(root) || !java.nio.file.Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
+            throw IllegalArgumentException("invalid snapshot source")
+        }
+        return source
+    }
+
+    private fun snapshotStateResponse(): JSObject {
+        val state = snapshotQueue().read()
+        val response = JSObject()
+        state.localVersion()?.let { response.put("localVersion", it) }
+        val request = state.request()
+        if (request != null) {
+            response.put("request", JSObject()
+                .put("id", request.id().toString())
+                .put("accountId", request.accountId())
+                .put("cloudRevision", request.cloudRevision())
+                .put("expectedLocalVersion", request.expectedLocalVersion())
+                .put("fileSha256", request.fileSha256())
+                .put("status", request.status().wire()))
+        }
+        return response
+    }
 
     private val appIconAliases = linkedMapOf(
         "classic" to null,
@@ -202,5 +278,145 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         } catch (_: Exception) {
             invoke.reject("clipboard", "clipboard")
         }
+    }
+
+    @Command
+    fun openInputMethodSettings(invoke: Invoke) {
+        try {
+            hostActivity.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("system_settings", "system_settings")
+        }
+    }
+
+    @Command
+    fun showInputMethodPicker(invoke: Invoke) {
+        try {
+            val manager = hostActivity.getSystemService(InputMethodManager::class.java)
+                ?: throw IllegalStateException("input method manager unavailable")
+            manager.showInputMethodPicker()
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("input_method_picker", "input_method_picker")
+        }
+    }
+
+    @Command
+    fun bootstrapStatus(invoke: Invoke) {
+        try {
+            val ready = File(hostActivity.filesDir, "runtime-options.json").isFile
+            invoke.resolve(JSObject().put("ready", ready))
+        } catch (_: Exception) {
+            invoke.reject("bootstrap", "bootstrap")
+        }
+    }
+
+    @Command
+    fun prepareBootstrap(invoke: Invoke) {
+        try {
+            bootstrapWorker.execute {
+                try {
+                    Bootstrap.prepare(hostActivity.applicationContext)
+                    val ready = File(hostActivity.filesDir, "runtime-options.json").isFile
+                    invoke.resolve(JSObject().put("ready", ready))
+                } catch (_: Exception) {
+                    invoke.reject("bootstrap", "bootstrap")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("bootstrap", "bootstrap")
+        }
+    }
+
+    @Command
+    fun aiModels(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AiModelsArgs::class.java)
+            bootstrapWorker.execute {
+                try {
+                    val models = AiPolishModelCatalog.fetch(args.endpoint, args.token)
+                    val response = JSObject()
+                    val values = org.json.JSONArray()
+                    models.forEach { values.put(it) }
+                    response.put("models", values)
+                    invoke.resolve(response)
+                } catch (error: AiPolishClient.Failure) {
+                    invoke.reject("ai_models_${error.reason().name.lowercase()}", "ai_models_failed")
+                } catch (_: Exception) {
+                    invoke.reject("ai_models_unavailable", "ai_models_failed")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("ai_models_invalid", "ai_models_failed")
+        }
+    }
+
+    @Command
+    fun aiTest(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AiTestArgs::class.java)
+            bootstrapWorker.execute {
+                try {
+                    val configuration = AiPolishConfiguration(args.endpoint, args.model, args.prompt, args.token)
+                    if (!AiPolishConfiguration.acceptableText(args.text)) {
+                        throw AiPolishClient.Failure(AiPolishClient.Reason.INVALID)
+                    }
+                    val result = AiPolishHttpTransport().send(
+                        configuration, args.text, AiPolishClient.Cancellation())
+                    if (!AiPolishConfiguration.acceptableText(result)) {
+                        throw AiPolishClient.Failure(AiPolishClient.Reason.INVALID)
+                    }
+                    invoke.resolve(JSObject().put("text", result))
+                } catch (error: AiPolishClient.Failure) {
+                    invoke.reject("ai_test_${error.reason().name.lowercase()}", "ai_test_failed")
+                } catch (_: IllegalArgumentException) {
+                    invoke.reject("ai_test_invalid", "ai_test_failed")
+                } catch (_: Exception) {
+                    invoke.reject("ai_test_unavailable", "ai_test_failed")
+                }
+            }
+        } catch (_: Exception) {
+            invoke.reject("ai_test_invalid", "ai_test_failed")
+        }
+    }
+
+    /** Rust-only bridge; WebView code never receives the private source path. */
+    @Command
+    fun enqueueSnapshot(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(EnqueueSnapshotArgs::class.java)
+            snapshotQueue().enqueue(
+                privateSnapshotSource(args.source), args.accountId, args.cloudRevision,
+                args.expectedLocalVersion, args.fileSha256)
+            invoke.resolve(snapshotStateResponse())
+        } catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (error: IllegalArgumentException) {
+            invoke.reject("snapshot_invalid", error.message)
+        } catch (_: Exception) {
+            invoke.reject("snapshot_unavailable", "snapshot_unavailable")
+        }
+    }
+
+    @Command
+    fun snapshotState(invoke: Invoke) {
+        try { invoke.resolve(snapshotStateResponse()) }
+        catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }
+    }
+
+    @Command
+    fun cancelSnapshot(invoke: Invoke) {
+        try {
+            val accountId = invoke.parseArgs(CancelSnapshotArgs::class.java).accountId
+            snapshotQueue().cancel(accountId)
+            invoke.resolve(snapshotStateResponse())
+        } catch (error: DictionarySnapshotQueue.Failure) {
+            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+        } catch (error: IllegalArgumentException) {
+            invoke.reject("snapshot_invalid", error.message)
+        } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }
     }
 }

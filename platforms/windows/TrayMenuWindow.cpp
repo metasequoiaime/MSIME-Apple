@@ -1,4 +1,5 @@
 #include "TrayMenuWindow.h"
+#include "IconFont.h"
 #include <stdexcept>
 
 namespace msime::windows {
@@ -191,6 +192,12 @@ void TrayMenuWindow::paint() {
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!label_format || !state_format)
     throw std::runtime_error("Tray menu text format unavailable");
+  icon_text_format_ = device_.GetTextFormat(
+      L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
+      DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+      DWRITE_WORD_WRAPPING_NO_WRAP);
+  if (!icon_family_)
+    icon_family_ = icon_font_family(device_.GetDWriteFactory());
   const auto size = target->GetSize();
   const float inset = palette_.border_width / 2.0f;
   target->BeginDraw();
@@ -213,21 +220,62 @@ void TrayMenuWindow::paint() {
       target->FillRoundedRectangle({rect, palette_.item_radius,
                                     palette_.item_radius},
                                    brush(palette_.hover));
+    auto *row_brush = brush(items_[index].available ? palette_.text
+                                                    : palette_.number);
+    // Leading icon, from the same font and with the same text fallback the
+    // toolbar uses: the glyph fonts are not on every Windows build, and a
+    // missing glyph would otherwise draw a blank box.
+    if (items_[index].icon) {
+      const bool glyph =
+          icon_family_ && icon_font_has(device_.GetDWriteFactory(), icon_family_,
+                                        items_[index].icon);
+      const wchar_t single[] = {items_[index].icon, L'\0'};
+      const wchar_t *text = glyph ? single : items_[index].icon_fallback;
+      auto *format = glyph
+                         ? device_.GetTextFormat(
+                               icon_family_, 15.0f, DWRITE_FONT_WEIGHT_NORMAL,
+                               DWRITE_TEXT_ALIGNMENT_CENTER,
+                               DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                               DWRITE_WORD_WRAPPING_NO_WRAP)
+                         : icon_text_format_;
+      if (format && text && *text)
+        target->DrawText(text, static_cast<UINT32>(wcslen(text)), format,
+                         D2D1_RECT_F{rect.left, rect.top,
+                                     rect.left +
+                                         static_cast<float>(metrics_.icon_column),
+                                     rect.bottom},
+                         row_brush);
+    }
     const auto label = wide(items_[index].label);
     // An unavailable row is dimmed with the muted token instead of hidden.
+    // Labels start after the icon column so they line up across rows.
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                      label_format,
-                     D2D1_RECT_F{rect.left + 8.0f, rect.top, rect.right,
-                                 rect.bottom},
-                     brush(items_[index].available ? palette_.text
-                                                   : palette_.number));
+                     D2D1_RECT_F{rect.left +
+                                     static_cast<float>(metrics_.icon_column),
+                                 rect.top, rect.right, rect.bottom},
+                     row_brush);
     if (!items_[index].toggle)
       continue;
-    const wchar_t *state = items_[index].checked ? L"✓" : L"";
-    target->DrawText(state, static_cast<UINT32>(wcslen(state)), state_format,
-                     D2D1_RECT_F{rect.left, rect.top, rect.right - 8.0f,
-                                 rect.bottom},
-                     brush(palette_.accent));
+    // A switch, not a check mark: the row turns something on and off, and a
+    // bare tick says nothing about the off state.
+    const float track_right = rect.right - 8.0f;
+    const float track_left =
+        track_right - static_cast<float>(metrics_.toggle_width);
+    const float centre = (rect.top + rect.bottom) / 2.0f;
+    const float half = static_cast<float>(metrics_.toggle_height) / 2.0f;
+    const D2D1_ROUNDED_RECT track{
+        {track_left, centre - half, track_right, centre + half}, half, half};
+    if (items_[index].checked)
+      target->FillRoundedRectangle(track, brush(palette_.accent));
+    else
+      target->DrawRoundedRectangle(track, brush(palette_.number), 1.0f);
+    const float knob = half - 3.0f;
+    const float knob_x =
+        items_[index].checked ? track_right - half : track_left + half;
+    target->FillEllipse({{knob_x, centre}, knob, knob},
+                        brush(items_[index].checked ? palette_.surface
+                                                    : palette_.number));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

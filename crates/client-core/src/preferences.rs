@@ -380,6 +380,9 @@ pub struct Preferences {
     /// `None` preserves the default-on behavior without rewriting legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wubi_code_hint: Option<bool>,
+    /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
+    #[serde(default)]
+    pub wubi_mixed_pinyin: bool,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
@@ -513,6 +516,13 @@ pub struct VoiceInputPreferences {
     pub asr_app_key: String,
     #[serde(default)]
     pub asr_token: String,
+    /// One recognition token per provider id.
+    ///
+    /// A single flat token meant switching provider left the previous
+    /// provider's key in the box, so it was sent to the new endpoint until the
+    /// user noticed, and the old key was gone the moment they retyped.
+    #[serde(default)]
+    pub asr_tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub asr_endpoint: String,
     #[serde(default)]
@@ -527,6 +537,9 @@ pub struct VoiceInputPreferences {
     pub polish_provider: String,
     #[serde(default)]
     pub polish_token: String,
+    /// One polish token per provider id, for the same reason as `asr_tokens`.
+    #[serde(default)]
+    pub polish_tokens: BTreeMap<String, String>,
     #[serde(default)]
     pub polish_endpoint: String,
     #[serde(default)]
@@ -579,6 +592,7 @@ impl Default for VoiceInputPreferences {
             asr_provider: "doubao".into(),
             asr_app_key: String::new(),
             asr_token: String::new(),
+            asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
@@ -586,6 +600,7 @@ impl Default for VoiceInputPreferences {
             polish_text: false,
             polish_provider: "siliconflow".into(),
             polish_token: String::new(),
+            polish_tokens: BTreeMap::new(),
             polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
@@ -1010,6 +1025,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,
+            wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
             custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
@@ -1821,6 +1837,29 @@ mod tests {
             !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
                 .unwrap()
                 .wubi_code_hint_enabled()
+        );
+    }
+
+    #[test]
+    fn wubi_mixed_pinyin_defaults_off_and_roundtrips() {
+        let defaults = Preferences::default();
+        assert!(!defaults.wubi_mixed_pinyin);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("wubi_mixed_pinyin");
+        assert!(
+            !serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .wubi_mixed_pinyin
+        );
+
+        let enabled = Preferences {
+            wubi_mixed_pinyin: true,
+            ..defaults
+        };
+        assert!(
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+                .unwrap()
+                .wubi_mixed_pinyin
         );
     }
 

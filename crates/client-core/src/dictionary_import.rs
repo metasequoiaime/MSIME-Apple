@@ -79,6 +79,10 @@ pub struct ImportEntry {
     pub key: String,
     pub value: String,
     pub weight: i64,
+    /// 1-based line in the submitted text. Carried so a row the Engine refuses
+    /// later can be reported by line, exactly as a parse failure is.
+    #[serde(default)]
+    pub line: usize,
 }
 
 /// Why one row was skipped. Deliberately describes the shape of the problem and
@@ -94,6 +98,9 @@ pub enum ImportIssue {
     ValueTooLong,
     QuickPhraseTooLong,
     Weight,
+    /// Parsed cleanly, but the Engine refused it - typically a jianpin code, or
+    /// a syllable count that does not match the number of Han characters.
+    Rejected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -129,7 +136,32 @@ pub struct ImportReport {
     pub truncated: bool,
 }
 
-const REPORTED_FAILURES: usize = 5;
+pub const REPORTED_FAILURES: usize = 5;
+
+impl ImportReport {
+    /// Fold rows the Engine refused into this report.
+    ///
+    /// The parser only checks the key alphabet and length; the Engine also
+    /// demands complete pinyin syllables and one syllable per Han character,
+    /// so ordinary real files contain rows that parse but are then refused.
+    /// Those belong in the same counters the user already sees, named by line,
+    /// rather than aborting an import that has already written part of itself.
+    pub fn record_rejected(&mut self, lines: &[usize]) {
+        self.failed += lines.len();
+        for line in lines {
+            if self.first_failures.len() >= REPORTED_FAILURES {
+                break;
+            }
+            self.first_failures.push(ImportFailure {
+                line: *line,
+                issue: ImportIssue::Rejected,
+            });
+        }
+        // Parse failures are reported in line order; keep the combined list in
+        // line order too, so "first appeared at line N" stays true.
+        self.first_failures.sort_by_key(|failure| failure.line);
+    }
+}
 
 /// Parse a user-supplied dictionary file.
 ///
@@ -189,7 +221,10 @@ pub fn parse(
             }
         }
         match parse_row(kind, format, line) {
-            Ok(entry) => report.entries.push(entry),
+            Ok(mut entry) => {
+                entry.line = index + 1;
+                report.entries.push(entry);
+            }
             Err(issue) => {
                 report.failed += 1;
                 if report.first_failures.len() < REPORTED_FAILURES {
@@ -255,6 +290,7 @@ fn parse_row(
         key,
         value: word.to_owned(),
         weight,
+        line: 0, // Filled in by the caller, which knows the line number.
     })
 }
 
@@ -428,6 +464,108 @@ mod tests {
     }
 
     #[test]
+    fn a_page_holds_only_rows_of_the_requested_kind() {
+        // The defect: a user with more than a page of pinyin words who selects
+        // 五笔 saw an empty page 1, because the client filtered a page it had
+        // already fetched instead of the server selecting the right rows.
+        let rows: Vec<(bool, &str)> = (0..250)
+            .map(|index| (index % 50 == 0, "wq"))
+            .collect();
+        let mut selector = PageSelector::new(0, 5);
+        let mut taken = 0;
+        for (is_wubi, key) in &rows {
+            if dictionary_row_matches(*is_wubi, key, "") && selector.accept() {
+                taken += 1;
+            }
+        }
+        assert_eq!(taken, 5);
+        assert!(selector.full());
+        assert_eq!(selector.taken(), 5);
+    }
+
+    #[test]
+    fn the_offset_counts_matching_rows_not_scanned_ones() {
+        let mut selector = PageSelector::new(2, 2);
+        let accepted: Vec<bool> = (0..6).map(|_| selector.accept()).collect();
+        // Skip two matches, take two, refuse the rest.
+        assert_eq!(accepted, vec![false, false, true, true, false, false]);
+        assert_eq!(selector.taken(), 2);
+        assert!(selector.full());
+    }
+
+    #[test]
+    fn a_page_shorter_than_the_limit_is_not_full() {
+        let mut selector = PageSelector::new(0, 10);
+        for _ in 0..3 {
+            assert!(selector.accept());
+        }
+        assert!(!selector.full());
+        assert_eq!(selector.taken(), 3);
+    }
+
+    #[test]
+    fn the_code_prefix_is_matched_case_insensitively() {
+        assert!(dictionary_row_matches(true, "wq", "w"));
+        assert!(dictionary_row_matches(true, "WQ", "w"));
+        assert!(dictionary_row_matches(true, "wq", "WQ"));
+        assert!(dictionary_row_matches(true, " wq ", "wq"));
+        // A prefix, not a substring: the user is typing a code from the start.
+        assert!(!dictionary_row_matches(true, "awq", "wq"));
+        // Longer than the key cannot match.
+        assert!(!dictionary_row_matches(true, "wq", "wqx"));
+        // An empty prefix matches everything of the right kind.
+        assert!(dictionary_row_matches(true, "anything", ""));
+        // The kind still gates it, whatever the prefix.
+        assert!(!dictionary_row_matches(false, "wq", ""));
+        assert!(!dictionary_row_matches(false, "wq", "wq"));
+    }
+
+    #[test]
+    fn engine_rejections_join_the_same_report() {
+        let mut report = parse_ok(
+            ImportKind::Pinyin,
+            "standard",
+            "你好	ni'hao
+坏行没有制表符
+世界	shi'jie
+",
+        );
+        assert_eq!(report.entries.len(), 2);
+        assert_eq!(report.failed, 1);
+        // Every accepted row knows which line it came from, so a row the Engine
+        // refuses later can be named the same way a parse failure is.
+        assert_eq!(report.entries[0].line, 1);
+        assert_eq!(report.entries[1].line, 3);
+
+        report.record_rejected(&[3]);
+        assert_eq!(report.failed, 2);
+        // Both kinds of failure sit in one list, in line order.
+        assert_eq!(
+            report.first_failures,
+            vec![
+                ImportFailure { line: 2, issue: ImportIssue::ColumnCount },
+                ImportFailure { line: 3, issue: ImportIssue::Rejected },
+            ]
+        );
+    }
+
+    #[test]
+    fn rejections_respect_the_reporting_cap() {
+        let mut report = parse_ok(ImportKind::Pinyin, "standard", "你好	ni'hao
+");
+        let lines: Vec<usize> = (1..=REPORTED_FAILURES + 4).collect();
+        report.record_rejected(&lines);
+        // Every rejection is counted...
+        assert_eq!(report.failed, REPORTED_FAILURES + 4);
+        // ...but only the first few are named, as with parse failures.
+        assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
+        assert!(report
+            .first_failures
+            .iter()
+            .all(|failure| failure.issue == ImportIssue::Rejected));
+    }
+
+    #[test]
     fn only_the_first_few_failures_are_named() {
         let mut text = String::from("你好\tni'hao\n");
         for _ in 0..(REPORTED_FAILURES + 3) {
@@ -438,4 +576,75 @@ mod tests {
         assert_eq!(report.failed, REPORTED_FAILURES + 3);
         assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
     }
+}
+
+/// Server-side paging for the dictionary browser.
+///
+/// The Engine pages the whole user store in one sequence, so the client used to
+/// ask for 100 rows and then drop everything that was not the selected kind.
+/// With more than a page of pinyin words, selecting 五笔 showed an empty list on
+/// page 1 even though wubi entries existed, and the status line counted the
+/// filtered rows against the unfiltered page. Filtering here instead means a
+/// page always holds `limit` rows of what the user actually asked for.
+#[derive(Debug, Clone, Copy)]
+pub struct PageSelector {
+    offset: usize,
+    limit: usize,
+    skipped: usize,
+    taken: usize,
+}
+
+impl PageSelector {
+    pub fn new(offset: usize, limit: usize) -> Self {
+        Self {
+            offset,
+            limit,
+            skipped: 0,
+            taken: 0,
+        }
+    }
+
+    /// Does a row that already matched the filter belong on this page?
+    ///
+    /// Call once per matching row, in order. Returns false while skipping to
+    /// `offset`, then true until `limit` rows have been taken.
+    pub fn accept(&mut self) -> bool {
+        if self.skipped < self.offset {
+            self.skipped += 1;
+            return false;
+        }
+        if self.taken >= self.limit {
+            return false;
+        }
+        self.taken += 1;
+        true
+    }
+
+    /// True once the page is full. A further match means there is more to show.
+    pub fn full(&self) -> bool {
+        self.taken >= self.limit
+    }
+
+    pub fn taken(&self) -> usize {
+        self.taken
+    }
+}
+
+/// Does this row belong to the requested kind and code prefix?
+///
+/// The prefix is compared case-insensitively over ASCII because every code
+/// alphabet here is ASCII and users type codes in either case.
+pub fn dictionary_row_matches(kind_matches: bool, key: &str, prefix: &str) -> bool {
+    if !kind_matches {
+        return false;
+    }
+    if prefix.is_empty() {
+        return true;
+    }
+    let key = key.trim();
+    if key.len() < prefix.len() {
+        return false;
+    }
+    key.as_bytes()[..prefix.len()]
+        .eq_ignore_ascii_case(prefix.as_bytes())
 }

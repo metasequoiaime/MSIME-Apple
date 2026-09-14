@@ -140,10 +140,16 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos
             ),
-            // Only the IBus host consumes the shared keybindings and forwards
-            // panel shortcuts so far; a host flips these once it does.
+            // Only the IBus host consumes the shared keybindings so far; a
+            // host flips this once it does. The Windows TIP still reads the
+            // legacy config.toml for the CN/EN and 简繁 hotkeys, so exposing
+            // them there would save values that never take effect.
             mode_switch_shortcuts: platform == HostPlatform::Linux,
-            panel_shortcuts: platform == HostPlatform::Linux,
+            // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
+            panel_shortcuts: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
             voice_capture_devices: platform == HostPlatform::Linux,
             // Native Windows/macOS candidate windows consume the shared font
             // controls; IBus lookup tables and mobile hosts do not expose them.
@@ -550,7 +556,12 @@ mod tests {
         assert!(!android.floating_toolbar && !android.floating_toolbar_appearance);
         assert!(!android.candidate_font_controls);
         assert!(!android.candidate_selection_appearance);
-        assert!(!windows.panel_shortcuts);
+        // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
+        // panel shortcut row is real there now.
+        assert!(windows.panel_shortcuts);
+        // The CN/EN and 简繁 hotkeys stay hidden: the TIP still reads them from
+        // the legacy config.toml, so the toggles would save and do nothing.
+        assert!(!windows.mode_switch_shortcuts);
         assert!(windows.system_fonts);
 
         let android = HostCapabilities::for_platform(HostPlatform::Android);

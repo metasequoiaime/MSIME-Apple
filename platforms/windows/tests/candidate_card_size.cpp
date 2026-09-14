@@ -163,4 +163,86 @@ int main() {
     invalid.preedit_font_size = font;
     require(rejected(invalid));
   }
+
+  // Placement. A 1920x1040 work area, caret two thirds down the screen.
+  CandidatePlacementInput place;
+  place.work_left = 0;
+  place.work_top = 0;
+  place.work_right = 1920;
+  place.work_bottom = 1040;
+  place.anchor_x = 400;
+  place.anchor_y = 700;
+  place.width = 300;
+  place.height = 120;
+  place.decision_height = 120;
+
+  // Room below: the card sits under the line, one 3 DIP caret gap down.
+  auto below = candidate_card_placement(place);
+  require(!below.above);
+  require(below.x == 400 && below.y == 703);
+
+  // No room below: it flips above the line rather than being slid up over the
+  // text. anchor_y is the line's bottom, so the card's lower edge lands one
+  // line height above it - and crucially the card no longer covers anchor_y.
+  place.anchor_y = 1000;
+  auto above = candidate_card_placement(place);
+  require(above.above);
+  require(above.y == 1000 - 120 - 24);
+  require(above.y + place.height < 1000);
+
+  // The old behaviour was pure clamping, which is exactly what must not happen:
+  // clamping would have parked it at work_bottom - height = 920, on top of the
+  // line at 1000. Guard against a regression to that.
+  require(above.y != 1040 - 120);
+
+  // Horizontal edges are padded by 2 DIP, both sides.
+  place.anchor_y = 700;
+  place.anchor_x = 1900;
+  require(candidate_card_placement(place).x == 1920 - 300 - 2);
+  place.anchor_x = -50;
+  require(candidate_card_placement(place).x == 2);
+
+  // A caret above the work area is pushed down to the padded top edge.
+  place.anchor_x = 400;
+  place.anchor_y = -500;
+  require(candidate_card_placement(place).y == 2);
+
+  // Hysteresis: a short list that would fit below still flips when the tallest
+  // list this composition would not, so a growing list does not jump sides.
+  place.anchor_y = 880;
+  place.height = 60;
+  place.decision_height = 60;
+  require(!candidate_card_placement(place).above); // 880+3+60 <= 1040
+  place.decision_height = 300;                     // ...but the full list would not
+  const auto sticky = candidate_card_placement(place);
+  require(sticky.above);
+  // Placed with its CURRENT height, not the decision height, so the card hugs
+  // the line instead of leaving a 300px hole under a 60px card.
+  require(sticky.y == 880 - 60 - 24);
+
+  // decision_height below the real height cannot shrink the decision.
+  place.decision_height = 0;
+  place.height = 600;
+  place.anchor_y = 1000;
+  require(candidate_card_placement(place).above);
+
+  // A card taller than the screen still lands inside the work area rather than
+  // off the top, even flipped.
+  place.height = 2000;
+  place.decision_height = 2000;
+  require(candidate_card_placement(place).y == 2);
+
+  // Scale moves the DIP offsets with the display: gaps are 3 and 24 DIP.
+  place.height = 120;
+  place.decision_height = 120;
+  place.anchor_y = 700;
+  place.anchor_x = 400;
+  place.scale = 2.0;
+  require(candidate_card_placement(place).y == 700 + 6);
+  place.anchor_y = 1000;
+  require(candidate_card_placement(place).y == 1000 - 120 - 48);
+  // A nonsense scale falls back to 1.0 rather than collapsing the gaps to zero.
+  place.scale = 0.0;
+  place.anchor_y = 700;
+  require(candidate_card_placement(place).y == 703);
 }

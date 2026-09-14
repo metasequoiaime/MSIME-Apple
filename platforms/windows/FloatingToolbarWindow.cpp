@@ -1,4 +1,7 @@
 #include "FloatingToolbarWindow.h"
+#include "FloatingToolbarPlacement.h"
+#include "ToolbarIcons.h"
+#include "IconFont.h"
 #include <algorithm>
 #include <stdexcept>
 #include <windowsx.h>
@@ -79,7 +82,16 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     shown_ = value;
     shown_character_set_ = character_set;
     RECT work{};
-    const HMONITOR monitor = MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+    // With no position of its own the toolbar follows the focused window's
+    // monitor. Once it has one - dragged or restored from the config - it
+    // stays on whichever screen that position is on, because clamping it
+    // against the foreground window's monitor would drag it back across the
+    // desktop.
+    const HMONITOR monitor =
+        dragged_position_
+            ? MonitorFromPoint(*dragged_position_, MONITOR_DEFAULTTONEAREST)
+        : placed_ ? MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST)
+                  : MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO info{};
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
@@ -88,11 +100,29 @@ void FloatingToolbarWindow::refresh(bool enabled) {
         window_, static_cast<int>((kLeadingWidth + kCellWidth * slots(items_).size() + 8) * scale_));
     const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
     const int margin = dpi_scale(window_, 20);
-    const int x = dragged_position_ ? dragged_position_->x : work.right - width - margin;
-    const int y = dragged_position_ ? dragged_position_->y : work.bottom - height - margin;
-    if (!SetWindowPos(window_, HWND_TOPMOST, x, y, width, height,
+    // The remembered position, not the live window rect, is what survives a
+    // restart: WM_MOVE keeps it current and the config restores it through
+    // set_position before the first refresh.
+    FloatingToolbarPlacementInput placement;
+    placement.width = width;
+    placement.height = height;
+    placement.margin = margin;
+    placement.work_left = work.left;
+    placement.work_top = work.top;
+    placement.work_right = work.right;
+    placement.work_bottom = work.bottom;
+    placement.placed = dragged_position_.has_value();
+    if (dragged_position_) {
+      placement.current_x = dragged_position_->x;
+      placement.current_y = dragged_position_->y;
+    }
+    const auto placed = floating_toolbar_placement(placement);
+    if (!SetWindowPos(window_, HWND_TOPMOST, placed.x, placed.y, width, height,
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Toolbar positioning failed");
+    // Only after the move succeeded, so a failed first placement retries the
+    // corner rather than preserving a position the window never took.
+    placed_ = true;
     InvalidateRect(window_, nullptr, FALSE);
   } catch (...) { failed_ = true; hide(); }
 }
@@ -156,18 +186,20 @@ void FloatingToolbarWindow::paint() {
                    brush(palette_.border), unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
-    // An unreported mode shows a question mark rather than a guessed state.
-    auto label = [](const std::optional<bool> &state, const wchar_t *on,
-                    const wchar_t *off) {
-      return !state ? L"?" : (*state ? on : off);
-    };
-    const wchar_t *labels[] = {
-        label(value->chinese, L"\u4e2d", L"\u82f1"),
-        label(value->fullwidth, L"\u5168", L"\u534a"),
-        label(value->chinese_punctuation, L"\u3002", L"."),
-        !shown_character_set_ ? L"?" : (*shown_character_set_ ? L"\u7e41" : L"\u7b80"),
-        items_[3] ? L"😀" : L"", items_[4] ? L"⌨" : L"",
-        items_[5] ? L"\u8bbe" : L"", L"✍", L"🎙", L"?", L"×"};
+    auto *factory = device_.GetDWriteFactory();
+    const wchar_t *icon_family = icon_font_family(factory);
+    // Each button's two-way mode, in slot order - language, fullwidth,
+    // punctuation, character set, emoji, screen keyboard, settings,
+    // handwriting, voice, about, hide. An absent state means the Server has
+    // not reported it, and the icon shows a question mark rather than
+    // asserting a mode the user is not actually in.
+    const std::optional<bool> states[] = {
+        value->chinese,
+        value->fullwidth,
+        value->chinese_punctuation,
+        shown_character_set_,
+        std::nullopt, std::nullopt, std::nullopt,
+        std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
@@ -175,8 +207,27 @@ void FloatingToolbarWindow::paint() {
           (kLeadingWidth + static_cast<float>(i) * kCellWidth) * unit, 8.0f * unit,
           (kLeadingWidth + (static_cast<float>(i) + 1.0f) * kCellWidth) * unit,
           44.0f * unit};
-      target->DrawText(labels[button], static_cast<UINT32>(wcslen(labels[button])), format,
-                       cell, brush(palette_.text));
+      const auto icon = toolbar_icon(button, states[button]);
+      // Draw the glyph only when the installed icon font really has it;
+      // otherwise the text fallback, which is always readable.
+      const bool glyph = icon.codepoint && icon_family &&
+                         icon_font_has(factory, icon_family, icon.codepoint);
+      const wchar_t text[] = {icon.codepoint, L'\0'};
+      auto *cell_format =
+          glyph ? device_.GetTextFormat(
+                      icon_family, static_cast<float>(font_size_) * unit,
+                      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
+                      DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                      DWRITE_WORD_WRAPPING_NO_WRAP)
+                : format;
+      if (!cell_format)
+        cell_format = format;
+      const wchar_t *drawn_text = glyph ? text : icon.fallback;
+      const auto length = static_cast<UINT32>(wcslen(drawn_text));
+      if (!length)
+        continue;
+      target->DrawText(drawn_text, length, cell_format, cell,
+                       brush(palette_.text));
     }
   }
   const HRESULT drawn = target->EndDraw();
@@ -233,7 +284,18 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
                  : HTCLIENT;
     }
     case WM_LBUTTONDOWN:
+      // The drag strip hit tests as HTCAPTION above, so a press that reaches
+      // here is on a button; the release below is what acts on it.
       return 0;
+    case WM_SETCURSOR:
+      // Show the move cursor over the drag strip only, so the buttons keep the
+      // ordinary arrow and the strip advertises what it does. WM_NCHITTEST
+      // above is what decides where the strip ends.
+      if (LOWORD(l) == HTCAPTION) {
+        SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+        return TRUE;
+      }
+      break;
     case WM_LBUTTONUP: {
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);

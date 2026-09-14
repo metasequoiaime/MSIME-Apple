@@ -43,6 +43,9 @@ public:
   HWND handle() const { return window_; }
 
 private:
+  // Resolved once per window; null when neither icon font is installed.
+  const wchar_t *icon_family_ = nullptr;
+  IDWriteTextFormat *icon_text_format_ = nullptr;
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
   std::optional<size_t> hit(int x, int y) const;

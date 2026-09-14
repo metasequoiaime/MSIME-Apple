@@ -130,6 +130,43 @@ constexpr UINT menu_remove = 2;
 constexpr UINT menu_fix_first = 100;
 constexpr UINT menu_fix_last = menu_fix_first + 4;
 constexpr UINT menu_clear_fix = 105;
+// Build a real per-glyph fallback chain from the configured faces.
+//
+// PreviewConfig documents these as "supplementary faces tried in order when the
+// main font lacks a glyph", but the window only ever used them to replace the
+// primary family when that family was not installed at all. Once the primary
+// existed, a missing glyph fell through to DirectWrite's system fallback and
+// the user's list was ignored entirely - which is the case the setting is for,
+// since the primary is usually a Latin/CJK face and the missing glyph is an
+// emoji or a rare character.
+Microsoft::WRL::ComPtr<IDWriteFontFallback>
+build_font_fallback(IDWriteFactory *factory,
+                    const std::vector<std::wstring> &families) {
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> result;
+  if (!factory || families.empty())
+    return result;
+  Microsoft::WRL::ComPtr<IDWriteFactory2> factory2;
+  if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) || !factory2)
+    return result; // Windows 7 and older: keep the system chain.
+  Microsoft::WRL::ComPtr<IDWriteFontFallbackBuilder> builder;
+  if (FAILED(factory2->CreateFontFallbackBuilder(&builder)) || !builder)
+    return result;
+  // The whole Unicode range, in the user's order.
+  DWRITE_UNICODE_RANGE range{0, 0x10FFFF};
+  for (const auto &family : families) {
+    const wchar_t *name = family.c_str();
+    if (FAILED(builder->AddMapping(&range, 1, &name, 1)))
+      return result;
+  }
+  // Append the system chain last so anything the list does not cover still
+  // resolves the way it did before.
+  Microsoft::WRL::ComPtr<IDWriteFontFallback> system;
+  if (SUCCEEDED(factory2->GetSystemFontFallback(&system)) && system)
+    builder->AddMappings(system.Get());
+  if (FAILED(builder->CreateFontFallback(&result)))
+    result.Reset();
+  return result;
+}
 void append_menu(HMENU menu, UINT flags, UINT_PTR command,
                  const wchar_t *label) {
   if (!AppendMenuW(menu, flags, command, label))
@@ -155,11 +192,18 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
+  // Keep the configured faces for the per-glyph chain, and separately allow one
+  // of them to stand in when the primary family is not installed at all. The
+  // two are different problems and both need handling.
+  for (const auto &fallback : fallback_fonts) {
+    auto candidate = wide(fallback);
+    if (!candidate.empty() && candidate.size() <= 128)
+      fallback_families_.push_back(std::move(candidate));
+  }
   if (!installed_font(font_family_)) {
-    for (const auto &fallback : fallback_fonts) {
-      auto candidate = wide(fallback);
-      if (!candidate.empty() && candidate.size() <= 128 && installed_font(candidate)) {
-        font_family_ = std::move(candidate);
+    for (const auto &candidate : fallback_families_) {
+      if (installed_font(candidate)) {
+        font_family_ = candidate;
         break;
       }
     }
@@ -210,6 +254,8 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
     InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::hide() {
+  // The composition is over, so the next one starts its flip decision fresh.
+  tallest_ = 0;
   shown_.reset();
   painted_.reset();
   pressed_.reset();
@@ -313,11 +359,26 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
   const auto height =
       (std::min)(static_cast<int64_t>(card.height * scale + 0.5), available_height);
-  return {static_cast<int>((std::clamp)(int64_t(value.x), int64_t(work.left),
-                                        int64_t(work.right) - width)),
-          static_cast<int>((std::clamp)(int64_t(value.y), int64_t(work.top),
-                                        int64_t(work.bottom) - height)),
-          static_cast<int>(width), static_cast<int>(height)};
+  // A vertical list grows as the user keeps typing. Deciding the flip from the
+  // tallest it has been this composition keeps it on one side of the caret
+  // instead of jumping below-to-above mid-word; tallest_ is cleared in hide().
+  if (!horizontal_)
+    tallest_ = (std::max)(tallest_, height);
+  CandidatePlacementInput placement;
+  placement.anchor_x = value.x;
+  placement.anchor_y = value.y;
+  placement.width = static_cast<int>(width);
+  placement.height = static_cast<int>(height);
+  placement.decision_height =
+      static_cast<int>(horizontal_ ? height : (std::min)(tallest_, available_height));
+  placement.work_left = work.left;
+  placement.work_top = work.top;
+  placement.work_right = work.right;
+  placement.work_bottom = work.bottom;
+  placement.scale = scale;
+  const auto placed = candidate_card_placement(placement);
+  return {placed.x, placed.y, static_cast<int>(width),
+          static_cast<int>(height)};
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
@@ -349,6 +410,12 @@ void CandidateWindow::paint() {
   };
   // Points are device independent here; the composition target carries the
   // scale, so the constructor's validated sizes go straight to DirectWrite.
+  // Built once per paint and shared by every run below; the formats themselves
+  // are cached by DeviceResources, so attaching here is what actually puts the
+  // user's faces in front of the system chain.
+  if (!fallback_families_.empty() && !font_fallback_)
+    font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
+                                         fallback_families_);
   auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
     auto *value = device_.GetTextFormat(
         font_family_, static_cast<float>(points),
@@ -356,6 +423,11 @@ void CandidateWindow::paint() {
         DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
+    if (font_fallback_) {
+      Microsoft::WRL::ComPtr<IDWriteTextFormat1> typed;
+      if (SUCCEEDED(value->QueryInterface(IID_PPV_ARGS(&typed))) && typed)
+        typed->SetFontFallback(font_fallback_.Get());
+    }
     return value;
   };
   const float inset = palette_.border_width / 2.0f;
@@ -384,6 +456,24 @@ void CandidateWindow::paint() {
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       rect, brush(text_color));
+    // The insertion point. Without it, moving left or right inside a long
+    // pinyin string gave no indication of where the next key would land - and
+    // the settings preview drew a caret the real window never did.
+    if (value->preedit_caret != std::string::npos &&
+        value->preedit_caret <= value->preedit.size()) {
+      const auto before =
+          wide(value->preedit.substr(0, value->preedit_caret));
+      const auto offset = measured_width(
+          device_, before, font_family_,
+          static_cast<float>(preedit_font_size_));
+      const float x = rect.left + static_cast<float>(offset);
+      // A hairline rather than a filled block, so it does not obscure the
+      // character it sits before.
+      const float inset_y = static_cast<float>(metrics.preedit_row) * 0.15f;
+      target->FillRectangle(
+          D2D1_RECT_F{x, rect.top + inset_y, x + 1.5f, rect.bottom - inset_y},
+          brush(palette_.accent));
+    }
   }
   // The selection number keeps its own column so candidates start on one
   // vertical line, as the shipped card does.
@@ -411,12 +501,22 @@ void CandidateWindow::paint() {
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }
+    // Alpha 0 means the skin named no selected colour, so the row keeps its
+    // normal one. Skins that fill the selection with an opaque accent set it,
+    // because their unselected text would otherwise be unreadable on the fill.
+    const bool selected = value->candidates[i].highlighted;
+    const auto number_color =
+        selected && palette_.selected_number.a > 0.0f ? palette_.selected_number
+                                                      : palette_.number;
+    const auto row_text_color =
+        selected && palette_.selected_text.a > 0.0f ? palette_.selected_text
+                                                    : text_color;
     const auto label = std::to_wstring(i + 1);
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.bottom},
-                      brush(palette_.number));
+                      brush(number_color));
     auto candidate_label = value->candidates[i].text +
                            value->candidates[i].annotation +
                            value->candidates[i].badge;
@@ -429,7 +529,7 @@ void CandidateWindow::paint() {
                                   rect.bottom},
                       brush(value->candidates[i].fixed_position
                                 ? palette_.accent
-                                : text_color));
+                                : row_text_color));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
@@ -437,8 +537,14 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate presentation failed");
   if (drawn == D2DERR_RECREATE_TARGET) {
     // Losing the device is not a presentation failure; rebuild on the next
-    // refresh rather than hiding a live composition.
+    // refresh rather than hiding a live composition. Clearing shown_ is what
+    // makes that rebuild reachable: reposition() returns early while the cached
+    // frame still matches, so leaving it set would suppress the very repaint
+    // this path is counting on, and painted_ would stay behind for good. That
+    // also strands clicks, because hit() refuses without a painted page.
     device_.DiscardTarget();
+    shown_.reset();
+    InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
