@@ -24,6 +24,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm CloudClipboardWindowController.mm CloudClipboardClient.mm AccountSessionManager.mm AccountAuthClient.mm AccountWindowController.mm AccountKeychain.mm CloudDictionaryClient.mm PreferencesWindowController.mm SupportWindowController.mm VoiceInputService.mm VoiceWaveOverlay.mm VoiceCuePlayer.mm VoiceAudioMuter.mm VoiceSettings.mm VoiceProviderSettings.mm InputController.mm CandidatePanel.mm CandidateSkinAppearance.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm StringConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm DictionaryInstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE AISettingsWindow.mm ScreenKeyboardPanel.mm CloudCandidateRequest.mm CustomTranslationBatch.mm VoicePCMBuffer.mm HTTPVoiceRequest.mm)
+target_sources(MSIMEClientInputMethod PRIVATE DoubaoVoiceRequest.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
@@ -253,6 +254,11 @@ target_compile_options(http-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra 
 target_link_libraries(http-voice-request-test PRIVATE msime-voice-providers "-framework Foundation")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME http-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/http_voice_fixture.py" "$<TARGET_FILE:http-voice-request-test>")
+add_executable(doubao-voice-request-test tests/DoubaoVoiceRequestTest.mm DoubaoVoiceRequest.mm)
+target_compile_options(doubao-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(doubao-voice-request-test PRIVATE MetasequoiaIme::Voice "-framework Foundation")
+add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
+set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 65)
 add_executable(preference-save-state-test tests/PreferenceSaveStateTest.cpp)
 target_compile_options(preference-save-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME preference-save-state COMMAND preference-save-state-test)
