@@ -41,8 +41,8 @@ mod learned_translation;
 mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
-    dictionary_request_json, msime_client_dictionary, msime_client_personal_dictionary_sync,
-    personal_dictionary_request_json,
+    dictionary_request_json, msime_client_dictionary, msime_client_dictionary_validate,
+    msime_client_personal_dictionary_sync, personal_dictionary_request_json,
 };
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
@@ -2577,6 +2577,11 @@ unsafe fn write_doubao_frame(
 }
 
 /// Build a Doubao start request into caller-owned storage.
+///
+/// # Safety
+/// `boosting_table_id` must point to `boosting_table_id_length` readable bytes when the length is
+/// nonzero. `output` must point to `output_capacity` writable bytes and `output_length` must point
+/// to a writable `usize`.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_doubao_start_frame(
     enable_itn: bool,
@@ -2613,6 +2618,10 @@ pub unsafe extern "C" fn msime_client_doubao_start_frame(
 }
 
 /// Build a Doubao PCM or final audio frame into caller-owned storage.
+///
+/// # Safety
+/// `pcm` must point to `pcm_length` readable bytes when the length is nonzero. `output` must point
+/// to `output_capacity` writable bytes and `output_length` must point to a writable `usize`.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_doubao_audio_frame(
     sequence: i32,
@@ -2626,7 +2635,11 @@ pub unsafe extern "C" fn msime_client_doubao_audio_frame(
     if pcm_length > 1_048_576 || (pcm.is_null() && pcm_length != 0) {
         return false;
     }
-    let bytes = unsafe { std::slice::from_raw_parts(pcm, pcm_length) };
+    let bytes = if pcm_length == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(pcm, pcm_length) }
+    };
     unsafe {
         write_doubao_frame(
             audio_frame(sequence, bytes, final_chunk),

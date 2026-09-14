@@ -39,6 +39,7 @@ final class HandwritingInputView: UIView {
 
   override init(frame: CGRect) {
     super.init(frame: frame)
+    accessibilityIdentifier = "handwritingInput"
     addSubview(canvas); canvas.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
       canvas.leadingAnchor.constraint(equalTo: leadingAnchor), canvas.trailingAnchor.constraint(equalTo: trailingAnchor),

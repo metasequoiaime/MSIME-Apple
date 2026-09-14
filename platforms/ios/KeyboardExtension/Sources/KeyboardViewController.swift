@@ -1,6 +1,27 @@
 import SwiftUI
 import UIKit
 
+private final class KeyboardBrandButton: UIButton {
+  let brandImageView = UIImageView()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    brandImageView.contentMode = .scaleAspectFit
+    brandImageView.layer.cornerRadius = 5
+    brandImageView.clipsToBounds = true
+    brandImageView.accessibilityIdentifier = "keyboardBrandIcon"
+    addSubview(brandImageView)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    brandImageView.bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
+    brandImageView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+  }
+}
+
 @MainActor
 final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
   private enum LetterCaseState {
@@ -52,7 +73,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
-  private let moreShortcut = UIButton()
+  private let moreShortcut = KeyboardBrandButton()
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
   private var handwritingActionHeight: NSLayoutConstraint?
@@ -573,24 +594,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    let icon = UIImageView()
-    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
-      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 72, height: 72))
-    }
-    icon.accessibilityIdentifier = "keyboardBrandIcon"
-    icon.contentMode = .scaleAspectFit
-    icon.layer.cornerRadius = 5
-    icon.clipsToBounds = true
-    icon.translatesAutoresizingMaskIntoConstraints = false
-    brand.addSubview(icon)
+    brand.brandImageView.image = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png")
+      .flatMap { UIImage(contentsOfFile: $0)?.preparingThumbnail(of: CGSize(width: 72, height: 72)) }
+      ?? UIImage(systemName: "leaf.fill")
     shortcutBar.addArrangedSubview(brand)
-    NSLayoutConstraint.activate([
-      brand.widthAnchor.constraint(equalToConstant: 44),
-      icon.widthAnchor.constraint(equalToConstant: 24),
-      icon.heightAnchor.constraint(equalToConstant: 24),
-      icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
-      icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
-    ])
+    brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
     for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
       if button !== schemeButton {

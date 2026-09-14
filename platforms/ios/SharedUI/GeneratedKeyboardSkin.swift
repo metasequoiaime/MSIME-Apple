@@ -31,7 +31,8 @@ enum GeneratedKeyboardSkin {
           Set(fields.keys).isSubset(of: ["background", "keyBackground", "keyForeground", "accent", "actionBackground", "gradientEnd", "customBorderColor", "cornerRadius", "borderWidth", "shadow", "pattern", "patternOpacity", "monospaced", "gradientHorizontal"]),
           let payload = try? JSONDecoder().decode(Payload.self, from: data) else { throw Failure.invalid }
     let name = payload.name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !name.isEmpty, name.count <= 32, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { throw Failure.invalid }
+    guard !name.isEmpty, name.count <= 32,
+          !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { throw Failure.invalid }
     func rgb(_ value: String) throws -> UInt32 {
       guard value.count == 7, value.first == "#", let n = UInt32(value.dropFirst(), radix: 16) else { throw Failure.invalid }
       return n

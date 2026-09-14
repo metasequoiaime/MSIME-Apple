@@ -19,6 +19,7 @@ final class HandwritingTests: XCTestCase {
     ]
     return points.map { $0.map { CGPoint(x: $0.0, y: $0.1) } }
   }
+  #if canImport(MLKitDigitalInkRecognition)
   func testRealChineseInkRecognition() async throws {
     let canvas = HandwritingCanvas(frame: CGRect(x: 0, y: 0, width: 320, height: 155))
     canvas.setTestStrokes(chineseInk)
@@ -79,12 +80,15 @@ final class HandwritingTests: XCTestCase {
     XCTAssertTrue(panel.results.isEmpty)
     XCTAssertTrue(panel.canvas.strokes.isEmpty)
   }
+  #endif
+
   func testHandwritingSchemeKeepsToolbarAndSwitchesBackToLetters() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
     defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .handwriting
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
@@ -110,6 +114,7 @@ final class HandwritingTests: XCTestCase {
     defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .handwriting
+    XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
     let parent = UIViewController()
     let controller = KeyboardViewController()
     parent.addChild(controller)

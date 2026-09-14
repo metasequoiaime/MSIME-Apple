@@ -49,16 +49,26 @@ enum DictionarySnapshotBridge {
   }
 
   static func prepare(resources: URL, user: URL, identifier: String, contentIdentifier: String,
-                      maximumRecords: UInt, nextRecord: @escaping NextRecord) throws -> MSIMEPreparedDictionarySnapshot {
+                      maximumRecords: UInt, preparedOptions: Data? = nil,
+                      nextRecord: @escaping NextRecord) throws -> MSIMEPreparedDictionarySnapshot {
     guard resources.isFileURL, user.isFileURL, !identifier.isEmpty, maximumRecords > 0 else {
       throw SnapshotBridgeFailure.invalid
     }
-    let options = snapshotOptions(resources: resources, user: user)
+    let options: [String: Any]
+    if let preparedOptions {
+      guard let decoded = try JSONSerialization.jsonObject(with: preparedOptions) as? [String: Any],
+            decoded["resources"] as? String == resources.path,
+            decoded["user_data"] as? String == user.path else { throw SnapshotBridgeFailure.invalid }
+      options = decoded
+    } else {
+      options = snapshotOptions(resources: resources, user: user)
+    }
     let expected = try version(options)
     let staging = user.deletingLastPathComponent().appendingPathComponent("SnapshotStaging", isDirectory: true)
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
     let request: [String: Any] = ["options": options, "staging_root": staging.path,
-                                  "expected_version": expected, "records": maximumRecords]
+                                  "expected_version": expected, "records": maximumRecords,
+                                  "activation_id": identifier]
     let data = try JSONSerialization.data(withJSONObject: request)
     let box = SnapshotRecordBox(nextRecord)
     let opaque = Unmanaged.passRetained(box).toOpaque()
@@ -78,7 +88,8 @@ enum DictionarySnapshotBridge {
 
   private static func snapshotOptions(resources: URL, user: URL) -> [String: Any] {
     let root = user.deletingLastPathComponent()
-    for path in [root.appendingPathComponent("cache", isDirectory: true), root.appendingPathComponent("dictionaries", isDirectory: true)] {
+    for path in [user, root.appendingPathComponent("cache", isDirectory: true),
+                 root.appendingPathComponent("dictionaries", isDirectory: true)] {
       try? FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
     }
     return ["api_version": 1, "resources": resources.path, "user_data": user.path,

@@ -444,6 +444,11 @@ DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offs
     for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
     return result;
 }
+DictionaryEntry dictionary_validate(const DictionaryEntry& entry) {
+    const auto validation = metasequoia::validate_personal_dictionary_entry(entry_for(entry));
+    if (!validation.entry) throw std::invalid_argument(validation.error);
+    return entry_for(*validation.entry);
+}
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id) {
     if (previous.size() > 1 || replacement.size() > 1)

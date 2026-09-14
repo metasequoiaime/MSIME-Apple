@@ -11,6 +11,17 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     PRODUCT_NAME: "$(TARGET_NAME)"
 schemes:
+  MSIMEClientTests:
+    build:
+      targets:
+        MSIMEKeyboardTests: all
+        MSIMEServiceTests: all
+        MSIMESharedTests: all
+    test:
+      targets:
+        - MSIMEKeyboardTests
+        - MSIMEServiceTests
+        - MSIMESharedTests
   MSIMEDoubaoTransportTests:
     build:
       targets:
@@ -73,6 +84,7 @@ targets:
       - path: KeyboardExtension/Sources
         excludes:
           - HandwritingInputView.swift
+          - KeyboardServiceFallback.swift
       - path: SharedUI
       - path: ../../shared/backend/BackendAccountClient.swift
       - path: ../../shared/backend/BackendSnapshotClient.swift
@@ -92,15 +104,134 @@ targets:
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
-  MSIMEClientTests:
+  MSIMEKeyboardTestHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: KeyboardTestHost
+      - path: ../../target/ios/EngineResources
+        buildPhase: resources
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard-test-host
+        PRODUCT_NAME: MSIMEKeyboardTestHost
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  MSIMEKeyboardTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: KeyboardTests
-      - path: ServiceTests
-      - path: tests
+      - path: App/Services/AISkinService.swift
+      - path: App/Services/CloudDictionaryTransfer.swift
+      - path: App/Services/CommunityPreviewFixtures.swift
+      - path: App/Services/DoubaoHostFrameCodec.swift
+      - path: App/Services/DoubaoVoiceCoordinator.swift
+      - path: App/Services/DoubaoWebSocketTransport.swift
+      - path: App/Services/KeyboardAIService.swift
+      - path: App/Services/SkinCommunityAPI.swift
+      - path: ../../shared/backend
+        excludes:
+          - Tests/**
+          - Package.swift
+      - path: KeyboardExtension/Sources
+        excludes:
+          - HandwritingInputView.swift
+      - path: SharedUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard-tests
+        PRODUCT_NAME: MSIMEKeyboardTests
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lmsime_host_api"
+          - "-lc++"
+          - "-lsqlite3"
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
     dependencies:
-      - target: MSIMEClientApp
+      - target: MSIMEKeyboardTestHost
+  MSIMEServiceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ServiceTests
+      - path: App/Sources/AppIconSettingsView.swift
+      - path: App/Services/CustomService.swift
+      - path: App/Services/DoubaoHostFrameCodec.swift
+      - path: App/Services/DoubaoVoiceCoordinator.swift
+      - path: App/Services/DoubaoWebSocketTransport.swift
+      - path: App/Services/WAVPCMExtractor.swift
+      - path: SharedUI/AppServicesBridge.swift
+      - path: SharedUI/MetasequoiaTheme.swift
+      - path: ../../shared/backend
+        excludes:
+          - Tests/**
+          - Package.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.service-tests
+        PRODUCT_NAME: MSIMEServiceTests
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lmsime_host_api"
+          - "-lc++"
+          - "-lsqlite3"
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
+  MSIMESharedTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: tests
+        excludes:
+          - ChineseTextConversionTests.swift
+          - EnglishCapitalizationPolicyTests.swift
+          - FrequencyAdjustmentPreferenceTests.swift
+          - HandwritingTests.swift
+          - build-native.sh
+          - tools/**
+      - path: KeyboardTests/InputSchemeTestSupport.swift
+      - path: App/Services/CustomService.swift
+      - path: App/Services/DoubaoHostFrameCodec.swift
+      - path: App/Services/DoubaoVoiceCoordinator.swift
+      - path: App/Services/DoubaoWebSocketTransport.swift
+      - path: App/Services/KeyboardAIService.swift
+      - path: ../../shared/backend
+        excludes:
+          - Tests/**
+          - Package.swift
+      - path: KeyboardExtension/Sources
+        excludes:
+          - HandwritingInputView.swift
+          - KeyboardServiceFallback.swift
+      - path: SharedUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.shared-tests
+        PRODUCT_NAME: MSIMESharedTests
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lmsime_host_api"
+          - "-lc++"
+          - "-lsqlite3"
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
+    dependencies:
+      - target: MSIMEKeyboardTestHost
   MSIMEDoubaoTransport:
     type: framework
     platform: iOS

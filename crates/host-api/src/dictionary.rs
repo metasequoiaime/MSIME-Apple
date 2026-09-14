@@ -174,6 +174,29 @@ pub unsafe extern "C" fn msime_client_dictionary(request: *const u8, length: usi
     })
 }
 
+/// Validate and normalize one entry without opening or changing dictionary state.
+/// Engine diagnostics are redacted because they can contain submitted text.
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_dictionary_validate(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid dictionary buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let entry: Entry =
+            serde_json::from_slice(bytes).map_err(|_| "invalid dictionary entry".to_owned())?;
+        let normalized = msime_engine_bridge::dictionary_validate(&entry.into())
+            .map_err(|_| "invalid dictionary entry".to_owned())?;
+        Ok(json!(Entry::try_from(normalized)?))
+    })
+}
+
 pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > 65536 {
         return Err("invalid dictionary buffer".into());

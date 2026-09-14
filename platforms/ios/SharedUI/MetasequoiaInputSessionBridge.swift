@@ -2,10 +2,14 @@ import Foundation
 
 private typealias MSIMEByte = UInt8
 
+@_silgen_name("msime_client_prepare_host")
+private func msimeClientPrepareHost(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_create")
 private func msimeClientCreate(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_destroy")
 private func msimeClientDestroy(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_focus")
+private func msimeClientFocus(_ session: UInt64, _ focused: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
 private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 @_silgen_name("msime_client_character")
@@ -105,17 +109,27 @@ private enum InputBridgeFailure: LocalizedError {
 final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var handle: UInt64 = 0
   private var options: [String: Any]
+  private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
   private var suspended = false
   private var learningBeforeSuspension = true
 
-  init() {
-    options = Self.defaultOptions()
+  init(resources: URL? = nil, stateRoot: URL? = nil) {
+    options = [:]
     do {
-      let response = try Self.callCreate(options)
-      handle = try Self.number(response["session"])
+      options = try Self.callOptions(msimeClientPrepareHost,
+                                     Self.bootstrapOptions(resources: resources, stateRoot: stateRoot))
+      var preferences = options["preferences"] as? [String: Any] ?? [:]
+      preferences["candidate_page_size"] = 9
+      options["preferences"] = preferences
     } catch {
-      handle = 0
+      initializationDiagnostic = "输入运行时准备失败。"
+      return
+    }
+    do {
+      handle = try Self.callCreateFocused(options)
+    } catch {
+      initializationDiagnostic = "输入运行时创建或激活失败。"
     }
   }
 
@@ -123,7 +137,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if handle != 0 { _ = try? Self.decode(msimeClientDestroy(handle)) }
   }
 
-  var isInLocalMode: Bool { (try? localMode())?.isEmpty == false }
+  var isInLocalMode: Bool {
+    guard let mode = try? localMode() else { return false }
+    return !mode.isEmpty && mode != "none"
+  }
   var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
 
   func handleCharacter(_ character: String) -> MetasequoiaInputSnapshot {
@@ -296,21 +313,30 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func localDictionaryStateVersion() throws -> String {
     let result = try Self.callOptions(msimeClientSnapshotVersion, options)
-    guard let version = result["version"] as? String else { throw InputBridgeFailure.invalidResponse }
-    return version
+    guard let version = result["version"] as? String, version.utf8.count == 64,
+          let generation = result["generation"] as? String,
+          generation == "legacy" || UUID(uuidString: generation)?.uuidString == generation else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return "local-v1:\(generation):\(version)"
   }
 
   func dictionarySnapshotContext() throws -> [String: Any] {
     guard let resources = options["resources"] as? String, let user = options["user_data"] as? String,
           let dictionaries = options["dictionaries"] as? String else { throw InputBridgeFailure.invalidResponse }
     return ["resources": URL(fileURLWithPath: resources), "user": URL(fileURLWithPath: user),
-            "contentIdentifier": dictionaries]
+            "contentIdentifier": dictionaries,
+            "preparedOptions": try JSONSerialization.data(withJSONObject: options)]
   }
 
   func activateDictionarySnapshot(_ snapshot: MSIMEPreparedDictionarySnapshot,
                                   expectedVersion: String) throws {
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
-    let expected = Data(expectedVersion.utf8)
+    let fields = expectedVersion.split(separator: ":", omittingEmptySubsequences: false)
+    guard fields.count == 3, fields[0] == "local-v1", fields[2].utf8.count == 64 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    let expected = Data(fields[2].utf8)
     // Release the shared dictionary lease before asking the host for its
     // exclusive activation lease, then recreate the session against the
     // published generation. If activation fails, restore the old session.
@@ -324,11 +350,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                                      UInt(expected.count)))
       }
       _ = response
-      handle = try Self.number(try Self.callCreate(options)["session"])
+      handle = try Self.callCreateFocused(options)
       DictionarySnapshotBridge.forget(snapshot.identifier)
       snapshot.markConsumed()
     } catch {
-      handle = try Self.number(try Self.callCreate(options)["session"])
+      handle = try Self.callCreateFocused(options)
       throw error
     }
   }
@@ -337,16 +363,38 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     var action: [String: Any] = ["operation": "edit", "request_id": requestID]
     action["previous"] = previous ?? NSNull()
     action["replacement"] = replacement ?? NSNull()
-    var request = options
-    request["action"] = action
-    let result = try Self.callOptions(msimeClientDictionary, request)
+    let request: [String: Any] = ["options": options, "action": action]
+    let result = try withDictionaryMaintenance {
+      try Self.callOptions(msimeClientDictionary, request)
+    }
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
   func personalEntries(atOffset offset: UInt) throws -> [String: Any] {
-    var request = options
-    request["action"] = ["operation": "list", "offset": offset, "limit": 100]
-    return try Self.callOptions(msimeClientDictionary, request)
+    let request: [String: Any] = ["options": options,
+                                  "action": ["operation": "list", "offset": offset, "limit": 100]]
+    var result = try withDictionaryMaintenance {
+      try Self.callOptions(msimeClientDictionary, request)
+    }
+    if let hasMore = result.removeValue(forKey: "has_more") { result["hasMore"] = hasMore }
+    return result
+  }
+
+  private func withDictionaryMaintenance<T>(_ operation: () throws -> T) throws -> T {
+    guard handle != 0 else { throw InputBridgeFailure.unavailable }
+    guard !hasComposition else { throw InputBridgeFailure.response("请先结束当前输入再同步个人词库") }
+    let previousHandle = handle
+    _ = try Self.decode(msimeClientDestroy(previousHandle))
+    handle = 0
+    let result = Result { try operation() }
+    do {
+      handle = try Self.callCreateFocused(options)
+      initializationDiagnostic = nil
+    } catch {
+      initializationDiagnostic = "词库维护后输入运行时恢复失败。"
+      throw error
+    }
+    return try result.get()
   }
 
   private var hasComposition: Bool { (try? (view()["preedit"] as? String ?? "")).map { !$0.isEmpty } ?? false }
@@ -371,6 +419,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private func dispatch(_ operation: () -> UnsafeMutablePointer<CChar>?) -> MetasequoiaInputSnapshot {
+    guard handle != 0 else {
+      return diagnostic(initializationDiagnostic ?? "输入运行时尚未准备完成。")
+    }
     do {
       guard let value = try Self.decode(operation()) as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
       return try Self.snapshot(value)
@@ -425,8 +476,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     revision &+= 1
     let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": prefs]
     do {
-      _ = try Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
-      return true
+      let response = try Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
+      return response["deferred"] as? Bool != true
     } catch {
       options["preferences"] = previous
       revision &-= 1
@@ -434,21 +485,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  private static func defaultOptions() -> [String: Any] {
+  private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
     let fm = FileManager.default
     let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
       ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    let root = group.appendingPathComponent("MSIME", isDirectory: true)
-    let resources = Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
+    let root = stateOverride ?? group.appendingPathComponent("MSIME", isDirectory: true)
+    let resources = resourceOverride
+      ?? Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
       ?? root.appendingPathComponent("resources", isDirectory: true)
-    let user = root.appendingPathComponent("user", isDirectory: true)
-    let cache = root.appendingPathComponent("cache", isDirectory: true)
-    let dictionaries = root.appendingPathComponent("dictionaries", isDirectory: true)
-    for path in [resources, user, cache, dictionaries] { try? fm.createDirectory(at: path, withIntermediateDirectories: true) }
-    return ["api_version": 1, "resources": resources.path, "user_data": user.path,
-            "cache": cache.path, "dictionaries": dictionaries.path,
-            "preferences": ["scheme": "quanpin", "candidate_page_size": 9,
-                             "learning": true, "chinese_punctuation": true]]
+    return ["resources": resources.path, "state_root": root.path]
   }
 
   private static func ascii(_ value: String) -> MSIMEByte? {
@@ -489,6 +534,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   private static func callCreate(_ options: [String: Any]) throws -> [String: Any] {
     try callOptions(msimeClientCreate, options)
+  }
+
+  private static func callCreateFocused(_ options: [String: Any]) throws -> UInt64 {
+    let handle = try number(try callCreate(options)["session"])
+    do {
+      _ = try decode(msimeClientFocus(handle, true))
+      return handle
+    } catch {
+      _ = try? decode(msimeClientDestroy(handle))
+      throw error
+    }
   }
 
   private static func callOptions(_ function: (UnsafePointer<MSIMEByte>?, UInt) -> UnsafeMutablePointer<CChar>?,

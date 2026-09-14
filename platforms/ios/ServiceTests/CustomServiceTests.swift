@@ -93,8 +93,13 @@ final class CustomServiceTests: XCTestCase {
     defaults.set("legacy-model", forKey: "service.voice.model")
     for provider in VoiceProviderPreset.allCases where provider != .custom {
       var config = CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults)
-      XCTAssertEqual(try config.validatedURL().absoluteString, provider.endpoint)
-      XCTAssertNotNil(provider.documentation)
+      XCTAssertEqual(try config.validatedURL(allowWebSocket: provider == .doubao).absoluteString,
+                     provider.endpoint)
+      if provider == .doubao {
+        XCTAssertNil(provider.documentation)
+      } else {
+        XCTAssertNotNil(provider.documentation)
+      }
       config.model = "saved-\(provider.rawValue)"
       try config.save(.voice, token: "", defaults: defaults)
       XCTAssertEqual(CustomServiceConfiguration.load(.voice, defaults: defaults).voiceProvider, provider)

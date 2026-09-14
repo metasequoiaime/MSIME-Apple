@@ -6,6 +6,7 @@ final class DictionarySnapshotWorker {
     let resources: URL
     let user: URL
     let content: String
+    let options: Data
   }
   private final class Prepared: @unchecked Sendable {
     let value: MSIMEPreparedDictionarySnapshot
@@ -67,8 +68,9 @@ final class DictionarySnapshotWorker {
       }
       let raw = try session.dictionarySnapshotContext()
       guard let resources = raw["resources"] as? URL, let user = raw["user"] as? URL,
-            let content = raw["contentIdentifier"] as? String else { throw DictionarySnapshotQueue.Failure.invalid }
-      let context = Context(resources: resources, user: user, content: content)
+            let content = raw["contentIdentifier"] as? String,
+            let options = raw["preparedOptions"] as? Data else { throw DictionarySnapshotQueue.Failure.invalid }
+      let context = Context(resources: resources, user: user, content: content, options: options)
       let file = try queue.fileURL(for: request)
       self.lease = lease
       task = Task { [weak self] in
@@ -77,9 +79,11 @@ final class DictionarySnapshotWorker {
           let snapshot = try BackendPreparedSnapshot(copying: file)
           guard snapshot.fileSHA256 == request.fileSHA256 else { throw DictionarySnapshotQueue.Failure.invalid }
           let stream = try BackendSnapshotRecordStream(snapshot: snapshot)
+          let recordCount = snapshot.envelope.overlays + snapshot.envelope.positions + snapshot.envelope.selections
           let value = try DictionarySnapshotBridge.prepare(resources: context.resources, user: context.user,
             identifier: request.id.uuidString, contentIdentifier: context.content,
-            maximumRecords: UInt(snapshot.envelope.records), nextRecord: { failure in
+            maximumRecords: UInt(recordCount), preparedOptions: context.options,
+            nextRecord: { failure in
               do { return try stream.next() }
               catch { failure?.pointee = error as NSError; return nil }
             })

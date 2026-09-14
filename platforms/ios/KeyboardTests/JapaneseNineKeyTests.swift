@@ -19,6 +19,7 @@ final class JapaneseNineKeyTests: XCTestCase {
     }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .japaneseNineKey
+    XCTAssertEqual(InputSchemePreference.scheme, .japaneseNineKey)
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
@@ -75,7 +76,8 @@ final class JapaneseNineKeyTests: XCTestCase {
         _ = bridge.cancel()
         var snapshot: MetasequoiaInputSnapshot?
         for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
-        XCTAssertTrue(snapshot?.candidates.contains(kana) == true, "\(input) → \(kana): \(snapshot?.candidates ?? [])")
+        XCTAssertTrue(snapshot?.candidates.contains(kana) == true,
+                      "\(input) → \(kana): \(snapshot?.diagnosticText ?? String(describing: snapshot?.candidates ?? []))")
       }
     }
     let previous = KeyboardLayoutPreference.selected

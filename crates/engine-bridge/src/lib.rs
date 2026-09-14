@@ -183,6 +183,7 @@ mod ffi {
             offset: usize,
             limit: usize,
         ) -> Result<DictionaryPage>;
+        fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry>;
         fn dictionary_edit(
             options: &EngineOptions,
             previous: &[DictionaryEntry],
@@ -325,6 +326,11 @@ pub fn dictionary_entries(
     limit: usize,
 ) -> Result<DictionaryPage, cxx::Exception> {
     ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Validate and normalize one personal-dictionary entry through the Engine.
+pub fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry, cxx::Exception> {
+    ffi::dictionary_validate(entry)
 }
 
 /// Capture bounded mono 16 kHz samples through the pinned Engine audio layer.
@@ -659,6 +665,25 @@ mod tests {
         );
         assert_eq!(normalize_full_pinyin("xian", 3), "");
         assert_eq!(normalize_full_pinyin("ni'hao'", 2), "");
+    }
+
+    #[test]
+    fn validates_and_normalizes_personal_dictionary_entries() {
+        let normalized = dictionary_validate(&DictionaryEntry {
+            kind: DictionaryKind::Pinyin,
+            key: "NI HAO".into(),
+            value: "拟好".into(),
+            weight: 100_000,
+        })
+        .unwrap();
+        assert_eq!(normalized.key, "ni'hao");
+        assert!(dictionary_validate(&DictionaryEntry {
+            kind: DictionaryKind::English,
+            key: "wrong".into(),
+            value: "Word".into(),
+            weight: 100_000,
+        })
+        .is_err());
     }
 
     #[test]

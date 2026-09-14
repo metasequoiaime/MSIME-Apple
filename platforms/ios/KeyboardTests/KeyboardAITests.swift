@@ -28,13 +28,16 @@ final class KeyboardAITests: XCTestCase {
 
   @MainActor
   func testDownloadedReplyTemplateReachesPromptAndRemovalPreventsReuse() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-community-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
     let id = UUID().uuidString
     let item = CommunityResource(id: id, kind: .reply, name: "测试风格", description: "测试", author: "测试作者",
       content: .init(prompt: "使用三句简短的话"), revision: 1, saves: 0, saved: true, owned: false,
       rating_count: 0, rating_average: 0, my_rating: 0)
-    try CommunityLibrary.save(item)
-    defer { try? CommunityLibrary.remove(id) }
-    let model = ReplyKeyboardModel()
+    try CommunityLibrary.save(item, in: directory)
+    let model = ReplyKeyboardModel(communityReplies: { CommunityLibrary.replies(in: directory) })
     model.setText("你好")
     var captured = ""
     var requests = 0
@@ -44,7 +47,7 @@ final class KeyboardAITests: XCTestCase {
     while model.busy { await Task.yield() }
     XCTAssertTrue(captured.contains("使用三句简短的话"))
     XCTAssertEqual(model.replies, ["你好呀"])
-    try CommunityLibrary.remove(id)
+    try CommunityLibrary.remove(id, in: directory)
     model.resetResults()
     model.generate(style: "community:\(id)", request: { _, _ in requests += 1; return "unexpected" }, insert: { _ in false })
     XCTAssertEqual(requests, 1)
@@ -81,6 +84,6 @@ final class KeyboardAITests: XCTestCase {
     let encoded = try JSONEncoder().encode(config)
     XCTAssertEqual(try JSONDecoder().decode(CustomServiceConfiguration.self, from: encoded), config)
     let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-    XCTAssertEqual(Set(fields.keys), ["provider", "voiceProvider", "endpoint", "model", "prompt"])
+    XCTAssertEqual(Set(fields.keys), ["provider", "endpoint", "model", "prompt"])
   }
 }

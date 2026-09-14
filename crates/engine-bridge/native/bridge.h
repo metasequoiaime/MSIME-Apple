@@ -65,6 +65,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
 rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text);
 rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables);
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
+DictionaryEntry dictionary_validate(const DictionaryEntry& entry);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
 DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
