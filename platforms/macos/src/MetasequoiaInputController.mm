@@ -308,9 +308,13 @@ static NSHashTable *LiveDictionaryControllers()
 {
     NSDictionary *info = notification.userInfo;
     NSDictionary<NSString *, NSString *> *translations = info[@"translations"];
-    if (![translations isKindOfClass:[NSDictionary class]] ||
-        [info[@"generation"] unsignedLongLongValue] != _translationGeneration || _session == nullptr)
+    if (![translations isKindOfClass:[NSDictionary class]] || _session == nullptr)
         return;
+    // 代际只决定要不要重绘,不决定要不要收下。The cache is keyed by language and word, so a reply that
+    // arrives after the next keystroke is still the right gloss for the word it names. Dropping it on
+    // the generation meant that typing at any speed at all threw every answer away: the model takes
+    // seconds, every keystroke rebuilds the panel and bumps the generation, and the request issued
+    // for the new one was in turn cancelled by the keystroke after it.
     const auto &languageEntry =
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
@@ -1297,11 +1301,12 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
         void (^completion)(NSString *, NSError *) = ^(NSString *text, NSError *error) {
           dispatch_async(dispatch_get_main_queue(), ^{
             MetasequoiaInputController *strongSelf = weakSelf;
-            if (!strongSelf || error || !text.length || !strongSelf->_session ||
-                strongSelf->_translationGeneration != generation)
+            if (!strongSelf || error || !text.length || !strongSelf->_session)
                 return;
+            // 同上:词条缓存与代际无关,晚到也照收。
             strongSelf->_translationCache[key] = text;
-            [strongSelf rebuildCandidatePanelPreservingSelection:YES];
+            if (!strongSelf->_sessionSnapshot.preedit.empty())
+                [strongSelf rebuildCandidatePanelPreservingSelection:YES];
           });
         };
         if (viaDeepLX)
