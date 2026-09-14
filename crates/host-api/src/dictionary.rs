@@ -1,7 +1,6 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{edit_personal_dictionary, response, DictionaryAccess, HostOptions};
-use msime_client_core::dictionary_import::{dictionary_row_matches, PageSelector};
 use msime_client_core::personal_dictionary::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
@@ -906,6 +905,7 @@ mod tests {
             autocorrect_transposition: true,
             autocorrect_neighbor: true,
             fuzzy_pinyin_rules: 0,
+            wubi_mixed_pinyin: false,
             helpcode: false,
             show_helpcode: true,
             helpcode_schema: "ziranma".into(),
