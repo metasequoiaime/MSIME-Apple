@@ -37,6 +37,7 @@
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
 #import "VoiceWaveOverlay.h"
+#import "VoiceInputLevel.h"
 #include "../../shared/voice/CaptureDuration.h"
 #import "VoiceCuePlayer.h"
 #import "VoiceAudioMuter.h"
@@ -1066,9 +1067,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!liveRequest) return;
         NSError *sendError = failure;
         BOOL sent = !failure && pcm && [liveRequest appendPCM:pcm error:&sendError];
-        float level = 0;
         const float *samples = static_cast<const float *>(pcm.bytes);
-        for (NSUInteger i = 0; sent && i < pcm.length / sizeof(float); ++i) level = MAX(level, fabsf(samples[i]));
+        const float level = sent ? msime::voice::input_level(samples, pcm.length / sizeof(float)) : 0;
         // Never stop the capture engine while holding its stream admission lock.
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
@@ -1135,12 +1135,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
-        float level = 0;
-        const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : nullptr;
-        for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
+        const float level = MSIMEVoiceInputLevel(buffer);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
-            if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing)
+            if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing &&
+                controller->_activeClient == controller->_httpVoiceClient && controller->_session == controller->_httpVoiceSession &&
+                controller->_voiceGeneration == controller->_httpVoiceGeneration && controller->_voiceService.active)
                 [controller->_voiceOverlay setInputLevel:level];
         });
     } deviceUID:device failure:^(NSError *failure) {
@@ -1419,12 +1419,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         } error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
         NSString *deviceUID = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
-            const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : NULL;
-            float level = 0;
-            for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
+            const float level = MSIMEVoiceInputLevel(buffer);
             dispatch_async(dispatch_get_main_queue(), ^{
                 MSIMEInputController *liveController = weakSelf;
-                if ([liveController ownsLiveVoiceToken:token]) [liveController->_voiceOverlay setInputLevel:level];
+                if ([liveController ownsLiveVoiceToken:token] && !liveController->_liveVoiceProcessing)
+                    [liveController->_voiceOverlay setInputLevel:level];
             });
         } deviceUID:deviceUID error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureCapture]; return; }
         [controller voiceCaptureDidStart];

@@ -1,8 +1,10 @@
 #import "../InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceMeterFixture.h"
 #include <cassert>
 
 @interface LiveCaptureFixture : MSIMEVoiceInputService
+@property(copy) MSIMEVoiceAudioBuffer bufferHandler;
 @property NSTimeInterval capturedSeconds;
 @property(copy) void (^transcript)(NSString *, BOOL);
 @property NSUInteger captureStops;
@@ -25,7 +27,7 @@
     (void)language; (void)error; self.transcript = handler; return YES;
 }
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
-    (void)handler; (void)device; (void)error; return !self.failCapture;
+    (void)device; (void)error; self.bufferHandler = handler; return !self.failCapture;
 }
 - (void)stopMicrophoneCapture { ++self.captureStops; }
 - (void)stopTranscription { ++self.transcriptionStops; }
@@ -43,6 +45,8 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+@property float lastLevel;
+@property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
 @property BOOL dismissed;
 @property(copy) NSString *preview;
@@ -54,6 +58,7 @@
 - (void)restore;
 @end
 @implementation LivePresentationFixture
+- (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
@@ -194,6 +199,9 @@ int main(int argc, char **) {
         }
         [controller toggleVoiceInput:nil]; assert(capture.active);
         assert(cues.starts == 1 && cues.stops == 0);
+        MSIMEVoiceAudioBuffer oldMeter = capture.bufferHandler;
+        oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(presentation.lastLevel > 0.5f && presentation.lastLevel < 0.7f && presentation.levelUpdates == 1);
         void (^first)(NSString *, BOOL) = capture.transcript;
         first(@"synthetic partial", NO);
         assert(!presentation.preview.length); // Inline mode does not duplicate client text.
@@ -203,6 +211,8 @@ int main(int argc, char **) {
         presentation.actionHandler(NO);
         assert(capture.active && capture.captureStops && capture.transcriptionStops == cancelled);
         assert(presentation.phase == 2);
+        oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(presentation.levelUpdates == 1);
         presentation.actionHandler(NO);
         assert(presentation.dismissed && capture.active);
         first(@"synthetic final", YES);
@@ -212,6 +222,8 @@ int main(int argc, char **) {
         assert(cues.starts == 1 && cues.stops == 1);
         [controller toggleVoiceInput:nil];
         oldAction(YES); oldAction(NO);
+        oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(presentation.levelUpdates == 1);
         assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
         first(@"old callback", YES); assert(capture.active && client.commits.count == 1);
         capture.transcript(@"cancelled partial", NO);

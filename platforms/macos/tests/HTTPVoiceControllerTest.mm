@@ -1,5 +1,6 @@
 #import "../InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceMeterFixture.h"
 #include <cassert>
 
 @interface HTTPRequestFixture : NSObject
@@ -17,6 +18,7 @@
 - (void)cancel { ++self.cancellations; }
 @end
 @interface HTTPCaptureFixture : NSObject
+@property(copy) MSIMEVoiceAudioBuffer bufferHandler;
 @property NSTimeInterval capturedSeconds;
 @property(getter=isActive) BOOL active;
 @property BOOL failStart;
@@ -29,7 +31,7 @@
 @implementation HTTPCaptureFixture
 - (NSTimeInterval)recordedDuration { return self.capturedSeconds; }
 - (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device failure:(void (^)(NSError *))failure error:(NSError **)error {
-    (void)handler; (void)device; (void)error; self.failure = failure; self.active = !self.failStart; return self.active;
+    (void)device; (void)error; self.bufferHandler = handler; self.failure = failure; self.active = !self.failStart; return self.active;
 }
 - (NSData *)finishPCMRecordingWithError:(NSError **)error { (void)error; return [NSMutableData dataWithLength:640]; }
 - (BOOL)cancelWithError:(NSError **)error { (void)error; self.active = NO; ++self.cancellations; return YES; }
@@ -56,6 +58,8 @@
 @end
 
 @interface HTTPOverlayFixture : NSObject
+@property float lastLevel;
+@property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
 @property BOOL dismissed;
 @property NSUInteger phase;
@@ -63,6 +67,7 @@
 @property NSUInteger failures;
 @end
 @implementation HTTPOverlayFixture
+- (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
@@ -90,7 +95,19 @@ int main() {
         [controller setValue:@42 forKey:@"voiceGeneration"];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         assert(cues.starts == 1 && cues.stops == 0);
+        MSIMEVoiceAudioBuffer oldMeter = capture.bufferHandler;
+        oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(overlay.lastLevel > 0.5f && overlay.lastLevel < 0.7f && overlay.levelUpdates == 1);
+        for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
+            id original = [controller valueForKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+            assert(overlay.levelUpdates == 1);
+            [controller setValue:original forKey:field];
+        }
         [controller finishVoiceInputForDisable];
+        oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(overlay.levelUpdates == 1); // A queued meter cannot change processing presentation.
         [controller finishVoiceInputForDisable];
         assert(controller.requestFixture.submitted && !controller.requestFixture.cancellations);
         assert(overlay.phase == 2);
@@ -108,6 +125,8 @@ int main() {
             [controller finishHTTPVoiceInput];
             id original = [controller valueForKey:field];
             [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+            assert(overlay.levelUpdates == 1);
             controller.requestFixture.polishingHandler();
             assert(overlay.phase == 2);
             controller.requestFixture.completion(@"synthetic", nil);

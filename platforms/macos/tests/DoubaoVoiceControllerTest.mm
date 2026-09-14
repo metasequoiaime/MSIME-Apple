@@ -1,5 +1,6 @@
 #import "../InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceMeterFixture.h"
 #include <cassert>
 
 @interface DoubaoRequestFixture : NSObject
@@ -44,6 +45,8 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+@property float lastLevel;
+@property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
 @property BOOL dismissed;
 @property(copy) NSString *preview;
@@ -63,7 +66,7 @@
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
-- (void)setInputLevel:(float)level { (void)level; }
+- (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)restore {}
 - (void)playStartCue {}
 @end
@@ -159,7 +162,10 @@ int main() {
         request.result(@"synthetic partial", NO, nil);
         assert(!presentation.preview.length);
         assert([client.marked isEqual:@"synthetic partial"] && client.commits.count == 0);
-        capture.chunk([NSMutableData dataWithLength:32], nil);
+        capture.chunk(MSIMEVoiceMeterFixturePCM(), nil); Pump();
+        assert(presentation.lastLevel > 0.5f && presentation.lastLevel < 0.7f && presentation.levelUpdates == 1);
+        assert([request.audio isEqual:MSIMEVoiceMeterFixturePCM()]); // Metering never changes recognition audio.
+        MSIMEVoicePCMChunk oldMeter = capture.chunk;
         presentation.actionHandler(NO);
         presentation.actionHandler(NO);
         assert(presentation.dismissed && capture.active);
@@ -171,6 +177,8 @@ int main() {
         request.result(@"duplicate", YES, nil);
         assert(client.commits.count == 1);
         assert(Start(controller, capture, session, NO));
+        oldMeter(MSIMEVoiceMeterFixturePCM(), nil); Pump();
+        assert(presentation.levelUpdates == 1); // Old request cannot meter a successor.
         oldAction(YES); oldAction(NO);
         assert(capture.active && !controller.fixture.finishes && !controller.fixture.cancellations);
         controller.fixture.result(@"hidden partial", NO, nil);
