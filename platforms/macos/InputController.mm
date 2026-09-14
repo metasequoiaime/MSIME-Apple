@@ -946,8 +946,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
 - (void)showHelp:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp]; }
-- (void)showAbout:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout]; }
-- (void)showFeedback:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback]; }
+- (void)showAbout:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=settings:about"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout]; }
+- (void)showFeedback:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=settings:feedback"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback]; }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
