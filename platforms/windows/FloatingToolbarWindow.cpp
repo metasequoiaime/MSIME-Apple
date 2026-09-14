@@ -18,6 +18,16 @@ int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
 }
+// One device-independent unit in physical pixels. Every toolbar measurement -
+// painted cells, the hit test and the window's own size - goes through this, or
+// they round apart: dpi_scale(window, 1) is 2 at 144 dpi where the true factor
+// is 1.5, so a grid built from it is a third wider than one built by scaling
+// the whole quantity.
+float toolbar_unit(HWND window, double scale) {
+  const UINT dpi = GetDpiForWindow(window);
+  return static_cast<float>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI) /
+         static_cast<float>(USER_DEFAULT_SCREEN_DPI) * static_cast<float>(scale);
+}
 bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
          same_ticket(a.transport, b.transport);
@@ -100,9 +110,10 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    const int width = dpi_scale(
-        window_, static_cast<int>((kLeadingWidth + kCellWidth * slots(items_).size() + 8) * scale_));
-    const int height = dpi_scale(window_, static_cast<int>(kHeight * scale_));
+    const float unit = toolbar_unit(window_, scale_);
+    const int width = static_cast<int>(
+        (kLeadingWidth + kCellWidth * static_cast<float>(slots(items_).size()) + 8.0f) * unit);
+    const int height = static_cast<int>(static_cast<float>(kHeight) * unit);
     const int margin = dpi_scale(window_, 20);
     // The remembered position, not the live window rect, is what survives a
     // restart: WM_MOVE keeps it current and the config restores it through
@@ -168,7 +179,7 @@ void FloatingToolbarWindow::paint() {
       throw std::runtime_error("Toolbar brush unavailable");
     return created;
   };
-  const float unit = static_cast<float>(dpi_scale(window_, 1)) * static_cast<float>(scale_);
+  const float unit = toolbar_unit(window_, scale_);
   auto *format = device_.GetTextFormat(
       L"Segoe UI", static_cast<float>(font_size_) * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
@@ -301,7 +312,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
       ScreenToClient(window, &point);
       return point.x >= 0 &&
-                     point.x < dpi_scale(window, static_cast<int>(kLeadingWidth * self->scale_))
+                     point.x < static_cast<int>(kLeadingWidth * toolbar_unit(window, self->scale_))
                  ? HTCAPTION
                  : HTCLIENT;
     }
@@ -328,8 +339,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const auto active = slots(self->items_);
       // The same grid the release below hits against, or the highlight sits on
       // a different button than the one the click would act on.
-      const int leading = dpi_scale(window, static_cast<int>(kLeadingWidth * self->scale_));
-      const int cell = dpi_scale(window, static_cast<int>(kCellWidth * self->scale_));
+      const float unit = toolbar_unit(window, self->scale_);
+      const int leading = static_cast<int>(kLeadingWidth * unit);
+      const int cell = static_cast<int>(kCellWidth * unit);
       std::optional<size_t> hovered;
       if (x >= leading && x < leading + static_cast<int>(cell * active.size())) {
         const size_t position = static_cast<size_t>((x - leading) / cell);
@@ -365,8 +377,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
       const auto active = slots(self->items_);
-      const int leading = dpi_scale(window, static_cast<int>(kLeadingWidth * self->scale_));
-      const int cell = dpi_scale(window, static_cast<int>(kCellWidth * self->scale_));
+      const float unit = toolbar_unit(window, self->scale_);
+      const int leading = static_cast<int>(kLeadingWidth * unit);
+      const int cell = static_cast<int>(kCellWidth * unit);
       if (value && x >= leading &&
           x < leading + static_cast<int>(cell * active.size())) {
         const size_t position = static_cast<size_t>((x - leading) / cell);
