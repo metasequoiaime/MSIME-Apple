@@ -959,6 +959,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showAppearance:(id)sender {
     (void)sender;
+    NSURL *appURL = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (appURL != nil) {
+        NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration new];
+        configuration.arguments = @[@"--route=settings:candidate"];
+        [[NSWorkspace sharedWorkspace] openApplicationAtURL:appURL configuration:configuration completionHandler:nil];
+        return;
+    }
     [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
 - (void)showDictionary:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
