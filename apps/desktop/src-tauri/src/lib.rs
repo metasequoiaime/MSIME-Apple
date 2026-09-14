@@ -3435,10 +3435,17 @@ fn open_cloud_clipboard_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = (app, state);
-        Err(HostActionError {
-            code: "unavailable",
-        })
+        let _ = remember_panel_input_target(&state, true);
+        let position = windows_panel_position(560.0, 560.0);
+        open_panel_window(
+            &app,
+            "cloud-clipboard-panel",
+            "cloud-clipboard",
+            "水杉云剪贴板",
+            560.0,
+            560.0,
+            position,
+        )
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -3470,10 +3477,17 @@ fn open_cloud_dictionary_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = (app, state);
-        Err(HostActionError {
-            code: "unavailable",
-        })
+        let _ = remember_panel_input_target(&state, true);
+        let position = windows_panel_position(760.0, 700.0);
+        open_panel_window(
+            &app,
+            "cloud-dictionary-panel",
+            "cloud-dictionary",
+            "水杉云词库",
+            760.0,
+            700.0,
+            position,
+        )
     }
     #[cfg(not(target_os = "windows"))]
     {
