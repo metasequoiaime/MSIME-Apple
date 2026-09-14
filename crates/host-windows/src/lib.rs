@@ -14,6 +14,9 @@ pub mod ink;
 
 use std::path::Path;
 
+mod voice_output;
+pub use voice_output::{focus_external, paste_voice_text};
+
 /// The window that owned the caret before a panel appeared. Panels never take
 /// focus, so a click still has to reach this window rather than the panel.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

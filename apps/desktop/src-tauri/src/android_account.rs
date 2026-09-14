@@ -647,6 +647,12 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                         .filter(|value| *value >= 0)
                         .ok_or(AccountError::Invalid)?,
                 );
+                // The header is a record like any other: the reference
+                // implementation counts it and hashes it, so a snapshot whose
+                // footer was written by the Server only verifies if we do too.
+                records = records.checked_add(1).ok_or(AccountError::Unavailable)?;
+                digest.update(&line);
+                digest.update([b'\n']);
             }
             "entry" | "overlay" | "position" | "selection" => {
                 let snapshot_revision = revision.ok_or(AccountError::Invalid)?;
@@ -696,7 +702,10 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                         value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
                     })
                     .ok_or(AccountError::Invalid)?;
-                let actual = format!("{:x}", digest.finalize());
+                // Cloned, not consumed: the loop keeps reading after the footer
+                // so that trailing data is rejected, and those iterations still
+                // reach the digest.
+                let actual = format!("{:x}", digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
                     return Err(AccountError::Invalid);
                 }
