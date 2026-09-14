@@ -172,6 +172,35 @@ NSView *PreferenceRow(NSString *title, NSView *control)
     return row;
 }
 
+// 说明行:左边一个按键或名词,右边一段会换行的解释。PreferenceRow 那个是给控件用的 —— 右侧固定
+// 188pt 且不换行,拿来放解释文字会被截断。
+NSView *HelpRow(NSString *term, NSString *explanation)
+{
+    NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSTextField *termLabel = [NSTextField labelWithString:term];
+    termLabel.font = [NSFont monospacedDigitSystemFontOfSize:13.0 weight:NSFontWeightMedium];
+    termLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [termLabel setContentCompressionResistancePriority:NSLayoutPriorityRequired
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSTextField *body = [NSTextField wrappingLabelWithString:explanation];
+    body.font = [NSFont systemFontOfSize:13.0];
+    body.textColor = [NSColor secondaryLabelColor];
+    body.selectable = YES;
+    body.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:termLabel];
+    [row addSubview:body];
+    [NSLayoutConstraint activateConstraints:@[
+        [termLabel.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [termLabel.topAnchor constraintEqualToAnchor:row.topAnchor constant:2.0],
+        [termLabel.widthAnchor constraintEqualToConstant:150.0],
+        [body.leadingAnchor constraintEqualToAnchor:termLabel.trailingAnchor constant:12.0],
+        [body.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+        [body.topAnchor constraintEqualToAnchor:row.topAnchor],
+        [body.bottomAnchor constraintEqualToAnchor:row.bottomAnchor],
+    ]];
+    return row;
+}
+
 NSView *CardHeader(NSString *title)
 {
     NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -366,6 +395,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_resetLearningButton;
     NSTextField *_statusLabel;
     NSTextField *_versionLabel;
+    NSPopUpButton *_feedbackKindButton;
+    NSTextView *_feedbackTextView;
+    NSTextField *_feedbackDiagnosticsLabel;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
     NSArray<NSView *> *_preferencePages;
@@ -1113,13 +1145,16 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     navigation.spacing = 2.0;
     navigation.translatesAutoresizingMaskIntoConstraints = NO;
     [navigation setCustomSpacing:30.0 afterView:brandRow];
+    // 顺序即下标:前面十二项是真正的设置页,和 _preferencePages 一一对应;语音输入排在最后,因为它
+    // 至今仍是「开另一个窗口」的动作,不占页面下标。帮助和反馈原来也在动作区(直接弹浏览器),现在
+    // 是页面,所以移到了页面区里。
     NSArray<NSString *> *labels = @[
         @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号",
-        @"语音输入", @"帮助", @"反馈"
+        @"帮助", @"反馈", @"语音输入"
     ];
     NSArray<NSString *> *symbols = @[
         @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
-        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"mic", @"questionmark.square", @"ladybug"
+        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic"
     ];
     NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
     // Keep page indices stable; appearance leads the navigation to match the visual settings workflow.
@@ -1448,6 +1483,115 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[ shortcutCard ]);
     shortcutsPage.accessibilityLabel = @"快捷键设置页";
 
+    // 帮助原来是侧栏上一个直接弹浏览器的动作。输入法能不能用,取决于几个在界面上看不出来的约定
+    // (Shift 切换、翻页键、辅助码怎么打),把人送去网页等于让他离开正在出问题的这个程序去找答案。
+    // 内容只写这个版本确实做得到的事:每一条都能在设置里找到对应开关或在代码里对得上。
+    NSBox *helpBasicsCard = CardWithViews(
+        @[
+            CardHeader(@"开始输入"),
+            HelpRow(@"Shift", @"在中文和英文之间切换。切换时光标下方会短暂显示「中」或「英」，可以在快捷键里关掉。"),
+            CardSeparator(), HelpRow(@"数字键 1–9", @"选中候选栏里对应位置的词，空格上屏第一个。"),
+            HelpRow(@"翻页", @"默认是减号和等号（- / =）。在快捷键页可以换成逗号句号（, / .）或方括号（[ / ]）。"),
+            HelpRow(@"Option+Shift+H", @"切换全角与半角。")
+        ],
+        10.0);
+    NSBox *helpFeatureCard = CardWithViews(
+        @[
+            CardHeader(@"候选词释义"),
+            HelpRow(@"离线优先",
+                    @"常见词直接用本机词典，不联网、没有延迟。词典没收录的才会去问在线服务，所以生僻字和多字词"
+                    @"可能要等半秒左右才出现。"),
+            HelpRow(@"需要账号", @"在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。"),
+            HelpRow(@"两种语言", @"可以同时显示两种语言的释义，在输入页的候选翻译里设置。")
+        ],
+        10.0);
+    NSBox *helpTroubleCard = CardWithViews(
+        @[
+            CardHeader(@"遇到问题"),
+            HelpRow(@"输入菜单里没有",
+                    @"到「系统设置 › 键盘 › 文字输入 › 输入法」里添加水杉输入法。刚安装或刚更新过时，"
+                    @"可能需要在输入菜单里切走再切回来。"),
+            CardSeparator(),
+            HelpRow(@"候选旁没有释义",
+                    @"先确认输入页的候选翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。"),
+            HelpRow(@"词库没有更新", @"词库更新随版本发布。在「关于与更新」里检查更新。")
+        ],
+        10.0);
+    NSButton *helpWebsiteButton = [NSButton buttonWithTitle:@"打开 msime.app…"
+                                                     target:self
+                                                     action:@selector(openWebsite:)];
+    helpWebsiteButton.bezelStyle = NSBezelStyleRounded;
+    helpWebsiteButton.accessibilityLabel = @"打开官网";
+    NSTextField *helpWebsiteNote = [NSTextField labelWithString:@"更完整的说明、词库来源和更新记录在官网上。"];
+    helpWebsiteNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    helpWebsiteNote.textColor = [NSColor secondaryLabelColor];
+    NSStackView *helpWebsiteRow = [NSStackView stackViewWithViews:@[ helpWebsiteNote, helpWebsiteButton ]];
+    helpWebsiteRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    helpWebsiteRow.alignment = NSLayoutAttributeCenterY;
+    helpWebsiteRow.spacing = 12.0;
+    NSBox *helpWebsiteCard = CardWithViews(@[ helpWebsiteRow ], 8.0);
+    helpBasicsCard.accessibilityLabel = @"开始输入卡片";
+    helpFeatureCard.accessibilityLabel = @"候选词释义卡片";
+    helpTroubleCard.accessibilityLabel = @"遇到问题卡片";
+    NSView *helpPage = PreferencesPage(@"帮助", @"常用按键、候选词释义的工作方式，以及常见问题。",
+                                       @[ helpBasicsCard, helpFeatureCard, helpTroubleCard, helpWebsiteCard ]);
+    helpPage.accessibilityLabel = @"帮助页";
+
+    // 反馈原来是直接打开一个空白的 GitHub issue 表单。那等于把「说清楚发生了什么」整个推给用户,而
+    // 最关键的几项(版本、系统、当前方案)他根本不知道要附,我们这边拿到的报告也就无从复现。
+    // 后端没有反馈接口,所以最终还是落到 GitHub —— 但可以在本机填好、把诊断信息一起带过去。
+    _feedbackKindButton = [NSPopUpButton new];
+    [_feedbackKindButton addItemsWithTitles:@[ @"功能异常", @"候选词不对", @"功能建议", @"其他" ]];
+    _feedbackKindButton.accessibilityLabel = @"反馈类型";
+    NSScrollView *feedbackScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    feedbackScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    feedbackScroll.hasVerticalScroller = YES;
+    feedbackScroll.borderType = NSBezelBorder;
+    [feedbackScroll.heightAnchor constraintEqualToConstant:132.0].active = YES;
+    _feedbackTextView = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    _feedbackTextView.font = [NSFont systemFontOfSize:13.0];
+    _feedbackTextView.automaticQuoteSubstitutionEnabled = NO;
+    _feedbackTextView.accessibilityLabel = @"反馈内容";
+    feedbackScroll.documentView = _feedbackTextView;
+    NSTextField *feedbackPrompt =
+        [NSTextField wrappingLabelWithString:@"发生了什么？如果和打字有关，写出你输入的编码和期望的结果最有用。"];
+    feedbackPrompt.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    feedbackPrompt.textColor = [NSColor secondaryLabelColor];
+    // 诊断信息摆出来给用户看,而不是在提交时悄悄附上 —— 他有权知道自己发出去的是什么。
+    _feedbackDiagnosticsLabel = [NSTextField wrappingLabelWithString:@""];
+    _feedbackDiagnosticsLabel.font = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
+    _feedbackDiagnosticsLabel.textColor = [NSColor secondaryLabelColor];
+    _feedbackDiagnosticsLabel.selectable = YES;
+    _feedbackDiagnosticsLabel.accessibilityLabel = @"随反馈附上的诊断信息";
+    NSButton *feedbackCopyButton = [NSButton buttonWithTitle:@"复制报告"
+                                                      target:self
+                                                      action:@selector(copyFeedbackReport:)];
+    feedbackCopyButton.bezelStyle = NSBezelStyleRounded;
+    feedbackCopyButton.accessibilityLabel = @"复制反馈报告";
+    NSButton *feedbackSubmitButton = [NSButton buttonWithTitle:@"在 GitHub 提交…"
+                                                        target:self
+                                                        action:@selector(openFeedback:)];
+    feedbackSubmitButton.bezelStyle = NSBezelStyleRounded;
+    feedbackSubmitButton.keyEquivalent = @"\r";
+    feedbackSubmitButton.accessibilityLabel = @"在 GitHub 提交反馈";
+    NSStackView *feedbackButtons = [NSStackView stackViewWithViews:@[ feedbackCopyButton, feedbackSubmitButton ]];
+    feedbackButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    feedbackButtons.alignment = NSLayoutAttributeCenterY;
+    feedbackButtons.spacing = 10.0;
+    NSBox *feedbackCard = CardWithViews(
+        @[
+            CardHeader(@"告诉我们发生了什么"), PreferenceRow(@"类型", _feedbackKindButton), feedbackPrompt,
+            feedbackScroll
+        ],
+        10.0);
+    NSBox *feedbackDiagnosticsCard =
+        CardWithViews(@[ CardHeader(@"会一起附上的信息"), _feedbackDiagnosticsLabel, feedbackButtons ], 10.0);
+    feedbackCard.accessibilityLabel = @"反馈内容卡片";
+    feedbackDiagnosticsCard.accessibilityLabel = @"反馈诊断信息卡片";
+    NSView *feedbackPage = PreferencesPage(@"反馈", @"在这里写清问题，提交时会带上版本与系统信息。",
+                                           @[ feedbackCard, feedbackDiagnosticsCard ]);
+    feedbackPage.accessibilityLabel = @"反馈页";
+
     NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入"
                                                         target:self
                                                         action:@selector(backToKeyboardInput:)];
@@ -1704,7 +1848,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _updatePageButton.bezelStyle = NSBezelStyleRounded;
     _updatePageButton.accessibilityLabel = @"立即检查更新";
 
-    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(openFeedback:)];
+    // 跳本地的反馈页,不再直接开浏览器 —— 那一页会把版本和系统信息一起备好。
+    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showFeedback:)];
     feedbackButton.bezelStyle = NSBezelStyleInline;
     feedbackButton.accessibilityLabel = @"提交反馈";
     feedbackButton.contentTintColor = [NSColor linkColor];
@@ -1736,16 +1881,16 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     updateCard.accessibilityLabel = @"软件更新卡片";
-    NSBox *feedbackCard = CardWithViews(
+    NSBox *updatesLinksCard = CardWithViews(
         @[
             PreferenceRow(@"问题反馈与功能建议", feedbackButton),
             PreferenceRow(@"产品主页与使用帮助", productWebsiteButton),
         ],
         4.0);
-    feedbackCard.accessibilityLabel = @"反馈与帮助卡片";
+    updatesLinksCard.accessibilityLabel = @"反馈与帮助卡片";
     NSView *updatesPage =
         PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
-                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
+                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), updatesLinksCard ]);
     updatesPage.accessibilityLabel = @"更新与反馈设置页";
 
     // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
@@ -1759,7 +1904,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
     _preferencePages = @[
         generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage, helpcodePage, shortcutsPage,
-        floatingPage, accountPage
+        floatingPage, accountPage, helpPage, feedbackPage
     ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
@@ -1827,6 +1972,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         version.length == 0 ? @"通过 msime.app 检查最新正式版本"
                             : [NSString stringWithFormat:@"当前版本 v%@，通过 msime.app 检查最新正式版本", version];
     _updatePageButton.enabled = YES;
+    _feedbackDiagnosticsLabel.stringValue = [self feedbackDiagnostics];
 }
 
 - (void)checkForUpdates:(id)sender
@@ -1836,18 +1982,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
 - (void)selectPreferencesPage:(NSButton *)sender
 {
-    // 下标约定:前面是真正的设置页,后面是开别的窗/开网页的动作。账号页加在页面区末尾,所以这条界线
-    // 和后面那几个动作的下标一起后移了一位 —— 加在最后会落进动作区,点了只会把按钮弹回去。
+    // 下标约定:前面是真正的设置页,和 _preferencePages 一一对应;越界的下标是动作,如今只剩语音输入
+    // 那一个(它开的是另一个窗口)。新增设置页要同时加进 labels/symbols 和 _preferencePages,加在
+    // labels 末尾但没进数组,点了只会把按钮弹回去。
     const NSInteger selectedIndex = sender.tag;
     if (selectedIndex >= static_cast<NSInteger>(_preferencePages.count))
     {
         sender.state = NSControlStateValueOff;
-        if (selectedIndex == 10)
-            [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
-        else if (selectedIndex == 11)
-            [self openWebsite:nil];
-        else if (selectedIndex == 12)
-            [self openFeedback:nil];
+        [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
         return;
     }
     [self showPreferencesPageAtIndex:selectedIndex navigationIndex:selectedIndex];
@@ -1899,10 +2041,60 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     }
 }
 
+- (void)showFeedback:(id)sender
+{
+    (void)sender;
+    const NSInteger feedbackIndex = static_cast<NSInteger>(_preferencePages.count) - 1;
+    [self showPreferencesPageAtIndex:feedbackIndex navigationIndex:feedbackIndex];
+}
+
+// 版本、系统、机型、当前方案 —— 这四项决定一个报告能不能复现,而它们恰好都是用户不知道要附的。
+- (NSString *)feedbackDiagnostics
+{
+    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+    NSOperatingSystemVersion system = NSProcessInfo.processInfo.operatingSystemVersion;
+    const NSInteger scheme = MetasequoiaInputInteger(@"inputScheme", 0, 0, NSIntegerMax);
+    return [NSString stringWithFormat:@"水杉输入法 %@（构建 %@）\nmacOS %ld.%ld.%ld\n输入方案序号 %ld",
+                                      version.length == 0 ? @"开发构建" : version, build.length == 0 ? @"-" : build,
+                                      (long)system.majorVersion, (long)system.minorVersion, (long)system.patchVersion,
+                                      (long)scheme];
+}
+
+- (NSString *)feedbackReport
+{
+    NSString *kind = _feedbackKindButton.titleOfSelectedItem;
+    NSString *body = _feedbackTextView.string == nil ? @"" : _feedbackTextView.string;
+    return [NSString stringWithFormat:@"### 类型\n%@\n\n### 描述\n%@\n\n### 环境\n%@\n", kind == nil ? @"" : kind, body,
+                                      [self feedbackDiagnostics]];
+}
+
+- (void)copyFeedbackReport:(id)sender
+{
+    (void)sender;
+    NSPasteboard *pasteboard = NSPasteboard.generalPasteboard;
+    [pasteboard clearContents];
+    [pasteboard writeObjects:@[ [self feedbackReport] ]];
+}
+
 - (void)openFeedback:(id)sender
 {
     (void)sender;
-    NSURL *feedback = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple/issues/new"];
+    // 把写好的内容和环境一起塞进 issue 表单。GitHub 对 URL 长度有上限,超了会返回 414,所以正文
+    // 截断到一个安全长度 —— 报告本身可以用「复制报告」拿到完整的那份。
+    NSString *body = [self feedbackReport];
+    if (body.length > 4000)
+    {
+        body = [body substringToIndex:4000];
+    }
+    NSCharacterSet *allowed = [NSCharacterSet URLQueryAllowedCharacterSet];
+    NSString *kind = _feedbackKindButton.titleOfSelectedItem;
+    NSString *title = [(kind == nil ? @"反馈" : kind) stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *escaped = [body stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *address =
+        [NSString stringWithFormat:@"https://github.com/metasequoiaime/MSIME-Apple/issues/new?title=%@&body=%@",
+                                   title == nil ? @"" : title, escaped == nil ? @"" : escaped];
+    NSURL *feedback = [NSURL URLWithString:address];
     if (feedback != nil)
     {
         [[NSWorkspace sharedWorkspace] openURL:feedback];

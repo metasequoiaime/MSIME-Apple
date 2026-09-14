@@ -315,6 +315,32 @@ int main()
         require(generalPage.hidden && !appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
                     updatesPage.hidden,
                 "The settings window did not open on the appearance page.");
+
+        // 帮助和反馈曾经是侧栏上两个直接弹浏览器的动作:点一下,设置窗什么都不变,人被扔进浏览器。
+        // 现在它们和别的页一样是真页面,所以要能按下标找到、点了要显示出来。
+        NSButton *helpNavigationItem = FindButtonWithTitle(navigation, @"帮助");
+        NSButton *feedbackNavigationItem = FindButtonWithTitle(navigation, @"反馈");
+        NSView *helpPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"帮助页");
+        NSView *feedbackPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"反馈页");
+        require(helpNavigationItem != nil && feedbackNavigationItem != nil && helpPage != nil && feedbackPage != nil,
+                "Help and feedback did not become real pages in the settings window.");
+        require([NSApp sendAction:helpNavigationItem.action to:helpNavigationItem.target from:helpNavigationItem] &&
+                    !helpPage.hidden && feedbackPage.hidden && appearancePage.hidden,
+                "The help sidebar item did not show the help page.");
+        require([NSApp sendAction:feedbackNavigationItem.action
+                               to:feedbackNavigationItem.target
+                             from:feedbackNavigationItem] &&
+                    !feedbackPage.hidden && helpPage.hidden,
+                "The feedback sidebar item did not show the feedback page.");
+        // 诊断信息是这一页存在的理由 —— 报告里没有版本和系统就无从复现,而那恰好是用户不知道要附的。
+        NSView *diagnostics = FindViewWithAccessibilityLabel(controller.window.contentView, @"随反馈附上的诊断信息");
+        [controller refreshUpdateControls];
+        require([diagnostics isKindOfClass:[NSTextField class]] &&
+                    [((NSTextField *)diagnostics).stringValue containsString:@"macOS"],
+                "The feedback page did not collect the diagnostics it promises to attach.");
+        [NSApp sendAction:appearanceNavigationItem.action
+                       to:appearanceNavigationItem.target
+                     from:appearanceNavigationItem];
         require([NSApp sendAction:appearanceNavigationItem.action
                                to:appearanceNavigationItem.target
                              from:appearanceNavigationItem] &&
@@ -834,9 +860,11 @@ int main()
                 "The updates page did not expose an in-place update action.");
         require(CountButtonsWithAction(controller.window.contentView, @selector(checkForUpdates:)) == 1,
                 "The settings window exposed duplicate software-update actions.");
+        // 这个入口现在跳站内的反馈页,不再直接开浏览器 —— 那一页会把版本和系统信息一起备好,而把人
+        // 丢到一张空白的 issue 表单等于让他自己去猜要附什么。
         NSView *feedbackView = FindViewWithAccessibilityLabel(controller.window.contentView, @"提交反馈");
         require([feedbackView isKindOfClass:[NSButton class]] &&
-                    ((NSButton *)feedbackView).action == @selector(openFeedback:) &&
+                    ((NSButton *)feedbackView).action == @selector(showFeedback:) &&
                     ((NSButton *)feedbackView).target == controller,
                 "The updates page did not expose a feedback action.");
         NSColor *feedbackTitleColor =
