@@ -3,6 +3,7 @@
 // Implemented in CandidateTranslationBridge.swift.
 extern "C" void MSIMETranslateCandidates(const char *wordsJSON, const char *languageName,
                                          unsigned long long generation);
+extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 #import "DictionaryInstaller.h"
 #include "DictionaryRuntime.h"
@@ -160,6 +161,8 @@ static NSHashTable *LiveDictionaryControllers()
     std::unique_ptr<metasequoia::apple::DictionarySessionLease> _dictionaryLease;
     std::unique_ptr<metasequoia::Session> _session;
     std::unique_ptr<EnglishDictionary> _translationDictionary;
+    // 当前面板上每个位置对应的原始词 —— 右键固顶要按位置取词,候选串本身带了序号和译文,不能直接用。
+    NSArray<NSString *> *_visibleCandidateWords;
     metasequoia::SessionOptions _sessionOptions;
     metasequoia::SessionSnapshot _sessionSnapshot;
     std::string _activeHelpcodeSchema;
@@ -462,6 +465,9 @@ static NSHashTable *LiveDictionaryControllers()
 - (void)activateServer:(id)sender
 {
     [super activateServer:sender];
+    // 装完即有账号,不必先去找登录入口。Candidate translation and cloud sync both need one, and every
+    // other provider asks for something the user already holds; a fresh install has none of it.
+    MSIMEEnsureAnonymousAccount();
     _serverActive = YES;
     _dictionaryRetryAfter = 0.0;
     [NSUserDefaults.standardUserDefaults synchronize];
@@ -693,6 +699,41 @@ static NSHashTable *LiveDictionaryControllers()
         _lastAsciiPunctuation = candidatePageShortcutCharacter;
         _lastAsciiPunctuationTime = [NSDate timeIntervalSinceReferenceDate];
         return YES;
+    }
+    // 智能标点:中文标点状态下,逗号/句点/冒号紧跟在数字或字母后面时输出英文的那一个,和 Windows 一致。
+    // 1 + . 得到 1. 而不是 1。 —— 写小数、版本号、序号时要的就是这个。
+    //
+    // 判断只能在这一层做:前一个字符属于宿主文档,引擎看不到它,所以命中时直接插入英文标点,不再经过
+    // PunctuationPolicy 的中文转换。设置面板里那个复选框此前没有任何一处读它,勾了不起作用。
+    if (charactersIgnoringModifiers.length == 1 && _sessionSnapshot.preedit.empty() &&
+        MetasequoiaInputFlag(@"smartPunctuation") && !MetasequoiaInputFlag(@"alwaysChinesePunctuation") &&
+        !MetasequoiaInputFlag(@"alwaysEnglishPunctuation"))
+    {
+        const unichar typed = [charactersIgnoringModifiers characterAtIndex:0];
+        if (typed == ',' || typed == '.' || typed == ':')
+        {
+            id<IMKTextInput> inputClient = sender;
+            const NSRange selected = [inputClient selectedRange];
+            if (selected.location != NSNotFound && selected.location > 0)
+            {
+                NSAttributedString *before =
+                    [inputClient attributedSubstringFromRange:NSMakeRange(selected.location - 1, 1)];
+                const NSString *previous = before.string;
+                if (previous.length == 1)
+                {
+                    const unichar character = [previous characterAtIndex:0];
+                    const BOOL latinOrDigit = (character >= '0' && character <= '9') ||
+                                              (character >= 'a' && character <= 'z') ||
+                                              (character >= 'A' && character <= 'Z');
+                    if (latinOrDigit)
+                    {
+                        [sender insertText:charactersIgnoringModifiers
+                            replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                        return YES;
+                    }
+                }
+            }
+        }
     }
     if (charactersIgnoringModifiers.length == 1 && _sessionSnapshot.preedit.empty() &&
         MetasequoiaInputFlag(@"pairedPunctuation"))
@@ -1027,6 +1068,43 @@ static NSHashTable *LiveDictionaryControllers()
     return _translationDictionary.get();
 }
 
+// 固顶候选。The engine orders by frequency alone, so a word the user always wants first drifts down
+// again as soon as something else is typed more often. Pinning is kept here rather than in the engine
+// because it is a macOS-scoped preference and the shared ranking serves three platforms.
+//
+// 存的是「编码 → 词的顺序表」,不是权重:固顶要的是钉死在最前,而加权只是提高概率,仍会被更高频的词压下去。
+static NSString *const kMetasequoiaPinnedCandidatesKey = @"MetasequoiaImePinnedCandidates";
+
+static NSArray<NSString *> *MetasequoiaPinnedWords(const std::string &code)
+{
+    if (code.empty())
+        return @[];
+    NSDictionary *all = [NSUserDefaults.standardUserDefaults dictionaryForKey:kMetasequoiaPinnedCandidatesKey];
+    NSArray *words = all[MetasequoiaStringFromUtf8(code)];
+    return [words isKindOfClass:NSArray.class] ? words : @[];
+}
+
+static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
+{
+    if (code.empty() || word.length == 0)
+        return;
+    NSString *key = MetasequoiaStringFromUtf8(code);
+    NSDictionary *stored = [NSUserDefaults.standardUserDefaults dictionaryForKey:kMetasequoiaPinnedCandidatesKey];
+    NSMutableDictionary *all = stored == nil ? [NSMutableDictionary dictionary] : [stored mutableCopy];
+    NSArray *existing = all[key];
+    NSMutableArray *words = existing == nil ? [NSMutableArray array] : [existing mutableCopy];
+    if ([words containsObject:word])
+        [words removeObject:word];
+    else
+        [words insertObject:word atIndex:0];
+    // 空数组就把这一项删掉,不留一堆空壳键。
+    if (words.count == 0)
+        [all removeObjectForKey:key];
+    else
+        all[key] = words;
+    [NSUserDefaults.standardUserDefaults setObject:all forKey:kMetasequoiaPinnedCandidatesKey];
+}
+
 - (void)rebuildCandidatePanelPreservingSelection:(BOOL)preserveSelection
 {
     ++_translationGeneration;
@@ -1059,22 +1137,54 @@ static NSHashTable *LiveDictionaryControllers()
                                    !_sessionSnapshot.answered_by_pinyin_fallback &&
                                    [MetasequoiaPreferencesWindowController storedWubiCodeHintEnabled];
     const std::string wubiTypedCode = annotateWubiCodes ? _sessionSnapshot.preedit : std::string{};
-    const BOOL verticalPanel = metasequoia::mac::NormalizeCandidatePanelStyle(
-                                   [MetasequoiaPreferencesWindowController storedCandidatePanelStyle]) ==
-                               metasequoia::mac::CandidatePanelStyle::Vertical;
-    const BOOL onlineTranslation = MetasequoiaInputFlag(@"candidateTranslation");
+    // 默认开。The gloss goes through the account's own model at api.msime.app, so it costs the user
+    // no keys of their own and there is nothing to set up before it works; leaving it off by default
+    // meant the feature existed and nobody saw it.
+    const BOOL onlineTranslation = MetasequoiaInputFlag(@"candidateTranslation", YES);
+    // 本地词典是回落,不是替代品。It used to be consulted only when the online path was switched off,
+    // so turning that on and having nothing to serve it -- no account signed in, a request still in
+    // flight, a word the model did not return -- left the candidate with no gloss at all rather than
+    // the offline one it would have had.
     EnglishDictionary *glossDictionary = nullptr;
-    if (!onlineTranslation && [MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
-        verticalPanel && _sessionSnapshot.scheme != SchemeType::JapaneseRomaji)
+    // 横竖排都给。The panel used to read this attribute only when vertical, so a gloss computed for a
+    // horizontal panel was thrown away; both now draw it.
+    if ([MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
+        _sessionSnapshot.scheme != SchemeType::JapaneseRomaji)
     {
         glossDictionary = [self translationDictionary];
     }
     NSUInteger candidateIndex = 0;
-    for (const WordItem &candidate : _sessionSnapshot.candidates)
+    // 固顶的词提到最前,其余保持引擎给的顺序。Reordering here rather than asking the engine keeps the
+    // shared ranking untouched, and the panel is the only thing that needs to know about the pin.
+    std::vector<WordItem> ordered;
+    ordered.reserve(_sessionSnapshot.candidates.size());
+    {
+        NSArray<NSString *> *pinned = MetasequoiaPinnedWords(_sessionSnapshot.preedit);
+        if (pinned.count > 0)
+        {
+            for (NSString *word in pinned)
+            {
+                const std::string wanted = word.UTF8String ? word.UTF8String : "";
+                for (const WordItem &candidate : _sessionSnapshot.candidates)
+                    if (candidate.word == wanted)
+                        ordered.push_back(candidate);
+            }
+            for (const WordItem &candidate : _sessionSnapshot.candidates)
+                if (![pinned containsObject:MetasequoiaStringFromUtf8(candidate.word)])
+                    ordered.push_back(candidate);
+        }
+        else
+        {
+            ordered.assign(_sessionSnapshot.candidates.begin(), _sessionSnapshot.candidates.end());
+        }
+    }
+    NSMutableArray<NSString *> *words = [NSMutableArray arrayWithCapacity:ordered.size()];
+    for (const WordItem &candidate : ordered)
     {
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
             candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get(), wubiTypedCode));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
+        BOOL carriesTranslation = NO;
         if (onlineTranslation)
         {
             NSString *language =
@@ -1085,10 +1195,13 @@ static NSHashTable *LiveDictionaryControllers()
             NSString *translation = _translationCache[
                 [NSString stringWithFormat:@"%@|%@", language, MetasequoiaStringFromUtf8(candidate.word)]];
             if (translation.length)
+            {
                 convertedDisplay = [NSString stringWithFormat:@"%@  %@", convertedDisplay, translation];
+                carriesTranslation = YES;
+            }
         }
         NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
-        if (glossDictionary != nullptr)
+        if (glossDictionary != nullptr && !carriesTranslation)
         {
             if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
             {
@@ -1098,8 +1211,10 @@ static NSHashTable *LiveDictionaryControllers()
             }
         }
         [data addObject:indexed];
+        [words addObject:MetasequoiaStringFromUtf8(candidate.word)];
         ++candidateIndex;
     }
+    _visibleCandidateWords = [words copy];
     _candidateData = [data copy];
     [self requestCandidateTranslationsForSnapshot:_sessionSnapshot];
     if (!_sessionSnapshot.preedit.empty() && _candidateData.count > 0)
@@ -1132,7 +1247,7 @@ static NSHashTable *LiveDictionaryControllers()
 
 - (void)requestCandidateTranslationsForSnapshot:(const metasequoia::SessionSnapshot &)snapshot
 {
-    if (!MetasequoiaInputFlag(@"candidateTranslation") || !snapshot.preedit.size())
+    if (!MetasequoiaInputFlag(@"candidateTranslation", YES) || !snapshot.preedit.size())
         return;
     NSString *endpoint = [NSUserDefaults.standardUserDefaults stringForKey:@"translationEndpoint"];
     const NSInteger providerIndex = MetasequoiaInputInteger(@"translationProvider", 0, 0, 2);
@@ -1213,6 +1328,18 @@ static NSHashTable *LiveDictionaryControllers()
 - (void)candidateSelectionChanged:(NSAttributedString *)candidateString
 {
     (void)candidateString;
+}
+
+- (void)candidatePinToggled:(NSAttributedString *)candidateString
+{
+    if (_session == nullptr || _sessionSnapshot.preedit.empty())
+        return;
+    const NSUInteger index = MetasequoiaCandidateIndex(candidateString);
+    if (index == NSNotFound || index >= _visibleCandidateWords.count)
+        return;
+    MetasequoiaTogglePinnedWord(_sessionSnapshot.preedit, _visibleCandidateWords[index]);
+    // 就地重排,不动引擎状态:固顶只改显示顺序,组字和候选集都不该因为右键而变化。
+    [self rebuildCandidatePanelPreservingSelection:NO];
 }
 
 - (void)candidateSelected:(NSAttributedString *)candidateString

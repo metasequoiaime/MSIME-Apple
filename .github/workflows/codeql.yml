@@ -3,6 +3,7 @@ on:
   schedule:
     # Daily at 00:00 Asia/Tokyo (UTC+09:00).
     - cron: '0 15 * * *'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -37,6 +38,9 @@ jobs:
     name: CodeQL / Swift
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      # The same Xcode the simulator CI and the release build use: the keyboard calls iOS 26 API, which the runner's default Xcode 16.4 (iOS 18.5 SDK) cannot compile.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     permissions:
       contents: read
       security-events: write
@@ -59,11 +63,29 @@ jobs:
           languages: swift
           build-mode: manual
       - name: Build the app and keyboard for analysis
+        # Xcode 26 builds modules explicitly: every SDK module is a separate -emit-pcm job whose output the compile jobs then read back. The CodeQL extractor replays each job with its own clang, which rejects the PCMs Xcode's clang wrote ("built from a different branch"), so nothing gets extracted. Implicit modules give each compiler its own cache, which is how the job worked under Xcode 16.4.
         run: >-
           xcodebuild -workspace build/ios/MetasequoiaImeIOS.xcworkspace
           -scheme MetasequoiaImeIOS -configuration Debug -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO build
+          -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
+          SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           category: '/language:swift'
+      - name: Show what the Swift extractor reported
+        # The analyze step only says that no Swift was extracted; the reason sits in the extractor's diagnostics and the tracer log, which the failed-run SARIF does not expose.
+        if: ${{ failure() }}
+        run: |
+          db="$RUNNER_TEMP/codeql_databases"
+          echo '== extractor diagnostics =='
+          find "$db" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
+          echo '== extractor logs =='
+          find "$db/swift/log" -type f | head -20
+          find "$db/swift/log" -type f -name '*.log' -exec tail -n 40 {} + | head -200
+          echo '== tracer: extractor invocations by mode and how they ended =='
+          grep -oE 'invocation: [^,]*extractor, args: \[-[a-z-]+' "$db/log/build-tracer.log" | sort | uniq -c
+          grep -oE 'terminated with exit code [0-9]+' "$db/log/build-tracer.log" | sort | uniq -c
+          grep -E '^\S+ \S+ ERRO' "$db/log/build-tracer.log" | cut -c1-400 | sort | uniq -c | sort -rn | head -30
+          echo '== trap dir =='
+          find "$db/swift/trap" -type f | head -5

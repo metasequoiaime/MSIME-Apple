@@ -14,7 +14,7 @@
         <line choice="default"/>
     </choices-outline>
     <choice id="default" title="Metasequoia IME">
-        <pkg-ref id="com.houko.inputmethod.MetasequoiaIME.pkg"/>
+        <pkg-ref id="app.msime.inputmethod.MetasequoiaIME.pkg"/>
     </choice>
-    <pkg-ref id="com.houko.inputmethod.MetasequoiaIME.pkg" version="@VERSION@">MetasequoiaIME.pkg</pkg-ref>
+    <pkg-ref id="app.msime.inputmethod.MetasequoiaIME.pkg" version="@VERSION@">MetasequoiaIME.pkg</pkg-ref>
 </installer-gui-script>

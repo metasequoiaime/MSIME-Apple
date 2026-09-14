@@ -673,7 +673,7 @@ class ReleasePackageTests(unittest.TestCase):
         app_icon_name = "MetasequoiaIME.icns"
         menu_icon_name = "MetasequoiaIMEMenuIcon.tiff"
         input_mode = bundle_info["ComponentInputModeDict"]["tsInputModeListKey"][
-            "com.houko.inputmethod.MetasequoiaIME.Hans"
+            "app.msime.inputmethod.MetasequoiaIME.Hans"
         ]
         self.assertEqual(bundle_info["CFBundleIconFile"], app_icon_name)
         self.assertEqual(bundle_info["tsInputMethodIconFileKey"], menu_icon_name)
@@ -1103,7 +1103,7 @@ class ReleasePackageTests(unittest.TestCase):
             package_reference = next(
                 reference
                 for reference in distribution.findall("pkg-ref")
-                if reference.attrib.get("id") == "com.houko.inputmethod.MetasequoiaIME.pkg"
+                if reference.attrib.get("id") == "app.msime.inputmethod.MetasequoiaIME.pkg"
                 and reference.text
             )
             self.assertNotIn("onConclusion", package_reference.attrib)
@@ -1121,14 +1121,14 @@ class ReleasePackageTests(unittest.TestCase):
 
             component_info_path = next(expanded_package.glob("*.pkg/PackageInfo"))
             component_info = ElementTree.parse(component_info_path).getroot()
-            self.assertEqual(component_info.attrib["identifier"], "com.houko.inputmethod.MetasequoiaIME.pkg")
+            self.assertEqual(component_info.attrib["identifier"], "app.msime.inputmethod.MetasequoiaIME.pkg")
             self.assertEqual(component_info.attrib["version"], build_number)
             self.assertEqual(component_info.attrib["install-location"], "Library/Input Methods")
             self.assertEqual(component_info.attrib["relocatable"], "false")
             self.assertEqual(component_info.attrib["auth"], "root")
             upgrade_bundle = component_info.find("upgrade-bundle/bundle")
             self.assertIsNotNone(upgrade_bundle)
-            self.assertEqual(upgrade_bundle.attrib["id"], "com.houko.inputmethod.MetasequoiaIME")
+            self.assertEqual(upgrade_bundle.attrib["id"], "app.msime.inputmethod.MetasequoiaIME")
             self.assertTrue((component_info_path.parent / "Payload/MetasequoiaIME.app/Contents/Info.plist").is_file())
             packaged_uninstaller = (
                 component_info_path.parent / "Payload/MetasequoiaIME.app/Contents/Resources/Uninstall.command"

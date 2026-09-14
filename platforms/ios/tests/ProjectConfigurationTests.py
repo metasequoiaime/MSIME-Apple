@@ -680,7 +680,8 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("case .google, .search, .yahoo:", controller)
         self.assertIn("case .send:", controller)
         self.assertIn("case .done:", controller)
-        self.assertIn("enterButton?.accessibilityLabel = title", controller)
+        # 键面写什么,读屏就念什么 —— 别把断言钉在那个局部变量的名字上。
+        self.assertRegex(controller, r"enterButton\?\.accessibilityLabel = \w+")
 
         self.assertIn("textDocumentProxy.autocapitalizationType ?? .sentences", controller)
 
@@ -789,8 +790,13 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("#selector(handleInputModeButton(_:event:))", controller)
         self.assertIn("for: .allTouchEvents", controller)
         self.assertIn("touch.phase == .began", controller)
-        self.assertIn("render(session.commitRaw())", controller)
-        self.assertIn("handleInputModeList(from: sender, with: event)", controller)
+        # 交给系统之前必须先把在组的字结清,否则切走时半截 preedit 会留在文档里。断言看的是这件事有没有做,
+        # 不是它写成哪个表达式:日语下 commitRaw 交出的是罗马字,所以那一路走 finishComposition。
+        handler = controller.split("func handleInputModeButton")[1].split("\n  }")[0]
+        self.assertIn("render(", handler)
+        self.assertIn("session.commitRaw()", handler)
+        self.assertIn("session.finishComposition()", handler)
+        self.assertIn("handleInputModeList(from: sender, with: event)", handler)
         self.assertNotIn("advanceToNextInputMode()", controller)
 
     def test_bridge_compiles_every_engine_source_directory(self):
@@ -827,7 +833,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         shift_handler = controller.split("private func toggleLetterCase", 1)[1].split("\n  }", 1)[0]
         self.assertIn("if isChineseMode {", shift_handler)
         self.assertIn("toggleInputMode()", shift_handler)
-        self.assertIn("let usesUppercase = !isChineseMode && letterCaseState != .lowercase", controller)
+        # 键面的大小写和送进引擎的字母是两回事:中文下键面画大写,敲出去的仍然是小写。所以这里断言的是
+        # "只有英文按下 shift 才算 shifted",而不是某一行具体怎么写 —— 之前钉的是后者,给拼音键面
+        # 改大写就红了,而契约一点没破。
+        case_handler = controller.split("private func updateLetterCaseControls", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("let shifted = !isChineseMode && letterCaseState != .lowercase", case_handler)
+        self.assertIn("session.isInLocalMode", case_handler)
         character_handler = controller.split("private func handleCharacter", 1)[1].split("\n  }", 1)[0]
         self.assertIn("render(session.handleCharacter(character))", character_handler)
         self.assertNotIn("uppercased()", character_handler.split("} else {", 1)[0])

@@ -28,7 +28,7 @@ std::string UTF8(NSString *value)
 }
 NSError *VoiceFailure(NSString *message)
 {
-    return [NSError errorWithDomain:@"com.houko.inputmethod.MetasequoiaIME.voice"
+    return [NSError errorWithDomain:@"app.msime.inputmethod.MetasequoiaIME.voice"
                                code:1
                            userInfo:@{NSLocalizedDescriptionKey : message}];
 }
@@ -52,7 +52,7 @@ NSError *VoiceFailure(NSString *message)
 {
     self = [super init];
     if (self)
-        _queue = dispatch_queue_create("com.houko.inputmethod.MetasequoiaIME.voice", DISPATCH_QUEUE_SERIAL);
+        _queue = dispatch_queue_create("app.msime.inputmethod.MetasequoiaIME.voice", DISPATCH_QUEUE_SERIAL);
     return self;
 }
 - (void)dealloc

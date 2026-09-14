@@ -26,7 +26,7 @@ fi
 
 installed_bundle="$home_directory/Library/Input Methods/MetasequoiaIME.app"
 user_data="$home_directory/Library/Application Support/metasequoiaime"
-preferences_domain="com.houko.inputmethod.MetasequoiaIME"
+preferences_domain="app.msime.inputmethod.MetasequoiaIME"
 preferences_file="$home_directory/Library/Preferences/$preferences_domain.plist"
 defaults_command=${METASEQUOIA_DEFAULTS_COMMAND:-/usr/bin/defaults}
 security_command=${METASEQUOIA_SECURITY_COMMAND:-/usr/bin/security}

@@ -72,7 +72,7 @@ class UninstallTests(unittest.TestCase):
             "case $action in\n"
             "  domains) test \"${FAIL_DEFAULTS_DOMAINS:-false}\" != true || exit 50; "
             "test ! -f \"$FAKE_PREFERENCES_FILE\" || "
-            "printf '%s\\n' com.houko.inputmethod.MetasequoiaIME ;;\n"
+            "printf '%s\\n' app.msime.inputmethod.MetasequoiaIME ;;\n"
             "  export) /bin/cp \"$FAKE_PREFERENCES_FILE\" \"$3\" ;;\n"
             "  delete) /bin/rm \"$FAKE_PREFERENCES_FILE\"; "
             "test \"${FAIL_DEFAULTS_DELETE:-false}\" != true || exit 47 ;;\n"
@@ -91,7 +91,7 @@ class UninstallTests(unittest.TestCase):
         environment["HOME"] = str(home)
         environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
         environment["FAKE_PREFERENCES_FILE"] = str(
-            home / "Library/Preferences/com.houko.inputmethod.MetasequoiaIME.plist"
+            home / "Library/Preferences/app.msime.inputmethod.MetasequoiaIME.plist"
         )
         environment["METASEQUOIA_DEFAULTS_COMMAND"] = str(fake_defaults)
         # uninstall.sh drains the voice keychain by calling delete-generic-password until it fails.
@@ -128,7 +128,7 @@ class UninstallTests(unittest.TestCase):
         user_data = home / "Library/Application Support/metasequoiaime"
         user_data.mkdir(parents=True)
         (user_data / "learned.txt").write_text("learned\n")
-        preferences = home / "Library/Preferences/com.houko.inputmethod.MetasequoiaIME.plist"
+        preferences = home / "Library/Preferences/app.msime.inputmethod.MetasequoiaIME.plist"
         preferences.parent.mkdir(parents=True)
         preferences.write_text("preferences\n")
         return application, user_data, preferences
@@ -439,7 +439,7 @@ fi
             self.assertEqual(len(calls), 3)
             for call in calls:
                 self.assertEqual(
-                    call, "delete-generic-password -s com.houko.inputmethod.MetasequoiaIME.voice"
+                    call, "delete-generic-password -s app.msime.inputmethod.MetasequoiaIME.voice"
                 )
             self.assertIn("Removed 2 voice input key(s)", result.stdout)
 

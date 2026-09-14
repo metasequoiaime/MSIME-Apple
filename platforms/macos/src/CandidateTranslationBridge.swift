@@ -94,3 +94,26 @@ func translateCandidates(_ wordsJSON: UnsafePointer<CChar>, _ languageName: Unsa
 func backendAccountSignedIn() -> Bool {
   ((try? BackendKeychain().load()) ?? nil) != nil
 }
+
+// 首次激活时自动开一个匿名账号。The controller is Objective-C and this target emits no -Swift.h, so the
+// entry point is a @_cdecl function like the rest of the bridges in this file.
+//
+// 只尝试一次,失败就算了:开户不成功不该拦着用户打字,下次激活会再试。登录成功前不写钥匙串,所以失败
+// 不会留下一把永远登不上的凭据。
+private actor AnonymousBootstrap {
+  static let shared = AnonymousBootstrap()
+  private var attempted = false
+  func runOnce() async {
+    guard !attempted else { return }
+    attempted = true
+    let session = BackendAccountSession()
+    // 已经登录过就什么都不做 —— 包括用户自己用 Apple 或邮箱登录的账号,不能被匿名账号顶掉。
+    if (try? await session.accessToken()) != nil { return }
+    _ = try? await BackendAnonymousAccount.ensureSignedIn(session: session, client: BackendAccountClient())
+  }
+}
+
+@_cdecl("MSIMEEnsureAnonymousAccount")
+func ensureAnonymousAccount() {
+  Task { await AnonymousBootstrap.shared.runOnce() }
+}

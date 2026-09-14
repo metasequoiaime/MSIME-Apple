@@ -38,6 +38,14 @@
     (void)event;
     return YES;
 }
+// 右键走和左键同一条路:交给面板,面板再转给 delegate。A menu holding one item would cost an extra
+// click for the only thing it offers.
+- (void)rightMouseDown:(NSEvent *)event
+{
+    (void)event;
+    if ([self.target respondsToSelector:@selector(pinFromMouse:)])
+        [self.target performSelector:@selector(pinFromMouse:) withObject:self];
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
@@ -312,7 +320,10 @@
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        NSString *translation = vertical ? MetasequoiaCandidateTranslation(_data[index]) : nil;
+        // 横排也画释义。The width maths below already reserves room for one, and the button draws it
+        // from candidateTranslation regardless of direction — the only thing stopping a horizontal
+        // panel from showing a gloss was this line refusing to read the attribute.
+        NSString *translation = MetasequoiaCandidateTranslation(_data[index]);
         CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
                                  [word sizeWithAttributes:measure].width + 8.0);
         if (translation.length > 0)
@@ -436,6 +447,11 @@
 {
     if ([self selectCandidateWithIdentifier:button.tag])
         [self.delegate candidateSelected:_data[button.tag]];
+}
+- (void)pinFromMouse:(NSButton *)button
+{
+    if (button.tag >= 0 && button.tag < static_cast<NSInteger>(_data.count))
+        [self.delegate candidatePinToggled:_data[button.tag]];
 }
 - (void)changePage:(NSButton *)button
 {

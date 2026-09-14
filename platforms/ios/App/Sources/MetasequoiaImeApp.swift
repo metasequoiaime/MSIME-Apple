@@ -123,7 +123,7 @@ private struct ReplyKeyboardPreview: View {
   var body: some View {
     ReplyKeyboardView(model: model, paste: { model.setText("你睡了吗") }, generate: { style in
       model.generate(style: style, request: { _, _ in "还没呢，正好想和你聊聊。" }, insert: { _ in true })
-    }, schemes: {}, skins: {}, dismiss: {})
+    })
   }
 }
 #endif

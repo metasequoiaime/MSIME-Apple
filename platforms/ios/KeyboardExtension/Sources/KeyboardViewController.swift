@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage
 import UIKit
 
 @MainActor
@@ -91,6 +92,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
   private var actionGlobeButton: UIButton!
+  private var japaneseGlobeButton: UIButton?
+  private var japaneseSymbolsButton: UIButton?
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
   private var japaneseHeight: NSLayoutConstraint!
@@ -107,8 +110,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
   private var replyPanelSuppressed = false
+  /// 候选行与快捷栏所在的容器 —— 高情商回复的面板要挂在它下面,而不是盖住它。
+  private weak var compositionContainer: UIView?
+  /// 共享候选条上正显示的手写结果 —— chip 是按下标绑引擎的,手写得从这里取字。
+  private var handwritingResults: [String] = []
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
+  /// 日语変換进行到第几个候选。nil 表示还没按过空格 —— 这时回车是無変換確定,交出假名本身。
+  ///
+  /// Space used to commit candidate 0 outright and Return used to commit it too, so there was no
+  /// state between "typed kana" and "a kanji the engine picked": pressing space twice put a literal
+  /// space after a word the user never chose.
+  private var japaneseConversionIndex: Int?
+  /// 假名键盘自己的侧栏按键。They live in the kana panel's own columns because Apple's kana keyboard
+  /// puts ⌫ / 空白 / 改行 down the right and the mode keys down the left, and the shared bottom row
+  /// steps aside while that panel is up.
+  private var japaneseSpaceButton: UIButton?
+  private var japaneseReturnButton: UIButton?
+  private var japaneseLanguageButton: UIButton?
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   // The code each visible candidate was found by, parallel to visibleCandidates.
@@ -327,9 +346,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
-    japaneseKeys = JapaneseNineKeyView { [unowned self] title, label, action in
-      makeKey(title: title, accessibilityLabel: label, action: action)
+    let japaneseSpace = makeKey(title: "空白", accessibilityLabel: "空白") { [weak self] in self?.handleSpace() }
+    let japaneseReturn = makeKey(title: "改行", accessibilityLabel: "改行", emphasized: true) { [weak self] in self?.handleReturn() }
+    let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in self?.toggleLayout() }
+    let japaneseLanguage = makeKey(title: "英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
+    let japaneseEmoji = makeKey(title: "^_^", accessibilityLabel: "顔文字と絵文字") { [weak self] in
+      self?.showEmojiPicker()
     }
+    // 地球键进左列第四格,底排就整条空了 —— 省下的那一行高度归假名区。Its own bar costs a full row to
+    // carry one key, and the column had a four-row hole to fill anyway.
+    let japaneseGlobe = makeSymbolKey(symbol: "globe", accessibilityLabel: "选择下一个键盘")
+    japaneseGlobe.addTarget(
+      self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
+    japaneseSpace.accessibilityIdentifier = "japaneseSpace"
+    japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    japaneseSymbols.accessibilityIdentifier = "japaneseSymbols"
+    japaneseSymbolsButton = japaneseSymbols
+    japaneseLanguage.accessibilityIdentifier = "japaneseLanguage"
+    japaneseEmoji.accessibilityIdentifier = "japaneseEmoji"
+    japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
+    japaneseGlobeButton = japaneseGlobe
+    japaneseSpaceButton = japaneseSpace
+    japaneseReturnButton = japaneseReturn
+    japaneseLanguageButton = japaneseLanguage
+    japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
+      makeKey(title: title, accessibilityLabel: label, action: action)
+    }, makeDelete: { [unowned self] in makeDeleteKey() },
+       sideKeys: [japaneseSpace, japaneseReturn],
+       modeKeys: [japaneseSymbols, japaneseEmoji, japaneseLanguage, japaneseGlobe])
     japaneseKeys.onInput = { [weak self] input in
       guard let self, isChineseMode, inputScheme.isJapanese else { return }
       playInputClick()
@@ -337,6 +381,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     japaneseKeys.onSymbol = { [weak self] symbol in self?.handleSymbol(symbol) }
     japaneseKeys.onDelete = { [weak self] in self?.handleBackspace() }
+    japaneseKeys.onVariant = { [weak self] in
+      guard let self, isChineseMode, inputScheme.isJapanese else { return }
+      playInputClick()
+      render(session.cycleKanaVariant())
+    }
     root.addArrangedSubview(japaneseKeys)
     handwriting.isHidden = true
     handwriting.onInsert = { [weak self] text in
@@ -344,6 +393,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.finishComposition())
       insertOwnText(ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput), source: .handwriting)
       playInputClick()
+    }
+    // 手写的候选走共享的那条,和别的方案同一个位置、同一个样子。
+    handwriting.onResults = { [weak self] words in
+      guard let self, inputScheme == .handwriting, isChineseMode else { return }
+      handwritingResults = words
+      updateCandidateStrip(preedit: "", candidates: words)
     }
     handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
     handwriting.onDelete = { [weak self] in self?.handleBackspace() }
@@ -362,7 +417,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
-    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    // 假名网格是四行:あ/た/ま 三行加上 小゛゜・わ・、。 那一行。Three rows' worth of height squeezed
+    // four rows of keys until none of them cleared the touch target.
+    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 4, constant: 21)
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
@@ -595,6 +652,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeCandidateStrip() -> UIView {
     let container = UIView()
+    compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
@@ -721,28 +779,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
     let icon = UIImageView()
-    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
-      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 72, height: 72))
-    }
+    icon.image = Self.brandTemplate()
+    icon.tintColor = KeyboardSkinPreference.selected.accent
     icon.accessibilityIdentifier = "keyboardBrandIcon"
     icon.contentMode = .scaleAspectFit
-    icon.layer.cornerRadius = 5
-    icon.clipsToBounds = true
     icon.translatesAutoresizingMaskIntoConstraints = false
     brand.addSubview(icon)
     shortcutBar.addArrangedSubview(brand)
     NSLayoutConstraint.activate([
       brand.widthAnchor.constraint(equalToConstant: 44),
-      icon.widthAnchor.constraint(equalToConstant: 24),
-      icon.heightAnchor.constraint(equalToConstant: 24),
+      icon.widthAnchor.constraint(equalToConstant: 28),
+      icon.heightAnchor.constraint(equalToConstant: 28),
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [schemeButton, scriptShortcut, emojiShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
-      shortcutBar.addArrangedSubview(button)
-      if button !== schemeButton {
-        button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
-      }
+    // 键盘设置在最左,输入方案挪到收起键旁边。Switching scheme is a deliberate, occasional act and the
+    // settings entry is the one reached most often, so the frequent one takes the end of the bar that
+    // the thumb rests nearest and the deliberate one moves away from an accidental brush.
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    for button in shortcuts { shortcutBar.addArrangedSubview(button) }
+    // 宽度等到所有按钮都进了层级再接。Activating inside the loop quietly required schemeButton to come
+    // first: every other key measures against it, and anything placed ahead of it was constraining a
+    // view that was not in the hierarchy yet, which throws rather than warns.
+    for button in shortcuts where button !== schemeButton {
+      button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
     }
     container.addSubview(shortcutBar)
     NSLayoutConstraint.activate([
@@ -1118,6 +1178,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     pan.delegate = self
     space.addGestureRecognizer(pan)
     spaceButton = space
+    updateSpaceKeyTitle()
     row.addArrangedSubview(space)
     let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
     language.configuration?.contentInsets = .zero
@@ -1339,7 +1400,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
-    let usesUppercase = !isChineseMode && letterCaseState != .lowercase
+    // 拼音和罗马字的键面用大写,切到英文才回小写。Every Chinese keyboard draws its 26 keys in caps,
+    // and the case there is only a typeface: the key still feeds a lowercase letter to the engine.
+    // Shift belongs to English, where the case decides what actually lands in the document.
+    //
+    // 本地模式除外 —— 那里敲进去的就是字面的小写字母,键面写大写就是在骗人。
+    let shifted = !isChineseMode && letterCaseState != .lowercase
+    let usesUppercase = (isChineseMode && !session.isInLocalMode) || shifted
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.
@@ -1354,8 +1421,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       hintLabel.text = hint
       hintLabel.isHidden = hint == nil
+      // 读屏念「大写」只在真的会敲出大写字母时 —— 拼音键面的大写是外观,不是 shift。
       button.accessibilityLabel =
-        usesUppercase
+        shifted
         ? "大写 \(lowercase.uppercased())" : "字母 \(lowercase.uppercased())"
       button.accessibilityValue = hint
     }
@@ -1403,6 +1471,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
+  /// 日语组字中空格是変換。The key said 空格 while it was converting, which is the one thing it
+  /// was not doing.
+  private func updateSpaceKeyTitle() {
+    // 日语下空格键写「空白」,这是日语键盘上它的名字;组字中写「変換」。
+    let title = inputScheme.isJapanese ? (hasComposition ? "変換" : "空白") : "空格"
+    if var configuration = japaneseSpaceButton?.configuration, configuration.title != title {
+      configuration.title = title
+      japaneseSpaceButton?.configuration = configuration
+      japaneseSpaceButton?.accessibilityLabel = title
+    }
+    if var configuration = spaceButton?.configuration, configuration.title != title {
+      configuration.title = title
+      spaceButton?.configuration = configuration
+      spaceButton?.accessibilityLabel = title
+    }
+    japaneseKeys?.setComposing(hasComposition)
+  }
+
   private func updateReturnKey() {
     let title: String
     switch textDocumentProxy.returnKeyType ?? .default {
@@ -1430,11 +1516,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
+    // 日语组字中,回车是確定而不是宿主那个动作。The key read 发送 while a composition was open and
+    // pressing it did not send, so it described something the keyboard was not about to do.
+    let shown = inputScheme.isJapanese && hasComposition ? "確定" : title
+    if var configuration = japaneseReturnButton?.configuration {
+      let japaneseTitle = hasComposition ? "確定" : "改行"
+      if configuration.title != japaneseTitle {
+        configuration.title = japaneseTitle
+        japaneseReturnButton?.configuration = configuration
+        japaneseReturnButton?.accessibilityLabel = japaneseTitle
+      }
+    }
     if var configuration = enterButton?.configuration {
-      configuration.title = title
+      configuration.title = shown
       enterButton?.configuration = configuration
     }
-    enterButton?.accessibilityLabel = title
+    enterButton?.accessibilityLabel = shown
   }
 
   private func applyLearningPreferences() {
@@ -1499,10 +1596,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         guard hasFullAccess else { replyModel.status = "粘贴与 AI 需要允许完全访问"; return }
         replyModel.setText(UIPasteboard.general.string ?? "")
-      }, generate: { [weak self] style in self?.generateReply(style: style) },
-      schemes: { [weak self] in self?.showSchemePicker() },
-      skins: { [weak self] in self?.showSkinPicker() },
-      dismiss: { [weak self] in self?.dismissKeyboard() }))
+      }, generate: { [weak self] style in self?.generateReply(style: style) }))
     replyPanel = panel
     addChild(panel)
     panel.view.accessibilityIdentifier = "replyKeyboard"
@@ -1512,7 +1606,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NSLayoutConstraint.activate([
       panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.view.topAnchor.constraint(equalTo: view.topAnchor),
+      // 顶边停在快捷栏下面,不盖住它。Covering the whole keyboard forced this panel to grow a second
+      // toolbar of its own — similar to the real one but not the same — and it also buried the AI key,
+      // which is shown only in this scheme and so could not be reached at all.
+      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor),
       panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     panel.didMove(toParent: self)
@@ -1809,12 +1906,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: "keyboard")
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    // 内边距保留 —— 栏里其它五个键的宽度都钉在这个键上,收窄它就是把六个靶子一起收窄。
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
-    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.35)
-    configuration.background.strokeWidth = 1
-    configuration.background.cornerRadius = 8
-    configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 3, leading: 2, bottom: 3, trailing: 2)
+    // 不描边,和栏里其它五个键一样裸着。The stroke was the only thing marking this key out, and it
+    // marked out nothing: the face is the same keyboard glyph whatever scheme is active, so the box
+    // carried no state while still giving one of six equal shortcuts more visual weight than the rest.
+    // 当前方案由 accessibilityValue 和点开的面板表达。
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
       attributes.font = .systemFont(ofSize: 16, weight: .medium)
@@ -1884,9 +1982,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
-    japaneseKeys?.isHidden = !kana || showsSymbols
+    // 假名九键切数字仍然是九键。Handing 123 over to the 26-key symbol page put a ten-across layout
+    // under a keyboard the user picked for three columns, the same mistake the Chinese nine-key
+    // already avoids by keeping its own digit layer.
+    japaneseKeys?.isHidden = !kana
+    japaneseKeys?.setDigits(kana && showsSymbols)
+    // 键面写的是按下去会去哪一层,不是当前在哪一层。
+    if let symbols = japaneseSymbolsButton {
+      let title = kana && showsSymbols ? "あいう" : "123"
+      if symbols.configuration?.title != title {
+        symbols.configuration?.title = title
+        symbols.accessibilityLabel = title == "123" ? "切换到数字和符号" : "切换到假名"
+      }
+    }
+    // 假名面板自带 ⌫ / 空白 / 改行、模式键和地球键,底排没有任何东西可放了,整条收起。
+    // Hiding the row itself rather than its keys one by one: the per-key pass had no counterpart on
+    // the way back, so 空白 and 改行 stayed hidden once the user returned to Chinese.
+    actionRow?.isHidden = kana
+    // 系统在键盘下面自己画地球时 needsInputModeSwitchKey 就是 false,这一格该空着而不是塞个死键。
+    japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
+    japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
-    japaneseHeight?.isActive = kana && !showsSymbols
+    // 面板自带底排之后,剩下的高度整块归它 —— 再把高度绑在已经隐藏的动作行上,算出来是 0。
+    japaneseHeight?.isActive = false
+    japaneseKeys?.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+    japaneseKeys?.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
     japaneseKeys?.applyLayout()
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
@@ -1941,7 +2061,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbolDeleteWidth?.isActive = showsSymbols
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
-    symbolRowViews.forEach { $0.isHidden = !showsSymbols || (isChineseMode && inputScheme == .nineKey && !session.isInLocalMode) }
+    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || (isChineseMode && inputScheme == .nineKey && !session.isInLocalMode) }
     // Chinese punctuation only comes out in Chinese mode, and a local utility mode takes the plain
     // character, so the face follows what the key is actually going to insert right now.
     let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode
@@ -2055,6 +2175,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSpace() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    // 日语的空格是変換,不是確定。First press highlights the leading candidate, each one after that
+    // steps down the list, and Return is what commits. Committing on the first press left no way to
+    // reach the second candidate without abandoning the keyboard for the strip.
+    if inputScheme.isJapanese && hasComposition && !visibleCandidates.isEmpty {
+      let next = (japaneseConversionIndex.map { $0 + 1 } ?? 0) % visibleCandidates.count
+      japaneseConversionIndex = next
+      renderCandidateStrip()
+      return
+    }
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
       insertOwnText(" ")
@@ -2069,6 +2198,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleReturn() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    // 日语的回车是確定:変換过就交那个候选,没変換过就把假名原样交出去。finishComposition commits
+    // candidate 0 either way, which turned にほん into 日本 and left names and ありがとう unreachable.
+    if inputScheme.isJapanese && hasComposition {
+      let index = japaneseConversionIndex
+      japaneseConversionIndex = nil
+      render(index.map { session.selectCandidate(at: UInt($0)) } ?? session.commitReading())
+      return
+    }
     let snapshot = session.finishComposition()
     if !snapshot.isHandled {
       insertOwnText("\n")
@@ -2078,7 +2215,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func handleInputModeButton(_ sender: UIButton, event: UIEvent) {
     if event.allTouches?.contains(where: { touch in touch.phase == .began }) == true {
-      render(session.commitRaw())
+      // 日语下 commitRaw 交出的是罗马字。The user tapped kana keys and never typed a latin letter,
+      // so brushing the globe mid-word dropped a literal `nihongo` into the document. Finish the
+      // composition instead, which is what every other boundary in this file already does.
+      render(inputScheme.isJapanese ? session.finishComposition() : session.commitRaw())
     }
     handleInputModeList(from: sender, with: event)
   }
@@ -2130,10 +2270,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
+    // 组字一变就退出変換状态:再敲一个假名意味着用户在改读み,不是在候选之间挑。
+    if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
+    if inputScheme.isJapanese {
+      updateSpaceKeyTitle()
+      updateReturnKey()
+    }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(
-      preedit: snapshot.preedit, candidates: snapshot.candidates,
+      // 日语显示读音而不是 raw input。The kana keyboard sends romaji strokes the user never typed,
+      // so the composition line read `nihon'` after tapping に ほ ん. Every other scheme's preedit
+      // is what was typed, so they keep it.
+      preedit: snapshot.reading.isEmpty ? snapshot.preedit : snapshot.reading,
+      candidates: snapshot.candidates,
       candidateCodes: snapshot.candidateCodes, candidateGlosses: snapshot.candidateGlosses)
     updateSpellingStrip()
   }
@@ -2193,7 +2343,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
       updateCandidateButton(chip, candidate: page[offset], hint: candidateAnnotation(at: offset),
-                            number: offset + 1)
+                            number: offset + 1, converting: japaneseConversionIndex == offset)
     }
     updateExpandControl()
 
@@ -2216,6 +2366,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 候选按钮的骨架。位置固定,只建一次,内容由 updateCandidateButton 每次刷新。
+  /// 品牌图是白底黑字、没有 alpha,直接贴上去就是快捷栏左端的一块白方块。
+  ///
+  /// 反色之后拿亮度当 alpha:黑字形变成不透明,白底变透明。得到的模板图用 accent 着色,和栏里其它
+  /// 图标同一个处理方式,换皮肤时也跟着走。
+  private static func brandTemplate() -> UIImage? {
+    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
+      let source = UIImage(contentsOfFile: path), let cgImage = source.cgImage
+    else { return nil }
+    let input = CIImage(cgImage: cgImage)
+    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
+      let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
+      let output = CIContext().createCGImage(masked, from: masked.extent)
+    else { return nil }
+    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
+  }
+
   private func makeCandidateButton(index: Int) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
@@ -2231,6 +2397,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
         self.playInputClick()
+        // 手写的候选不是引擎给的,不能按下标回给引擎选。
+        if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
+          if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
     button.accessibilityIdentifier = "candidate-\(index + 1)"
@@ -2287,9 +2458,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return visibleCandidateGlosses[index]
   }
 
-  private func updateCandidateButton(_ button: UIButton, candidate: String, hint: String, number: Int) {
+  private func updateCandidateButton(_ button: UIButton, candidate: String, hint: String, number: Int,
+                                     converting: Bool = false) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
+    // 変換中的那一个要看得出来 —— 空格在候选之间走,不高亮就等于盲选。
+    configuration.background.backgroundColor =
+      converting ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+                 : KeyboardSkinPreference.selected.keyBackground
     if hint.isEmpty {
       configuration.attributedTitle = nil
       configuration.title = display
@@ -2406,9 +2582,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = Self.compositionRowHeight
-    let base: CGFloat = handwriting.isHidden
+    // 竖屏手写和别的方案同高。It used to claim 100pt more, which reflowed whatever the user was typing
+    // into every time they switched to it. Handing the candidates to the shared strip gave the canvas
+    // back the 36pt its private one was holding, so the common height now carries a canvas about as
+    // tall as the old 300pt compromise did.
+    //
+    // 横屏留一点。There the keyboard is short to begin with and the same trade leaves too little to
+    // write a character in.
+    let base: CGFloat = handwriting.isHidden || !landscape
       ? (landscape ? 216 + extra : 260 + extra)
-      : (landscape ? 260 + extra : 360 + extra)
+      : 240 + extra
     // The rows divide whatever height the keyboard claims, so this reaches the key faces too --
     // which is the point, since a key too small to hit is what this setting answers.
     let height = base + CGFloat(KeyboardLayoutPreference.heightAdjustment)

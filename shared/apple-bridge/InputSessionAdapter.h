@@ -31,6 +31,10 @@ struct InputSnapshot
     bool handled = false;
     std::optional<std::string> commit;
     std::string preedit;
+    // 组字行该显示的读音。For Japanese the preedit is romaji the user never typed -- the kana 9-key
+    // sends strokes, so tapping に ほ ん showed `nihon'`. The engine has computed the kana all
+    // along; nothing carried it across.
+    std::string reading;
     std::vector<std::string> candidates;
     // The dictionary key each candidate was found by, in the same order. A wubi frontend needs it to
     // say which keys still single a candidate out, since an unfinished code answers with the codes
@@ -70,6 +74,10 @@ class InputSessionAdapter
     InputSnapshot handle_candidate_key(char character);
     InputSnapshot handle_punctuation(char character);
     InputSnapshot handle_backspace();
+    /// 小゛゜。Cycles the kana just typed through small / voiced / semi-voiced and back.
+    InputSnapshot cycle_kana_variant();
+    /// 無変換確定:把读み原样交出去。Empty result for every scheme but Japanese.
+    InputSnapshot commit_reading();
     InputSnapshot commit_candidate();
     InputSnapshot finish_composition();
     InputSnapshot commit_raw();

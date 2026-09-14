@@ -146,7 +146,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         app_icon = "MetasequoiaIME.icns"
         menu_icon = "MetasequoiaIMEMenuIcon.tiff"
         input_mode = info["ComponentInputModeDict"]["tsInputModeListKey"][
-            "com.houko.inputmethod.MetasequoiaIME.Hans"
+            "app.msime.inputmethod.MetasequoiaIME.Hans"
         ]
 
         self.assertEqual(info["CFBundleIconFile"], app_icon)
