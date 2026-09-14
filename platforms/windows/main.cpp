@@ -1,5 +1,6 @@
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include "AuxListener.h"
+#include "VoiceTheme.h"
 #include "CandidateAppearance.h"
 #include "CandidateSkin.h"
 #include "CandidateWindow.h"
@@ -554,8 +555,9 @@ int wmain(int argc, wchar_t **argv) {
     auto voice_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("voice_theme", std::string("follow"));
-      return theme == "light" ||
-             (theme == "follow" && !system_prefers_dark());
+      return msime::windows::voice_theme_is_light(
+          theme, stored.value("theme", std::string("dark")),
+          system_prefers_dark());
     }());
     auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
@@ -639,9 +641,10 @@ int wmain(int argc, wchar_t **argv) {
             *tsf_config = tsf_local_config(preferences);
             tsf_config_dirty->store(true, std::memory_order_release);
           }
-          voice_light->store(voice_theme == "light" ||
-                                 (voice_theme == "follow" &&
-                                  !system_prefers_dark()),
+          voice_light->store(msime::windows::voice_theme_is_light(
+                                 voice_theme,
+                                 preferences.value("theme", std::string("dark")),
+                                 system_prefers_dark()),
                              std::memory_order_release);
           // The settings page owns this too; without reconciling it here the
           // toolbar only followed the preference across a restart.
