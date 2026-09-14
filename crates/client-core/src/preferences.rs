@@ -2114,14 +2114,20 @@ mod tests {
         assert!(!store
             .capture_clipboard_text("synthetic\0invalid".into())
             .unwrap());
-        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        let history: Vec<crate::clipboard::ClipboardHistoryEntry> =
+            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].text, "synthetic first");
         let mut preferences = enabled.preferences;
         preferences.clipboard_history = false;
         let disabled = store.save(enabled.revision, preferences).unwrap();
         assert!(!store
             .capture_clipboard_text("synthetic stopped".into())
             .unwrap());
-        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        let history: Vec<crate::clipboard::ClipboardHistoryEntry> =
+            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].text, "synthetic first");
         fs::write(&file, b"broken synthetic document").unwrap();
         let mut preferences = disabled.preferences;
         preferences.clipboard_history = true;

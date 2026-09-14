@@ -562,6 +562,7 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_m
 ];
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
+export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -607,9 +608,11 @@ export interface SettingsClient {
   onWindowStateChanged?: (listener: (maximized: boolean) => void, onError?: () => void) => Promise<() => void>;
   clipboard?: {
     clear(): Promise<void>;
-    list?(): Promise<string[]>;
-    sync?(): Promise<string[]>;
+    list?(): Promise<ClipboardHistoryEntry[]>;
+    sync?(): Promise<ClipboardHistoryEntry[]>;
     copy?(text: string): Promise<void>;
+    remove?(text: string): Promise<void>;
+    setPinned?(text: string, pinned: boolean): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
   /** The host exposes the shared fuzzy-pinyin settings. */
@@ -1216,6 +1219,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     if (!enabled && clipboardHistory && client.clipboard?.clear) {
       void client.clipboard.clear().catch(() => setError("无法清空剪贴板历史，请稍后重试。"));
       setClipboardEntries([]);
+      setClipboardClearArmed(false);
     }
   }
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
@@ -1303,7 +1307,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
-  const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
+  const [clipboardEntries, setClipboardEntries] = useState<ClipboardHistoryEntry[]>([]);
+  const [clipboardClearArmed, setClipboardClearArmed] = useState(false);
   const availablePages = pages.filter(item =>
     (item.id !== "home" || Boolean(client.home))
     &&
@@ -1336,9 +1341,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     let active = true;
     if (!snapshot?.preferences.clipboard_history) { setClipboardEntries([]); return; }
     if (!client.clipboard?.list) return;
-    void client.clipboard.list().then(entries => { if (active) setClipboardEntries(entries); }).catch(() => undefined);
+    void client.clipboard.list().then(entries => {
+      if (active) { setClipboardEntries(entries); setClipboardClearArmed(false); }
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [client, page, snapshot?.revision]);
+  const mutateClipboardHistory = async (action: () => Promise<void>, failure: string) => {
+    try {
+      await action();
+      setClipboardClearArmed(false);
+      if (client.clipboard?.list) setClipboardEntries(await client.clipboard.list());
+    } catch { setError(failure); }
+  };
   const openLocalDesigns = () => {
     setPage("appearance");
     setShowTouchSkinEditor(true);
@@ -1850,8 +1864,21 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => toggleClipboardHistory(event.target.checked)} /></label>
-          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
-          {clipboardHistory && client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
+          <div className="clipboard-toolbar">
+            {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(entries => { setClipboardEntries(entries); setClipboardClearArmed(false); }).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
+            {client.clipboard?.clear && clipboardEntries.length > 0 && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => {
+              if (!clipboardClearArmed) { setClipboardClearArmed(true); return; }
+              void mutateClipboardHistory(() => client.clipboard!.clear(), "无法清空剪贴板历史，请稍后重试。");
+            }}>{clipboardClearArmed ? "确认清空" : "清空历史"}</button>}
+          </div>
+          {clipboardHistory && client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry.text}>
+            <span className="clipboard-entry"><span title={entry.text}>{entry.text}</span><small>{entry.pinned ? "已固定 · " : ""}{entry.timestampMs > 1_000_000_000_000 ? new Date(entry.timestampMs).toLocaleString() : "旧记录"}</small></span>
+            <span className="clipboard-actions">
+              {client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry.text)}>重新复制</button>}
+              {client.clipboard?.setPinned && <button type="button" className="secondary" aria-label={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`} onClick={() => void mutateClipboardHistory(() => client.clipboard!.setPinned!(entry.text, !entry.pinned), "无法更新剪贴板固定状态")}>{entry.pinned ? "取消固定" : "固定"}</button>}
+              {client.clipboard?.remove && <button type="button" className="secondary" aria-label="删除剪贴板记录" onClick={() => void mutateClipboardHistory(() => client.clipboard!.remove!(entry.text), "无法删除剪贴板记录")}>删除</button>}
+            </span>
+          </div>)}</div>}
           {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}
           {client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}
         </div>

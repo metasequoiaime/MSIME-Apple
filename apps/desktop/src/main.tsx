@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -71,9 +71,11 @@ const client: SettingsClient = {
   onWindowStateChanged: (listener, onError) => subscribeWindowState(getCurrentWindow(), listener, onError),
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
-    list: () => invoke<string[]>("list_clipboard_history"),
-    sync: () => invoke<string[]>("sync_clipboard_history"),
+    list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history"),
+    sync: () => invoke<ClipboardHistoryEntry[]>("sync_clipboard_history"),
     copy: text => invoke("copy_text", { text }),
+    remove: text => invoke("remove_clipboard_history", { text }),
+    setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
   ...(/\bAndroid\b/i.test(navigator.userAgent) ? { typingStatistics, fuzzyPinyin: true, touchKeyboardSchemes: true, customTouchKeyboardSkins: true, customSkinLibrary: {
@@ -181,7 +183,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     snapshot: /\bAndroid\b/i.test(navigator.userAgent),
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[]; unavailable?: ("emoji" | "kaomoji" | "symbols")[] }>("load_emoji_catalog"), clipboard: {
-    list: () => invoke<string[]>("list_clipboard_history"),
+    list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then(entries => entries.map(entry => entry.text)),
     isEnabled: async () => (await client.load()).preferences.clipboard_history ?? false,
     enable: async () => {
       const snapshot = await client.load();
@@ -201,7 +203,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     },
     remove: text => invoke("remove_clipboard_history", { text }),
     clear: () => invoke("clear_clipboard_history"),
-    sync: () => invoke<string[]>("sync_clipboard_history"),
+    sync: () => invoke<ClipboardHistoryEntry[]>("sync_clipboard_history").then(entries => entries.map(entry => entry.text)),
     copy: text => invoke("copy_text", { text }),
   } },
 };

@@ -19,7 +19,7 @@ mod macos_handwriting;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 mod desktop_preferences_monitor;
 
-use msime_client_core::clipboard::ClipboardHistoryStore;
+use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
 use msime_client_core::custom_skin_library::{
     CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore,
     SavedTouchKeyboardSkin,
@@ -3607,7 +3607,7 @@ fn start_linux_clipboard_monitor(
 async fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-) -> Result<Vec<String>, HostActionError> {
+) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
     let state = state.inner().clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || list_clipboard_history_blocking(&state, &store))
@@ -3620,7 +3620,7 @@ async fn list_clipboard_history(
 fn list_clipboard_history_blocking(
     state: &ClipboardHistoryState,
     store: &Arc<PreferencesStore>,
-) -> Result<Vec<String>, HostActionError> {
+) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
     if !clipboard_enabled(store)? {
         return Ok(Vec::new());
     }
@@ -3650,6 +3650,32 @@ async fn remove_clipboard_history(
                 code: "unavailable",
             })?
             .remove(&text)
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[tauri::command]
+async fn set_clipboard_history_pinned(
+    text: String,
+    pinned: bool,
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .set_pinned(&text, pinned)
             .map(|_| ())
             .map_err(|_| HostActionError {
                 code: "unavailable",
@@ -3692,7 +3718,7 @@ fn clear_clipboard_history_blocking(
 async fn sync_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-) -> Result<Vec<String>, HostActionError> {
+) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
     let state = state.inner().clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || sync_clipboard_history_blocking(&state, &store))
@@ -3705,7 +3731,7 @@ async fn sync_clipboard_history(
 fn sync_clipboard_history_blocking(
     state: &ClipboardHistoryState,
     store: &Arc<PreferencesStore>,
-) -> Result<Vec<String>, HostActionError> {
+) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
     if !clipboard_enabled(store)? {
         return Err(HostActionError { code: "disabled" });
     }
@@ -4320,6 +4346,7 @@ pub fn run() {
             list_clipboard_history,
             clear_clipboard_history,
             remove_clipboard_history,
+            set_clipboard_history_pinned,
             sync_clipboard_history,
             copy_text,
             remember_input_target,

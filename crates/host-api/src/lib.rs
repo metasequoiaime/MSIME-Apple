@@ -924,7 +924,14 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
         history
             .load()
             .map_err(|_| "clipboard history unavailable")?;
-        Ok(serde_json::json!({"enabled": true, "entries": history.entries()}))
+        let entries: Vec<_> = history
+            .entries()
+            .iter()
+            .map(|entry| entry.text.as_str())
+            .collect();
+        // Keep the existing ABI shape until native hosts opt into the
+        // structured history bridge in their platform-specific migrations.
+        Ok(serde_json::json!({"enabled": true, "entries": entries}))
     })
 }
 
@@ -4169,7 +4176,10 @@ mod tests {
             remove(directory.path(), "synthetic first")["value"]["removed"],
             true
         );
-        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        let upgraded: Vec<msime_client_core::clipboard::ClipboardHistoryEntry> =
+            serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(upgraded.len(), 1);
+        assert_eq!(upgraded[0].text, "synthetic second");
         assert_eq!(
             remove(directory.path(), "synthetic first")["value"]["removed"],
             false
@@ -4192,7 +4202,9 @@ mod tests {
             remove(directory.path(), "synthetic second")["error"],
             "clipboard history disabled"
         );
-        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        let preserved: Vec<msime_client_core::clipboard::ClipboardHistoryEntry> =
+            serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(preserved, upgraded);
         assert_eq!(
             read(unsafe { msime_client_remove_clipboard_history(std::ptr::null(), 0) })["ok"],
             false

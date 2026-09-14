@@ -1,4 +1,4 @@
-use msime_client_core::clipboard::ClipboardHistoryStore;
+use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
 use msime_client_core::preferences::PreferencesStore;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Runtime};
@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 /// One shared polling state for all desktop shells. Input capture remains in the host.
 pub(crate) struct Monitor {
     revision: Option<u64>,
-    history: Option<Vec<String>>,
+    history: Option<Vec<ClipboardHistoryEntry>>,
 }
 
 impl Monitor {
@@ -127,9 +127,10 @@ mod tests {
             .unwrap());
         monitor.poll(app.handle(), &store, &history);
         assert_eq!(received.try_recv().unwrap(), Value::Null);
+        assert_eq!(monitor.history.as_ref().unwrap().len(), 1);
         assert_eq!(
-            monitor.history.as_ref().unwrap(),
-            &["synthetic-clipboard-text"]
+            monitor.history.as_ref().unwrap()[0].text,
+            "synthetic-clipboard-text"
         );
         monitor.poll(app.handle(), &store, &history);
         assert!(received.try_recv().is_err());

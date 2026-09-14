@@ -667,6 +667,45 @@ test("clipboard history defaults off, clears when disabled, and saves independen
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, clipboard_history: false });
 });
 
+test("clipboard history exposes timestamps, pinning, deletion and two-step clearing", async () => {
+  let entries = [
+    { text: "synthetic pinned", timestampMs: 1_789_000_000_000, pinned: true },
+    { text: "synthetic recent", timestampMs: 1_788_000_000_000, pinned: false },
+  ];
+  const list = vi.fn().mockImplementation(async () => entries);
+  const setPinned = vi.fn().mockImplementation(async (text: string, pinned: boolean) => {
+    entries = entries.map(entry => entry.text === text ? { ...entry, pinned } : entry);
+  });
+  const remove = vi.fn().mockImplementation(async (text: string) => {
+    entries = entries.filter(entry => entry.text !== text);
+  });
+  const clear = vi.fn().mockImplementation(async () => { entries = []; });
+  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(snapshot), save: vi.fn(),
+    clipboard: { list, setPinned, remove, clear },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(await screen.findByText("synthetic pinned")).toBeDefined();
+  expect(screen.getByText(/已固定/)).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "固定剪贴板记录" }));
+  await waitFor(() => expect(setPinned).toHaveBeenCalledWith("synthetic recent", true));
+  expect(await screen.findAllByRole("button", { name: "取消固定剪贴板记录" })).toHaveLength(2);
+
+  const recentRow = screen.getByText("synthetic recent").closest(".clipboard-row") as HTMLElement;
+  fireEvent.click(within(recentRow).getByRole("button", { name: "删除剪贴板记录" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith("synthetic recent"));
+  expect(screen.queryByText("synthetic recent")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "清空历史" }));
+  expect(clear).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "确认清空" }));
+  await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText("暂无历史记录")).toBeDefined();
+});
+
 test("dictionary manager queries, edits and removes Engine entries", async () => {
   const quick = { kind: "quick_phrase" as const, key: "x", value: "fixture", weight: 100000 };
   const list = vi.fn().mockResolvedValue({
