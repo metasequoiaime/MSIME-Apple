@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
         NSMutableString *model = [@"fixture-model" mutableCopy];
         NSMutableDictionary *options = [@{@"asr_provider": @"openai", @"asr_model": model,
             @"asr_endpoint": [base stringByAppendingString:@"/asr"], @"asr_token": @"fixture-token",
-            @"language": @"en-US", @"polish_enabled": @YES, @"polish_provider": @"openai",
+            @"language": @"en-us", @"polish_enabled": @YES, @"polish_provider": @"openai",
             @"polish_endpoint": [base stringByAppendingString:@"/polish"], @"polish_model": @"fixture-model",
             @"polish_token": @"fixture-token", @"polish_prompt_id": @"custom_2",
             @"polish_prompt_custom_2": @"synthetic prompt"} mutableCopy];

@@ -24,6 +24,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/asr":
                 assert b"fixture-model" in body and b"RIFF" in body
                 assert b"changed-after-snapshot" not in body
+                assert b'name="language"\r\n\r\nen\r\n' in body
                 response = {"text": "synthetic transcript"}
             else:
                 document = json.loads(body)

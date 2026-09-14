@@ -82,7 +82,7 @@ BOOL Endpoint(const std::string &value) {
             NSError *failure = nil;
             try {
                 auto language = String(options, @"language");
-                if (language == "en-US") language = "en";
+                if (language == "en-US" || language == "en-us") language = "en";
                 if (language == "zh-CN") language = "zh-cn";
                 auto text = msime::voice::recognize_cloud_asr(samples, String(options, @"asr_provider"),
                     String(options, @"asr_endpoint"), String(options, @"asr_model"), String(options, @"asr_token"), language, cancelled);

@@ -1,0 +1,93 @@
+#import "../InputController.mm"
+#include <cassert>
+
+@interface HTTPRequestFixture : NSObject
+@property(copy) void (^completion)(NSString *, NSError *);
+@property NSUInteger cancellations;
+@property BOOL submitted;
+- (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
+- (void)cancel;
+@end
+@implementation HTTPRequestFixture
+- (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
+    (void)error; assert(pcm.length == 640); self.submitted = YES; self.completion = completion; return YES;
+}
+- (void)cancel { ++self.cancellations; }
+@end
+@interface HTTPCaptureFixture : NSObject
+@property(getter=isActive) BOOL active;
+@property BOOL failStart;
+@property NSUInteger cancellations;
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error;
+- (NSData *)finishPCMRecordingWithError:(NSError **)error;
+- (BOOL)cancelWithError:(NSError **)error;
+@end
+@implementation HTTPCaptureFixture
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
+    (void)handler; (void)device; (void)error; self.active = !self.failStart; return self.active;
+}
+- (NSData *)finishPCMRecordingWithError:(NSError **)error { (void)error; return [NSMutableData dataWithLength:640]; }
+- (BOOL)cancelWithError:(NSError **)error { (void)error; self.active = NO; ++self.cancellations; return YES; }
+@end
+@interface HTTPHostFixture : NSObject
+@property NSUInteger submissions;
+- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
+@end
+@implementation HTTPHostFixture
+- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
+    (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
+    ++self.submissions; return @{};
+}
+@end
+@interface HTTPControllerFixture : MSIMEInputController
+@property HTTPRequestFixture *requestFixture;
+@property NSUInteger applies;
+@end
+@implementation HTTPControllerFixture
+- (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new]; return (id)self.requestFixture;
+}
+- (void)apply:(NSDictionary *)result { (void)result; ++self.applies; }
+@end
+
+int main() {
+    @autoreleasepool {
+        HTTPControllerFixture *controller = [HTTPControllerFixture alloc];
+        HTTPCaptureFixture *capture = [HTTPCaptureFixture new];
+        HTTPHostFixture *session = [HTTPHostFixture new];
+        NSObject *client = [NSObject new];
+        [controller setValue:capture forKey:@"voiceService"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@42 forKey:@"voiceGeneration"];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        assert(controller.requestFixture.submitted);
+        controller.requestFixture.completion(@"synthetic", nil);
+        controller.requestFixture.completion = nil;
+        assert(session.submissions == 1 && controller.applies == 1 && !capture.active);
+        // Exercise all controller identity checks with deliberately late results.
+        for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            [controller finishHTTPVoiceInput];
+            id original = [controller valueForKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            controller.requestFixture.completion(@"synthetic", nil);
+            controller.requestFixture.completion = nil;
+            [controller setValue:original forKey:field];
+            assert(session.submissions == 1 && controller.applies == 1);
+        }
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        HTTPRequestFixture *old = controller.requestFixture;
+        [controller finishHTTPVoiceInput]; // A second stop while processing cancels.
+        assert(old.cancellations == 1);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        old.completion(@"synthetic", nil); old.completion = nil;
+        assert(capture.active && controller.requestFixture.cancellations == 0);
+        [controller cancelHTTPVoiceInput];
+        capture.failStart = YES;
+        assert(![controller startHTTPVoiceInputWithOptions:@{}]);
+        assert(controller.requestFixture.cancellations == 1);
+    }
+}

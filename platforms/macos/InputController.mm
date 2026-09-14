@@ -16,6 +16,7 @@
 #import "SharedVoicePreferences.h"
 #import "VoiceProviderOptions.h"
 #import "VoiceDeactivation.h"
+#import "HTTPVoiceRequest.h"
 #import "SupportWindowController.h"
 #import "BackendAccountEntry.h"
 #import "BackendSelectionObservation.h"
@@ -203,6 +204,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
     MSIMEVoiceAudioMuter *_voiceAudioMuter;
+    MSIMEHTTPVoiceRequest *_httpVoiceRequest;
+    MSIMEClientSession *_httpVoiceSession;
+    id _httpVoiceClient;
+    uint64_t _httpVoiceGeneration;
+    BOOL _httpVoiceProcessing;
     id _globalVoiceHotkeyMonitor;
     uint64_t _voiceGeneration;
     id _activeClient;
@@ -620,7 +626,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     return _candidateAnchorValid ? _candidateAnchorCaret : reported;
 }
-- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
+- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
     _preferenceLoadState.reset();
     [self applySharedToolbarPreferences:notification.userInfo];
@@ -895,6 +901,79 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate];
     });
 }
+- (BOOL)usesNativeHTTPVoice {
+    NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
+    return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
+        [@[@"openai", @"groq", @"siliconflow", @"cloud"] containsObject:provider.lowercaseString];
+}
+- (void)dealloc { [_httpVoiceRequest cancel]; }
+- (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    return [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:error];
+}
+- (void)cancelHTTPVoiceInput {
+    if (!_httpVoiceRequest) return;
+    [_httpVoiceRequest cancel];
+    _httpVoiceRequest = nil;
+    _httpVoiceSession = nil;
+    _httpVoiceClient = nil;
+    _httpVoiceProcessing = NO;
+    [_voiceService cancelWithError:nil];
+    [_voiceAudioMuter restore];
+    [_voiceOverlay setListening:NO];
+}
+- (BOOL)startHTTPVoiceInputWithOptions:(NSDictionary *)options {
+    NSError *error = nil;
+    MSIMEHTTPVoiceRequest *request = [self makeHTTPVoiceRequest:options error:&error];
+    if (!request || !_activeClient || !_session) {
+        [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+        return NO;
+    }
+    _httpVoiceRequest = request;
+    _httpVoiceSession = _session;
+    _httpVoiceClient = _activeClient;
+    _httpVoiceGeneration = _voiceGeneration;
+    _httpVoiceProcessing = NO;
+    __weak MSIMEInputController *weakSelf = self;
+    NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
+        float level = 0;
+        const float *samples = buffer.floatChannelData ? buffer.floatChannelData[0] : nullptr;
+        for (AVAudioFrameCount i = 0; samples && i < buffer.frameLength; ++i) level = MAX(level, fabsf(samples[i]));
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *controller = weakSelf;
+            if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing)
+                [controller->_voiceOverlay setInputLevel:level];
+        });
+    } deviceUID:device error:&error]) { [self cancelHTTPVoiceInput]; return NO; }
+    return YES;
+}
+- (void)finishHTTPVoiceInput {
+    MSIMEHTTPVoiceRequest *request = _httpVoiceRequest;
+    if (!request) return;
+    if (_httpVoiceProcessing) { [self cancelHTTPVoiceInput]; return; }
+    _httpVoiceProcessing = YES;
+    NSError *error = nil;
+    NSData *pcm = [_voiceService finishPCMRecordingWithError:&error];
+    [_voiceAudioMuter restore];
+    [_voiceOverlay setListening:NO];
+    if (!pcm.length || error) { [self cancelHTTPVoiceInput]; return; }
+    MSIMEClientSession *session = _httpVoiceSession;
+    id client = _httpVoiceClient;
+    const uint64_t generation = _httpVoiceGeneration;
+    __weak MSIMEInputController *weakSelf = self;
+    if (![request recognizePCM:pcm completion:^(NSString *text, NSError *failure) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_httpVoiceRequest != request) return;
+        if (!failure && text.length && controller->_activeClient == client &&
+            controller->_session == session && controller->_voiceGeneration == generation && controller->_voiceService.active) {
+            // Native host session methods are main-thread-only. Recheck the
+            // departing focus identity before the runtime's own generation check.
+            NSDictionary *result = [session applyVoiceText:text generation:generation error:nil];
+            if (result) [controller apply:result];
+        }
+        [controller cancelHTTPVoiceInput];
+    } error:&error]) [self cancelHTTPVoiceInput];
+}
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
     if (!_session) [self prepareSession];
@@ -903,6 +982,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
     if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
     if (!_voiceOverlay) _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
+    if (_httpVoiceRequest) { [self finishHTTPVoiceInput]; return; }
     if (_voiceService.active) { NSString *socket=NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"]; if(socket.length) { MSIMEClientSession *session=_session; uint64_t generation=_voiceGeneration; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; }); [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [_voiceCuePlayer playStopCue]; return; } [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [_voiceCuePlayer playStopCue]; return; }
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
@@ -915,9 +995,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [controller->_voiceCuePlayer playStartCue];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults; NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow", @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
+        query = MSIMEVoiceProviderOptions(query, defaults);
         if (socket.length) {
-            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults; NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow", @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
-            query = MSIMEVoiceProviderOptions(query, defaults);
             uint64_t generation = controller->_voiceGeneration;
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
                 NSError *providerError = nil;
@@ -933,6 +1013,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             });
             return;
         }
+        if ([controller usesNativeHTTPVoice]) { [controller startHTTPVoiceInputWithOptions:query]; return; }
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             BOOL streamInline = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"];
             if (final || streamInline)
@@ -947,7 +1028,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (liveController) [liveController->_voiceOverlay setInputLevel:level];
         } deviceUID:deviceUID error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; [controller->_voiceAudioMuter restore]; }
     };
-    if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
+    if (![self usesNativeHTTPVoice] && ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
+        _voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
         [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
         return;
     }
@@ -1007,6 +1089,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    if (_activeClient && _activeClient != sender) [self cancelHTTPVoiceInput];
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     [self resetCandidateAnchor];
@@ -1211,6 +1294,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    [self cancelHTTPVoiceInput];
     MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
         NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"], _voiceGeneration);
     [self cancelCandidateTranslations];
