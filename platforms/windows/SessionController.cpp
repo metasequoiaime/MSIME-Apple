@@ -397,6 +397,49 @@ bool SessionController::send_tsf_config(const FocusLease &lease,
   }
   return sent;
 }
+namespace {
+// Long enough for an import of a large personal dictionary, short enough that
+// a maintenance process which dies mid-operation cannot leave input broken for
+// more than this.
+constexpr auto quiesce_budget = std::chrono::seconds(30);
+} // namespace
+bool SessionController::quiesce_dictionaries() {
+  if (stopping_.load())
+    return false;
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  auto submitted = input_.submit([done](InputState &state) {
+    state.quiesce_dictionaries();
+    done->store(true);
+  });
+  if (!submitted)
+    return false;
+  // Tearing down sessions is local work, but it waits behind whatever the
+  // queue is already doing, so this is more generous than the Aux deactivate.
+  if (submitted->wait_for(std::chrono::seconds(2)) != std::future_status::ready)
+    return false;
+  if (submitted->get() != InputTaskStatus::Completed || !done->load())
+    return false;
+  quiesce_deadline_.store(
+      (std::chrono::steady_clock::now() + quiesce_budget)
+          .time_since_epoch()
+          .count());
+  return true;
+}
+bool SessionController::resume_dictionaries() {
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  auto submitted = input_.submit([done](InputState &state) {
+    state.resume_dictionaries();
+    done->store(true);
+  });
+  // Clear the deadline first: a resume that fails to be admitted must not be
+  // retried forever by the watchdog on every tick.
+  quiesce_deadline_.store(0);
+  if (!submitted)
+    return false;
+  if (submitted->wait_for(std::chrono::seconds(2)) != std::future_status::ready)
+    return false;
+  return submitted->get() == InputTaskStatus::Completed && done->load();
+}
 bool SessionController::deactivate_terminal(uint64_t client, uint64_t token) {
   if (!client || !token || stopping_.load())
     return false;
@@ -489,6 +532,13 @@ void SessionController::run() {
         failure_ = ControllerFailure::Preferences;
         break;
       }
+      // A maintenance process that died between quiesce and resume would
+      // otherwise leave every client without a session for good.
+      if (const auto deadline = quiesce_deadline_.load();
+          deadline != 0 &&
+          std::chrono::steady_clock::now().time_since_epoch().count() >=
+              deadline)
+        (void)resume_dictionaries();
       if (ticket)
         workers_.submit(*ticket);
     }

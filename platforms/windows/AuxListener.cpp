@@ -15,7 +15,8 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
                                                  Sink sink, DWORD &error,
                                                  MessageSink message_sink,
                                                  ActivationSink activation,
-                                                 TerminalSink terminal) {
+                                                 TerminalSink terminal,
+                                                 MaintenanceSink maintenance) {
   error = ERROR_SUCCESS;
   if (!sink) {
     error = ERROR_INVALID_PARAMETER;
@@ -35,6 +36,7 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
   aux->message_sink_ = std::move(message_sink);
   aux->activation_ = std::move(activation);
   aux->terminal_ = std::move(terminal);
+  aux->maintenance_ = std::move(maintenance);
   aux->worker_ = std::thread([raw = aux.get()] { raw->run(); });
   return aux;
 }
@@ -62,6 +64,14 @@ AuxStats AuxListener::stats() const {
   return stats_;
 }
 
+void AuxListener::write_ok(HANDLE connection) {
+  // The wire carries UTF-16LE, so this is the two code units of "OK".
+  static constexpr wchar_t ok[] = L"OK";
+  const std::vector<uint8_t> reply(
+      reinterpret_cast<const uint8_t *>(ok),
+      reinterpret_cast<const uint8_t *>(ok) + sizeof(wchar_t) * 2);
+  (void)write_frame(connection, reply, aux_read_timeout_ms, cancel_);
+}
 void AuxListener::run() {
   while (WaitForSingleObject(cancel_, 0) != WAIT_OBJECT_0) {
     auto accepted = listener_->accept(aux_accept_slice_ms, cancel_);
@@ -114,20 +124,28 @@ void AuxListener::run() {
       ++stats_.dispatched;
       continue;
     }
+    if (const auto maintenance = parse_aux_dictionary_maintenance(*text)) {
+      // Same contract as the deactivation below: the caller takes "OK" as
+      // proof that the sessions are gone and the dictionary lock is free, so
+      // it is written only once that is actually true.
+      const bool done = maintenance_ && maintenance_(*maintenance);
+      if (done)
+        write_ok(accepted.connection->handle());
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      if (done)
+        ++stats_.dispatched;
+      else
+        ++stats_.unknown_verb;
+      continue;
+    }
     if (const auto terminal = parse_aux_terminal_deactivation(*text)) {
       // The DLL polls this pipe for a literal "OK" and blocks its TSF thread
       // for 150 ms without one. Answer only once the client really is gone:
       // an unconditional "OK" would tell the DLL a teardown happened that did
       // not, which is worse than the wait.
       const bool done = terminal_ && terminal_(*terminal);
-      if (done) {
-        static constexpr wchar_t ok[] = L"OK";
-        const std::vector<uint8_t> reply(
-            reinterpret_cast<const uint8_t *>(ok),
-            reinterpret_cast<const uint8_t *>(ok) + sizeof(wchar_t) * 2);
-        (void)write_frame(accepted.connection->handle(), reply,
-                          aux_read_timeout_ms, cancel_);
-      }
+      if (done)
+        write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
       if (done)
         ++stats_.dispatched;

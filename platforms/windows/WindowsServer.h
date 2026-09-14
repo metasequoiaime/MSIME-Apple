@@ -49,6 +49,9 @@ public:
   bool deactivate_terminal(uint64_t client, uint64_t token) {
     return controller_->deactivate_terminal(client, token);
   }
+  // Dictionary maintenance handshake; see SessionController.
+  bool quiesce_dictionaries() { return controller_->quiesce_dictionaries(); }
+  bool resume_dictionaries() { return controller_->resume_dictionaries(); }
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }

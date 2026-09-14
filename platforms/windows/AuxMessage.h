@@ -130,6 +130,23 @@ inline std::optional<AuxActivation> parse_aux_activation(const std::wstring &tex
   return std::nullopt;
 }
 
+// DictionaryQuiesce / DictionaryResume
+//
+// Dictionary maintenance runs in the settings process and needs the exclusive
+// file lock every Engine session holds a share of. It asks the Server to drop
+// its sessions, does the work, and asks for them back. Both are answered with
+// the same "OK" the DLL's TerminalDeactivation uses, so the caller knows the
+// lock is actually free before it tries to take it.
+enum class AuxDictionaryMaintenance { Quiesce, Resume };
+inline std::optional<AuxDictionaryMaintenance>
+parse_aux_dictionary_maintenance(const std::wstring &text) {
+  if (text == L"DictionaryQuiesce")
+    return AuxDictionaryMaintenance::Quiesce;
+  if (text == L"DictionaryResume")
+    return AuxDictionaryMaintenance::Resume;
+  return std::nullopt;
+}
+
 // TerminalDeactivation|<clientId>|<focusToken>
 //
 // The DLL falls back to this when its Main-pipe deactivate write fails, and

@@ -65,6 +65,43 @@ FocusedSession *InputState::session(const PipeTicket &ticket) {
              ? found->second.session.get()
              : nullptr;
 }
+size_t InputState::quiesce_dictionaries() {
+  check_thread();
+  quiesced_ = true;
+  size_t released = 0;
+  for (auto &[id, client] : clients_) {
+    (void)id;
+    if (!client.session)
+      continue;
+    // Drop the session, which releases both the Engine's open dictionary
+    // files and the shared access lock they were taken under. Its destructor
+    // performs the same teardown a disconnect would.
+    client.session.reset();
+    ++released;
+  }
+  // Nothing owns a focus any more, so no stale lease can be acknowledged.
+  gate_.invalidate_all();
+  return released;
+}
+size_t InputState::resume_dictionaries() {
+  check_thread();
+  quiesced_ = false;
+  size_t rebuilt = 0;
+  for (auto &[id, client] : clients_) {
+    if (client.session)
+      continue;
+    try {
+      client.session =
+          std::make_unique<FocusedSession>(gate_, id, options_);
+      ++rebuilt;
+    } catch (...) {
+      // A client whose session cannot be rebuilt is left without one. It
+      // behaves exactly as an unknown client until it reconnects, rather than
+      // taking the Server down over one failed rebuild.
+    }
+  }
+  return rebuilt;
+}
 bool InputState::deactivate_terminal(uint64_t client, uint64_t token) {
   check_thread();
   if (!client || !token)

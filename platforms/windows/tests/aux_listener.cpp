@@ -131,6 +131,9 @@ int main() {
       std::atomic<int32_t> seen_client{0};
       std::atomic<int32_t> seen_token{0};
       std::atomic<uint64_t> terminal_calls{0};
+      std::atomic<bool> maintenance_ok{false};
+      std::atomic<uint64_t> quiesces{0};
+      std::atomic<uint64_t> resumes{0};
       auto listener = AuxListener::create(
           name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
           [&](AuxActivation activation) {
@@ -144,6 +147,13 @@ int main() {
             seen_token.store(terminal.focus_token);
             ++terminal_calls;
             return deactivated.load();
+          },
+          [&](AuxDictionaryMaintenance request) {
+            if (request == AuxDictionaryMaintenance::Quiesce)
+              ++quiesces;
+            else
+              ++resumes;
+            return maintenance_ok.load();
           });
       require(listener != nullptr);
       const auto dispatched = [&] { return listener->stats().dispatched; };
@@ -196,6 +206,19 @@ int main() {
       require(seen_client.load() == 9 && seen_token.load() == 11);
       // An acknowledged deactivation is dispatched work, not an unknown verb.
       require(listener->stats().unknown_verb == 3);
+      // Dictionary maintenance: the settings process takes "OK" as permission
+      // to open the dictionaries exclusively, so a release that did not happen
+      // must not be answered.
+      maintenance_ok.store(false);
+      require(send_and_read_reply(name, L"DictionaryQuiesce").empty());
+      require(quiesces.load() == 1);
+      maintenance_ok.store(true);
+      require(send_and_read_reply(name, L"DictionaryQuiesce") == L"OK");
+      require(quiesces.load() == 2);
+      // Resume is answered the same way and is routed as its own verb, not
+      // confused with the quiesce that preceded it.
+      require(send_and_read_reply(name, L"DictionaryResume") == L"OK");
+      require(resumes.load() == 1 && quiesces.load() == 2);
       require(deliver(name, L"LangbarRightClick|10|10|50|50", dispatched, 9));
       require(collected.wait_for(7));
 

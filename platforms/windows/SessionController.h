@@ -78,6 +78,13 @@ public:
   // named client really is not focused under that token, because the DLL
   // writes its "OK" on the strength of this answer.
   bool deactivate_terminal(uint64_t client, uint64_t token);
+  // Release every Engine session so another process can take the exclusive
+  // dictionary lock, and rebuild them afterwards. Called on the Aux listener
+  // thread. A quiesce that is never resumed would leave the IME dead, so it
+  // carries its own deadline and the control loop resumes without being
+  // asked once it passes.
+  bool quiesce_dictionaries();
+  bool resume_dictionaries();
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())
@@ -104,6 +111,8 @@ private:
   SessionWorkers workers_;
   std::unique_ptr<PreferenceMonitor> preferences_;
   std::atomic<bool> stopping_{false};
+  // Monotonic deadline for an outstanding quiesce; zero when not quiesced.
+  std::atomic<std::chrono::steady_clock::rep> quiesce_deadline_{0};
   std::atomic<ControllerFailure> failure_{ControllerFailure::None};
   std::mutex stop_mutex_;
   std::thread control_;

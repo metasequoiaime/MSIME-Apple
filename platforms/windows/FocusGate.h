@@ -97,6 +97,13 @@ public:
     ready_ = false;
     return true;
   }
+  // Drop whatever focus is current, whoever owns it. Used when every session
+  // is being torn down at once, so no lease outlives the session behind it.
+  void invalidate_all() {
+    std::lock_guard lock(mutex_);
+    current_.reset();
+    ready_ = false;
+  }
   bool invalidate(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
     if (!current_ || !same_ticket(current_->transport, ticket))

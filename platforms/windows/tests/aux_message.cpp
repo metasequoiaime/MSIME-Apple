@@ -101,6 +101,22 @@ int main() {
   require(!parse_aux_activation(L""));
   require(!parse_aux_activation(L"LangbarRightClick|1|2|3|4"));
 
+  // The two maintenance verbs are exact words, not prefixes: a longer verb
+  // that merely starts with one must not be mistaken for it, because the
+  // answer grants exclusive access to the dictionaries.
+  require(parse_aux_dictionary_maintenance(L"DictionaryQuiesce") ==
+          AuxDictionaryMaintenance::Quiesce);
+  require(parse_aux_dictionary_maintenance(L"DictionaryResume") ==
+          AuxDictionaryMaintenance::Resume);
+  require(!parse_aux_dictionary_maintenance(L"DictionaryQuiesceNow"));
+  require(!parse_aux_dictionary_maintenance(L"DictionaryQuiesce|1"));
+  require(!parse_aux_dictionary_maintenance(L"dictionaryquiesce"));
+  require(!parse_aux_dictionary_maintenance(L"Dictionary"));
+  require(!parse_aux_dictionary_maintenance(L""));
+  // And they are not confused with the other verbs on the same pipe.
+  require(!parse_aux_dictionary_maintenance(L"IMEActivation"));
+  require(!parse_aux_dictionary_maintenance(L"RestartServer"));
+
   // TerminalDeactivation carries a client id and a focus token, both positive.
   const auto terminal = parse_aux_terminal_deactivation(L"TerminalDeactivation|7|42");
   require(terminal && terminal->client_id == 7 && terminal->focus_token == 42);

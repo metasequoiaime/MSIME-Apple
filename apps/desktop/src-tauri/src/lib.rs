@@ -802,6 +802,48 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
 /// dictionary is locked by another process, the edit itself was refused, and
 /// the store could not be opened - and the page used to print one identical
 /// sentence for all of them.
+/// Ask the Windows Server to release or retake its Engine sessions.
+///
+/// Dictionary maintenance needs the exclusive file lock that every session
+/// holds a share of, so with the IME in use it fails with "maintenance busy"
+/// every time. The Server answers "OK" only once the sessions really are gone,
+/// so that reply - not the write succeeding - is what makes it safe to open
+/// the dictionaries exclusively.
+///
+/// The Server also resumes on its own after a deadline, so a settings process
+/// that dies mid-import cannot leave input without sessions.
+#[cfg(target_os = "windows")]
+fn dictionary_maintenance_handshake(verb: &str) -> bool {
+    use std::io::{Read, Write};
+    const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+    let payload: Vec<u8> = verb
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    for attempt in 0..5 {
+        match fs::OpenOptions::new().read(true).write(true).open(PIPE_NAME) {
+            Ok(mut pipe) => {
+                if pipe.write_all(&payload).is_err() {
+                    return false;
+                }
+                let mut reply = [0_u8; 8];
+                let Ok(read) = pipe.read(&mut reply) else {
+                    return false;
+                };
+                // The Server writes UTF-16LE "OK" and nothing else.
+                return reply[..read] == *b"O\x00K\x00";
+            }
+            Err(_) if attempt < 4 => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            // No Server listening means no sessions to release, so the lock is
+            // already free and the caller should go ahead.
+            Err(_) => return verb == "DictionaryQuiesce",
+        }
+    }
+    false
+}
+
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
@@ -830,9 +872,27 @@ async fn dictionary_request(
             });
         }
         #[cfg(not(target_os = "android"))]
-        msime_host_api::dictionary_request_json(&bytes).map_err(|reason| CommandError {
-            code: dictionary_error_code(&reason),
-        })
+        {
+            let first = msime_host_api::dictionary_request_json(&bytes);
+            // Only the lock is worth a handshake. Every other failure is about
+            // the request itself and would fail again with sessions released.
+            #[cfg(target_os = "windows")]
+            if matches!(&first, Err(reason) if reason == "dictionary maintenance busy") {
+                if dictionary_maintenance_handshake("DictionaryQuiesce") {
+                    let retried = msime_host_api::dictionary_request_json(&bytes);
+                    // Resume whatever happened: leaving the IME without
+                    // sessions because an import failed would be worse than
+                    // the failure itself.
+                    let _ = dictionary_maintenance_handshake("DictionaryResume");
+                    return retried.map_err(|reason| CommandError {
+                        code: dictionary_error_code(&reason),
+                    });
+                }
+            }
+            return first.map_err(|reason| CommandError {
+                code: dictionary_error_code(&reason),
+            });
+        }
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?

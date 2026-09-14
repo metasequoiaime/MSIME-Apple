@@ -29,6 +29,15 @@ public:
   // that client is not focused under that token - which is what the DLL is
   // waiting to hear, and is already so when it never was.
   bool deactivate_terminal(uint64_t client, uint64_t token);
+  // Dictionary maintenance runs in another process and needs the exclusive
+  // file lock that every Engine session holds a share of. Dropping the
+  // sessions is what releases it: the Engine has the dictionary files open,
+  // so leaving it alive while they are swapped underneath would have it
+  // reading a tree that no longer exists. Transport registrations are kept,
+  // so the clients stay connected and get a session back on resume.
+  size_t quiesce_dictionaries();
+  size_t resume_dictionaries();
+  bool quiesced() const { check_thread(); return quiesced_; }
   FocusRoute failed(const FocusLease &lease);
   std::optional<PendingReply>
   key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
@@ -109,6 +118,7 @@ private:
   WordCharacterBinding word_character_ = WordCharacterBinding::Disabled;
   TsfPreeditStyle tsf_preedit_style_ = TsfPreeditStyle::Local;
   std::optional<PreferenceSnapshot> preferences_;
+  bool quiesced_ = false;
   std::unordered_map<uint64_t, Client> clients_;
 };
 

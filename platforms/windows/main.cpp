@@ -1019,6 +1019,17 @@ int wmain(int argc, wchar_t **argv) {
           return server.deactivate_terminal(
               static_cast<uint64_t>(terminal.client_id),
               static_cast<uint64_t>(terminal.focus_token));
+        },
+        // Dictionary maintenance runs in the settings process and needs the
+        // exclusive lock every Engine session holds a share of. Releasing it
+        // means dropping the sessions: the Engine has those files open, and
+        // leaving it alive while they are swapped underneath would have it
+        // reading a tree that no longer exists. The clients stay connected
+        // and get a session back on resume.
+        [&server](AuxDictionaryMaintenance request) {
+          return request == AuxDictionaryMaintenance::Quiesce
+                     ? server.quiesce_dictionaries()
+                     : server.resume_dictionaries();
         });
     // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
     // it; nothing ever listened, so enabling diagnostic logging produced

@@ -33,11 +33,16 @@ public:
   // Return true once the client really has been deactivated; only then is the
   // "OK" the DLL is waiting on written back.
   using TerminalSink = std::function<bool(const AuxTerminalDeactivation &)>;
+  // Return true once the sessions really have been released, or rebuilt. Only
+  // then is the "OK" the settings process is waiting on written back: it takes
+  // that as permission to open the dictionaries exclusively.
+  using MaintenanceSink = std::function<bool(AuxDictionaryMaintenance)>;
   static std::unique_ptr<AuxListener> create(const std::wstring &name,
                                              Sink sink, DWORD &error,
                                              MessageSink message_sink = {},
                                              ActivationSink activation = {},
-                                             TerminalSink terminal = {});
+                                             TerminalSink terminal = {},
+                                             MaintenanceSink maintenance = {});
   ~AuxListener();
   AuxListener(const AuxListener &) = delete;
   AuxListener &operator=(const AuxListener &) = delete;
@@ -50,11 +55,13 @@ public:
 private:
   AuxListener() = default;
   void run();
+  void write_ok(HANDLE connection);
   std::unique_ptr<PipeListener> listener_;
   Sink sink_;
   MessageSink message_sink_;
   ActivationSink activation_;
   TerminalSink terminal_;
+  MaintenanceSink maintenance_;
   HANDLE cancel_ = nullptr;
   std::thread worker_;
   std::mutex stop_mutex_;
