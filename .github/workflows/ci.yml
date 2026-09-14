@@ -65,6 +65,8 @@ jobs:
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      METASEQUOIA_SPARKLE_CACHE_DIR: ${{ runner.temp }}/sparkle
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,6 +78,12 @@ jobs:
       - name: Check formatting
         if: ${{ matrix.architecture == 'arm64' }}
         run: scripts/format.sh --check
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
@@ -126,12 +134,20 @@ jobs:
     name: Sanitizers
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      METASEQUOIA_SPARKLE_CACHE_DIR: ${{ runner.temp }}/sparkle
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
