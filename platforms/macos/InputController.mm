@@ -50,6 +50,7 @@
 #import "CustomTranslationBatch.h"
 #import "TranslationCache.h"
 #include "WubiCommitPolicy.h"
+#include "PairedPunctuation.h"
 
 static BOOL MSIMEScriptConversionApplies(id value) {
     if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
@@ -264,6 +265,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     BOOL _focusPending;
+    msime::mac::PairedPunctuationTracker _pairedPunctuation;
     MSIMEModifierTap _modifierTap;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
@@ -1813,6 +1815,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)deactivateServer:(id)sender {
+    _pairedPunctuation.clear();
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
