@@ -20,6 +20,10 @@ from pathlib import Path
 header = Path("crates/host-api/include/msime_client.h").read_text()
 library = ctypes.CDLL("/build/cargo/debug/libmsime_host_api.so")
 symbols = set(re.findall(r"\b(msime_client_\w+)\s*\(", header))
+inline_symbols = set(re.findall(
+    r"\bstatic\s+inline\b[^{;]*\b(msime_client_\w+)\s*\(", header
+))
+symbols -= inline_symbols
 assert symbols, "Host API header contains no exported declarations"
 for name in sorted(symbols):
     getattr(library, name)

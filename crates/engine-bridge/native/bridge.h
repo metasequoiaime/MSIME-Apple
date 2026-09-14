@@ -46,6 +46,7 @@ public:
     EngineResult select_edge(std::size_t index, std::uint8_t edge);
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);
+    void balance_paired_punctuation_after_auto_close(std::uint8_t opening);
     void set_chinese_punctuation_enabled(bool enabled);
     void set_punctuation_lock(std::uint8_t lock);
     void set_paired_punctuation_enabled(bool enabled);

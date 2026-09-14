@@ -89,6 +89,12 @@ pub trait InputEngine {
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
+    fn balance_paired_punctuation_after_auto_close(
+        &mut self,
+        _opening: u8,
+    ) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn set_punctuation_lock(&mut self, _lock: u8) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -147,6 +153,13 @@ impl InputEngine for Session {
     }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn balance_paired_punctuation_after_auto_close(
+        &mut self,
+        opening: u8,
+    ) -> Result<(), RuntimeError> {
+        Session::balance_paired_punctuation_after_auto_close(self, opening)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
@@ -1416,6 +1429,17 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_paired_punctuation_enabled(enabled)
     }
 
+    pub fn balance_paired_punctuation_after_auto_close(
+        &mut self,
+        opening: u8,
+    ) -> Result<(), RuntimeError> {
+        if opening != b'<' {
+            return Err(RuntimeError::InvalidPunctuation);
+        }
+        self.engine
+            .balance_paired_punctuation_after_auto_close(opening)
+    }
+
     pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
         self.engine.set_punctuation_lock(lock)
     }
@@ -1968,6 +1992,7 @@ mod tests {
         codes: Vec<String>,
         text: String,
         snapshot_fails: bool,
+        balanced_openings: Vec<u8>,
     }
 
     #[cfg(unix)]
@@ -2040,6 +2065,13 @@ mod tests {
         );
     }
     impl InputEngine for Fixture {
+        fn balance_paired_punctuation_after_auto_close(
+            &mut self,
+            opening: u8,
+        ) -> Result<(), RuntimeError> {
+            self.balanced_openings.push(opening);
+            Ok(())
+        }
         fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
             self.nine_key = enabled;
             self.nine_key_spellings.clear();
@@ -2162,10 +2194,27 @@ mod tests {
                 codes: Vec::new(),
                 text: String::new(),
                 snapshot_fails: false,
+                balanced_openings: Vec::new(),
             },
             5,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn auto_close_balance_accepts_only_the_book_title_opening() {
+        let mut runtime = runtime();
+        for invalid in [b'(', b'>', b'a', b' ', 0, 128, 255] {
+            assert!(matches!(
+                runtime.balance_paired_punctuation_after_auto_close(invalid),
+                Err(RuntimeError::InvalidPunctuation)
+            ));
+        }
+        assert!(runtime.engine.balanced_openings.is_empty());
+        runtime
+            .balance_paired_punctuation_after_auto_close(b'<')
+            .unwrap();
+        assert_eq!(runtime.engine.balanced_openings, vec![b'<']);
     }
 
     // The AI context accumulator. Every host but Linux sent an empty context,
@@ -2228,6 +2277,7 @@ mod tests {
                 codes: vec!["ab".into(), "ac".into()],
                 text: String::new(),
                 snapshot_fails: false,
+                balanced_openings: Vec::new(),
             },
             2,
         )

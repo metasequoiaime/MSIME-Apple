@@ -302,6 +302,10 @@ mod ffi {
         ) -> Result<EngineResult>;
         fn finish(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn punctuation(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
+        fn balance_paired_punctuation_after_auto_close(
+            self: Pin<&mut EngineSession>,
+            opening: u8,
+        ) -> Result<()>;
         fn set_chinese_punctuation_enabled(
             self: Pin<&mut EngineSession>,
             enabled: bool,
@@ -640,6 +644,14 @@ impl Session {
     }
     pub fn punctuation(&mut self, value: u8) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().punctuation(value)
+    }
+    pub fn balance_paired_punctuation_after_auto_close(
+        &mut self,
+        opening: u8,
+    ) -> Result<(), cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .balance_paired_punctuation_after_auto_close(opening)
     }
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
         self.inner

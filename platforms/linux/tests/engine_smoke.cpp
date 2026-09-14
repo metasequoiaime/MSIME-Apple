@@ -724,16 +724,58 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     seen.committed.clear();
 #endif
+    const auto wait_saved_preferences = [&](const auto &ready) {
+      const auto deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      gint64 ready_since = 0;
+      while (g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        try {
+          std::ifstream input(root / "preferences.json");
+          nlohmann::json snapshot;
+          input >> snapshot;
+          if (ready(snapshot.at("preferences"))) {
+            if (ready_since == 0)
+              ready_since = g_get_monotonic_time();
+            if (g_get_monotonic_time() - ready_since >= 50000)
+              return true;
+          } else {
+            ready_since = 0;
+          }
+        } catch (...) {}
+        g_usleep(1000);
+      }
+      return false;
+    };
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("character_width", "halfwidth") ==
+                     "fullwidth";
+            }),
+            "Fullwidth character mode was not persisted");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("character_width", "fullwidth") ==
+                     "halfwidth";
+            }),
+            "Halfwidth character mode was not restored");
     require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
     invoke("PropertyActivate",
            g_variant_new("(su)", "PunctuationLock/english", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("punctuation_lock", "follow") ==
+                     "english";
+            }),
+            "English punctuation lock was not persisted");
     invoke("PropertyActivate",
            g_variant_new("(su)", "PunctuationLock/follow", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("punctuation_lock", "english") ==
+                     "follow";
+            }),
+            "Follow punctuation lock was not restored");
     auto mode = [&](guint value) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));
     };
@@ -1119,6 +1161,7 @@ int main(int argc, char **argv) {
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     invoke("Reset");
+    phrase();
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");
@@ -1151,6 +1194,10 @@ int main(int argc, char **argv) {
     require(key(IBUS_quotedbl), "Paired quote was not consumed");
     require(seen.committed == "你好" + selected + "，“”",
             "Paired quote output mismatch");
+    auto paired_book_titles = seen.committed;
+    require(key('<') && key('<'), "Paired book title marks were not consumed");
+    require(seen.committed == paired_book_titles + "《》《》",
+            "Auto-closed book title marks left Engine nesting elevated");
     invoke("Reset");
     require(key('u', IBUS_SHIFT_MASK), "Shift+U Unicode mode was not consumed");
     require(seen.preedit_visible && seen.preedit == "U",
@@ -1227,11 +1274,25 @@ int main(int argc, char **argv) {
     seen.committed.clear();
     require(!key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
             "Disabled temporary Japanese mode swallowed Shift+R");
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return !preferences.at("local_modes")
+                          .at("temporary_japanese").get<bool>();
+            }),
+            "Temporary Japanese disable was not persisted");
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.at("local_modes")
+                  .at("temporary_japanese").get<bool>();
+            }),
+            "Temporary Japanese restore was not persisted");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("scheme", "quanpin") == "japanese";
+            }),
+            "Japanese scheme was not persisted");
     require(key('a'), "Japanese scheme did not consume Romaji input");
     require(seen.lookup_visible && !seen.candidates.empty() &&
                 seen.candidates.front().find("あ") != std::string::npos,
@@ -1239,16 +1300,32 @@ int main(int argc, char **argv) {
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Chinese", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("scheme", "japanese") == "quanpin";
+            }),
+            "Chinese scheme was not restored");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Wubi", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("scheme", "quanpin") == "wubi";
+            }),
+            "Wubi scheme was not persisted");
     require(key('a'), "Explicit Wubi scheme did not switch the Engine");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Quanpin", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("scheme", "wubi") == "quanpin";
+            }),
+            "Quanpin scheme was not restored");
     auto committed = seen.committed;
     phrase();
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_UNCHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return !preferences.value("chinese_punctuation", true);
+            }),
+            "English punctuation mode was not persisted");
     require(seen.preedit_visible && seen.preedit == "nihao" &&
                 seen.lookup_visible && seen.committed == committed,
             "Punctuation toggle lost composition or committed input");
@@ -1257,6 +1334,10 @@ int main(int argc, char **argv) {
     require(seen.committed == committed, "English punctuation emitted a commit");
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("chinese_punctuation", false);
+            }),
+            "Chinese punctuation mode was not restored");
     require(key(','), "Restored Chinese punctuation was not consumed");
     require(seen.committed == committed + "，",
             "Restored punctuation mode did not reach the session");
@@ -1332,9 +1413,19 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
     require(key('1'), "Fullwidth idle digit was not handled");
     require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("character_width", "halfwidth") ==
+                     "fullwidth";
+            }),
+            "Fullwidth idle mode was not persisted");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
     require(!key('2'), "Halfwidth idle digit was intercepted");
     require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.value("character_width", "fullwidth") ==
+                     "halfwidth";
+            }),
+            "Halfwidth idle mode was not restored");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {
@@ -1358,6 +1449,11 @@ int main(int argc, char **argv) {
     settle();
     require(!seen.traditional_output,
             "Traditional output preference did not restore after the shortcut test");
+    std::ifstream current_preferences(root / "preferences.json");
+    nlohmann::json current_snapshot;
+    current_preferences >> current_snapshot;
+    const auto first_external_revision =
+        current_snapshot.at("revision").get<uint64_t>() + 1;
     auto save = [&](uint64_t revision, size_t page_size) {
       auto preferences = options.at("preferences");
       preferences["candidate_page_size"] = page_size;
@@ -1372,7 +1468,7 @@ int main(int argc, char **argv) {
       std::filesystem::rename(root / "preferences.next", root / "preferences.json");
     };
     phrase();
-    save(1, 3);
+    save(first_external_revision, 3);
     settle();
     require(seen.preedit == "nihao" && seen.candidates.size() == 2,
             "Preferences interrupted the active composition");
@@ -1387,13 +1483,13 @@ int main(int argc, char **argv) {
     require(seen.preedit == "nihao" && seen.candidates.size() == 3,
             "Malformed preferences disturbed composition");
     invoke("Reset");
-    save(0, 4);
+    save(first_external_revision - 1, 4);
     settle();
     phrase();
     require(seen.candidates.size() == 3,
             "Stale revision replaced live settings");
     invoke("Reset");
-    save(1, 4);
+    save(first_external_revision, 4);
     settle();
     phrase();
     require(seen.candidates.size() == 3,
@@ -1410,7 +1506,7 @@ int main(int argc, char **argv) {
         open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
     require(lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) == 0,
             "Cannot lock synthetic preferences");
-    save(2, 4);
+    save(first_external_revision + 1, 4);
     settle();
     phrase();
     require(seen.candidates.size() == 3, "Reader ignored the writer lock");
@@ -1451,7 +1547,7 @@ int main(int argc, char **argv) {
         {"tab", IBUS_Tab, IBUS_ISO_Left_Tab, false},
         {"page_up_down", IBUS_KP_Page_Down, IBUS_KP_Page_Up, false},
         {"arrows", IBUS_KP_Down, IBUS_KP_Up, true}};
-    uint64_t revision = 3;
+    uint64_t revision = first_external_revision + 2;
     for (const auto &binding : bindings) {
       for (const auto &item : bindings)
         options["preferences"]["navigation"][item.name] = false;
@@ -1602,6 +1698,7 @@ int main(int argc, char **argv) {
     external_skin["preferences"]["candidate_skin"] = "custom";
     external_skin["preferences"]["candidate_theme"] = "light";
     external_skin["preferences"]["candidate_surface_color"] = "#123456";
+    external_skin["preferences"].erase("candidate_selected_color");
     msime_preview_configure(external_skin.dump());
     engine = create_engine();
     seen = Observation{};

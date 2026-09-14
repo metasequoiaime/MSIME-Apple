@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     assert(!msime_client_key_dispatch_allows_fallback(MSIME_CLIENT_KEY_SENT));
     assert(!msime_client_key_dispatch_allows_fallback(MSIME_CLIENT_KEY_DELIVERY_AMBIGUOUS));
     assert(argc == 2);
-    assert(msime_client_abi_version() == 1);
+    assert(msime_client_abi_version() == 2);
     msime_client_key_event event = {{1, 2, 3}, 0x41, 30, 0x0f, 'a', false};
     assert(msime_client_key_event_valid(&event));
     event.lease.token = 0;

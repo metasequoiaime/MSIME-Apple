@@ -237,6 +237,10 @@ char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 // Explicit native punctuation: finish the highlighted composition, then translate.
 // Invalid non-punctuation bytes fail without modifying the session.
 char *msime_client_punctuation(uint64_t session, uint8_t ascii);
+/* Balance Engine nesting after the host emitted a paired closing mark. Only
+ * the ASCII book-title opening '<' is accepted. */
+char *msime_client_balance_paired_punctuation_after_auto_close(uint64_t session,
+                                                               uint8_t opening);
 // Finish the highlighted composition, then append the literal ASCII mark.
 // Hosts use this for platform smart-punctuation decisions based on editor
 // context; invalid non-punctuation bytes fail without modifying the session.

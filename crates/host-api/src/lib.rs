@@ -1861,6 +1861,23 @@ pub extern "C" fn msime_client_punctuation(handle: u64, ascii: u8) -> *mut c_cha
     dispatch(handle, Action::Punctuation(ascii))
 }
 
+/// Notify Engine that a host-emitted paired closing mark completed the opening.
+#[no_mangle]
+pub extern "C" fn msime_client_balance_paired_punctuation_after_auto_close(
+    handle: u64,
+    opening: u8,
+) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .balance_paired_punctuation_after_auto_close(opening)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
 /// Finish the highlighted composition and append a literal ASCII punctuation
 /// mark. This is kept separate from Engine punctuation so a platform host can
 /// apply its own surrounding-text policy without changing the shared table.
@@ -4407,6 +4424,46 @@ mod tests {
             read(msime_client_destroy(handle));
             assert_eq!(read(msime_client_punctuation(handle, b','))["ok"], false);
         }
+    }
+
+    #[test]
+    fn paired_book_title_auto_close_balance_is_narrow_and_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        assert_eq!(
+            read(msime_client_punctuation(handle, b'<'))["value"]["commit"],
+            "《"
+        );
+        let before = read(msime_client_view(handle));
+        for invalid in [b'(', b'>', b'a', b' ', 0, 128, 255] {
+            assert_eq!(
+                read(msime_client_balance_paired_punctuation_after_auto_close(
+                    handle, invalid
+                ))["ok"],
+                false
+            );
+            assert_eq!(read(msime_client_view(handle)), before);
+        }
+        let balanced = read(msime_client_balance_paired_punctuation_after_auto_close(
+            handle, b'<',
+        ));
+        assert_eq!(balanced["ok"], true);
+        assert_eq!(balanced["value"], before["value"]);
+        assert_eq!(
+            read(msime_client_punctuation(handle, b'<'))["value"]["commit"],
+            "《"
+        );
+        read(msime_client_balance_paired_punctuation_after_auto_close(
+            handle, b'<',
+        ));
+        read(msime_client_destroy(handle));
+        assert_eq!(
+            read(msime_client_balance_paired_punctuation_after_auto_close(
+                handle, b'<',
+            ))["ok"],
+            false
+        );
     }
 
     #[test]

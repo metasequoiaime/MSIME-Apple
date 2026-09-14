@@ -116,7 +116,7 @@ std::optional<guint> candidate_selected_number_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, InputMode, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -394,6 +394,11 @@ struct State {
     if (session)
       msime_client_string_free(msime_client_destroy(session));
     session = 0;
+    if (focused && client_token != 0)
+      key_router.set_lease(
+          {client_token, focus_epoch,
+           msime::linux_host::KeyRouterAdapter::lease_token(client_token,
+                                                             session)});
     view = nullptr;
     surrounding_text.clear();
     surrounding_valid = false;
@@ -518,6 +523,11 @@ struct State {
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    translation_reset_pending = false;
+    key_router.set_lease(
+        {client_token, focus_epoch,
+         msime::linux_host::KeyRouterAdapter::lease_token(client_token,
+                                                           session)});
     view = response(msime_client_set_character_width(session, fullwidth));
     // CN/EN passthrough defaults are independent of the English candidate mode.
     english_mode = dedicated_english_override.value_or(false);
@@ -565,6 +575,10 @@ struct State {
     word_character = edge_binding;
     if (word_character_override)
       word_character.enabled = *word_character_override;
+    Json initial_snapshot{{"preferences", configured.at("preferences")}};
+    apply_session_overrides(initial_snapshot);
+    applied_preferences_snapshot =
+        std::move(initial_snapshot.at("preferences"));
   }
   void refresh_host_preferences(const Json &preferences) {
     const auto diagnostic = preferences.value("diagnostic_log", Json::object());
@@ -1597,7 +1611,8 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
 void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
   const bool offline_gloss =
-      s.candidate_english_gloss && s.translation_target_language == "en";
+      s.translation_target_language == "en" &&
+      (s.candidate_english_gloss || s.candidate_translations);
   const bool online_translation =
       s.candidate_translations && !s.translation_provider_socket.empty();
   if ((!offline_gloss && !online_translation) ||
@@ -1645,7 +1660,8 @@ void translation_schedule(IBusEngine *engine) {
     g_source_remove(source);
   }
   const bool offline_gloss =
-      s.candidate_english_gloss && s.translation_target_language == "en";
+      s.translation_target_language == "en" &&
+      (s.candidate_english_gloss || s.candidate_translations);
   const bool online_translation =
       s.candidate_translations && !s.translation_provider_socket.empty();
   if ((!offline_gloss && !online_translation) ||
@@ -3497,7 +3513,10 @@ void focus_in(IBusEngine *engine) {
     // Host shortcuts and presentation also apply before a runtime is needed.
     s.refresh_host_preferences(configured.at("preferences"));
     s.open();
-    s.key_router.set_lease({s.client_token, s.focus_epoch, s.session});
+    s.key_router.set_lease(
+        {s.client_token, s.focus_epoch,
+         msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
+                                                           s.session)});
     watch_clipboard_history(engine);
     sync_global_input_mode(engine);
     // IBus may replay focus after negotiating client identity. Re-focusing
@@ -3521,7 +3540,10 @@ void focus_out(IBusEngine *engine) {
     auto &s = state(engine);
     msime_linux_diagnostic_write("focus_out");
     voice_cancel(engine);
-    s.key_router.cancel({s.client_token, s.focus_epoch, s.session});
+    s.key_router.cancel(
+        {s.client_token, s.focus_epoch,
+         msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
+                                                           s.session)});
     s.voice_consumed_keys.clear();
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
@@ -3884,11 +3906,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::LocalMode,
-                             Json{{"key", key}, {"enabled", enabled}});
-        return;
-      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3897,6 +3914,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
+      if (!directory.empty() && directory.front() == '/')
+        save_menu_preference(engine, MenuPreference::LocalMode,
+                             Json{{"key", key}, {"enabled", enabled}});
       return;
     }
     if (property_name == "WordCharacter") {
@@ -4216,10 +4236,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "CharacterMode") {
       if (menu_save_pending || s.fullwidth == (value == PROP_STATE_CHECKED)) return;
       const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::CharacterWidth, value == PROP_STATE_CHECKED);
-        return;
-      }
       s.fullwidth = value == PROP_STATE_CHECKED;
       s.paired_tracker.clear();
       if (s.session) {
@@ -4227,6 +4243,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         render(engine, s.view);
       }
       publish_mode(engine);
+      if (!directory.empty() && directory.front() == '/')
+        save_menu_preference(engine, MenuPreference::CharacterWidth,
+                             value == PROP_STATE_CHECKED);
       return;
     }
     if (std::string(name) == "TraditionalOutput") {
@@ -4532,24 +4551,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (!s.input_enabled || !s.session || menu_save_pending)
         return;
       const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
-        return;
-      }
       s.view =
           response(msime_client_set_chinese_punctuation(s.session, enabled));
       s.chinese_punctuation = enabled;
       s.punctuation_override = enabled;
       s.paired_tracker.clear();
       publish_mode(engine);
+      if (!directory.empty() && directory.front() == '/')
+        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
       return;
     }
-    if (enabled != s.input_enabled && !menu_save_pending) {
-      const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::InputMode, enabled);
-        return;
-      }
+    if (enabled != s.input_enabled) {
       if (!enabled && s.voice_active)
         voice_cancel(engine);
       s.invalidate_providers();
@@ -4738,8 +4750,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // A router lease cannot be issued before engine construction completes.
   if (s.client_token == 0)
     return FALSE;
-  const msime_client_key_event routed_event = {{s.client_token, s.focus_epoch, s.session}, key, keycode,
-      static_cast<uint32_t>(flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)),
+  const msime_client_key_event routed_event = {
+      {s.client_token, s.focus_epoch,
+       msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
+                                                         s.session)},
+      msime::linux_host::KeyRouterAdapter::virtual_key(key), keycode,
+      static_cast<uint32_t>(
+          flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK |
+                   IBUS_SUPER_MASK)),
       key <= 0xffffu ? key : 0u, false};
   const auto dispatch_result = s.key_router.check(routed_event);
   if (dispatch_result != MSIME_CLIENT_KEY_SENT)
@@ -5277,12 +5295,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key == '(' || key == '[' || key == '<' || key == '{')) {
       const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
                                         : PunctuationPairMode::Bracket;
-      handled = apply(
+      const bool engine_handled = apply(
           engine,
           key == '{'
               ? msime_client_punctuation_ascii(s.session, static_cast<uint8_t>(key))
               : msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
           pair_mode);
+      handled = engine_handled;
+      if (engine_handled && key == '<')
+        (void)response(msime_client_balance_paired_punctuation_after_auto_close(
+            s.session, static_cast<uint8_t>(key)));
       if (!handled && key == '{') {
         auto text = std::string("{}");
         if (s.fullwidth)
@@ -5297,7 +5319,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
     }
-    if (s.smart_punctuation_repeat && s.paired_punctuation && s.last_smart_punctuation == key &&
+    if (s.chinese_punctuation && s.smart_punctuation_repeat &&
+        s.paired_punctuation && s.last_smart_punctuation == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
             kSmartPunctuationRepeatIntervalUs &&
@@ -5320,7 +5343,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
         }
     }
-    if (s.smart_punctuation && is_smart_punctuation_key(key) &&
+    if (s.chinese_punctuation && s.smart_punctuation &&
+        is_smart_punctuation_key(key) &&
         s.smart_punctuation_rejected != static_cast<char>(key) &&
         smart_punctuation_preceded_by_ascii_alphanumeric(s)) {
       const auto &editing_text = s.view.at("editing_text").get<std::string>();
@@ -5343,7 +5367,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
       return;
     }
-    if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
+    if (s.chinese_punctuation && !s.smart_punctuation &&
+        s.view.at("editing_text").get<std::string>().empty() &&
         std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
             std::string::npos) {
       auto text = std::string(1, static_cast<char>(key));
@@ -5378,8 +5403,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                      (key >= 'A' && key <= 'F'))
                   : local_mode == "date_time"
                         ? lowercase_letter
-                        : (local_mode != "none" || lowercase_letter ||
-                           (uppercase_letter && (helpcode || s.english_mode)));
+                        : local_mode != "none"
+                              ? lowercase_letter || uppercase_letter
+                              : lowercase_letter ||
+                                    (uppercase_letter &&
+                                     (helpcode || s.english_mode));
     const bool nine_key_digit =
         local_mode != "unicode" && s.view.value("nine_key", false) &&
         ((key >= IBUS_KP_2 && key <= IBUS_KP_9) ||
@@ -5741,8 +5769,6 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->word_character_override.reset();
           if (request.preference == MenuPreference::TraditionalOutput)
             self->state->traditional_output_override.reset();
-          if (request.preference == MenuPreference::InputMode)
-            self->state->input_enabled = request.value.get<bool>();
           if (request.preference == MenuPreference::ChinesePunctuation)
             self->state->punctuation_override.reset();
           if (request.preference == MenuPreference::CharacterWidth)
@@ -5869,9 +5895,6 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::ChinesePunctuation:
             snapshot["preferences"]["chinese_punctuation"] = request.value;
-            break;
-          case MenuPreference::InputMode:
-            snapshot["preferences"]["ime_mode"] = request.value.get<bool>() ? "chinese" : "english";
             break;
           case MenuPreference::ClipboardHistoryEnabled:
             snapshot["preferences"]["clipboard_history"] = request.value;
@@ -6088,7 +6111,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
 void msime_preview_configure(const std::string &options) {
-  if (options.size() > 16384 || msime_client_abi_version() != 1)
+  if (options.size() > 16384 || msime_client_abi_version() != 2)
     throw std::runtime_error("Invalid host configuration");
   auto next = Json::parse(options);
   if (!next.is_object() || !next.contains("preferences") ||
