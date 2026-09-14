@@ -91,6 +91,10 @@ fn host_platform() -> HostPlatform {
     }
 }
 
+fn clipboard_history_uses_preference(platform: HostPlatform) -> bool {
+    !matches!(platform, HostPlatform::Ios)
+}
+
 /// The surface a native host asked this shell to present, from `--route=<route>`,
 /// `MSIME_CLIENT_ROUTE`, or the superseded `MSIME_CLIENT_PANEL`. An unparseable
 /// route opens the ordinary settings window rather than failing startup.
@@ -634,8 +638,12 @@ async fn save_preferences(
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
-        if !snapshot.preferences.clipboard_history {
-            store.clear_disabled_clipboard_history().map_err(CommandError::from)?;
+        if clipboard_history_uses_preference(host_platform())
+            && !snapshot.preferences.clipboard_history
+        {
+            store
+                .clear_disabled_clipboard_history()
+                .map_err(CommandError::from)?;
         }
         sync_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
@@ -3632,7 +3640,7 @@ fn list_clipboard_history_blocking(
     state: &ClipboardHistoryState,
     store: &Arc<PreferencesStore>,
 ) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    if !clipboard_enabled(store)? {
+    if clipboard_history_uses_preference(host_platform()) && !clipboard_enabled(store)? {
         return Ok(Vec::new());
     }
     let mut history = state
@@ -3713,6 +3721,25 @@ async fn clear_clipboard_history(
 fn clear_clipboard_history_blocking(
     state: &ClipboardHistoryState,
 ) -> Result<(), HostActionError> {
+    #[cfg(target_os = "ios")]
+    {
+        let state_root = std::env::var_os("MSIME_CLIENT_STATE_DIR")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let root = state_root.parent().ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+        let _ = state;
+        return msime_host_api::clear_mobile_clipboard_history(root).map_err(|_| {
+            HostActionError {
+                code: "unavailable",
+            }
+        });
+    }
+    #[cfg(not(target_os = "ios"))]
     state
         .0
         .lock()
@@ -4120,6 +4147,12 @@ pub fn run() {
                     }
                 }
             };
+            #[cfg(target_os = "ios")]
+            if directory.file_name() == Some(std::ffi::OsStr::new("MSIME")) {
+                if let Some(root) = directory.parent() {
+                    let _ = msime_host_api::migrate_apple_clipboard_history(root);
+                }
+            }
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
@@ -4508,6 +4541,21 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ios_clipboard_history_is_permission_gated_not_preference_gated() {
+        assert!(!super::clipboard_history_uses_preference(
+            msime_client_core::host_surface::HostPlatform::Ios
+        ));
+        for platform in [
+            msime_client_core::host_surface::HostPlatform::Windows,
+            msime_client_core::host_surface::HostPlatform::Macos,
+            msime_client_core::host_surface::HostPlatform::Linux,
+            msime_client_core::host_surface::HostPlatform::Android,
+        ] {
+            assert!(super::clipboard_history_uses_preference(platform));
+        }
+    }
+
     #[test]
     fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
         let document = super::ios_host_options_document(

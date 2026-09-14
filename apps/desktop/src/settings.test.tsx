@@ -706,6 +706,25 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   expect(await screen.findByText("暂无历史记录")).toBeDefined();
 });
 
+test("iOS clipboard history follows keyboard permission instead of the desktop preference", async () => {
+  const list = vi.fn().mockResolvedValue([
+    { text: "synthetic mobile", timestampMs: 1_789_000_000_000, pinned: false },
+  ]);
+  const sync = vi.fn();
+  const clear = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+    clipboard: { clear, list, sync },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(await screen.findByText("synthetic mobile")).toBeDefined();
+  expect(screen.queryByRole("checkbox", { name: "剪贴板管理" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "从系统剪贴板同步" })).toBeNull();
+  expect(screen.getByText(/允许完全访问/)).toBeDefined();
+});
+
 test("dictionary manager queries, edits and removes Engine entries", async () => {
   const quick = { kind: "quick_phrase" as const, key: "x", value: "fixture", weight: 100000 };
   const list = vi.fn().mockResolvedValue({

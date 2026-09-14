@@ -935,6 +935,239 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
     })
 }
 
+const MAX_MOBILE_CLIPBOARD_REQUEST_BYTES: usize = 524_288;
+const MAX_APPLE_LEGACY_CLIPBOARD_BYTES: u64 = 4_000_000;
+const APPLE_REFERENCE_DATE_UNIX_SECONDS: f64 = 978_307_200.0;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MobileClipboardRequest {
+    directory: String,
+    action: MobileClipboardAction,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum MobileClipboardAction {
+    Load,
+    Capture { text: String },
+    SetPinned { text: String, pinned: bool },
+    Remove { text: String },
+    Clear,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppleLegacyClipboardEntry {
+    id: String,
+    text: String,
+    date: f64,
+    pinned: bool,
+}
+
+fn valid_uuid_string(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
+    let milliseconds = (value + APPLE_REFERENCE_DATE_UNIX_SECONDS) * 1000.0;
+    (milliseconds.is_finite() && milliseconds >= 0.0 && milliseconds <= u64::MAX as f64)
+        .then(|| milliseconds.round() as u64)
+}
+
+fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
+    std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
+    let lock_path = root.join(".msime-clipboard-history-migration.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options
+        .open(lock_path)
+        .map_err(|_| "clipboard migration unavailable")?;
+    lock.lock()
+        .map_err(|_| "clipboard migration unavailable")?;
+    Ok(lock)
+}
+
+/// Migrate the fixed legacy Apple history into the shared mobile state once.
+/// The source is removed only after the destination has been persisted.
+pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
+    use std::io::Read;
+
+    let _lock = apple_clipboard_migration_lock(root)?;
+
+    let shared_path = root.join("MSIME").join("clipboard_history.json");
+    let mut shared = msime_client_core::clipboard::ClipboardHistoryStore::open(&shared_path);
+    shared
+        .load()
+        .map_err(|_| "shared clipboard history unavailable")?;
+    if !shared.entries().is_empty() {
+        return Ok(false);
+    }
+
+    let legacy_path = root.join("Clipboard").join("history.json");
+    let metadata = match std::fs::symlink_metadata(&legacy_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("legacy clipboard history unavailable".into()),
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&legacy_path)
+        .and_then(|file| {
+            file.take(MAX_APPLE_LEGACY_CLIPBOARD_BYTES + 1)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|_| "legacy clipboard history unavailable")?;
+    if bytes.len() as u64 > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let legacy: Vec<AppleLegacyClipboardEntry> =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
+    if legacy.len() > 50 {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut texts = std::collections::HashSet::new();
+    let mut entries = Vec::with_capacity(legacy.len());
+    for entry in legacy {
+        let Some(timestamp_ms) = apple_date_to_unix_ms(entry.date) else {
+            return Err("invalid legacy clipboard history".into());
+        };
+        if !valid_uuid_string(&entry.id)
+            || !ids.insert(entry.id)
+            || !texts.insert(entry.text.clone())
+            || !msime_client_core::clipboard::mobile_text_is_valid(&entry.text)
+        {
+            return Err("invalid legacy clipboard history".into());
+        }
+        entries.push(msime_client_core::clipboard::ClipboardHistoryEntry {
+            text: entry.text,
+            timestamp_ms,
+            pinned: entry.pinned,
+        });
+    }
+    let imported = shared
+        .import_if_empty(entries)
+        .map_err(|_| "clipboard migration failed")?;
+    if imported {
+        std::fs::remove_file(&legacy_path).map_err(|_| "clipboard migration cleanup failed")?;
+    }
+    Ok(imported)
+}
+
+/// Clear shared mobile history and its fixed Apple legacy source under one lock.
+pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), String> {
+    let _lock = apple_clipboard_migration_lock(root)?;
+    let legacy_path = root.join("Clipboard").join("history.json");
+    match std::fs::symlink_metadata(&legacy_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            std::fs::remove_file(&legacy_path)
+                .map_err(|_| "mobile clipboard clear failed")?;
+        }
+        Ok(_) => return Err("mobile clipboard clear failed".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("mobile clipboard clear failed".into()),
+    }
+    msime_client_core::clipboard::ClipboardHistoryStore::open(
+        root.join("MSIME").join("clipboard_history.json"),
+    )
+    .clear()
+    .map_err(|_| "mobile clipboard clear failed".to_owned())
+}
+
+/// Structured mobile clipboard history operations. The directory is the trusted
+/// App Group root; shared data lives below MSIME and the fixed Apple legacy path
+/// is migrated under a stable lock. This intentionally does not read or change
+/// the desktop automatic-capture preference: mobile access is host-permission gated.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > MAX_MOBILE_CLIPBOARD_REQUEST_BYTES {
+            return Err("invalid mobile clipboard request buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: MobileClipboardRequest = serde_json::from_slice(bytes)
+            .map_err(|_| "invalid mobile clipboard request document")?;
+        let root = std::path::Path::new(&request.directory);
+        if !root.is_absolute() || request.directory.len() > 16384 {
+            return Err("invalid mobile clipboard directory".into());
+        }
+        if matches!(&request.action, MobileClipboardAction::Clear) {
+            clear_mobile_clipboard_history(root)?;
+            return Ok(json!({"cleared": true, "migrated": false}));
+        }
+        let migrated = migrate_apple_clipboard_history(root)?;
+        let path = root.join("MSIME").join("clipboard_history.json");
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(path);
+        match request.action {
+            MobileClipboardAction::Load => {
+                history
+                    .load()
+                    .map_err(|_| "mobile clipboard history unavailable")?;
+                Ok(json!({"entries": history.entries(), "migrated": migrated}))
+            }
+            MobileClipboardAction::Capture { text } => {
+                if !msime_client_core::clipboard::mobile_text_is_valid(&text) {
+                    return Ok(
+                        json!({"captured": false, "reason": "invalid", "migrated": migrated}),
+                    );
+                }
+                let captured = history
+                    .push_mobile(text)
+                    .map_err(|_| "mobile clipboard capture failed")?;
+                Ok(json!({
+                    "captured": captured,
+                    "reason": (!captured).then_some("full"),
+                    "migrated": migrated
+                }))
+            }
+            MobileClipboardAction::SetPinned { text, pinned } => {
+                if text.is_empty()
+                    || text.len() > msime_client_core::clipboard::MAX_MOBILE_TEXT_BYTES
+                {
+                    return Err("invalid mobile clipboard entry".into());
+                }
+                let updated = history
+                    .set_pinned(&text, pinned)
+                    .map_err(|_| "mobile clipboard pin update failed")?;
+                Ok(json!({"updated": updated, "migrated": migrated}))
+            }
+            MobileClipboardAction::Remove { text } => {
+                if text.is_empty()
+                    || text.len() > msime_client_core::clipboard::MAX_MOBILE_TEXT_BYTES
+                {
+                    return Err("invalid mobile clipboard entry".into());
+                }
+                let removed = history
+                    .remove(&text)
+                    .map_err(|_| "mobile clipboard removal failed")?;
+                Ok(json!({"removed": removed, "migrated": migrated}))
+            }
+            MobileClipboardAction::Clear => unreachable!("clear handled before migration"),
+        }
+    })
+}
+
 /// Save host-sampled text only while shared history is enabled.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
@@ -4149,6 +4382,144 @@ mod tests {
         );
         assert_eq!(
             read(unsafe { msime_client_load_clipboard_history([255u8].as_ptr(), 1) })["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
+        let directory = tempfile::tempdir().unwrap();
+        let call = |action: Value| {
+            let request = serde_json::to_vec(&json!({
+                "directory": directory.path(),
+                "action": action,
+            }))
+            .unwrap();
+            read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        let legacy = directory.path().join("Clipboard/history.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(
+            &legacy,
+            serde_json::to_vec(&json!([
+                {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "text": "synthetic older",
+                    "date": 721_692_800.0,
+                    "pinned": false
+                },
+                {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "text": "synthetic pinned",
+                    "date": 721_692_900.0,
+                    "pinned": true
+                }
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let loaded = call(json!({"operation": "load"}));
+        assert_eq!(loaded["value"]["migrated"], true);
+        assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic pinned");
+        assert_eq!(
+            loaded["value"]["entries"][0]["timestampMs"],
+            1_700_000_100_000_u64
+        );
+        assert_eq!(loaded["value"]["entries"][1]["text"], "synthetic older");
+        assert!(!legacy.exists());
+        assert!(directory
+            .path()
+            .join("MSIME/clipboard_history.json")
+            .exists());
+        assert!(!directory.path().join("preferences.json").exists());
+        assert_eq!(
+            call(json!({"operation": "load"}))["value"]["migrated"],
+            false
+        );
+
+        assert_eq!(
+            call(json!({"operation": "capture", "text": "synthetic current"}))["value"]["captured"],
+            true
+        );
+        assert_eq!(
+            call(json!({
+                "operation": "set_pinned",
+                "text": "synthetic current",
+                "pinned": true
+            }))["value"]["updated"],
+            true
+        );
+        let pinned = call(json!({"operation": "load"}));
+        assert_eq!(pinned["value"]["entries"][0]["text"], "synthetic current");
+        assert_eq!(pinned["value"]["entries"][1]["text"], "synthetic pinned");
+        assert_eq!(
+            call(json!({"operation": "remove", "text": "synthetic older"}))["value"]
+                ["removed"],
+            true
+        );
+        assert_eq!(call(json!({"operation": "clear"}))["value"]["cleared"], true);
+        assert_eq!(call(json!({"operation": "load"}))["value"]["entries"], json!([]));
+    }
+
+    #[test]
+    fn mobile_clipboard_preserves_invalid_legacy_and_existing_shared_history() {
+        let invalid = tempfile::tempdir().unwrap();
+        let legacy = invalid.path().join("Clipboard/history.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let fixture = b"invalid synthetic legacy";
+        std::fs::write(&legacy, fixture).unwrap();
+        let request = serde_json::to_vec(&json!({
+            "directory": invalid.path(),
+            "action": {"operation": "load"}
+        }))
+        .unwrap();
+        let response =
+            read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
+        assert_eq!(response["error"], "invalid legacy clipboard history");
+        assert_eq!(std::fs::read(&legacy).unwrap(), fixture);
+        assert!(!invalid.path().join("MSIME/clipboard_history.json").exists());
+
+        let existing = tempfile::tempdir().unwrap();
+        let call = |action: Value| {
+            let request = serde_json::to_vec(&json!({
+                "directory": existing.path(),
+                "action": action,
+            }))
+            .unwrap();
+            read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        assert_eq!(
+            call(json!({"operation": "capture", "text": "synthetic shared"}))["value"]["captured"],
+            true
+        );
+        let legacy = existing.path().join("Clipboard/history.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, b"invalid synthetic legacy").unwrap();
+        let loaded = call(json!({"operation": "load"}));
+        assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic shared");
+        assert!(legacy.exists());
+        assert_eq!(
+            call(json!({"operation": "clear"}))["value"]["cleared"],
+            true
+        );
+        assert!(!legacy.exists());
+        assert_eq!(
+            call(json!({"operation": "load"}))["value"]["entries"],
+            json!([])
+        );
+
+        let null = read(unsafe { msime_client_mobile_clipboard_history(std::ptr::null(), 0) });
+        assert_eq!(null["ok"], false);
+        let relative = serde_json::to_vec(&json!({
+            "directory": "relative",
+            "action": {"operation": "load"}
+        }))
+        .unwrap();
+        assert_eq!(
+            read(unsafe {
+                msime_client_mobile_clipboard_history(relative.as_ptr(), relative.len())
+            })["ok"],
             false
         );
     }

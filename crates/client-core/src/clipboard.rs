@@ -118,6 +118,46 @@ impl ClipboardHistoryStore {
         &self.entries
     }
 
+    /// Atomically import validated records only while the latest shared history
+    /// is absent or empty. Platform migrations use this after locking and fully
+    /// decoding their legacy format; an existing shared history always wins.
+    pub fn import_if_empty(
+        &mut self,
+        mut entries: Vec<ClipboardHistoryEntry>,
+    ) -> std::io::Result<bool> {
+        if entries.len() > MAX_ENTRIES
+            || entries
+                .iter()
+                .any(|entry| !mobile_text_is_valid(&entry.text))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid clipboard history import",
+            ));
+        }
+        let unique = entries
+            .iter()
+            .map(|entry| entry.text.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        if unique.len() != entries.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "duplicate clipboard history import",
+            ));
+        }
+        sort_entries(&mut entries);
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open(&self.path);
+        latest.load()?;
+        if !latest.entries.is_empty() {
+            self.entries = latest.entries;
+            return Ok(false);
+        }
+        self.persist(&entries)?;
+        self.entries = entries;
+        Ok(true)
+    }
+
     pub fn push(&mut self, text: String) -> std::io::Result<bool> {
         let text = normalize_text(&text);
         if !valid(&text) {
@@ -279,6 +319,12 @@ fn valid(text: &str) -> bool {
 }
 
 fn valid_mobile(text: &str) -> bool {
+    mobile_text_is_valid(text)
+}
+
+/// Mobile hosts and their migration bridges share the exact persisted-text
+/// validation without needing to reproduce Unicode segmentation rules.
+pub fn mobile_text_is_valid(text: &str) -> bool {
     !text.trim().is_empty()
         && text.len() <= MAX_MOBILE_TEXT_BYTES
         && text.graphemes(true).count() <= MAX_MOBILE_TEXT_CHARACTERS
@@ -540,6 +586,82 @@ mod tests {
         assert_eq!(encoded[0]["timestampMs"], 1);
         assert_eq!(encoded[0]["pinned"], true);
         assert!(encoded[0].get("timestamp_ms").is_none());
+    }
+
+    #[test]
+    fn import_only_replaces_absent_or_empty_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut store = ClipboardHistoryStore::open(&path);
+        let imported = vec![
+            ClipboardHistoryEntry {
+                text: "synthetic newer".into(),
+                timestamp_ms: 20,
+                pinned: false,
+            },
+            ClipboardHistoryEntry {
+                text: "synthetic pinned".into(),
+                timestamp_ms: 10,
+                pinned: true,
+            },
+        ];
+        assert!(store.import_if_empty(imported).unwrap());
+        assert_eq!(texts(&store), ["synthetic pinned", "synthetic newer"]);
+        assert!(!store
+            .import_if_empty(vec![ClipboardHistoryEntry {
+                text: "synthetic ignored".into(),
+                timestamp_ms: 30,
+                pinned: false,
+            }])
+            .unwrap());
+        assert_eq!(texts(&store), ["synthetic pinned", "synthetic newer"]);
+
+        store.clear().unwrap();
+        fs::write(&path, b"[]").unwrap();
+        assert!(store
+            .import_if_empty(vec![ClipboardHistoryEntry {
+                text: "synthetic after empty".into(),
+                timestamp_ms: 40,
+                pinned: false,
+            }])
+            .unwrap());
+        assert_eq!(texts(&store), ["synthetic after empty"]);
+    }
+
+    #[test]
+    fn invalid_or_duplicate_import_is_rejected_without_writing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut store = ClipboardHistoryStore::open(&path);
+        let duplicate = vec![
+            ClipboardHistoryEntry {
+                text: "synthetic duplicate".into(),
+                timestamp_ms: 1,
+                pinned: false,
+            },
+            ClipboardHistoryEntry {
+                text: "synthetic duplicate".into(),
+                timestamp_ms: 2,
+                pinned: true,
+            },
+        ];
+        assert_eq!(
+            store.import_if_empty(duplicate).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert!(!path.exists());
+        assert_eq!(
+            store
+                .import_if_empty(vec![ClipboardHistoryEntry {
+                    text: "synthetic\0invalid".into(),
+                    timestamp_ms: 1,
+                    pinned: false,
+                }])
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert!(!path.exists());
     }
 
     #[test]

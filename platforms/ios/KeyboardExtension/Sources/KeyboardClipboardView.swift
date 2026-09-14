@@ -31,7 +31,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
         clear?.setTitle("确认清空", for: .normal)
         status.text = "再次点按清空将删除全部历史，包括固定项。"
       } else {
-        perform { try store.save([]) }
+        perform { try store.clear() }
         confirmingClear = false
         clear?.setTitle("清空", for: .normal)
       }
@@ -104,21 +104,19 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     menu.showsMenuAsPrimaryAction = true
     menu.menu = UIMenu(children: [
       UIAction(title: item.pinned ? "取消固定" : "固定", image: UIImage(systemName: "pin")) { [weak self] _ in
-        self?.change(item.id, delete: false)
+        self?.change(item, delete: false)
       },
       UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-        self?.change(item.id, delete: true)
+        self?.change(item, delete: true)
       }
     ])
     cell.accessoryView = menu
     return cell
   }
-  private func change(_ id: UUID, delete: Bool) {
+  private func change(_ item: ClipboardHistoryItem, delete: Bool) {
     perform {
-      var latest = try store.load()
-      if delete { latest.removeAll { $0.id == id } }
-      else if let index = latest.firstIndex(where: { $0.id == id }) { latest[index].pinned.toggle() }
-      try store.save(latest)
+      if delete { try store.remove(text: item.text) }
+      else { try store.setPinned(!item.pinned, text: item.text) }
     }
   }
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

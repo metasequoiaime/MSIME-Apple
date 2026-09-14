@@ -768,6 +768,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
   const androidPlatform = client.host?.platform === "android";
+  const iosPlatform = client.host?.platform === "ios";
   // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
@@ -1222,7 +1223,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
     autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,
   };
-  const clipboardHistory = draft?.clipboard_history ?? false;
+  const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
   function toggleClipboardHistory(enabled: boolean) {
     if (!draft) return;
     setDraft({ ...draft, clipboard_history: enabled });
@@ -1352,13 +1353,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   }, [settingsTheme, themeMode]);
   useEffect(() => {
     let active = true;
-    if (!snapshot?.preferences.clipboard_history) { setClipboardEntries([]); return; }
+    if (!iosPlatform && !snapshot?.preferences.clipboard_history) { setClipboardEntries([]); return; }
     if (!client.clipboard?.list) return;
     void client.clipboard.list().then(entries => {
       if (active) { setClipboardEntries(entries); setClipboardClearArmed(false); }
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [client, page, snapshot?.revision]);
+  }, [client, iosPlatform, page, snapshot?.revision]);
   const mutateClipboardHistory = async (action: () => Promise<void>, failure: string) => {
     try {
       await action();
@@ -1876,9 +1877,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => toggleClipboardHistory(event.target.checked)} /></label>
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>{iosPlatform ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。" : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。"}</small></span>{!iosPlatform && <input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => toggleClipboardHistory(event.target.checked)} />}</label>
           <div className="clipboard-toolbar">
-            {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(entries => { setClipboardEntries(entries); setClipboardClearArmed(false); }).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
+            {!iosPlatform && client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(entries => { setClipboardEntries(entries); setClipboardClearArmed(false); }).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
             {client.clipboard?.clear && clipboardEntries.length > 0 && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => {
               if (!clipboardClearArmed) { setClipboardClearArmed(true); return; }
               void mutateClipboardHistory(() => client.clipboard!.clear(), "无法清空剪贴板历史，请稍后重试。");
