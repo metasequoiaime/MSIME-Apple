@@ -5,10 +5,19 @@ param(
     [Parameter(Mandatory)][string]$X64Dependencies,
     [Parameter(Mandatory)][string]$X86Dependencies,
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [string]$Generator = 'Visual Studio 17 2022'
+    [string]$Generator = 'Visual Studio 17 2022',
+    [string]$TargetVersion = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# Keep direct development builds on the checked-in Tauri version. Installation
+# builds supply one numeric release version for packaging and desktop metadata.
+if ($TargetVersion -ne '' -and
+    ($TargetVersion -notmatch '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$' -or
+     @($TargetVersion.Split('.') | Where-Object { [int]$_ -gt 65535 }).Count -ne 0)) {
+    throw 'TargetVersion must have three numeric components between 0 and 65535 without leading zeros'
+}
 
 function Invoke-ClientBuild {
     param([string]$Command, [string[]]$Arguments)
@@ -70,8 +79,12 @@ try {
     $env:CMAKE_PREFIX_PATH = $X64Dependencies
     Invoke-ClientBuild pnpm @('install', '--frozen-lockfile')
     Invoke-ClientBuild pnpm @('--filter', '@msime/desktop', 'typecheck')
-    Invoke-ClientBuild pnpm @('--filter', '@msime/desktop', 'tauri', 'build', '--no-bundle',
+    $desktopBuild = @('--filter', '@msime/desktop', 'tauri', 'build', '--no-bundle',
         '--target', 'x86_64-pc-windows-msvc')
+    if ($TargetVersion -ne '') {
+        $desktopBuild += @('--config', (@{ version = $TargetVersion } | ConvertTo-Json -Compress))
+    }
+    Invoke-ClientBuild pnpm $desktopBuild
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
         (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
         (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.exe'))

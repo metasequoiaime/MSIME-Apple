@@ -42,8 +42,13 @@ try {
     $entry = Join-Path $PSScriptRoot '../Build-Client.ps1'
     $global:ClientBuildCalls = [Collections.Generic.List[object]]::new()
     $global:ClientBuildFailAt = 0
-    & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
+    & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1'
     $count = $global:ClientBuildCalls.Count
+    $desktopArgs = $global:ClientBuildCalls[13].Values
+    $configIndex = [Array]::IndexOf($desktopArgs, '--config')
+    if ($configIndex -lt 0 -or ($desktopArgs[$configIndex + 1] | ConvertFrom-Json).version -ne '2026.9.1') {
+        throw 'Tauri version override missing or incorrect'
+    }
     foreach ($arch in @('x86', 'x64')) {
         & (Join-Path $PSScriptRoot '../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
@@ -78,6 +83,15 @@ try {
     }
     $global:ClientBuildCalls.Clear()
     $global:ClientBuildFailAt = 0
+    foreach ($invalid in @('1.2', '01.2.3', '65536.0.0', '1.2.3.4', '1.2.3-beta', 'not-a-version')) {
+        $rejected = $false
+        try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion $invalid }
+        catch { $rejected = $_.Exception.Message -like 'TargetVersion must*' }
+        if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Invalid version reached build tools' }
+    }
+    & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
+    if ($global:ClientBuildCalls[13].Values -contains '--config') { throw 'Development version was overridden' }
+    $global:ClientBuildCalls.Clear()
     Remove-Item -LiteralPath $desktopSymbols
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }

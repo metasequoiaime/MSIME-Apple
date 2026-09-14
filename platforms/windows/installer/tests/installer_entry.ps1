@@ -34,6 +34,9 @@ if ($global:InstallerProbeCalls.Count -eq $global:InstallerProbeFailAt) {
         & (Join-Path $installer $entry) @parameters
         if (($global:InstallerProbeCalls.Stage -join ',') -ne ($stages -join ',')) { throw 'Installer stage ordering mismatch' }
         $prepare = $global:InstallerProbeCalls[1].Parameters
+        if ($global:InstallerProbeCalls[0].Parameters.TargetVersion -ne '2026.9.1') {
+            throw 'Release version did not reach Client build'
+        }
         if ($prepare.RepoRoot -ne $root -or $prepare.ServerReleaseDirectory -ne 'target/windows-full/x64/bin' -or
             $prepare.Tsf32ReleaseDirectory -ne 'target/windows-full/x86/bin' -or $prepare.TargetVersion -ne '2026.9.1') {
             throw 'Client build/staging arguments mismatch'
