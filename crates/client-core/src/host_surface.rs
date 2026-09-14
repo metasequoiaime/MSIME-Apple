@@ -593,6 +593,7 @@ mod tests {
         // Windows positions its own card, so pinning it is a real choice there.
         assert!(windows.candidate_follow_cursor);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(macos.voice_capture_devices);
         assert!(
             macos.floating_toolbar
                 && macos.floating_toolbar_appearance
