@@ -44,31 +44,38 @@ struct CommunityResource: Codable, Identifiable, Sendable {
 
 // Only explicit downloads are shared with the keyboard; never credentials or source messages.
 enum CommunityLibrary {
-  private static var file: URL? {
-    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)?
+  private static func file(in directory: URL? = nil) -> URL? {
+    (directory ?? FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier))?
       .appendingPathComponent("CommunityLibrary.json")
   }
-  static func read() throws -> [CommunityResource] {
-    guard let file else { throw PersonalDictionaryStore.StoreError.unavailable }
+  static func read(in directory: URL? = nil) throws -> [CommunityResource] {
+    guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     guard FileManager.default.fileExists(atPath: file.path) else { return [] }
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4_000_000 else {
       throw PersonalDictionaryStore.StoreError.invalidState
     }
     return try JSONDecoder().decode([CommunityResource].self, from: Data(contentsOf: file))
   }
-  static func save(_ item: CommunityResource) throws {
-    var items = try read()
+  static func save(_ item: CommunityResource, in directory: URL? = nil) throws {
+    var items = try read(in: directory)
     items.removeAll { $0.id == item.id }
     guard items.count < 50 else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
     items.append(item)
-    try write(items)
+    try write(items, in: directory)
   }
-  static func remove(_ id: String) throws { try write(read().filter { $0.id != id }) }
-  private static func write(_ items: [CommunityResource]) throws {
-    guard let file else { throw PersonalDictionaryStore.StoreError.unavailable }
+  static func remove(_ id: String, in directory: URL? = nil) throws {
+    try write(read(in: directory).filter { $0.id != id }, in: directory)
+  }
+  private static func write(_ items: [CommunityResource], in directory: URL?) throws {
+    guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     let data = try JSONEncoder().encode(items)
     guard data.count <= 4_000_000 else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
-  static var replies: [CommunityResource] { ((try? read()) ?? []).filter { $0.kind == .reply } }
+  static func replies(in directory: URL? = nil) -> [CommunityResource] {
+    ((try? read(in: directory)) ?? []).filter { $0.kind == .reply }
+  }
+  static var replies: [CommunityResource] { replies() }
 }

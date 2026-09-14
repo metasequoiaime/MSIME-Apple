@@ -5,13 +5,11 @@ import XCTest
 @MainActor
 final class DictionarySnapshotWorkerTests: XCTestCase {
   func testQueuedSnapshotRunsThroughBackgroundPreparationAndActualSessionActivation() async throws {
-    var session: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge()
-    let context = try session!.dictionarySnapshotContext()
-    let user = try XCTUnwrap(context["user"] as? URL)
-    let originalVersion = try session!.localDictionaryStateVersion()
-    let marker = user.appendingPathComponent("active-user-generation")
-    let originalMarker = try? Data(contentsOf: marker)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let stateRoot = root.appendingPathComponent("State", isDirectory: true)
+    var session: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(resources: resources, stateRoot: stateRoot)
+    let originalVersion = try session!.localDictionaryStateVersion()
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let queue = DictionarySnapshotQueue(directory: root)
     try queue.publishLocalVersion(originalVersion)
@@ -31,9 +29,6 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     defer {
       if !cleaned {
         worker?.stop(); worker = nil; session = nil
-        if let originalMarker { try? originalMarker.write(to: marker, options: .atomic) }
-        else { try? FileManager.default.removeItem(at: marker) }
-        try? FileManager.default.removeItem(at: user.appendingPathComponent("snapshot-generations").appendingPathComponent(id.uuidString))
         try? FileManager.default.removeItem(at: root)
       }
     }
@@ -65,15 +60,12 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     }
     worker?.stop()
     while worker?.isPreparing == true { try await Task.sleep(nanoseconds: 30_000_000) }
+    let appliedVersion = try session!.localDictionaryStateVersion()
     worker = nil; session = nil
-    // The test changed only a private staged journal. Restore the simulator's
-    // original pointer after all session leases and worker tasks have ended.
-    if let originalMarker { try originalMarker.write(to: marker, options: .atomic) }
-    else { try? FileManager.default.removeItem(at: marker) }
-    try? FileManager.default.removeItem(at: user.appendingPathComponent("snapshot-generations").appendingPathComponent(id.uuidString))
-    try? FileManager.default.removeItem(at: root)
+    var restored: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(resources: resources, stateRoot: stateRoot)
+    XCTAssertEqual(try restored!.localDictionaryStateVersion(), appliedVersion)
+    restored = nil
+    try FileManager.default.removeItem(at: root)
     cleaned = true
-    let restored = MetasequoiaInputSessionBridge()
-    XCTAssertEqual(try restored.localDictionaryStateVersion(), originalVersion)
   }
 }

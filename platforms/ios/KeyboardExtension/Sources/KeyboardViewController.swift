@@ -1,6 +1,27 @@
 import SwiftUI
 import UIKit
 
+private final class KeyboardBrandButton: UIButton {
+  let brandImageView = UIImageView()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    brandImageView.contentMode = .scaleAspectFit
+    brandImageView.layer.cornerRadius = 5
+    brandImageView.clipsToBounds = true
+    brandImageView.accessibilityIdentifier = "keyboardBrandIcon"
+    addSubview(brandImageView)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    brandImageView.bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
+    brandImageView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+  }
+}
+
 @MainActor
 final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
   private enum LetterCaseState {
@@ -25,6 +46,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     worker.applied = { [weak self] in self?.synchronizePersonalDictionary(force: true) }
     return worker
   }()
+  private let candidateGlossQueue = DispatchQueue(
+    label: "app.msime.ios.candidate-gloss", qos: .utility)
+  private var candidateGlossEpoch: UInt64 = 0
+  private var candidateGlossRequestedGeneration: UInt64?
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private let replyModel = ReplyKeyboardModel()
@@ -48,12 +73,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
-  private let moreShortcut = UIButton()
+  private let moreShortcut = KeyboardBrandButton()
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
+  private var candidatePanelGeneration: UInt64?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -97,6 +123,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
+  private var visibleCandidateCodes: [String] = []
+  private var visibleCandidateGlosses: [String] = []
+  private var visibleCandidatePageCount = 0
+  private var visibleCandidatesAnsweredByPinyinFallback = false
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -213,6 +243,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
+    renderCandidateStrip()
+    scheduleCandidateGlosses()
     applyKeyboardSkin()
     synchronizeReplyKeyboard()
   }
@@ -253,6 +287,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     replyModel.setText("")
     handwriting.deactivate()
     snapshotWorker.stop()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -558,24 +594,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    let icon = UIImageView()
-    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
-      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 72, height: 72))
-    }
-    icon.accessibilityIdentifier = "keyboardBrandIcon"
-    icon.contentMode = .scaleAspectFit
-    icon.layer.cornerRadius = 5
-    icon.clipsToBounds = true
-    icon.translatesAutoresizingMaskIntoConstraints = false
-    brand.addSubview(icon)
+    brand.brandImageView.image = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png")
+      .flatMap { UIImage(contentsOfFile: $0)?.preparingThumbnail(of: CGSize(width: 72, height: 72)) }
+      ?? UIImage(systemName: "leaf.fill")
     shortcutBar.addArrangedSubview(brand)
-    NSLayoutConstraint.activate([
-      brand.widthAnchor.constraint(equalToConstant: 44),
-      icon.widthAnchor.constraint(equalToConstant: 24),
-      icon.heightAnchor.constraint(equalToConstant: 24),
-      icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
-      icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
-    ])
+    brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
     for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
       if button !== schemeButton {
@@ -1482,35 +1505,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     playInputClick()
-    let panel = KeyboardCandidatePanelView(
-      candidates: visibleCandidates, preedit: visiblePreedit,
-      display: { [weak self] in self?.chineseOutput($0) ?? $0 },
-      onSelect: { [weak self] index in
-        guard let self else { return }
-        closeKeyboardPicker()
-        playInputClick()
-        render(session.selectCandidate(at: UInt(index)))
-      },
-      onClose: { [weak self] in self?.closeKeyboardPicker() })
-    panel.accessibilityViewIsModal = true
-    panel.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(panel)
-    NSLayoutConstraint.activate([
-      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.topAnchor.constraint(equalTo: view.topAnchor),
-      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-    ])
-    candidatePanel = panel
-    UIAccessibility.post(notification: .screenChanged, argument: panel)
+    do {
+      let snapshot = try CandidatePanelSnapshot.decode(session.allCandidates())
+      guard !snapshot.entries.isEmpty else { return }
+      let indexes = snapshot.entries.map(\.index)
+      let generation = snapshot.generation
+      let panel = KeyboardCandidatePanelView(
+        candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
+        annotations: snapshot.entries.map {
+          candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+        },
+        display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+        onSelect: { [weak self] index in
+          guard let self, indexes.indices.contains(index) else { return }
+          closeKeyboardPicker()
+          playInputClick()
+          render(session.selectCandidate(generation: generation, globalIndex: indexes[index]))
+        },
+        onClose: { [weak self] in self?.closeKeyboardPicker() })
+      panel.accessibilityViewIsModal = true
+      panel.translatesAutoresizingMaskIntoConstraints = false
+      view.addSubview(panel)
+      NSLayoutConstraint.activate([
+        panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        panel.topAnchor.constraint(equalTo: view.topAnchor),
+        panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ])
+      candidatePanel = panel
+      candidatePanelGeneration = generation
+      UIAccessibility.post(notification: .screenChanged, argument: panel)
+    } catch {
+      showDiagnostic("候选列表暂不可用")
+    }
   }
 
   private func updateExpandControl() {
     // Offered whenever the strip is not already showing everything. Paging by nine used to be the
     // only way past the ninth candidate, which left the tail of a 351-candidate answer thirty-nine
     // taps away; the panel shows the whole list at once instead.
-    expandCandidatesButton.isHidden =
-      visibleCandidates.count <= Self.candidatePageSize || visibleDiagnostic != nil
+    expandCandidatesButton.isHidden = visibleCandidatePageCount <= 1 || visibleDiagnostic != nil
   }
 
   // The engine's local input modes open on a capital carried with a shift-only modifier, which this
@@ -1886,8 +1920,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     hasComposition = !snapshot.preedit.isEmpty
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates)
+    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
+                         candidateCodes: snapshot.candidateCodes,
+                         candidateGlosses: snapshot.candidateGlosses,
+                         candidatePageCount: snapshot.candidatePageCount,
+                         answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
+    refreshCandidatePanelAnnotations()
     updateSpellingStrip()
+    scheduleCandidateGlosses()
   }
 
   // A diagnostic means the key was handled but something behind it failed, so input keeps working
@@ -1911,9 +1951,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticDismissTimer = timer
   }
 
-  private func updateCandidateStrip(preedit: String, candidates: [String]) {
+  private func updateCandidateStrip(preedit: String, candidates: [String],
+                                    candidateCodes: [String] = [], candidateGlosses: [String] = [],
+                                    candidatePageCount: Int = 0,
+                                    answeredByPinyinFallback: Bool = false) {
+    if visibleCandidates != candidates {
+      candidateGlossRequestedGeneration = nil
+    }
     visiblePreedit = preedit
     visibleCandidates = candidates
+    visibleCandidateCodes = candidateCodes
+    visibleCandidateGlosses = candidateGlosses
+    visibleCandidatePageCount = candidatePageCount
+    visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -1948,12 +1998,127 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
+  private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
+    let code = visibleCandidateCodes.indices.contains(index) ? visibleCandidateCodes[index] : ""
+    let gloss = visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : ""
+    return candidateAnnotation(code: code, gloss: gloss, typed: visiblePreedit)
+  }
+
+  private func candidateAnnotation(
+    code: String, gloss: String, typed: String
+  ) -> KeyboardCandidateAnnotation {
+    let hint = wubiCodeHint(code: code, typed: typed)
+    if !hint.isEmpty {
+      return KeyboardCandidateAnnotation(
+        text: hint, accessibilityDescription: "还需输入 \(hint)")
+    }
+    guard CandidateGlossPreference.enabled, !gloss.isEmpty else { return .none }
+    return KeyboardCandidateAnnotation(
+      text: gloss, accessibilityDescription: "英文释义：\(gloss)")
+  }
+
+  private func wubiCodeHint(code: String, typed: String) -> String {
+    guard inputScheme == .wubi, !session.isInLocalMode,
+          WubiCodeHintPreference.isEnabled else { return "" }
+    return WubiCodeHintPreference.hint(
+      code: code, typed: typed,
+      answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)
+  }
+
+  private func refreshCandidatePanelAnnotations() {
+    guard let panel = candidatePanel, let generation = candidatePanelGeneration else { return }
+    guard let value = try? session.allCandidates(),
+          let snapshot = try? CandidatePanelSnapshot.decode(value),
+          snapshot.generation == generation else {
+      closeKeyboardPicker()
+      return
+    }
+    panel.updateAnnotations(snapshot.entries.map {
+      candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+    })
+  }
+
+  /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
+  /// the keyboard thread, then resolve it off-thread and apply only if the same composition is
+  /// still visible. A failed or missing dictionary is intentionally silent.
+  private func scheduleCandidateGlosses() {
+    guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
+          !session.isInLocalMode, !visibleCandidates.isEmpty,
+          let resources = session.candidateGlossResources(), !resources.isEmpty else {
+      let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty
+      if candidateGlossRequestedGeneration != nil || hadVisibleGlosses {
+        candidateGlossEpoch &+= 1
+        candidateGlossRequestedGeneration = nil
+        visibleCandidateGlosses = []
+        if hadVisibleGlosses { renderCandidateStrip() }
+      }
+      refreshCandidatePanelAnnotations()
+      return
+    }
+    do {
+      let allCandidates = try session.allCandidates()
+      guard let value = allCandidates["generation"] as? NSNumber else { return }
+      let generation = value.uint64Value
+      if candidateGlossRequestedGeneration == generation { return }
+      guard let candidates = allCandidates["candidates"] as? [[String: Any]] else { return }
+      let request = try CandidateGlossModel.request(generation: generation, candidates: candidates)
+      candidateGlossRequestedGeneration = generation
+      let targetEpoch = candidateGlossEpoch
+      let targetResources = resources
+      let queue = candidateGlossQueue
+      let applyOnMain: (UInt64, Data) -> Void = { [weak self] responseGeneration, translations in
+        DispatchQueue.main.async { [weak self] in
+          guard let self, self.candidateGlossEpoch == targetEpoch,
+                CandidateGlossPreference.enabled,
+                self.candidateGlossRequestedGeneration == responseGeneration else { return }
+          do {
+            let applied = try self.session.applyTranslations(
+              generation: responseGeneration, translations: translations)
+            guard applied["applied"] as? Bool == true else { return }
+            let snapshot = try self.session.snapshot(from: applied)
+            self.render(snapshot)
+          } catch {
+            // Optional display metadata must never interrupt input.
+          }
+        }
+      }
+      queue.async {
+        do {
+          let response = try MetasequoiaInputSessionBridge.candidateGlosses(
+            request: request, resources: targetResources)
+          let decoded = try CandidateGlossModel.decode(response)
+          guard decoded.generation == generation else { return }
+          applyOnMain(decoded.generation, decoded.translations)
+        } catch {
+          // Optional display metadata must never interrupt input.
+        }
+      }
+    } catch {
+      // Optional display metadata must never interrupt input.
+    }
+  }
+
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
   // the index is the engine position the chip selects. The expand panel already showed bare text.
   private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
     let display = chineseOutput(candidate)
+    let annotation = candidateAnnotation(at: index)
     var configuration = UIButton.Configuration.plain()
     configuration.title = display
+    if !annotation.text.isEmpty {
+      configuration.attributedTitle = AttributedString(
+        display, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .body),
+        ])) + AttributedString(
+          "  " + annotation.text, attributes: AttributeContainer([
+            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+    }
+    // Candidate chips live in a horizontal scroll view. Keep each title on a
+    // single line and let the row scroll to wider candidates instead of
+    // compressing a chip into a second line.
+    configuration.titleLineBreakMode = .byTruncatingTail
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
@@ -1969,7 +2134,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self.playInputClick()
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
-    button.accessibilityLabel = "候选词 \(number)：\(display)"
+    button.titleLabel?.numberOfLines = 1
+    button.setContentCompressionResistancePriority(.required, for: .horizontal)
+    button.accessibilityLabel = annotation.accessibilityDescription.isEmpty
+      ? "候选词 \(number)：\(display)"
+      : "候选词 \(number)：\(display)，\(annotation.accessibilityDescription)"
     button.accessibilityIdentifier = "candidate-\(number)"
     if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
       let revision = candidateRevision
@@ -2244,6 +2413,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let panel = candidatePanel {
       panel.removeFromSuperview()
       candidatePanel = nil
+      candidatePanelGeneration = nil
       UIAccessibility.post(notification: .screenChanged, argument: expandCandidatesButton)
     }
     if let picker = layoutPicker {

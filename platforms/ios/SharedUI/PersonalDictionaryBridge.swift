@@ -1,35 +1,34 @@
 import Foundation
 
+private typealias PersonalDictionaryByte = UInt8
+@_silgen_name("msime_client_dictionary_validate")
+private func msimeClientDictionaryValidate(_ request: UnsafePointer<PersonalDictionaryByte>?,
+                                            _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_string_free")
+private func msimeClientPersonalDictionaryStringFree(_ value: UnsafeMutablePointer<CChar>?)
+
 enum PersonalDictionaryBridge {
   static func validateEntry(_ entry: [String: Any]) throws -> [String: Any] {
-    guard let kind = entry["kind"] as? String,
-          ["pinyin", "wubi", "quickPhrase", "quick_phrase", "english"].contains(kind),
-          let key = entry["key"] as? String, !key.isEmpty,
-          let value = entry["value"] as? String, !value.isEmpty,
-          let weight = entry["weight"] as? NSNumber else {
+    var request = entry
+    if request["kind"] as? String == "quickPhrase" { request["kind"] = "quick_phrase" }
+    guard JSONSerialization.isValidJSONObject(request),
+          let data = try? JSONSerialization.data(withJSONObject: request) else {
       throw PersonalDictionaryBridgeFailure.invalid
     }
-    let normalizedKind = kind == "quickPhrase" || kind == "quick_phrase" ? "quick_phrase" : kind
-    let keyValid: Bool
-    switch normalizedKind {
-    case "pinyin":
-      keyValid = key.utf8.allSatisfy { ($0 >= 97 && $0 <= 122) || $0 == 39 || $0 == 32 } && key.utf8.count <= 256
-    case "wubi":
-      keyValid = key.utf8.allSatisfy { $0 >= 97 && $0 <= 122 } && key.utf8.count <= 4
-    case "quick_phrase":
-      keyValid = key.utf8.allSatisfy { ($0 >= 97 && $0 <= 122) || ($0 >= 48 && $0 <= 57) } && key.utf8.count <= 32
-    case "english":
-      keyValid = key.utf8.allSatisfy { ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) } && key.utf8.count <= 64
-    default:
-      keyValid = false
+    let pointer = data.withUnsafeBytes { bytes in
+      msimeClientDictionaryValidate(bytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress,
+                                    UInt(data.count))
     }
-    guard keyValid, !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else {
+    guard let pointer else { throw PersonalDictionaryBridgeFailure.invalid }
+    let text = String(cString: pointer)
+    msimeClientPersonalDictionaryStringFree(pointer)
+    guard let response = text.data(using: .utf8),
+          let envelope = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+          envelope["ok"] as? Bool == true,
+          let value = envelope["value"] as? [String: Any] else {
       throw PersonalDictionaryBridgeFailure.invalid
     }
-    if normalizedKind == "quick_phrase" && value.utf16.count > 199 {
-      throw PersonalDictionaryBridgeFailure.invalid
-    }
-    return ["kind": normalizedKind, "key": key, "value": value, "weight": weight.int64Value]
+    return value
   }
 }
 

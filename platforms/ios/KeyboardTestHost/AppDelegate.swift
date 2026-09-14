@@ -1,16 +1,27 @@
 import UIKit
 
-// A separate host gives ML Kit access to the system download service during integration tests,
-// without loading a second copy of the production app's Objective-C bridge classes.
+// A separate host lets keyboard integration tests run without loading the production app.
+// The current iOS SDK requires a scene-based lifecycle before XCTest can attach.
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-  var window: UIWindow?
   func application(_ application: UIApplication,
-                   didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-    let window = UIWindow(frame: UIScreen.main.bounds)
+                   configurationForConnecting session: UISceneSession,
+                   options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+    let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+    configuration.delegateClass = SceneDelegate.self
+    return configuration
+  }
+}
+
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+             options: UIScene.ConnectionOptions) {
+    guard let windowScene = scene as? UIWindowScene else { return }
+    let window = UIWindow(windowScene: windowScene)
     window.rootViewController = UIViewController()
     window.makeKeyAndVisible()
     self.window = window
-    return true
   }
 }

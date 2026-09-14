@@ -50,6 +50,8 @@ struct InputSettingsView: View {
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
   private var wubiMixedPinyin = false
+  @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
+  private var wubiCodeHint = true
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
@@ -116,6 +118,10 @@ struct InputSettingsView: View {
             Toggle("编码打不出时用拼音候选", isOn: $wubiMixedPinyin)
               .accessibilityIdentifier("wubiMixedPinyin")
             Text("五笔词库答不上当前编码时，用同一串字母查全拼。词库答得上的编码不受影响。")
+              .font(.footnote).foregroundStyle(.secondary)
+            Toggle("候选显示剩余编码", isOn: $wubiCodeHint)
+              .accessibilityIdentifier("wubiCodeHint")
+            Text("在候选后标出还要输入的字母；完整码、拼音回退和本地输入候选不标注。")
               .font(.footnote).foregroundStyle(.secondary)
           }
         }

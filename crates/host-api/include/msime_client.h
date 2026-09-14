@@ -97,6 +97,9 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* Pure Engine validation/normalization for one Entry object. No paths or
+ * session are required and no dictionary state is changed. */
+char *msime_client_dictionary_validate(const uint8_t *request, size_t length);
 /* Android personal-dictionary queue synchronization. The request contains the
  * same HostOptions object as msime_client_create. The caller must have no
  * Engine session using its user_data/dictionaries paths. */

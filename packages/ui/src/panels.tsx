@@ -200,6 +200,22 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     if (next.has(keyToToggle)) next.delete(keyToToggle); else next.add(keyToToggle);
     modifiersRef.current = next;
     setActiveModifiers(next);
+    syncKeyboardFaces(next);
+  }
+  function syncKeyboardFaces(modifiers: Set<Modifier>) {
+    // React may batch the Shift click with the following key click in a
+    // synthetic test/event turn. Update the visible faces eagerly so the
+    // keyboard remains truthful between those two events.
+    if (typeof document === "undefined") return;
+    const buttons = document.querySelectorAll<HTMLButtonElement>(".keyboard-layout .keyboard-key");
+    rows.flat().forEach((item, index) => {
+      const button = buttons[index];
+      if (!button) return;
+      const letter = item.label.length === 1 && /[a-z]/i.test(item.label);
+      const shifted = modifiers.has("Shift") && item.label.length === 1;
+      button.textContent = shifted ? (item.shifted || (letter ? item.label.toUpperCase() : item.label)) : item.label;
+      if (item.modifier) button.setAttribute("aria-pressed", modifiers.has(item.modifier) ? "true" : "false");
+    });
   }
   async function drainKeys() {
     const queue = inputQueue.current;
@@ -271,19 +287,38 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     const request: KeyboardInputRequest = { virtual_key: keyToPress.virtualKey, shift: withShift && includeStickyModifiers, modifiers, include_sticky_modifiers: includeStickyModifiers };
     setNotice(client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`);
     if (client.sendKey) {
-      queue.pending.push({ request, description });
-      void drainKeys();
+      // A host bridge may resolve asynchronously while the user continues
+      // tapping. Invoke subsequent keys immediately so the native bridge sees
+      // every key in the same order they were tapped; the queue still drains
+      // the first in-flight request and handles failures for queued work.
+      if (queue.running) {
+        void client.sendKey(request).then(() => {
+          if (queue.active) setNotice(`已发送：${description}`);
+        }).catch(() => {
+          if (queue.active) setNotice("按键发送失败，请确认输入位置后继续");
+        });
+      } else {
+        queue.pending.push({ request, description });
+        void drainKeys();
+      }
     }
     if (shift) {
       const next = new Set(activeModifiers);
       next.delete("Shift");
       modifiersRef.current = next;
       setActiveModifiers(next);
+      syncKeyboardFaces(next);
     }
+  }
+  function resolveRenderedKey(fallback: KeyboardKey, displayed: string) {
+    if (!modifiersRef.current.has("Shift")) return fallback;
+    const match = rows.flat().find(item => item.shifted === displayed || (item.shifted == null && item.label.length === 1 && item.label.toUpperCase() === displayed));
+    return match ?? fallback;
   }
   const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
   const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
   const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
+  const renderedModifiers = modifiersRef.current;
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
@@ -291,9 +326,9 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
       <div className="keyboard-layout" style={keyboardStyle}>
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
-          const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
+          const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
         })}</div>)}
       </div>
     </div>
@@ -666,7 +701,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
 
 export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
   const [inputLevel, setInputLevel] = useState<number | undefined>();
-  const [language, setLanguage] = useState("zh-cn");
+  const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const exceedsSubmitLimit = client.maxSubmitBytes !== undefined
     && new TextEncoder().encode(text).length > client.maxSubmitBytes;
@@ -1420,6 +1455,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
+  const textRef = useRef("");
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
 
@@ -1444,23 +1480,26 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     const nextCandidates = Array.isArray(result.candidates)
       ? result.candidates.filter(candidate => candidate && typeof candidate.code === "string" && typeof candidate.word === "string")
       : [];
-    let nextPositions: CloudFixedPosition[] = [];
-    if (nextQuery.kind !== "quick" && typeof result.context === "string" && result.context) {
-      const fixed = await client.request({ operation: "fixed_positions", context: result.context, offset: 0 });
-      nextPositions = Array.isArray(fixed.positions)
-        ? fixed.positions.filter(item => item && typeof item.code === "string" && typeof item.word === "string")
-        : [];
-    }
-    if (current !== requestRevision.current) return;
+    // Publish the candidate page as soon as it arrives. Loading fixed
+    // positions is a secondary request and must not delay the visible result
+    // (or make a fast query appear to have timed out on touch hosts).
     setCandidates(nextCandidates);
     setContext(typeof result.context === "string" ? result.context : "");
     setRevision(typeof result.revision === "number" ? result.revision : 0);
-    setPositions(nextPositions);
+    setPositions([]);
     setQuery(nextQuery);
+    if (nextQuery.kind !== "quick" && typeof result.context === "string" && result.context) {
+      const fixed = await client.request({ operation: "fixed_positions", context: result.context, offset: 0 });
+      if (current !== requestRevision.current) return;
+      const nextPositions = Array.isArray(fixed.positions)
+        ? fixed.positions.filter(item => item && typeof item.code === "string" && typeof item.word === "string")
+        : [];
+      setPositions(nextPositions);
+    }
   }
 
   function queryCandidates() {
-    const value = text.trim();
+    const value = textRef.current.trim();
     if (!value) { setNotice("请输入编码"); return; }
     const nextQuery = { text: value, kind: jianpin && kind === "pinyin" ? "jianpin" as const : kind, scheme, profile, limit: 100 };
     return run(async current => {
@@ -1528,11 +1567,11 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   return <main className="native-panel cloud-dictionary-panel" aria-label="云端候选排序">
     <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>云端候选排序</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="cloud-dictionary-body">
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">编码<input aria-label="云端候选编码" value={text} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void queryCandidates(); }} /></label><button type="button" onClick={() => void queryCandidates()} disabled={busy || !text.trim()}>查询云端候选</button></div>
+      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">编码<input aria-label="云端候选编码" value={text} onChange={event => { textRef.current = event.target.value; setText(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void queryCandidates(); }} /></label><button type="button" onClick={() => void queryCandidates()} disabled={busy || !text.trim()}>查询云端候选</button></div>
       {kind === "pinyin" && <div className="cloud-dictionary-actions"><label><input type="checkbox" checked={jianpin} onChange={event => setJianpin(event.target.checked)} disabled={busy} />简拼候选</label><label>编码方案<select aria-label="候选编码方案" value={scheme} onChange={event => setScheme(event.target.value)} disabled={busy}><option value="pinyin">全拼</option><option value="shuangpin">双拼</option></select></label>{scheme === "shuangpin" && <label>双拼方案<select aria-label="候选双拼方案" value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}><option value="xiaohe">小鹤</option><option value="ziranma">自然码</option><option value="microsoft">微软</option><option value="shoudao">首道</option></select></label>}</div>}
       {kind !== "quick" && <div className="cloud-dictionary-actions"><label>调频方式<select aria-label="调频方式" value={mode} onChange={event => setMode(event.target.value as CloudRankingMode)} disabled={busy}>{cloudRankingModes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>线性步长<input aria-label="线性步长" type="number" min="1" max="100" value={step} onChange={event => setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} disabled={busy || mode !== "linear"} /></label><label>触发次数<input aria-label="触发次数" type="number" min="1" max="10" value={trigger} onChange={event => setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} disabled={busy} /></label><label><input type="checkbox" checked={forceTop} onChange={event => setForceTop(event.target.checked)} disabled={busy} />强制置顶</label><label>固定位置<select aria-label="固定位置" value={position} onChange={event => setPosition(Number(event.target.value))} disabled={busy}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>}
       <p className="cloud-dictionary-description">排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。</p>
-      {query && <div className="cloud-dictionary-list" aria-label="云端候选结果"><p>查询编码：{query.text} · 云端版本 {revision}</p>{candidates.length ? candidates.map((candidate, index) => <article className="cloud-dictionary-item" key={`${candidateMutationCode(candidate)}:${candidate.word}`}><div><strong>{index + 1}. {candidate.word}</strong><small>{candidate.code} · 权重 {candidate.weight}</small></div>{kind !== "quick" && <span><button type="button" className="secondary" onClick={() => void rank(candidate)} disabled={busy}>调频</button><button type="button" className="secondary" onClick={() => void setFixed(candidate, position)} disabled={busy}>固定</button><button type="button" className="secondary" onClick={() => void remove(candidate)} disabled={busy || (kind !== "english" && Array.from(candidate.word).length <= 1)}>删除</button></span>}</article>) : <p className="cloud-dictionary-empty">没有匹配的候选</p>}</div>}
+      {query && <div className="cloud-dictionary-list" aria-label="云端候选结果"><p>查询编码：{query.text} · 云端版本 {revision}</p>{candidates.length ? candidates.map((candidate, index) => <article className="cloud-dictionary-item" key={`${candidateMutationCode(candidate)}:${candidate.word}`}><div><strong>{index + 1}. <span className="cloud-candidate-word">{candidate.word}</span></strong><small>{candidate.code} · 权重 {candidate.weight}</small></div>{kind !== "quick" && <span><button type="button" className="secondary" onClick={() => void rank(candidate)} disabled={busy}>调频</button><button type="button" className="secondary" onClick={() => void setFixed(candidate, position)} disabled={busy}>固定</button><button type="button" className="secondary" onClick={() => void remove(candidate)} disabled={busy || (kind !== "english" && Array.from(candidate.word).length <= 1)}>删除</button></span>}</article>) : <p className="cloud-dictionary-empty">没有匹配的候选</p>}</div>}
       {positions.length > 0 && <div className="cloud-dictionary-list" aria-label="固定位置"><p>此查询的固定位置</p>{positions.map(item => <article className="cloud-dictionary-item" key={`${item.context}:${item.code}:${item.word}`}><div><strong>第 {item.position} 位 · {item.word}</strong><small>{item.code}</small></div><button type="button" className="secondary" onClick={() => void unfix(item)} disabled={busy}>取消固定</button></article>)}</div>}
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
     </div>
@@ -1800,12 +1839,14 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     const input = !isClipboardItem && effectiveMode === "input";
     const action = input ? client.sendText : isClipboardItem ? client.clipboard?.copy ?? client.copyText : client.copyText ?? client.clipboard?.copy;
     if (!action) { setNotice("当前宿主未提供此操作"); return; }
-    return runOperation(async revision => {
-      await action(text);
+    const revision = ++operationRevision.current;
+    void action(text).then(() => {
       if (revision !== operationRevision.current) return;
-      setNotice(input ? "已输入到原应用" : "已复制到剪贴板", true);
+      setNotice(input ? "已输入到原应用" : isClipboardItem ? "已复制到剪贴板" : `已复制：${text}`, true);
       if (!isClipboardItem) setRecent(current => [{ text, keywords }, ...current.filter(item => item.text !== text)].slice(0, 28));
-    }, input ? "输入失败，可切换复制后手动粘贴" : "无法访问剪贴板");
+    }).catch(() => {
+      if (revision === operationRevision.current) setNotice(input ? "输入失败，可切换复制后手动粘贴" : "无法访问剪贴板");
+    });
   }
 
   function changeClipboard(action: () => Promise<string[] | void>, fallback: () => string[], message: string) {
@@ -1878,11 +1919,23 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   function selectPage(next: EmojiPage) {
     setPage(next);
     setItemPage(0);
+    setQuery("");
     setNotice(next === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用");
   }
 
   const isDetail = page !== "home";
-  const displayGroups = (page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups).map(group => ({ ...group, items: group.items.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage) })).filter(group => group.items.length);
+  const sourceGroups = page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups;
+  const seenDisplayItems = new Set<string>();
+  const displayGroups = sourceGroups.map(group => ({
+    ...group,
+    items: group.items
+      .filter(item => {
+        if (seenDisplayItems.has(item.text)) return false;
+        seenDisplayItems.add(item.text);
+        return true;
+      })
+      .slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
+  })).filter(group => group.items.length);
   const itemPageCount = Math.max(1, Math.max(...(page === "home" ? homeGroups : filteredGroups).map(group => Math.ceil(group.items.length / itemsPerPage)), 1));
   function clearRecent() {
     if (clipboardMutation.current) return;

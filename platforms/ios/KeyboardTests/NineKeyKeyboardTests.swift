@@ -88,8 +88,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
   }
 
-  func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() {
-    let bridge = MetasequoiaInputSessionBridge()
+  func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-fuzzy-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(bridge.setFuzzyPinyinRules(1))
     _ = bridge.handleCharacter("z")
     XCTAssertFalse(bridge.setFuzzyPinyinRules(0))
@@ -100,7 +103,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     _ = bridge.switch(toShuangpinProfile: "xiaohe")
     _ = bridge.handleCharacter("z")
     let view = bridge.handleCharacter("s")
-    XCTAssertTrue(view.candidates.contains("中"))
+    let rows = try XCTUnwrap(try bridge.allCandidates()["candidates"] as? [[String: Any]])
+    XCTAssertTrue(rows.contains { $0["text"] as? String == "中" }, String(describing: view.candidates))
     XCTAssertFalse(bridge.setFuzzyPinyinRules(0))
     _ = bridge.cancel()
     XCTAssertTrue(bridge.setFuzzyPinyinRules(0))
@@ -1026,7 +1030,10 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testAdditionalEngineSchemesAndLocalProviders() throws {
-    let bridge = MetasequoiaInputSessionBridge()
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-schemes-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switchToWubi()
     var snapshot = bridge.handleCharacter("a")
     XCTAssertTrue(snapshot.candidates.contains("工"))
@@ -1034,7 +1041,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     _ = bridge.switchToJapanese()
     for letter in "nihon" { snapshot = bridge.handleCharacter(String(letter)) }
     XCTAssertTrue(snapshot.candidates.contains("にほん"))
-    XCTAssertTrue(snapshot.candidates.contains("ニホン"))
+    let japaneseRows = try XCTUnwrap(try bridge.allCandidates()["candidates"] as? [[String: Any]])
+    XCTAssertTrue(japaneseRows.contains { $0["text"] as? String == "ニホン" })
     _ = bridge.cancel()
     snapshot = bridge.handleCharacter("a")
     XCTAssertTrue(snapshot.candidates.contains("亜"))

@@ -10,7 +10,12 @@ final class ReplyKeyboardModel: ObservableObject {
   @Published var style = "高情商"
   private var operation: Task<Void, Never>?
   private var generation = UUID()
+  private let communityReplies: () -> [CommunityResource]
   var insertResult: ((String) -> Bool)?
+
+  init(communityReplies: @escaping () -> [CommunityResource] = { CommunityLibrary.replies }) {
+    self.communityReplies = communityReplies
+  }
 
   func setText(_ value: String) {
     resetResults()
@@ -34,7 +39,7 @@ final class ReplyKeyboardModel: ObservableObject {
     }
     if self.style != style { replies = [] }
     self.style = style
-    let template = style.hasPrefix("community:") ? CommunityLibrary.replies.first { "community:\($0.id)" == style } : nil
+    let template = style.hasPrefix("community:") ? communityReplies().first { "community:\($0.id)" == style } : nil
     if style.hasPrefix("community:") && template == nil { status = "模板已移除，请重新选择"; return }
     busy = true; status = "正在生成 · \(template?.name ?? style)"
     let id = UUID(); generation = id

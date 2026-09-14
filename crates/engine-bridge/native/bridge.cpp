@@ -5,8 +5,13 @@
 #define MSIME_HAS_HANDWRITING_CANDIDATES 0
 #endif
 #include "bridge.h"
+#ifndef MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+#define MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE 1
+#endif
+#if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
 #include <msime/voice/audio_capture.h>
 #include "miniaudio.h"
+#endif
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
 #include <user_dictionary/user_dictionary_journal.h>
@@ -38,6 +43,10 @@ namespace msime {
 
 rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     rust::Vec<float> samples;
+#if !MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+    (void)milliseconds;
+    return samples;
+#else
     if (milliseconds == 0 || milliseconds > 60000) return samples;
     metasequoia::voice::AudioCapture capture;
     std::mutex mutex;
@@ -65,10 +74,14 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     failed = capture.callback_failed();
     if (failed) samples.clear();
     return samples;
+#endif
 }
 
 rust::Vec<rust::String> capture_device_names() {
     rust::Vec<rust::String> names;
+#if !MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+    return names;
+#else
     ma_context context{};
     if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS) return names;
     ma_device_info *playback = nullptr;
@@ -83,6 +96,7 @@ rust::Vec<rust::String> capture_device_names() {
     }
     ma_context_uninit(&context);
     return names;
+#endif
 }
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
@@ -456,6 +470,11 @@ DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offs
     result.has_more = page.has_more;
     for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
     return result;
+}
+DictionaryEntry dictionary_validate(const DictionaryEntry& entry) {
+    const auto validation = metasequoia::validate_personal_dictionary_entry(entry_for(entry));
+    if (!validation.entry) throw std::invalid_argument(validation.error);
+    return entry_for(*validation.entry);
 }
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id) {

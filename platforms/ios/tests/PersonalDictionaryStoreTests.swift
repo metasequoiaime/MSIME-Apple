@@ -42,7 +42,9 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let host = PersonalDictionaryStore(directory: root)
     let keyboard = PersonalDictionaryStore(directory: root)
-    let session = MetasequoiaInputSessionBridge()
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
     let word = try PersonalWord(kind: .quickPhrase, key: "msimefixture", value: "private fixture text").validated()
     let id = try host.enqueue(previous: nil, replacement: word)
     defer {
@@ -158,9 +160,10 @@ final class PersonalDictionaryStoreTests: XCTestCase {
   func testCoordinatedFileImportReadsCompleteContentAndRejectsOversizedFiles() throws {
     let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
     defer { try? FileManager.default.removeItem(at: file) }
-    // Multiple read chunks, including escaped newlines and multibyte text.
-    let words = (0..<40).map {
-      PersonalWord(kind: .quickPhrase, key: "file\($0)", value: String(repeating: "你好\n", count: 300))
+    // Multiple read chunks, including escaped newlines and multibyte text,
+    // while every entry stays under the Engine's quick-phrase limit.
+    let words = (0..<128).map {
+      PersonalWord(kind: .quickPhrase, key: "file\($0)", value: String(repeating: "你好\n", count: 60))
     }
     let data = try PersonalDictionaryImport(entries: words).encoded()
     XCTAssertGreaterThan(data.count, 65_536)
