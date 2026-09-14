@@ -2,7 +2,7 @@
 
 #import <AppKit/AppKit.h>
 
-enum class MSIMEDesktopSettingsPage { Appearance, Voice };
+enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI };
 
 static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace,
                                         dispatch_block_t fallback) {
@@ -21,6 +21,13 @@ static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace
 static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
                                            NSWorkspace *workspace,
                                            dispatch_block_t fallback) {
-    MSIMEOpenDesktopRoute(page == MSIMEDesktopSettingsPage::Voice
-        ? @"settings:voice" : @"settings:appearance", workspace, fallback);
+    NSString *route = @"settings:appearance";
+    switch (page) {
+        case MSIMEDesktopSettingsPage::Appearance: break;
+        case MSIMEDesktopSettingsPage::Voice: route = @"settings:voice"; break;
+        // Translation controls live in the shared Input category.
+        case MSIMEDesktopSettingsPage::Translation: route = @"settings:input"; break;
+        case MSIMEDesktopSettingsPage::AI: route = @"settings:ai"; break;
+    }
+    MSIMEOpenDesktopRoute(route, workspace, fallback);
 }

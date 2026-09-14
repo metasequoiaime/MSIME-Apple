@@ -3,6 +3,7 @@
 #import "SkinSettingsView.h"
 #import "CloudAppearanceSettings.h"
 #import "TranslationSettingsWindow.h"
+#import "DesktopSettingsLauncher.h"
 #import "AISettingsWindow.h"
 #include "ShuangpinProfileNames.h"
 
@@ -281,6 +282,13 @@ static BOOL ValidToolbarFontSize(id value) {
     _translationPreferencesDirectory = [directory copy];
 }
 - (void)showTranslationSettings:(id)sender {
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Translation, [self desktopSettingsWorkspace], ^{
+        [weakSelf showNativeTranslationSettings:sender];
+    });
+}
+- (NSWorkspace *)desktopSettingsWorkspace { return NSWorkspace.sharedWorkspace; }
+- (void)showNativeTranslationSettings:(id)sender {
     if (!_translationWindow) {
         __weak MSIMEAppearancePreferences *weakSelf = self;
         _translationWindow = [[MSIMETranslationSettingsWindow alloc] initWithDirectory:_translationPreferencesDirectory saved:^(NSDictionary *preferences) {
@@ -293,6 +301,12 @@ static BOOL ValidToolbarFontSize(id value) {
     [_translationWindow showWindow:sender];
 }
 - (void)showAISettings:(id)sender {
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::AI, [self desktopSettingsWorkspace], ^{
+        [weakSelf showNativeAISettings:sender];
+    });
+}
+- (void)showNativeAISettings:(id)sender {
     if (!_aiWindow) _aiWindow = [[MSIMEAISettingsWindow alloc] initWithDirectory:_translationPreferencesDirectory saved:^(NSDictionary *preferences) {
         [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self userInfo:preferences];
     }];

@@ -49,5 +49,14 @@ int main() {
         MSIMEOpenDesktopRoute(@"settings:help", workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=settings:help"]]);
         assert(workspace.launches == 3);
+        for (NSArray *entry in @[@[@((int)MSIMEDesktopSettingsPage::Translation), @"--route=settings:input"],
+                                 @[@((int)MSIMEDesktopSettingsPage::AI), @"--route=settings:ai"]]) {
+            MSIMEOpenDesktopSettings((MSIMEDesktopSettingsPage)[entry[0] intValue], workspace, fallback);
+            assert([workspace.configuration.arguments isEqual:@[entry[1]]]);
+            assert(workspace.configuration.createsNewApplicationInstance);
+            workspace.completion(NSRunningApplication.currentApplication, nil);
+            assert(fallbacks == 2);
+        }
+        assert(workspace.launches == 5);
     }
 }

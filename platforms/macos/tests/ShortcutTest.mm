@@ -2557,10 +2557,34 @@ static void TestGlossScheduling() {
     [controller cancelCandidateGloss];
 }
 
+@interface SettingsRouteWorkspace : NSWorkspace
+@property BOOL installed;
+@property(strong) NSWorkspaceOpenConfiguration *configuration;
+@property(copy) void (^completion)(NSRunningApplication *, NSError *);
+@end
+@implementation SettingsRouteWorkspace
+- (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
+    assert([identifier isEqual:@"app.msime.client.preview"]);
+    return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
+}
+- (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration
+          completionHandler:(void (^)(NSRunningApplication *, NSError *))completion {
+    assert([url.path isEqual:@"/synthetic/Settings.app"]);
+    self.configuration = configuration; self.completion = completion;
+}
+@end
+@interface RoutedAppearancePreferences : MSIMEAppearancePreferences
+@property(strong) SettingsRouteWorkspace *testWorkspace;
+@end
+@implementation RoutedAppearancePreferences
+- (NSWorkspace *)desktopSettingsWorkspace { return self.testWorkspace; }
+@end
+
 static void TestCandidateTranslationPreference() {
     NSString *suite = [@"msime.gloss.preference." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
-    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    RoutedAppearancePreferences *prefs = [[RoutedAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.testWorkspace = [SettingsRouteWorkspace new];
     NSButton *toggle = (id)PreferenceControl(prefs, @selector(candidateTranslationsChanged:));
     assert(prefs.candidateTranslations && toggle.state == NSControlStateValueOn);
     assert(![prefs sharedPreferencesByMerging:@{}][@"candidate_translations"]);
@@ -2608,6 +2632,25 @@ static void TestCandidateTranslationPreference() {
     [prefs setTranslationPreferencesDirectory:root];
     NSControl *translationEntry = PreferenceControl(prefs, @selector(showTranslationSettings:));
     assert(translationEntry);
+    prefs.testWorkspace.installed = YES;
+    [NSApp sendAction:translationEntry.action to:translationEntry.target from:translationEntry];
+    assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:input"]]);
+    prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
+    assert(![prefs valueForKey:@"translationWindow"]);
+    NSControl *aiEntry = PreferenceControl(prefs, @selector(showAISettings:));
+    [NSApp sendAction:aiEntry.action to:aiEntry.target from:aiEntry];
+    assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:ai"]]);
+    prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
+    assert(![prefs valueForKey:@"aiWindow"]);
+    // A failed asynchronous launch still reaches the existing native editor.
+    [NSApp sendAction:aiEntry.action to:aiEntry.target from:aiEntry];
+    prefs.testWorkspace.completion(nil, [NSError errorWithDomain:@"SyntheticLaunchFailure" code:1 userInfo:nil]);
+    NSDate *launchDeadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (![prefs valueForKey:@"aiWindow"] && launchDeadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    NSWindowController *aiWindow = [prefs valueForKey:@"aiWindow"];
+    assert(aiWindow.window.visible); [aiWindow close];
+    prefs.testWorkspace.installed = NO;
     [NSApp sendAction:translationEntry.action to:translationEntry.target from:translationEntry];
     NSWindowController *translationWindow = [prefs valueForKey:@"translationWindow"];
     assert(translationWindow.window.visible);
