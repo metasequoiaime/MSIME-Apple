@@ -20,7 +20,7 @@ const dictionary: DictionaryClient = {
   }),
   edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
   import: (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import", kind, format, text, request_id } }),
-  ...(/\bAndroid\b/i.test(navigator.userAgent) ? {
+  ...(/\b(Android|iPhone|iPad)\b/i.test(navigator.userAgent) ? {
     importPersonal: (text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
   } : {}),
   export: (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number) => invoke("dictionary_request", { action: { operation: "export", kind, format, offset, limit } }),
@@ -177,7 +177,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   cloudDictionary: {
     close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
     request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
-    ...(/\bAndroid\b/i.test(navigator.userAgent) ? {
+    ...(/\b(Android|iPhone|iPad)\b/i.test(navigator.userAgent) ? {
       downloadToLocal: async (entry: CloudDictionaryEntry) => {
         if (!dictionary.importPersonal) throw new Error("personal dictionary import is unavailable");
         const text = JSON.stringify({
