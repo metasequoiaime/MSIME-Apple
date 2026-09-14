@@ -17,14 +17,24 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   @Published var expiresAt = Date.distantPast
   @Published var resendAt = Date.distantPast
   weak var window: NSWindow?
+  // 匿名账号是本机文件,不在钥匙串里。这一页原来只问 account(钥匙串),于是装完自动开的那个账号
+  // 在设置里完全不存在 —— 页面劝你登录一个你已经有的账号。
+  @Published var anonymous = false
   private let client: BackendAccountClient
   private let account: BackendAccountSession
+  private let anonymousAccount: BackendAccountSession
+  private let discardAnonymous: () -> Void
   private var pending: Task<Void, Never>?
   private var appleController: ASAuthorizationController?
   private var appleChallenge: String?
 
-  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
+  // 匿名会话和「用完丢弃凭据」都要能注入:默认值指向本机的真实文件,测试里换成内存的,否则一跑测试就
+  // 读到(并可能删掉)本机真实的匿名账号。
+  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
+       anonymousAccount: BackendAccountSession = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage()),
+       discardAnonymous: @escaping () -> Void = BackendAnonymousAccount.discard) {
     self.client = client; self.account = account
+    self.anonymousAccount = anonymousAccount; self.discardAnonymous = discardAnonymous
     super.init()
   }
 
@@ -40,18 +50,44 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   }
   func load() {
     perform {
-      self.user = try await self.account.user()
+      // 钥匙串里的真实身份优先;没有才回落到匿名账号 —— 两者同时存在时匿名那个已经是历史遗留。
+      if let user = try await self.account.user() {
+        self.user = user; self.anonymous = false
+      } else {
+        self.user = try await self.anonymousAccount.user(); self.anonymous = self.user != nil
+      }
       self.name = self.user?.preferredDisplayName ?? ""
       let providers = try await self.client.providers()
       try Task.checkCancellation()
       self.providers = providers
     }
   }
+
+  /// 改昵称、退出、注销针对的是页面上显示的那个账号,不一定是钥匙串里的那个。
+  private var currentSession: BackendAccountSession { anonymous ? anonymousAccount : account }
+
+  /// 当前显示的是匿名账号时返回它的 token,登录于是变成「把身份绑到这个账号上」而不是另开一个。
+  /// 不这么做,用户一登录就换了账号,匿名账号名下的云端词库当场变成孤儿。
+  private func linkToken() async -> String? {
+    guard anonymous else { return nil }
+    return try? await anonymousAccount.accessToken()
+  }
+
+  /// 绑定成功后账号已经有了真实身份,凭据归位到钥匙串,本机那份匿名凭据就该清掉 —— 留着只会在
+  /// 下次启动时被当成另一个可用会话。
+  private func adoptKeychainIdentity() async {
+    guard anonymous else { return }
+    try? await anonymousAccount.forget()
+    discardAnonymous()
+    anonymous = false
+  }
   func requestCode() {
     guard resendAt <= Date() else { return }
     perform {
       guard self.providers[self.channel] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let response = try await self.client.challenge(provider: self.channel, target: self.target.trimmingCharacters(in: .whitespacesAndNewlines))
+      let response = try await self.client.challenge(provider: self.channel,
+                                                     target: self.target.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                     linkToken: await self.linkToken())
       try Task.checkCancellation()
       self.challenge = response
       self.expiresAt = Date().addingTimeInterval(TimeInterval(response.expires_in))
@@ -62,9 +98,11 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func codeLogin() {
     guard let challenge, expiresAt > Date(), code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { return }
     perform {
-      try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code)
+      try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code,
+                                    linkToken: await self.linkToken())
       let user = try await self.account.user()
       try Task.checkCancellation()
+      await self.adoptKeychainIdentity()
       self.user = user; self.name = self.user?.preferredDisplayName ?? ""
       self.challenge = nil; self.code = ""; self.target = ""
     }
@@ -72,7 +110,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func appleLogin() {
     perform {
       guard self.window != nil, self.providers["apple"] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let challenge = try await self.client.challenge(provider: "apple")
+      let challenge = try await self.client.challenge(provider: "apple", linkToken: await self.linkToken())
       try Task.checkCancellation()
       guard let nonce = challenge.nonce else { throw BackendAccountClient.Failure(status: 503) }
       let request = ASAuthorizationAppleIDProvider().createRequest()
@@ -90,9 +128,10 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
     guard let challenge = appleChallenge, let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
           let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
     perform {
-      try await self.account.signIn(challenge: challenge, credential: token)
+      try await self.account.signIn(challenge: challenge, credential: token, linkToken: await self.linkToken())
       let user = try await self.account.user()
       try Task.checkCancellation()
+      await self.adoptKeychainIdentity()
       self.user = user; self.name = self.user?.preferredDisplayName ?? ""
     }
   }
@@ -116,10 +155,10 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       message = "昵称需为 1–64 个字符，不能包含换行或控制字符。"; return
     }
     perform {
-      let identity = try await self.account.credentials()
+      let identity = try await self.currentSession.credentials()
       try await self.client.rename(value, token: identity.token)
       let profile = try await self.client.profile(token: identity.token)
-      try await self.account.updateUser(profile.user, matching: identity.token)
+      try await self.currentSession.updateUser(profile.user, matching: identity.token)
       try Task.checkCancellation()
       self.user = profile.user; self.name = profile.user.preferredDisplayName
     }
@@ -127,14 +166,15 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func logout(all: Bool = false, delete: Bool = false) {
     perform {
       if delete {
-        let identity = try await self.account.credentials()
+        let identity = try await self.currentSession.credentials()
         try await self.client.deleteAccount(token: identity.token)
-        try await self.account.forget()
+        try await self.currentSession.forget()
+        if self.anonymous { self.discardAnonymous() }
       } else {
-        do { try await self.account.logout(all: all) }
-        catch { self.user = try await self.account.user(); throw error }
+        do { try await self.currentSession.logout(all: all) }
+        catch { self.user = try await self.currentSession.user(); throw error }
       }
-      self.user = nil; self.name = ""
+      self.user = nil; self.name = ""; self.anonymous = false
     }
   }
   func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil; code = ""; target = ""; challenge = nil }
@@ -155,10 +195,10 @@ struct MacAccountView: View {
         Text(user.preferredDisplayName).font(.title2)
         // 匿名账号是装完自动开的,用户没做过任何操作,所以「它从哪来、丢了会怎样」必须写在他会看到的
         // 地方。提示放在这一页而不是打字时弹出来:内容是一次性的,但看的时机该由用户决定。
-        if let anonymous = BackendAnonymousAccount.stored() {
+        if model.anonymous, let anonymous = BackendAnonymousAccount.stored() {
           Text("本机账号 \(anonymous.subject)")
             .font(.callout)
-          Text("安装时自动创建,用于候选词翻译与云同步。凭据只保存在本机钥匙串,清除钥匙串或更换设备后无法找回这个账号及其云端词库 —— 想长期保留请绑定 Apple 或邮箱。")
+          Text("安装时自动创建,用于候选词翻译与云同步。凭据保存在本机的应用支持目录,清除输入法数据或更换设备后无法找回这个账号及其云端词库 —— 想长期保留请在下面绑定 Apple 或邮箱,绑定后仍是同一个账号,云词库不会丢。")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -173,9 +213,11 @@ struct MacAccountView: View {
         Button("退出登录") { model.logout() }
         Button("退出所有设备") { model.logout(all: true) }
         Button("注销账号", role: .destructive) { deleting = true }
-      } else {
-        Button("使用 Apple 登录") { model.appleLogin() }.disabled(model.providers["apple"] != true)
-        Picker("验证码登录", selection: $model.channel) {
+      }
+      if model.user == nil || model.anonymous {
+        Button(model.anonymous ? "绑定 Apple 账号" : "使用 Apple 登录") { model.appleLogin() }
+          .disabled(model.providers["apple"] != true)
+        Picker(model.anonymous ? "验证码绑定" : "验证码登录", selection: $model.channel) {
           Text("邮箱").tag("email"); Text("手机号").tag("phone")
         }.onChange(of: model.channel) { _ in model.challenge = nil; model.code = "" }
         TextField(model.channel == "email" ? "邮箱地址" : "手机号（含国家区号，如 +86）", text: $model.target)
@@ -186,7 +228,7 @@ struct MacAccountView: View {
             .disabled(remaining > 0 || model.providers[model.channel] != true || model.target.isEmpty)
           if model.challenge != nil {
             TextField("6 位验证码", text: $model.code)
-            Button("登录") { model.codeLogin() }
+            Button(model.anonymous ? "绑定" : "登录") { model.codeLogin() }
               .disabled(model.expiresAt <= timeline.date || model.code.utf8.count != 6 || !model.code.utf8.allSatisfy { (48...57).contains($0) })
           }
         }

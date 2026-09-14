@@ -1,11 +1,15 @@
 import Foundation
 
 // Whether an account is signed in, so the settings can say what a provider needs before anyone
-// turns it on. Reading the keychain is cheap and synchronous, and the token itself is not needed to
-// answer this much.
+// turns it on. Reading a file or the keychain is cheap and synchronous, and the token itself is not
+// needed to answer this much.
+//
+// 匿名账号不在钥匙串里,只问钥匙串就会在输入法明明登着的时候报「未登录」—— 设置页于是劝用户去登录一个
+// 他已经有的账号,而候选旁的译文一直在正常出现。
 @_cdecl("MSIMEBackendAccountSignedIn")
 func backendAccountSignedIn() -> Bool {
-  ((try? BackendKeychain().load()) ?? nil) != nil
+  if ((try? BackendKeychain().load()) ?? nil) != nil { return true }
+  return ((try? BackendAnonymousAccount.sessionStorage().load()) ?? nil) != nil
 }
 
 // 首次激活时自动开一个匿名账号。The controller is Objective-C and this target emits no -Swift.h, so the

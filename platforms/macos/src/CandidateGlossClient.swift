@@ -28,10 +28,11 @@ enum CandidateGlossClient {
           group.addTask {
             guard let glosses = try? await client.translate(texts: words, target: code, token: token)
             else { return }
-            var table: [String: String] = [:]
-            for (word, gloss) in zip(words, glosses) where !gloss.isEmpty && gloss != word {
-              table[word] = gloss
-            }
+            // let 而不是 var:跨越 await 被闭包捕获的可变量在 Swift 6 下是错误。
+            // 同一页出现两个相同的词是可能的(不同编码打出同一个字),所以按第一条取,不能用
+            // uniqueKeysWithValues —— 那个碰上重复键直接崩。
+            let table = Dictionary(zip(words, glosses).filter { !$0.1.isEmpty && $0.1 != $0.0 },
+                                   uniquingKeysWith: { first, _ in first })
             guard !table.isEmpty else { return }
             await MainActor.run {
               let key = isSecondary ? "secondaryTranslations" : "translations"

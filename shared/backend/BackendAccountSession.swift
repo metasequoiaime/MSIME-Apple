@@ -101,11 +101,13 @@ actor BackendAccountSession {
   private func load() throws {
     if !loaded { saved = try storage.load(); loaded = true }
   }
-  func signIn(challenge: String, credential: String) async throws {
+  /// linkToken 非空时是「绑定」而不是「登录」:服务端把这个身份挂到该 token 所属的账号上,返回的
+  /// 仍是同一个账号。匿名账号靠这条路升级成真实身份,云端词库不会因此换主。
+  func signIn(challenge: String, credential: String, linkToken: String? = nil) async throws {
     generation += 1
     refreshing?.cancel(); refreshing = nil
     let version = generation
-    let tokens = try await api.login(challenge: challenge, credential: credential, linkToken: nil)
+    let tokens = try await api.login(challenge: challenge, credential: credential, linkToken: linkToken)
     try Task.checkCancellation()
     guard version == generation else { throw CancellationError() }
     try install(tokens)
