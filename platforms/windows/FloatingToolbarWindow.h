@@ -1,5 +1,6 @@
 #pragma once
 #include "ModeWindow.h"
+#include "FloatingToolbarSettings.h"
 #include "ToolbarIcons.h"
 #include <functional>
 #include <array>
@@ -34,6 +35,20 @@ public:
   void set_scale(double scale) { scale_ = scale; }
   void set_font_size(int size) { font_size_ = size; }
   void set_items(std::array<bool, 6> items) { items_ = items; }
+  // UI-thread only; refresh must remeasure even when input mode is unchanged.
+  void set_settings(const FloatingToolbarSettings &settings) {
+    if (!settings.valid()) return;
+    const double scale = static_cast<double>(settings.scale_percent) / 100.0;
+    if (scale_ == scale && font_size_ == static_cast<int>(settings.font_size) &&
+        items_ == settings.items) return;
+    scale_ = scale;
+    font_size_ = static_cast<int>(settings.font_size);
+    items_ = settings.items;
+    hovered_.reset();
+    pressed_.reset();
+    shown_.reset();
+    shown_character_set_.reset();
+  }
   void set_position(std::optional<POINT> position) { dragged_position_ = position; }
   void set_position_changed(PositionChanged callback) { position_changed_ = std::move(callback); }
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {

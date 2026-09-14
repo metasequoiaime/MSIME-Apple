@@ -595,6 +595,7 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
     auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
+    auto toolbar_settings = std::make_shared<FloatingToolbarMailbox>();
     auto candidate_theme = std::make_shared<CandidateThemeMailbox>();
     auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
         CandidateLayoutSettings{config.horizontal_candidates,
@@ -620,10 +621,12 @@ int wmain(int argc, wchar_t **argv) {
          toolbar_enabled, dedicated_english, follow_cursor, voice_light, candidate_fonts,
          toolbar_light, menu_light, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
-         tsf_config_dirty, candidate_theme](const PreferenceSnapshot &snapshot) {
+         tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
+          if (auto settings = floating_toolbar_settings(preferences))
+            toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))
             candidate_fonts->publish(snapshot.revision(), std::move(*fonts));
           if (auto layout = candidate_layout_settings(preferences))
@@ -1231,6 +1234,8 @@ int wmain(int argc, wchar_t **argv) {
       modes.refresh();
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
+      if (auto settings = toolbar_settings->take())
+        toolbar.set_settings(*settings);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
       if (const bool dark = !menu_light->load(std::memory_order_acquire);
           dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
