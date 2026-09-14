@@ -28,6 +28,16 @@ on success or failure. `tests/build_client.ps1` tests the orchestration using
 command probes, including failure at every stage; it does not compile native
 code or prove runtime dependency closure.
 
+Before reporting completion, the build reads PE headers from all five x64 EXE
+outputs and the TSF/Host DLL pair for each architecture. It rejects missing or
+truncated headers, wrong machine or optional-header type, and EXE/DLL flag
+mismatches. `Test-PortableExecutable.ps1` can also inspect individual outputs
+without loading them. Header fields follow Microsoft's
+[PE format specification](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format).
+This is an architecture/type gate, not full image validation, signature checking,
+import resolution or Windows runtime verification. Parser fixtures intentionally
+contain only synthetic headers; they are not executable images.
+
 The legacy `installer/test.ps1` and `test-light.ps1` are not yet migrated to this
 entry and should not be used as Client build verification. Native dependency DLL
 collection, architecture-correct installer staging, legacy asset removal and

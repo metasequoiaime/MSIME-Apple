@@ -73,7 +73,19 @@ try {
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
         (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
         (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.exe'))
-    Write-Output 'Client native and Tauri build commands completed; no signing, packaging or installation performed.'
+    foreach ($arch in @('x64', 'x86')) {
+        $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
+            & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
+        }
+        if ($arch -eq 'x64') {
+            foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
+                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-client-settings.exe')) {
+                & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $exe) -Architecture x64 -Kind exe
+            }
+        }
+    }
+    Write-Output 'Client build commands and PE architecture checks completed; no signing, packaging or installation performed.'
 } finally {
     $env:CMAKE_PREFIX_PATH = $previousPrefix
     $env:CARGO_TARGET_DIR = $previousTarget

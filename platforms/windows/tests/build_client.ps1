@@ -6,7 +6,17 @@ $originalLocation = (Get-Location).Path
 $originalPrefix = $env:CMAKE_PREFIX_PATH
 $originalTarget = $env:CARGO_TARGET_DIR
 $originalDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
+. (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 try {
+    foreach ($arch in @('x86', 'x64')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
+            Write-PEFixture (Join-Path $fixture "target/windows-full/$arch/bin/$dll") $arch dll
+        }
+    }
+    foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
+        'MetasequoiaImeDictionaryReplay.exe', 'msime-client-settings.exe')) {
+        Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$exe") x64 exe
+    }
     foreach ($relative in @('Cargo.toml', 'vendor/MSIME-Engine/CMakeLists.txt',
         'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt', 'apps/desktop/package.json')) {
         $path = Join-Path $fixture $relative
@@ -52,7 +62,18 @@ try {
             $env:CARGO_TARGET_DIR -ne $originalTarget -or
             $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug) { throw 'Build leaked caller environment' }
     }
-    Write-Output 'Client build orchestration: targets, dependency scopes and all failure stages passed'
+    $global:ClientBuildCalls.Clear()
+    $global:ClientBuildFailAt = 0
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/x86/bin/msime_host_api.dll') x64 dll
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+    catch { $rejected = $_.Exception.Message -eq 'PE architecture mismatch' }
+    if (-not $rejected) { throw 'Build accepted mixed-architecture output' }
+    if ((Get-Location).Path -ne $originalLocation -or $env:CMAKE_PREFIX_PATH -ne $originalPrefix -or
+        $env:CARGO_TARGET_DIR -ne $originalTarget -or $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug) {
+        throw 'PE verification failure leaked caller environment'
+    }
+    Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'
 } finally {
     Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
     Remove-Variable ClientBuildCalls, ClientBuildFailAt -Scope Global -ErrorAction SilentlyContinue
