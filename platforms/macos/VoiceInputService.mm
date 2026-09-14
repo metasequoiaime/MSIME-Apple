@@ -102,13 +102,14 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     }
     AVAudioFormat *format = [input inputFormatForBus:0];
     NSError *tapError = nil;
+    SFSpeechAudioBufferRecognitionRequest *speechRequest = _speechRequest;
     if (@available(macOS 27.0, *)) {
-        [input installTapOnBus:0 bufferSize:1024 format:format error:&tapError block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
+        [input installTapOnBus:0 bufferSize:1024 format:format error:&tapError block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; [speechRequest appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
     } else {
         // Keep capture available on the supported macOS 13–26 hosts.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
+        [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; [speechRequest appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
 #pragma clang diagnostic pop
     }
     if (tapError) { _audioEngine = nil; if (error) *error = tapError; return NO; }
@@ -131,6 +132,9 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
             MSIMEVoiceInputService *service = weakSelf;
             if (!service || service->_transcriptionGeneration != generation) return;
             if (result) handler(result.bestTranscription.formattedString, result.isFinal);
+            // Empty final is a terminal failure signal, never a partial commit.
+            if (recognitionError && !result.isFinal && service->_transcriptionGeneration == generation)
+                handler(@"", YES);
             // The handler may itself stop or replace the recognition task.
             if (service->_transcriptionGeneration == generation && (recognitionError || result.isFinal))
                 [service stopTranscription];

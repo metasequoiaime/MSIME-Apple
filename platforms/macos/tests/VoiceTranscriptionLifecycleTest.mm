@@ -76,6 +76,13 @@ int main() {
         replies[3](nil, [NSError errorWithDomain:@"fixture" code:1 userInfo:nil]);
         Drain();
         assert(!tasks[4].cancelled);
+        __block BOOL failed = NO;
+        assert([service startTranscriptionWithLanguage:@"en-US" textHandler:^(NSString *text, BOOL final) {
+            assert(NSThread.isMainThread && final && !text.length); failed = YES;
+        } error:nil]);
+        replies[5](nil, [NSError errorWithDomain:@"fixture" code:1 userInfo:nil]);
+        Drain();
+        assert(failed && tasks[5].cancelled);
         [service stopTranscription];
         [replies removeAllObjects];
         method_setImplementation(auth, oldAuth);
