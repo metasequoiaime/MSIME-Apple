@@ -1,8 +1,8 @@
 #import "MetasequoiaInputController.h"
 
 // Implemented in CandidateGlossClient.swift and BackendAccountBridge.swift.
-extern "C" void MSIMEFetchCandidateGlosses(const char *wordsJSON, const char *primaryCode,
-                                           const char *secondaryCode, unsigned long long generation);
+extern "C" void MSIMEFetchCandidateGlosses(const char *wordsJSON, const char *primaryCode, const char *secondaryCode,
+                                           unsigned long long generation);
 extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 #import "DictionaryInstaller.h"
@@ -329,7 +329,7 @@ static NSHashTable *LiveDictionaryControllers()
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
-    for (NSString *word in (hasPrimary ? translations : @{})) 
+    for (NSString *word in (hasPrimary ? translations : @{}))
     {
         NSString *translation = translations[word];
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
@@ -346,7 +346,8 @@ static NSHashTable *LiveDictionaryControllers()
             NSString *translation = secondaryTranslations[word];
             if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] &&
                 translation.length)
-                MetasequoiaSharedSecondaryTranslationCache()[[NSString stringWithFormat:@"%@|%@", secondaryLanguage, word]] = translation;
+                MetasequoiaSharedSecondaryTranslationCache()[
+                    [NSString stringWithFormat:@"%@|%@", secondaryLanguage, word]] = translation;
         }
     }
     // 只让活跃实例重绘,而且用它此刻的会话状态判断,不看这个实例自己那份可能早已过期的快照。
@@ -1366,7 +1367,9 @@ static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedTranslation
 {
     static NSMutableDictionary<NSString *, NSString *> *cache;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ cache = [NSMutableDictionary dictionary]; });
+    dispatch_once(&once, ^{
+      cache = [NSMutableDictionary dictionary];
+    });
     return cache;
 }
 
@@ -1374,7 +1377,9 @@ static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedSecondaryTr
 {
     static NSMutableDictionary<NSString *, NSString *> *cache;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ cache = [NSMutableDictionary dictionary]; });
+    dispatch_once(&once, ^{
+      cache = [NSMutableDictionary dictionary];
+    });
     return cache;
 }
 
