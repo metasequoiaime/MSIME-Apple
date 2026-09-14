@@ -36,6 +36,7 @@ extern "C" void MSIMEEnsureAnonymousAccount(void);
 #include "InputBehaviorPreferences.h"
 #include "CandidateTranslationLanguage.h"
 #include <metasequoia/session.h>
+#include "contracts/assets/assets.h"
 #include "english/english_dictionary.h"
 #include "contracts/punctuation/policy.h"
 #include "quanpin/quanpin_utils.h"
@@ -329,11 +330,15 @@ static NSHashTable *LiveDictionaryControllers()
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
+    EnglishDictionary *glossCache = [self translationDictionary];
     for (NSString *word in (hasPrimary ? translations : @{}))
     {
         NSString *translation = translations[word];
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
+        {
             MetasequoiaSharedTranslationCache()[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
+            MetasequoiaPersistOnlineGloss(glossCache, language, word, translation);
+        }
     }
     NSDictionary<NSString *, NSString *> *secondaryTranslations = secondaryArriving;
     const NSInteger secondaryIndex = MetasequoiaSecondaryTranslationLanguageIndex();
@@ -1139,9 +1144,12 @@ static NSHashTable *LiveDictionaryControllers()
     if (databasePath.length == 0)
         return nullptr;
     NSString *translationsPath = [bundle pathForResource:@"custom_translations" ofType:@"txt"];
+    // 第四个参数是持久化的在线释义。给了它之后 query_*_gloss 自动多一层回落:
+    // custom_translations.txt > 随包发的 ECDICT > 上次联网补回来的那份。查询处不用改。
     _translationDictionary = std::make_unique<EnglishDictionary>(
         databasePath.fileSystemRepresentation, false,
-        translationsPath.length > 0 ? translationsPath.fileSystemRepresentation : "");
+        translationsPath.length > 0 ? translationsPath.fileSystemRepresentation : "",
+        MetasequoiaGlossCachePath().fileSystemRepresentation);
     return _translationDictionary.get();
 }
 
@@ -1373,6 +1381,49 @@ static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedTranslation
     return cache;
 }
 
+// 在线释义落盘的位置。跟 msime_user.db 同一个目录:这是用户数据,不是随时可丢的缓存 —— 换一代词库
+// 时 english.db 会从资源目录重拷,写进那里的释义会被清掉,所以引擎给了这个独立的 user 文件。
+static NSString *MetasequoiaGlossCachePath(void)
+{
+    static NSString *path;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      NSFileManager *manager = NSFileManager.defaultManager;
+      NSURL *support = [manager URLForDirectory:NSApplicationSupportDirectory
+                                       inDomain:NSUserDomainMask
+                              appropriateForURL:nil
+                                         create:YES
+                                          error:nil];
+      if (support == nil)
+          support = [[NSURL fileURLWithPath:NSHomeDirectory()
+                                isDirectory:YES] URLByAppendingPathComponent:@"Library/Application Support"
+                                                                 isDirectory:YES];
+      NSURL *root = [support URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
+      [manager createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:nil];
+      path = [root URLByAppendingPathComponent:@(metasequoia::assets::gloss_cache)].path;
+    });
+    return path;
+}
+
+// 把网络回来的释义写进引擎的持久缓存,下次开机就不用再问一遍。
+//
+// 只写目标语言是英文的那份:引擎那张表是 en_zh_glosses / zh_en_glosses 两个方向,没有语言维度。日语
+// 韩语等目标语言仍然只活在进程内的 MetasequoiaSharedTranslationCache 里,重启就没了 —— 要让它们也
+// 持久,得先给引擎一张按语言分的表,那是另一件事。
+//
+// 方向跟 TranslationQueryForCandidate 对齐:含汉字的候选按 ChineseToEnglish 存进 zh_en_glosses,
+// 读回来走 query_english_gloss。英文候选译成英文没有意义,直接跳过。
+static void MetasequoiaPersistOnlineGloss(EnglishDictionary *dictionary, NSString *language, NSString *word,
+                                          NSString *gloss)
+{
+    if (dictionary == nullptr || word.length == 0 || gloss.length == 0 || ![language isEqualToString:@"EN"])
+        return;
+    const std::string text = word.UTF8String != nullptr ? word.UTF8String : "";
+    if (HelpcodeUtils::count_han_chars(text) == 0)
+        return;
+    (void)dictionary->cache_gloss(true, text, gloss.UTF8String);
+}
+
 static NSMutableDictionary<NSString *, NSString *> *MetasequoiaSharedSecondaryTranslationCache(void)
 {
     static NSMutableDictionary<NSString *, NSString *> *cache;
@@ -1494,6 +1545,7 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
                 return;
             // 同上:词条缓存与代际无关,晚到也照收。
             MetasequoiaSharedTranslationCache()[key] = text;
+            MetasequoiaPersistOnlineGloss([strongSelf translationDictionary], language, word, text);
             if (!strongSelf->_sessionSnapshot.preedit.empty())
                 [strongSelf rebuildCandidatePanelPreservingSelection:YES];
           });

@@ -72,6 +72,43 @@ int main()
             "The local Chinese gloss was not formatted for the candidate window.");
     Require(metasequoia::mac::LookupCandidateGloss(dictionary, *englishQuery) == "你好; 问候",
             "The local English gloss was not formatted for the candidate window.");
+
+    // 联网补回来的释义要活过重启。缓存是独立的用户文件,随包发的词库(上面那个 path)不动。
+    const auto cachePath = path.string() + ".cache";
+    std::filesystem::remove(cachePath);
+    {
+        EnglishDictionary session(path.string(), false, "", cachePath);
+        const WordItem missing{"", "光合作用", 1};
+        const auto query = metasequoia::mac::TranslationQueryForCandidate(missing);
+        Require(query.has_value() && query->direction == metasequoia::mac::TranslationDirection::ChineseToEnglish,
+                "A Chinese candidate did not request an English gloss.");
+        Require(metasequoia::mac::LookupCandidateGloss(session, *query).empty(),
+                "A gloss appeared before anything was fetched for it.");
+        Require(session.cache_gloss(true, query->key, "photosynthesis"), "Persisting a fetched gloss failed.");
+        Require(metasequoia::mac::LookupCandidateGloss(session, *query) == "photosynthesis",
+                "A freshly persisted gloss was not visible to the same session.");
+        // 随包发的那份仍然压过缓存:缓存里装的是词库答不上来的词,质量最没保证。
+        Require(metasequoia::mac::LookupCandidateGloss(session, *chineseQuery) == "metasequoia; dawn redwood",
+                "The cache overrode a shipped gloss.");
+    }
+    {
+        // 新开一个实例 = 下次开机。缓存文件还在,释义就还在。
+        EnglishDictionary restarted(path.string(), false, "", cachePath);
+        const WordItem missing{"", "光合作用", 1};
+        const auto query = metasequoia::mac::TranslationQueryForCandidate(missing);
+        Require(metasequoia::mac::LookupCandidateGloss(restarted, *query) == "photosynthesis",
+                "A persisted gloss did not survive a restart.");
+    }
+    {
+        // 没有缓存文件的实例照常工作,不会因为缺文件而失败。
+        EnglishDictionary withoutCache(path.string(), false);
+        const WordItem missing{"", "光合作用", 1};
+        Require(metasequoia::mac::LookupCandidateGloss(withoutCache,
+                                                       *metasequoia::mac::TranslationQueryForCandidate(missing))
+                    .empty(),
+                "A session without a cache path read someone else's cache.");
+    }
+    std::filesystem::remove(cachePath);
     std::filesystem::remove(path);
     return 0;
 }
