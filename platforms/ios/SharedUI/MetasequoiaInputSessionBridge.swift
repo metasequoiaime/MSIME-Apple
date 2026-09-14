@@ -126,8 +126,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
     do {
+      let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
+      if EnglishMixedCandidatesMigration.shouldMigrate(customStateRoot: stateRoot),
+         let path = bootstrap["state_root"] as? String {
+        EnglishMixedCandidatesMigration.migrateIfNeeded(
+          stateRoot: URL(fileURLWithPath: path, isDirectory: true))
+      }
       options = try Self.callOptions(msimeClientPrepareHost,
-                                     Self.bootstrapOptions(resources: resources, stateRoot: stateRoot))
+                                     bootstrap)
       var preferences = options["preferences"] as? [String: Any] ?? [:]
       preferences["candidate_page_size"] = 9
       options["preferences"] = preferences
