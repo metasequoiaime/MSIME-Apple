@@ -12,6 +12,7 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"asr_model": @"ASRModel", @"asr_token": @"ASRToken",
         @"capture_device": @"CaptureDevice",
         @"asr_app_key": @"DoubaoAppKey", @"asr_resource_id": @"DoubaoResourceID",
+        @"doubao_auth_mode": @"DoubaoAuthMode",
         @"doubao_boosting_table_id": @"DoubaoBoostingTableID",
         @"polish_provider": @"PolishProvider", @"polish_endpoint": @"PolishEndpoint",
         @"polish_model": @"PolishModel", @"polish_token": @"PolishToken",
@@ -30,6 +31,9 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
     NSDictionary *booleans = @{
         @"sound_enabled": @"SoundEnabled", @"mute_system_audio": @"MuteSystemAudio",
         @"stream_inline_preedit": @"StreamInlinePreedit", @"polish_enabled": @"Polish",
+        @"doubao_enable_itn": @"DoubaoEnableITN",
+        @"doubao_enable_punc": @"DoubaoEnablePunctuation",
+        @"doubao_enable_ddc": @"DoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"HotkeyCtrlF9", @"hotkey_hold_space_lock": @"HotkeyHoldSpace",
         @"hotkey_ralt": @"HotkeyRightAlt",
         // The shared Windows modifier is Command on macOS.
