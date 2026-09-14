@@ -21,6 +21,13 @@ else()
   target_compile_options(msime-voice-providers PRIVATE -Wall -Wextra -Werror)
 endif()
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_executable(shared-voice-transport tests/transport.cpp)
+  target_link_libraries(shared-voice-transport PRIVATE msime-voice-providers)
+  add_test(NAME shared-voice-http-transport
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/transport.py"
+      $<TARGET_FILE:shared-voice-transport>)
+  set_tests_properties(shared-voice-http-transport PROPERTIES TIMEOUT 30)
   if(MSIME_HOST_LIBRARY)
     add_executable(shared-doubao-auth tests/doubao_auth.cpp)
     target_compile_features(shared-doubao-auth PRIVATE cxx_std_17)
