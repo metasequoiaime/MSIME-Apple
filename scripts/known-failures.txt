@@ -10,8 +10,4 @@
 #
 # The desktop suite has no entries: it is green. It used to fail five tests on
 # timing alone, which raising the test timeout fixed - see vite.config.ts.
-native voice_audio_contract
-native voice_capture_lifetime
-native voice_doubao_protocol
-native voice_http_contract
 native windows-server

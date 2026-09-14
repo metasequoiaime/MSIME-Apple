@@ -257,6 +257,16 @@ find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice
                  ${CMAKE_CURRENT_BINARY_DIR}/msime-engine-voice EXCLUDE_FROM_ALL)
+# The voice subtree is excluded from the default build because we want its
+# library, not its samples - but it registers its own ctest entries, and an
+# excluded test executable is never built, so those entries reported "Not Run"
+# on every single run. Either they build or they should not be registered;
+# build them, because they cover the contracts this Server speaks.
+foreach(voice_test test_voice test_voice_capture test_doubao_protocol)
+  if(TARGET ${voice_test})
+    set_target_properties(${voice_test} PROPERTIES EXCLUDE_FROM_ALL FALSE)
+  endif()
+endforeach()
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Built shared host library or Windows DLL import library")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Set MSIME_HOST_LIBRARY to the Cargo-built shared host library for this target")
