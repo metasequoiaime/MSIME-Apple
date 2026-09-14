@@ -272,7 +272,13 @@ function DesktopSettings() {
       setBootstrapRequired(android && !ready);
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
-        ? { ...client, host, ...(host.typing_statistics ? { typingStatistics } : {}), ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}) }
+        ? {
+          ...client,
+          host,
+          candidateEnglishGloss: host.platform === "linux" || host.platform === "android",
+          ...(host.typing_statistics ? { typingStatistics } : {}),
+          ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
+        }
         : client;
       const mobileHosted = host?.platform === "android"
         ? {

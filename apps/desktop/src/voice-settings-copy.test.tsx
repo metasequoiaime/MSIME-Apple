@@ -10,7 +10,7 @@ const snapshot: Snapshot = {
   preferences: {
     scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
     learning: true, chinese_punctuation: true,
-    voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao", asr_token: "secret-token" },
+    voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao", doubao_auth_mode: "legacy", asr_token: "secret-token" },
   },
 };
 
@@ -70,6 +70,24 @@ test("Linux keeps the wording that is accurate there", async () => {
   expect(screen.getByText(/IBus 属性/)).toBeTruthy();
   expect(screen.queryByText("语音快捷键")).toBeNull();
   expect(screen.queryByText("录音行为")).toBeNull();
+});
+
+test("Linux exposes Doubao auth mode without exposing provider credentials", async () => {
+  const linuxSnapshot: Snapshot = { ...snapshot, preferences: { ...snapshot.preferences,
+    voice_input: { enabled: true, language: "zh-CN", ...snapshot.preferences.voice_input, doubao_auth_mode: "api_key" },
+  } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...linuxSnapshot, revision: 3, preferences }));
+  render(<SettingsPage client={{ load: async () => linuxSnapshot, save, host: host("linux") }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const mode = await screen.findByLabelText("豆包鉴权方式") as HTMLSelectElement;
+  expect(mode.value).toBe("api_key");
+  expect(screen.queryByLabelText("Doubao API Key")).toBeNull();
+  expect(screen.queryByLabelText("Doubao App Key")).toBeNull();
+  fireEvent.change(mode, { target: { value: "legacy" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("legacy");
 });
 
 test("Android uses the system recognizer and hides desktop voice controls", async () => {

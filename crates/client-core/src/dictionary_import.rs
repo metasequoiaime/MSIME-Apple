@@ -576,6 +576,117 @@ mod tests {
         assert_eq!(report.failed, REPORTED_FAILURES + 3);
         assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
     }
+
+    #[test]
+    fn a_page_holds_only_rows_of_the_requested_kind() {
+        let rows: Vec<(bool, &str)> = (0..250).map(|index| (index % 50 == 0, "wq")).collect();
+        let mut selector = PageSelector::new(0, 5);
+        let mut taken = 0;
+        for (is_wubi, key) in &rows {
+            if dictionary_row_matches(*is_wubi, key, "w") && selector.accept() {
+                taken += 1;
+            }
+        }
+        assert_eq!(taken, 5);
+        assert!(selector.full());
+        assert_eq!(selector.taken(), 5);
+    }
+
+    #[test]
+    fn the_offset_counts_matching_rows_not_scanned_ones() {
+        let mut selector = PageSelector::new(2, 2);
+        let accepted: Vec<bool> = (0..6).map(|_| selector.accept()).collect();
+        assert_eq!(accepted, vec![false, false, true, true, false, false]);
+        assert_eq!(selector.taken(), 2);
+        assert!(selector.full());
+    }
+
+    #[test]
+    fn a_page_shorter_than_the_limit_is_not_full() {
+        let mut selector = PageSelector::new(0, 10);
+        for _ in 0..3 {
+            assert!(selector.accept());
+        }
+        assert!(!selector.full());
+        assert_eq!(selector.taken(), 3);
+    }
+
+    #[test]
+    fn the_code_prefix_is_case_insensitive_and_starts_at_the_key() {
+        assert!(dictionary_row_matches(true, "wq", "w"));
+        assert!(dictionary_row_matches(true, "WQ", "w"));
+        assert!(dictionary_row_matches(true, "wq", "WQ"));
+        assert!(dictionary_row_matches(true, " wq ", "wq"));
+        assert!(!dictionary_row_matches(true, "awq", "wq"));
+        assert!(!dictionary_row_matches(true, "wq", "wqx"));
+        assert!(dictionary_row_matches(true, "anything", ""));
+        assert!(!dictionary_row_matches(false, "wq", ""));
+        assert!(!dictionary_row_matches(false, "wq", "wq"));
+    }
+}
+
+/// Server-side paging for the dictionary browser.
+///
+/// The Engine pages the whole user store in one sequence, so the client used to
+/// ask for 100 rows and then drop everything that was not the selected kind.
+/// With more than a page of pinyin words, selecting Wubi showed an empty list on
+/// page 1 even though Wubi entries existed. Filtering here instead means a page
+/// always holds `limit` rows of what the user actually asked for.
+#[derive(Debug, Clone, Copy)]
+pub struct PageSelector {
+    offset: usize,
+    limit: usize,
+    skipped: usize,
+    taken: usize,
+}
+
+impl PageSelector {
+    pub fn new(offset: usize, limit: usize) -> Self {
+        Self {
+            offset,
+            limit,
+            skipped: 0,
+            taken: 0,
+        }
+    }
+
+    /// Call once per matching row, in order. Returns false while skipping to
+    /// `offset`, then true until `limit` rows have been taken.
+    pub fn accept(&mut self) -> bool {
+        if self.skipped < self.offset {
+            self.skipped += 1;
+            return false;
+        }
+        if self.taken >= self.limit {
+            return false;
+        }
+        self.taken += 1;
+        true
+    }
+
+    /// True once the page is full. A further match means there is more to show.
+    pub fn full(&self) -> bool {
+        self.taken >= self.limit
+    }
+
+    pub fn taken(&self) -> usize {
+        self.taken
+    }
+}
+
+/// Does this row belong to the requested kind and code prefix?
+pub fn dictionary_row_matches(kind_matches: bool, key: &str, prefix: &str) -> bool {
+    if !kind_matches {
+        return false;
+    }
+    if prefix.is_empty() {
+        return true;
+    }
+    let key = key.trim();
+    if key.len() < prefix.len() {
+        return false;
+    }
+    key.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
 }
 
 /// Server-side paging for the dictionary browser.

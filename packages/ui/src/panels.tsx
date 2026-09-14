@@ -260,8 +260,9 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
     const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
-    // Upstream shifted key faces take precedence over Caps/Shift inversion.
-    const withShift = shift || (letter && caps);
+    // Caps Lock and Shift invert one another for letters, just like the
+    // Windows keyboard panel. Punctuation still follows Shift alone.
+    const withShift = letter ? caps !== shift : shift;
     const modifiers = { ctrl: activeModifiers.has("Ctrl"), alt: activeModifiers.has("Alt"), win: activeModifiers.has("Win") };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
     const prefix = modifierPrefix(activeModifiers);
