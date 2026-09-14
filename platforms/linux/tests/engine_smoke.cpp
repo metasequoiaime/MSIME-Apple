@@ -1355,6 +1355,19 @@ int main(int argc, char **argv) {
     require(seen.lookup_visible && !seen.candidates.empty() &&
                 seen.candidates.front().find("あ") != std::string::npos,
             "Japanese scheme menu did not switch the Engine");
+    const auto japanese_commit = seen.committed;
+    require(key(IBUS_minus) && seen.preedit == "a-" && seen.lookup_visible &&
+                seen.committed == japanese_commit,
+            "Japanese minus was intercepted by candidate paging");
+    invoke("Reset");
+    require(
+        key(IBUS_minus) && seen.preedit == "-" && seen.candidates.size() == 2 &&
+            seen.candidates[0] == "ー" && seen.candidates[1] == "-",
+        "Bare Japanese minus did not offer long-vowel and hyphen candidates");
+    require(key(IBUS_equal) && seen.committed == japanese_commit + "ー=" &&
+                !seen.preedit_visible && !seen.lookup_visible,
+            "Japanese equal key paged candidates instead of committing "
+            "punctuation");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Chinese", PROP_STATE_CHECKED));

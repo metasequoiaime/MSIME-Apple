@@ -5067,6 +5067,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   };
   guarded(engine, "process_key", [&] {
     s.open();
+    const auto active_scheme = s.scheme_override.value_or(
+        configured.at("preferences").value("scheme", "quanpin"));
+    // Match the configured Windows Japanese mode, not temporary R mode: the
+    // physical minus key extends romaji and -/= stop acting as page keys.
+    const bool japanese_scheme = active_scheme == "japanese";
+    const bool japanese_long_vowel =
+        japanese_scheme && key == IBUS_minus && modifiers == 0;
+    const bool japanese_minus_equal = japanese_scheme && modifiers == 0 &&
+                                      (key == IBUS_minus || key == IBUS_equal);
     if (dedicated_english_toggle) {
       if (!s.session)
         return;
@@ -5157,25 +5166,34 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // Apply configured candidate bindings before punctuation can consume them.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
         !s.view.at("candidates").empty()) {
-      if (const auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
-        for (const auto &candidate : s.view.at("candidates")) {
-          if (!candidate.at("highlighted").get<bool>()) continue;
-          const auto &id = candidate.at("id");
-          if (id.at("session").get<uint64_t>() != s.session) return;
-          handled = apply(engine, msime_client_select_edge(
-              s.session, id.at("generation").get<uint64_t>(),
-              id.at("index").get<size_t>(), *edge));
-          if (!handled)
-            handled = apply(engine, msime_client_punctuation(
-                s.session, static_cast<uint8_t>(key)));
+      if (!japanese_long_vowel) {
+        if (const auto edge =
+                s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
+          for (const auto &candidate : s.view.at("candidates")) {
+            if (!candidate.at("highlighted").get<bool>())
+              continue;
+            const auto &id = candidate.at("id");
+            if (id.at("session").get<uint64_t>() != s.session)
+              return;
+            handled = apply(engine,
+                            msime_client_select_edge(
+                                s.session, id.at("generation").get<uint64_t>(),
+                                id.at("index").get<size_t>(), *edge));
+            if (!handled)
+              handled =
+                  apply(engine, msime_client_punctuation(
+                                    s.session, static_cast<uint8_t>(key)));
+            return;
+          }
           return;
         }
-        return;
       }
-      if (const auto navigation = s.navigation.command(
-              key, (flags & IBUS_SHIFT_MASK) != 0)) {
-        handled = apply(engine, msime_client_command(s.session, *navigation));
-        return;
+      if (!japanese_minus_equal) {
+        if (const auto navigation =
+                s.navigation.command(key, (flags & IBUS_SHIFT_MASK) != 0)) {
+          handled = apply(engine, msime_client_command(s.session, *navigation));
+          return;
+        }
       }
     }
     if (!s.view.at("candidates").empty()) {
@@ -5278,6 +5296,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (unicode_plus_key(s.view, key, modifiers)) {
       handled = apply(engine, msime_client_character(s.session, '+', true));
+      return;
+    }
+    if (japanese_long_vowel) {
+      handled = apply(engine, msime_client_character(s.session, '-', false));
       return;
     }
     const auto &editing_text = s.view.at("editing_text").get<std::string>();
@@ -5394,8 +5416,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key >= 'a' && key <= 'z');
     const bool uppercase_letter =
         (key >= 'A' && key <= 'Z');
-    const auto active_scheme = s.scheme_override.value_or(
-        configured.at("preferences").value("scheme", "quanpin"));
     const bool helpcode =
         (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
         s.helpcode_override.value_or(
