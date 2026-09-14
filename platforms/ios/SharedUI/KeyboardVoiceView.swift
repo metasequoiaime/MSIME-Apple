@@ -33,6 +33,7 @@ struct KeyboardVoiceView: View {
             }
           }
         }
+        .disablingScrollEdgeEffects()
         .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
       }
       if entry != nil {

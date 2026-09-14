@@ -67,6 +67,7 @@ final class KeyboardCandidatePanelView: UIView {
     rows.alignment = .leading
     rows.translatesAutoresizingMaskIntoConstraints = false
     scrollView.translatesAutoresizingMaskIntoConstraints = false
+    scrollView.disableEdgeEffects()
     scrollView.addSubview(rows)
     addSubview(scrollView)
 

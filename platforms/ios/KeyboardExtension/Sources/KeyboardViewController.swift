@@ -734,6 +734,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeSpellingStrip() -> UIView {
     spellingScrollView.showsVerticalScrollIndicator = false
+    spellingScrollView.disableEdgeEffects()
     spellingStack.axis = .vertical
     spellingStack.spacing = 6
     spellingStack.translatesAutoresizingMaskIntoConstraints = false
