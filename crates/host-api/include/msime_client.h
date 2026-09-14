@@ -280,6 +280,12 @@ char *msime_client_view(uint64_t session);
  * The caller may perform provider work off-thread and pass the unchanged
  * document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
+/* Build a validated AI HTTP descriptor for a copied OnlineQuery. The host
+ * resolves credentials from its current preferences; the query must still
+ * match the active AI configuration. */
+char *msime_client_ai_request_for_query(uint64_t session,
+                                        const uint8_t *query,
+                                        size_t query_length);
 /* Return null or {generation,target_language,candidates:[{text}],
  * custom_translation:{enabled,endpoint,api_key}|null,
  * tencent_tmt:{enabled,secret_id,secret_key,region}|null} for visible candidates.

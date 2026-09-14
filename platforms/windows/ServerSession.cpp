@@ -232,6 +232,27 @@ std::optional<std::string> ServerSession::online_query(uint64_t epoch) {
     return std::nullopt;
   }
 }
+std::optional<std::string> ServerSession::ai_request(uint64_t epoch,
+                                                     const std::string &query) {
+  check_active(epoch);
+  if (query.empty() || query.size() > 16384)
+    return std::nullopt;
+  try {
+    const auto value = response(msime_client_ai_request_for_query(
+        session_, reinterpret_cast<const uint8_t *>(query.data()),
+        query.size()));
+    if (value.is_null() || !value.is_object())
+      return std::nullopt;
+    const auto serialized = value.dump();
+    if (serialized.empty() || serialized.size() > 131072)
+      return std::nullopt;
+    return serialized;
+  } catch (...) {
+    // AI is an optional provider. Invalid preferences or credentials must not
+    // make an otherwise valid Engine reply fail.
+    return std::nullopt;
+  }
+}
 std::optional<nlohmann::json>
 ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
                                      const std::string &body) {

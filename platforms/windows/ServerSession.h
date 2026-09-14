@@ -56,6 +56,8 @@ public:
                                   size_t index, CandidateAction action,
                                   uint8_t position = 0);
   std::optional<std::string> online_query(uint64_t epoch);
+  std::optional<std::string> ai_request(uint64_t epoch,
+                                        const std::string &query);
   std::optional<nlohmann::json>
   apply_cloud_response(uint64_t epoch, const std::string &query,
                        const std::string &body);

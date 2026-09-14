@@ -27,6 +27,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     panel_shortcuts: false,
     voice_capture_devices: false,
     candidate_font_controls: true,
+    candidate_row_colors: true,
     candidate_selection_appearance: true,
     ...overrides,
   };
@@ -141,15 +142,15 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
   expect(screen.queryByLabelText("候选字号")).toBeNull();
   expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
-  expect(screen.queryByLabelText("候选强调色")).toBeNull();
-  expect(screen.queryByLabelText("候选选中色")).toBeNull();
+  expect(screen.getByLabelText("候选强调色")).toBeTruthy();
+  expect(screen.getByLabelText("候选选中色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(screen.queryByLabelText("候选边框色")).toBeNull();
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
   expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
-  expect(screen.getByText("当前宿主的候选面板不支持强调、选中、悬停或边框颜色。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeTruthy();
 });
 
 test("Windows candidate appearance keeps native controls", async () => {
