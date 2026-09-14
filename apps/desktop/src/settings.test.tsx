@@ -423,6 +423,23 @@ test("voice settings default to the single API Key mode", async () => {
   expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("api_key");
 });
 
+test("voice capture backend choices follow the host platform", async () => {
+  const options = async (platform: HostCapabilities["platform"]) => {
+    const mounted = render(<SettingsPage initialPage="voice" client={{
+      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+      host: { platform, voice_capture_devices: true } as HostCapabilities,
+      listVoiceCaptureDevices: vi.fn().mockResolvedValue([]),
+    }} />);
+    const select = await screen.findByRole("combobox", { name: "录音后端" }) as HTMLSelectElement;
+    const values = Array.from(select.options).map(option => option.value);
+    mounted.unmount();
+    return values;
+  };
+  expect(await options("linux")).toEqual(["", "auto", "pulse", "pipewire", "alsa"]);
+  expect(await options("macos")).toEqual(["", "auto", "macos"]);
+  expect(await options("windows")).toEqual(["", "auto", "windows"]);
+});
+
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   expect(aiCredentialOrigin("https://Fixture.Invalid/v1/chat/completions")).toBe("https://fixture.invalid:443");
   expect(aiCredentialOrigin("https://fixture.invalid:444/v1/chat/completions")).toBe("https://fixture.invalid:444");
