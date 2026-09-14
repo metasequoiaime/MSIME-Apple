@@ -10,4 +10,12 @@
 #
 # The desktop suite has no entries: it is green. It used to fail five tests on
 # timing alone, which raising the test timeout fixed - see vite.config.ts.
+# windows-server fails on the click assertion in server_smoke.cpp, and does so
+# for the environment rather than the code. Measured, not guessed: the window
+# is visible, no exception is latched, and the simulated point lands dead in
+# the middle of row 0 (client 112x76, row 6.0,36.4-106.0,65.6, point 56,51).
+# hit() therefore has no painted page - the only path that records nothing
+# without failing is a lost device at EndDraw. This session runs in Windows
+# session 2 while DWM runs in session 1, so there is no compositor for the
+# card's composition target. It should pass on an interactive desktop.
 native windows-server
