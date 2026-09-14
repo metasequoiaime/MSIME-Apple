@@ -695,6 +695,12 @@ async fn test_api_credential(
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
             if service == "voice.asr" {
+                if config.get("provider").and_then(Value::as_str) == Some("doubao") {
+                    return msime_client_core::credential_doubao::test(
+                        &config,
+                        &msime_client_core::credential_doubao::WebSocketTransport,
+                    );
+                }
                 return msime_client_core::credential_asr::test(
                     &config,
                     &msime_client_core::credential_asr::HttpTransport,

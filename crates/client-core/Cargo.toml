@@ -22,6 +22,9 @@ base64 = "0.22"
 flate2 = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 time = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio = { version = "1", features = ["rt", "net", "time"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 
 [dev-dependencies]
