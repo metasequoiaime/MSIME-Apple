@@ -271,6 +271,26 @@ bool IsOtherKeyboardKeyDown()
     return false;
 }
 
+// GetKeyState() can lag behind the key message when a host calls TSF outside
+// its normal message dispatch. Read the physical modifier state while arming a
+// bare-key toggle so a stale thread snapshot cannot prevent the latch.
+bool IsOnlyModifierPhysicallyDown(UINT keptDownVk)
+{
+    static const UINT modifiers[] = {VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN};
+    for (const UINT modifier : modifiers)
+    {
+        if (modifier == keptDownVk)
+        {
+            continue;
+        }
+        if ((GetAsyncKeyState(modifier) & 0x8000) != 0)
+        {
+            return false;
+        }
+    }
+    return (GetAsyncKeyState(keptDownVk) & 0x8000) != 0;
+}
+
 void ClearReleasedShiftModifierState()
 {
     if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
@@ -455,14 +475,14 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
     }
 
     const auto now = std::chrono::steady_clock::now();
-    if (isShift && Global::IsShiftKeyDownOnly)
+    if (isShift && IsOnlyModifierPhysicallyDown(VK_SHIFT))
     {
         _shiftHotkeyArmed = true;
         _ctrlHotkeyArmed = false;
         _modifierHotkeyExpire = now + kModifierHotkeyToggleLimit;
         return;
     }
-    if (isCtrl && Global::IsControlKeyDownOnly)
+    if (isCtrl && IsOnlyModifierPhysicallyDown(VK_CONTROL))
     {
         _ctrlHotkeyArmed = true;
         _shiftHotkeyArmed = false;
@@ -516,7 +536,9 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
     const auto now = std::chrono::steady_clock::now();
     const auto hotkeys = FanyUtils::ReadConfiguredSwitchLanguageHotkeys();
 
-    if (IsShiftVk(code) && _shiftHotkeyArmed && Global::PureShiftKeyUp)
+    // The arming latch already proves that this modifier was pressed alone;
+    // unlike PureShiftKeyUp, it does not depend on a host's stale GetKeyState.
+    if (IsShiftVk(code) && _shiftHotkeyArmed)
     {
         const bool fire = now < _modifierHotkeyExpire && hotkeys.shift;
         _shiftHotkeyArmed = false;
@@ -529,7 +551,7 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
         return false;
     }
 
-    if (IsControlVk(code) && _ctrlHotkeyArmed && Global::IsControlKeyDownOnly)
+    if (IsControlVk(code) && _ctrlHotkeyArmed)
     {
         const bool fire = now < _modifierHotkeyExpire && hotkeys.ctrl;
         _shiftHotkeyArmed = false;

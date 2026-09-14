@@ -380,10 +380,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hotkeyGuid);
     bool _QueueInputHotkey(_In_ ITfContext *pContext, REFGUID hotkeyGuid, _Out_ BOOL *pIsEaten);
 
-    // mintty exposes IME composition through the legacy IMM bridge, but some
-    // versions do not forward bare modifier key-up events to ITfKeyEventSink.
-    // Observe only this host thread and feed a missed bare-Shift release back
-    // into the normal deferred hotkey path.
+    // mintty exposes IME composition through the legacy IMM bridge and does not
+    // forward bare modifier key-up events to ITfKeyEventSink. Observe only
+    // this host thread and feed a missed bare-Shift release back into the
+    // normal deferred hotkey path; hosts with stale GetKeyState are handled in
+    // the sink through the arming latch.
     void _InitMinttyKeyboardHook();
     void _UninitMinttyKeyboardHook();
     void _HandleMinttyShiftRelease(UINT sequence);
