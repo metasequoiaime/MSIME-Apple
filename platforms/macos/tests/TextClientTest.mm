@@ -9,10 +9,17 @@
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
 @property(nonatomic) NSRange selection;
+@property(nonatomic) NSRange documentSelection;
+@property(nonatomic, copy) NSString *following;
 @end
 @implementation FakeTextClient
 - (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); self.committed = text; }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); self.marked = text; self.selection = selection; }
+- (NSRange)selectedRange { return self.documentSelection; }
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    if (range.location != self.documentSelection.location || range.length != 1 || !self.following) return nil;
+    return [[NSAttributedString alloc] initWithString:self.following];
+}
 @end
 
 static NSDictionary *MaintenanceCandidate(MSIMEClientSession *session) {
@@ -429,6 +436,11 @@ int main() {
         assert([client.marked isEqual:@"shi"] && client.selection.location == 3);
         MSIMEApplyTransition(@{@"commit": @"合成", @"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, client);
         assert([client.committed isEqual:@"合成"] && client.marked.length == 0 && client.selection.location == 0);
+        client.documentSelection = NSMakeRange(4, 0);
+        client.following = @"】";
+        assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);
+        client.following = nil;
+        assert(MSIMETextClientFollowingCharacter(client) == nil);
     }
     return 0;
 }
