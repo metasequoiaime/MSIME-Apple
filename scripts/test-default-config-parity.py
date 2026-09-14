@@ -107,3 +107,19 @@ print(
     "Windows translation target and custom provider match the shared defaults: "
     f"{shared_translation_target}, {shared_custom_translation}"
 )
+
+mouse_wheel_default = re.search(
+    r"impl Default for NavigationPreferences\s*\{.*?mouse_wheel:\s*(true|false)",
+    core_source,
+    re.DOTALL,
+)
+assert mouse_wheel_default, "NavigationPreferences mouse-wheel default was not found"
+
+shared_mouse_wheel = mouse_wheel_default.group(1) == "true"
+windows_mouse_wheel = windows_defaults["general"]["paging_mouse_wheel"]
+assert windows_mouse_wheel == shared_mouse_wheel, (
+    "Windows paging_mouse_wheel does not match NavigationPreferences::default(): "
+    f"{windows_mouse_wheel} != {shared_mouse_wheel}"
+)
+
+print(f"Windows mouse-wheel paging matches the shared default: {shared_mouse_wheel}")

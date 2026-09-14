@@ -35,6 +35,9 @@ paging_comma_period = true
 paging_brackets = false
 paging_tab = true
 paging_page_up_down = true
+# 鼠标滚轮在候选窗口上翻页（默认关闭）
+# 依赖 Windows「当我悬停在非活动窗口上方时滚动它们」，该系统设置关闭时本项不生效
+paging_mouse_wheel = false
 candidate_arrow_navigation = true
 # 中文输入状态下显示英文前缀候选
 cn_en_mixed_input = true
