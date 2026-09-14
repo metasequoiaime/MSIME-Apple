@@ -2049,6 +2049,36 @@ async fn recognize_handwriting(
         })?;
         return Ok(result);
     }
+    // Windows ships a recognizer with the language pack, and it is the only one
+    // a stock machine has: the packaged Engine model is optional in the
+    // installer. Try it first, and fall through to the model when Windows has
+    // no Chinese handwriting feature installed.
+    #[cfg(windows)]
+    {
+        let strokes: Vec<msime_host_windows::ink::Stroke> = query
+            .strokes
+            .iter()
+            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+            .collect();
+        let recognized =
+            tauri::async_runtime::spawn_blocking(move || msime_host_windows::ink::recognize(&strokes))
+                .await
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+        match recognized {
+            Ok(candidates) if !candidates.is_empty() => {
+                let result = HandwritingRecognitionResult { candidates };
+                result.validate().map_err(|_| HostActionError {
+                    code: "invalid_stroke",
+                })?;
+                return Ok(result);
+            }
+            // Recognized nothing, or Windows has no Chinese recognizer. Either
+            // way the packaged model below is still worth asking.
+            _ => {}
+        }
+    }
     let Some(model) = model else {
         return Err(HostActionError {
             code: "unavailable",
@@ -2484,7 +2514,18 @@ async fn submit_handwriting_candidate(
         )
         .await;
     }
-    #[cfg(not(target_os = "linux"))]
+    // Recognition without a way to commit is half a panel: Windows could
+    // produce candidates and then refuse to insert the one the user picked.
+    #[cfg(target_os = "windows")]
+    {
+        // Windows panels inject through the host rather than the runtime, so
+        // they do not pass through the typing counter, matching send_text.
+        let _ = (&app, &typing_statistics);
+        msime_client_core::panels::validate_candidate(&candidate)
+            .map_err(|_| HostActionError { code: "invalid_text" })?;
+        return send_panel_text_windows(&state, &candidate);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, candidate);
         Err(HostActionError {

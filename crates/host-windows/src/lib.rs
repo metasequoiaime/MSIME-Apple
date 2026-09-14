@@ -10,6 +10,8 @@
 
 #![cfg(windows)]
 
+pub mod ink;
+
 use std::path::Path;
 
 /// The window that owned the caret before a panel appeared. Panels never take
