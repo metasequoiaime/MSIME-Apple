@@ -3278,6 +3278,10 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         java.util.List<KeyboardScheme> schemes = enabledSchemes;
         int cardCount = schemes.size() + 1;
+        // The English card sits third when there are enough schemes to put it there, and last
+        // otherwise. Pinning it to index 2 made a single enabled scheme index past the end of
+        // the list, which threw on the main thread and took the IME down with it.
+        final int englishIndex = Math.min(2, schemes.size());
         for (int start = 0; start < cardCount; start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -3288,7 +3292,7 @@ public final class MSIMEInputService extends InputMethodService {
                     row.addView(spacer, new LinearLayout.LayoutParams(0, pixels(72), 1));
                     continue;
                 }
-                if (index == 2) {
+                if (index == englishIndex) {
                     Button card = new KeyboardPressButton(this);
                     card.setAllCaps(false);
                     card.setText("EN 26\n英文 26 键");
@@ -3305,7 +3309,7 @@ public final class MSIMEInputService extends InputMethodService {
                     styleButton(card, true);
                     continue;
                 }
-                int schemeIndex = index > 2 ? index - 1 : index;
+                int schemeIndex = index > englishIndex ? index - 1 : index;
                 KeyboardScheme scheme = schemes.get(schemeIndex);
                 // Apple renders scheme cards with the same press-feedback surface as keys. Keep
                 // the Android-specific scheme persistence and selection guards in the callback.
