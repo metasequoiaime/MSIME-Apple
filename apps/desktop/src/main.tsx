@@ -31,6 +31,7 @@ const typingStatistics: TypingStatisticsClient = {
   reset: () => invoke("reset_typing_statistics"),
 };
 const client: SettingsClient = {
+  resolveFontFamilies: names => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
   readSkinToolbarCss: id => invoke("read_skin_toolbar_stylesheet", { id }),
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),

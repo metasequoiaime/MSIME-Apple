@@ -7,10 +7,12 @@ import { ExternalAppearancePreview } from "./external-appearance-preview";
 import type { SkinCatalog } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
+import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 
-export function AppearanceCandidatePreview({ preferences, scan, readImage, active = true, revision = 0 }: {
-  preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; active?: boolean; revision?: number;
+export function AppearanceCandidatePreview({ preferences: storedPreferences, scan, readImage, resolveFonts, active = true, revision = 0 }: {
+  preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; resolveFonts?: FontFamilyResolver; active?: boolean; revision?: number;
 }) {
+  const preferences = useResolvedCandidateFonts(storedPreferences, active ? resolveFonts : undefined);
   const skin = preferences.candidate_skin ?? "willow_green";
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
   const builtin = ["fluent", "wechat", "graphite", "willow_green"].includes(skin);

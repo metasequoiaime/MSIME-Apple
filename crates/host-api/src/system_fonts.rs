@@ -1,4 +1,27 @@
 //! Installed family names only; never expose font files or paths to the webview.
+#[cfg(windows)]
+#[path = "system_font_aliases_windows.rs"]
+mod aliases;
+
+/// Resolve display-only CSS names without changing stored font preferences.
+/// Other hosts already use their native family names.
+pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static str> {
+    if names.len() > 33
+        || names
+            .iter()
+            .any(|name| name.is_empty() || name.len() > 128 || name.chars().any(char::is_control))
+    {
+        return Err("font_family");
+    }
+    #[cfg(windows)]
+    return Ok(names
+        .into_iter()
+        .map(|name| aliases::resolve(&name).unwrap_or(name))
+        .collect());
+    #[cfg(not(windows))]
+    Ok(names)
+}
+
 pub fn supported() -> bool {
     cfg!(any(target_os = "macos", target_os = "linux", windows))
 }

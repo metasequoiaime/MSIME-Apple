@@ -1,0 +1,30 @@
+import { useEffect, useMemo, useState } from "react";
+import { defaultCandidateFallbackFonts, defaultCandidateFontFamily, validFontFamily, type CandidateFontPreferences } from "./candidate-font-family";
+
+export type FontFamilyResolver = (names: string[]) => Promise<string[]>;
+
+// Resolution affects presentation only. Never write aliases back to preferences.
+export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(preferences: T, resolve?: FontFamilyResolver): T {
+  const names = [preferences.candidate_font_family ?? defaultCandidateFontFamily,
+    ...(preferences.candidate_fallback_fonts ?? defaultCandidateFallbackFonts)];
+  const encoded = JSON.stringify(names);
+  const request = useMemo(() => ({ names: JSON.parse(encoded) as string[], resolve }), [encoded, resolve]);
+  const [result, setResult] = useState<{ request: typeof request; names: string[] }>();
+  useEffect(() => {
+    let active = true;
+    if (request.resolve && request.names.length <= 33 && request.names.every(validFontFamily)) {
+      void (async () => {
+        try {
+          const resolved: unknown = await request.resolve!(request.names);
+          if (active && Array.isArray(resolved) && resolved.length === request.names.length &&
+            resolved.every(name => validFontFamily(name) && !/[\x00-\x1f\x7f]/.test(name))) {
+            setResult({ request, names: resolved });
+          }
+        } catch { /* Older hosts and unavailable fonts keep literal names. */ }
+      })();
+    }
+    return () => { active = false; };
+  }, [request]);
+  if (result?.request !== request) return preferences;
+  return { ...preferences, candidate_font_family: result.names[0], candidate_fallback_fonts: result.names.slice(1) };
+}

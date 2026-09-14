@@ -149,6 +149,14 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
         .map_err(|code| CommandError { code })
 }
 
+#[tauri::command]
+async fn resolve_font_families(names: Vec<String>) -> Result<Vec<String>, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || system_fonts::resolve_css_families(names))
+        .await
+        .map_err(|_| CommandError { code: "font_family" })?
+        .map_err(|code| CommandError { code })
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn macos_voice_capture_devices(document: &Value) -> Vec<Value> {
     fn collect(value: &Value, devices: &mut Vec<Value>) {
@@ -4176,6 +4184,7 @@ pub fn run() {
             supports_font_catalog,
             initial_settings_page,
             list_font_families,
+            resolve_font_families,
             load_preferences,
             load_custom_skin_library,
             mutate_custom_skin_library,
