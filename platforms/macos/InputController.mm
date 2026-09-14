@@ -15,6 +15,7 @@
 #import "DesktopSettingsLauncher.h"
 #import "SharedVoicePreferences.h"
 #import "VoiceProviderOptions.h"
+#import "VoiceDeactivation.h"
 #import "SupportWindowController.h"
 #import "BackendAccountEntry.h"
 #import "BackendSelectionObservation.h"
@@ -1210,6 +1211,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
+        NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"], _voiceGeneration);
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
