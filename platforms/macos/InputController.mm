@@ -2057,6 +2057,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);
         NSString *typed = event.characters;
+        if (!following && !_pairedPunctuation.empty()) _pairedPunctuation.clear();
         if (following.length == 1 && [following isEqualToString:typed] &&
             msime::mac::paired_closing_should_skip(_pairedPunctuation, typed.UTF8String, following.UTF8String, YES,
                                                     event.modifierFlags, NSEventModifierFlagControl,
