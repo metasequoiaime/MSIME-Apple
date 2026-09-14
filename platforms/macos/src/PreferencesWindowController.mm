@@ -340,6 +340,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_cloudCandidatesButton;
     NSPopUpButton *_translationProviderButton;
     NSPopUpButton *_translationLanguageButton;
+    NSPopUpButton *_translationSecondaryLanguageButton;
     NSTextField *_translationSecretIdField;
     NSSecureTextField *_translationSecretKeyField;
     NSTextField *_translationEndpointField;
@@ -1384,7 +1385,18 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _translationLanguageButton.accessibilityLabel = @"候选翻译目标语言";
     _translationLanguageButton.identifier = @"translationLanguage";
     _translationLanguageButton.target = self;
-    _translationLanguageButton.action = @selector(inputBehaviorChanged:);
+    // 下拉框不能接 inputBehaviorChanged: —— 那个方法按复选框读 sender.state,而 NSPopUpButton 的
+    // state 恒为 1(实测),于是无论选哪种语言写进偏好的都是 1。
+    _translationLanguageButton.action = @selector(translationLanguageChanged:);
+    _translationSecondaryLanguageButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_translationSecondaryLanguageButton
+        // 第一项不叫「关闭」:窗口右下角的按钮就叫关闭,同一个窗口里两个「关闭」谁都分不清 —— 测试里
+        // FindButtonWithTitle 先撞上了这个下拉,点了它自然关不掉窗口,用户也一样会点错。
+        addItemsWithTitles:@[ @"不显示", @"英语", @"日语", @"韩语", @"西班牙语", @"法语", @"德语" ]];
+    _translationSecondaryLanguageButton.accessibilityLabel = @"候选翻译第二语言";
+    _translationSecondaryLanguageButton.identifier = @"translationSecondaryLanguage";
+    _translationSecondaryLanguageButton.target = self;
+    _translationSecondaryLanguageButton.action = @selector(translationLanguageChanged:);
     _translationSecretIdField = [NSTextField textFieldWithString:@""];
     _translationSecretIdField.placeholderString = @"SecretId";
     _translationSecretIdField.identifier = @"translationSecretId";
@@ -1428,8 +1440,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSBox *translationCard = CardWithViews(
         @[
             _candidateTranslationButton, PreferenceRow(@"在线服务", _translationProviderButton),
-            PreferenceRow(@"目标语言", _translationLanguageButton), _translationAccountRow, _translationTencentIdRow,
-            _translationTencentKeyRow, _translationEndpointRow
+            PreferenceRow(@"目标语言", _translationLanguageButton),
+            PreferenceRow(@"第二语言", _translationSecondaryLanguageButton), _translationAccountRow,
+            _translationTencentIdRow, _translationTencentKeyRow, _translationEndpointRow
         ],
         8.0);
     NSView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[ shortcutCard ]);
@@ -2341,9 +2354,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [_translationLanguageButton
         selectItemAtIndex:MetasequoiaInputInteger(@"translationLanguage", 0, 0,
                                                   _translationLanguageButton.numberOfItems - 1)];
+    // -1 是关闭,所以下拉第 0 项对应 -1,其余整体后移一位。
+    [_translationSecondaryLanguageButton
+        selectItemAtIndex:MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1,
+                                                  _translationSecondaryLanguageButton.numberOfItems - 2) +
+                          1];
     const BOOL translating = _candidateTranslationButton.state == NSControlStateValueOn;
     _translationProviderButton.enabled = translating;
     _translationLanguageButton.enabled = translating;
+    _translationSecondaryLanguageButton.enabled = translating;
     // Each provider shows only what it needs: the account model asks for nothing, and leaving a
     // vendor's key fields under it reads as though it wanted them.
     const auto provider = metasequoia::mac::CandidateTranslationProviderAt(
@@ -2385,6 +2404,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         [MetasequoiaPreferencesWindowController setTraditionalChineseOutputEnabled:sender.indexOfSelectedItem == 1];
     else
         MetasequoiaSetInputBehavior(sender.identifier, sender.indexOfSelectedItem);
+}
+
+// 下拉框写的是选中项的下标,不是开关状态。第二语言的第 0 项是「关闭」,存 -1。
+- (void)translationLanguageChanged:(NSPopUpButton *)sender
+{
+    const BOOL secondary = [sender.identifier isEqualToString:@"translationSecondaryLanguage"];
+    MetasequoiaSetInputBehavior(sender.identifier, sender.indexOfSelectedItem - (secondary ? 1 : 0));
+    [self refreshInputBehaviorControls];
 }
 
 - (void)inputBehaviorChanged:(NSButton *)sender

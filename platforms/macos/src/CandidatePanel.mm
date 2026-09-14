@@ -2,6 +2,7 @@
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
 #include "CandidateGlossLayout.h"
+#include "InputBehaviorPreferences.h"
 #include "StringConversion.h"
 
 #include <cmath>
@@ -19,6 +20,10 @@
 }
 @end
 
+// 序号和候选词之间的间距。测量和绘制必须用同一个数 —— 分叉过一次:布局按 5 预留、同行绘制按 6 画,
+// 助记码注解就被裁掉 1pt,而本机字体度量和 CI 差的那点正好被断言的 0.5 容差吃掉,只有 CI 会红。
+static const CGFloat kCandidateNumberGap = 6.0;
+
 @interface MetasequoiaCandidateButton : NSButton
 @property(nonatomic) BOOL candidateHighlighted;
 @property(nonatomic, copy) NSColor *fillColor;
@@ -27,6 +32,10 @@
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
 @property(nonatomic, copy) NSString *candidateTranslation;
+@property(nonatomic, copy) NSString *candidateSecondaryTranslation;
+// 释义垂直于候选的排列方向:候选横着走就把释义叠在词下面,候选竖着走就排在同一行。反过来两种都爆——
+// 九个候选把释义摆在词旁边要 2322pt(屏幕只有 1512),而把释义叠在竖排每一行下面要 639pt 高。
+@property(nonatomic) BOOL stacksGlosses;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -55,7 +64,7 @@
         [self.fillColor setFill];
         [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:6 yRadius:6] fill];
     }
-    if (self.candidateHighlighted && self.showSelectedBar)
+    if (self.candidateHighlighted && self.showSelectedBar && !self.stacksGlosses)
     {
         const CGFloat barHeight = MAX(10.0, self.font.pointSize * 0.8);
         [self.barColor setFill];
@@ -66,64 +75,97 @@
     }
     NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
     paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSColor *base = self.titleColor != nil ? self.titleColor : NSColor.labelColor;
     NSDictionary *numberAttributes = @{
         NSFontAttributeName : self.font,
         NSForegroundColorAttributeName : self.numberColor != nil ? self.numberColor : NSColor.tertiaryLabelColor,
     };
     NSDictionary *titleAttributes = @{
         NSFontAttributeName : self.font,
-        NSForegroundColorAttributeName : self.titleColor != nil ? self.titleColor : NSColor.labelColor,
+        NSForegroundColorAttributeName : base,
         NSParagraphStyleAttributeName : paragraph,
     };
+    NSDictionary * (^glossAttributes)(CGFloat, CGFloat) = ^(CGFloat drop, CGFloat alpha) {
+      NSColor *color = self.candidateHighlighted ? [base colorWithAlphaComponent:alpha] : NSColor.secondaryLabelColor;
+      return @{
+          NSFontAttributeName : [NSFont systemFontOfSize:MAX(11.0, self.font.pointSize - drop)],
+          NSForegroundColorAttributeName : color,
+          NSParagraphStyleAttributeName : paragraph,
+      };
+    };
+    NSDictionary *primaryAttributes = glossAttributes(5.0, 0.82);
+    NSDictionary *secondaryAttributes = glossAttributes(6.0, 0.66);
+
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
-    const CGFloat textLeft = 8.0 + (self.showSelectedBar ? 6.0 : 0.0);
-    NSString *translation = self.candidateTranslation;
-    CGFloat translationWidth = 0.0;
-    NSDictionary *translationAttributes = nil;
-    if (translation.length > 0)
+    NSString *number = split.location == NSNotFound ? @"" : [title substringToIndex:split.location];
+    NSString *word = split.location == NSNotFound ? title : [title substringFromIndex:NSMaxRange(split)];
+    NSString *primary = self.candidateTranslation;
+    NSString *secondary = self.candidateSecondaryTranslation;
+    const CGFloat textLeft = 8.0 + (self.showSelectedBar && !self.stacksGlosses ? 6.0 : 0.0);
+
+    if (self.stacksGlosses)
     {
-        NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, self.font.pointSize - 3.0)];
-        NSColor *base = self.titleColor != nil ? self.titleColor : NSColor.labelColor;
-        NSColor *translationColor =
-            self.candidateHighlighted ? [base colorWithAlphaComponent:0.82] : NSColor.secondaryLabelColor;
-        translationAttributes = @{
-            NSFontAttributeName : translationFont,
-            NSForegroundColorAttributeName : translationColor,
-            NSParagraphStyleAttributeName : paragraph,
-        };
-        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
-        translationWidth =
-            metasequoia::mac::CandidateGlossDrawnWidth(translationSize.width, self.bounds.size.width - textLeft - 8.0);
-    }
-    const CGFloat gap = translationWidth > 0.0 ? metasequoia::mac::kCandidateGlossGap : 0.0;
-    const CGFloat rightPad = 8.0 + translationWidth + gap;
-    if (split.location == NSNotFound)
-    {
-        const NSSize size = [title sizeWithAttributes:titleAttributes];
-        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - rightPad);
-        [title drawInRect:NSMakeRect(textLeft, (self.bounds.size.height - size.height) / 2, maxWidth, size.height)
-            withAttributes:titleAttributes];
-    }
-    else
-    {
-        NSString *number = [title substringToIndex:split.location];
-        NSString *word = [title substringFromIndex:NSMaxRange(split)];
+        // 三行叠:序号和词一行,两条释义各占一行,全部左对齐。格宽由最宽的那一行决定,所以宽度是
+        // max(词, 英, 日) 而不是它们的和。
         const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
         const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-        const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
-        [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-        const CGFloat wordX = textLeft + numberSize.width + 6.0;
-        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - rightPad);
-        [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+        const CGFloat available = MAX(0.0, self.bounds.size.width - textLeft - 8.0);
+        // 按距顶端的距离排版,再按 isFlipped 换算成 y。这个绘制上下文是翻转的(y 向下增),直接从
+        // bounds.height 往下减会把释义画到词的上面 —— 原来的代码全部垂直居中,从没暴露过方向。
+        __block CGFloat fromTop = 6.0;
+        const BOOL flipped = self.isFlipped;
+        const CGFloat boxHeight = self.bounds.size.height;
+        CGFloat (^lineY)(CGFloat) = ^(CGFloat lineHeight) {
+          const CGFloat y = flipped ? fromTop : boxHeight - fromTop - lineHeight;
+          fromTop += lineHeight;
+          return y;
+        };
+        const CGFloat wordY = lineY(wordSize.height + 2.0);
+        if (number.length > 0)
+            [number drawAtPoint:NSMakePoint(textLeft, wordY) withAttributes:numberAttributes];
+        const CGFloat wordX = textLeft + (number.length > 0 ? numberSize.width + kCandidateNumberGap : 0.0);
+        [word drawInRect:NSMakeRect(wordX, wordY, MAX(0.0, self.bounds.size.width - wordX - 8.0), wordSize.height)
+            withAttributes:titleAttributes];
+        // 两行释义的位置固定,空着也占 —— 模型是几秒后才回的,等结果到了再长高会让整条候选条当场跳一下。
+        const NSSize primarySize = [@"Ag" sizeWithAttributes:primaryAttributes];
+        const CGFloat primaryY = lineY(primarySize.height + 1.0);
+        if (primary.length > 0)
+            [primary drawInRect:NSMakeRect(textLeft, primaryY, available, primarySize.height)
+                 withAttributes:primaryAttributes];
+        const NSSize secondarySize = [@"Ag" sizeWithAttributes:secondaryAttributes];
+        const CGFloat secondaryY = lineY(secondarySize.height);
+        if (secondary.length > 0)
+            [secondary drawInRect:NSMakeRect(textLeft, secondaryY, available, secondarySize.height)
+                   withAttributes:secondaryAttributes];
+        return;
     }
-    if (translationWidth > 0.0)
+
+    // 同一行排开:序号 词 英 日。竖排的行高不变,变的只是宽度。
+    const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
+    const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
+    const CGFloat y = (self.bounds.size.height - wordSize.height) / 2;
+    if (number.length > 0)
+        [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
+    CGFloat x = textLeft + (number.length > 0 ? numberSize.width + kCandidateNumberGap : 0.0);
+    const CGFloat rightEdge = self.bounds.size.width - 8.0;
+    const CGFloat wordWidth = MIN(wordSize.width, MAX(0.0, rightEdge - x));
+    [word drawInRect:NSMakeRect(x, y, wordWidth, wordSize.height) withAttributes:titleAttributes];
+    x += wordWidth + metasequoia::mac::kCandidateGlossGap;
+    for (NSUInteger pass = 0; pass < 2; ++pass)
     {
-        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
-        const CGFloat translationY = (self.bounds.size.height - translationSize.height) / 2;
-        [translation drawInRect:NSMakeRect(self.bounds.size.width - 8.0 - translationWidth, translationY,
-                                           translationWidth, translationSize.height)
-                 withAttributes:translationAttributes];
+        NSString *gloss = pass == 0 ? primary : secondary;
+        if (gloss.length == 0)
+            continue;
+        NSDictionary *attributes = pass == 0 ? primaryAttributes : secondaryAttributes;
+        const NSSize size = [gloss sizeWithAttributes:attributes];
+        const CGFloat room = MAX(0.0, rightEdge - x);
+        if (room <= 1.0)
+            break;
+        const CGFloat drawn = metasequoia::mac::CandidateGlossDrawnWidth(size.width, room);
+        [gloss drawInRect:NSMakeRect(x, y + (wordSize.height - size.height) / 2, drawn, size.height)
+            withAttributes:attributes];
+        x += drawn + metasequoia::mac::kCandidateGlossGap;
     }
 }
 @end
@@ -302,7 +344,6 @@
     for (NSView *view in [_chrome.subviews copy])
         [view removeFromSuperview];
     const CGFloat inset = MAX(2.0, _skin.tokens.pad);
-    const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 12;
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
@@ -313,24 +354,51 @@
     const CGFloat leftPad = 8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0);
     NSDictionary *measure = @{NSFontAttributeName : _font};
     NSMutableArray<NSString *> *translations = [NSMutableArray array];
-    NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, _font.pointSize - 3.0)];
-    NSDictionary *translationMeasure = @{NSFontAttributeName : translationFont};
+    NSMutableArray<NSString *> *secondaryTranslations = [NSMutableArray array];
+    NSFont *primaryFont = [NSFont systemFontOfSize:MAX(11.0, _font.pointSize - 5.0)];
+    NSFont *secondaryFont = [NSFont systemFontOfSize:MAX(11.0, _font.pointSize - 6.0)];
+    NSDictionary *primaryMeasure = @{NSFontAttributeName : primaryFont};
+    NSDictionary *secondaryMeasure = @{NSFontAttributeName : secondaryFont};
+    const CGFloat wordLine = ceil(_font.ascender - _font.descender + _font.leading);
+    const CGFloat primaryLine = ceil(primaryFont.ascender - primaryFont.descender + primaryFont.leading);
+    const CGFloat secondaryLine = ceil(secondaryFont.ascender - secondaryFont.descender + secondaryFont.leading);
+    // 释义一律占位,有没有内容都一样高 —— 模型几秒后才回,等结果到了再长高会让面板当场跳一下。竖排的
+    // 释义在同一行,所以行高不变,变的是宽度。
+    // 只要开着释义就留位置,不看这一页有没有内容。原来按「有没有释义」决定留不留,结果第一次组字时
+    // 模型还没回来、一条都没有,于是不留 —— 几秒后答案到了面板才长高,正是预留想避免的那一跳。
+    const BOOL stacked = !vertical && MetasequoiaInputFlag(@"candidateTranslation", YES);
+    const CGFloat rowHeight = stacked ? wordLine + primaryLine + secondaryLine + 12.0 : wordLine + 12.0;
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        // 横排也画释义。The width maths below already reserves room for one, and the button draws it
-        // from candidateTranslation regardless of direction — the only thing stopping a horizontal
-        // panel from showing a gloss was this line refusing to read the attribute.
         NSString *translation = MetasequoiaCandidateTranslation(_data[index]);
-        CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
-                                 [word sizeWithAttributes:measure].width + 8.0);
-        if (translation.length > 0)
-            itemWidth = ceil(itemWidth + metasequoia::mac::CandidateGlossReservedWidth(
-                                             [translation sizeWithAttributes:translationMeasure].width));
+        NSString *secondary = MetasequoiaCandidateSecondaryTranslation(_data[index]);
+        const CGFloat headWidth =
+            [number sizeWithAttributes:measure].width + kCandidateNumberGap + [word sizeWithAttributes:measure].width;
+        const CGFloat primaryWidth =
+            translation.length > 0 ? [translation sizeWithAttributes:primaryMeasure].width : 0.0;
+        const CGFloat secondaryWidth =
+            secondary.length > 0 ? [secondary sizeWithAttributes:secondaryMeasure].width : 0.0;
+        CGFloat itemWidth;
+        if (stacked)
+        {
+            // 三行叠:格宽是最宽那一行,不是三者之和。九个候选因此是 892pt 而不是 2322pt。
+            const CGFloat widest = MAX(headWidth, MAX(MIN(primaryWidth, metasequoia::mac::kCandidateGlossMaxWidth),
+                                                      MIN(secondaryWidth, metasequoia::mac::kCandidateGlossMaxWidth)));
+            itemWidth = ceil(leftPad + widest + 10.0);
+        }
+        else
+        {
+            itemWidth = ceil(leftPad + headWidth + 8.0);
+            for (CGFloat glossWidth : {primaryWidth, secondaryWidth})
+                if (glossWidth > 0.0)
+                    itemWidth = ceil(itemWidth + metasequoia::mac::CandidateGlossReservedWidth(glossWidth));
+        }
         [titles addObject:title];
         [translations addObject:translation.length > 0 ? translation : @""];
+        [secondaryTranslations addObject:secondary.length > 0 ? secondary : @""];
         [widths addObject:@(itemWidth)];
         width = vertical ? MAX(width, itemWidth) : width + itemWidth;
     }
@@ -415,12 +483,15 @@
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
         button.candidateTranslation = translations[index];
-        button.accessibilityLabel = translations[index].length > 0
-                                        ? [NSString stringWithFormat:@"%@，%@", titles[index], translations[index]]
-                                        : titles[index];
-        button.toolTip = translations[index].length > 0
-                             ? [NSString stringWithFormat:@"%@  %@", _data[index].string, translations[index]]
-                             : _data[index].string;
+        button.candidateSecondaryTranslation = secondaryTranslations[index];
+        button.stacksGlosses = stacked;
+        NSMutableArray<NSString *> *spoken = [NSMutableArray arrayWithObject:titles[index]];
+        for (NSString *gloss in @[ translations[index], secondaryTranslations[index] ])
+            if (gloss.length > 0)
+                [spoken addObject:gloss];
+        button.accessibilityLabel = [spoken componentsJoinedByString:@"，"];
+        [spoken replaceObjectAtIndex:0 withObject:_data[index].string];
+        button.toolTip = [spoken componentsJoinedByString:@"  "];
         [_chrome addSubview:button];
         if (!vertical)
             x += itemWidth;

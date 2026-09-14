@@ -9,6 +9,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAccountClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAccountSession.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAnonymousAccount.swift"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendLocalStore.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendClipboardClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendPreferencesClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendDictionaryClient.swift"
