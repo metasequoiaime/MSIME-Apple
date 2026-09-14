@@ -1,0 +1,16 @@
+[package]
+name = "msime-tauri-mobile-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "msime-tauri-mobile-platform"
+
+[dependencies]
+serde.workspace = true
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[lints]
+workspace = true

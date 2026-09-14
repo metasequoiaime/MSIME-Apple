@@ -25,6 +25,9 @@ time = { version = "0.3", features = ["local-offset"] }
 [target.'cfg(target_os = "android")'.dependencies]
 uuid = "1"
 
+[target.'cfg(target_os = "ios")'.dependencies]
+msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }
 

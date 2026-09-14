@@ -132,7 +132,7 @@ test("local designs remain available without an account", async () => {
   expect(openLocalDesigns).toHaveBeenCalledTimes(1);
 });
 
-test("Android app icon choices read the launcher state and use an explicit selection", async () => {
+test("mobile app icon choices read system state and use an explicit selection", async () => {
   const set = vi.fn().mockResolvedValue({ supported: true, selected: "forest" });
   const client = account({
     appIcon: {
@@ -145,6 +145,28 @@ test("Android app icon choices read the launcher state and use an explicit selec
   fireEvent.click(screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }));
   await waitFor(() => expect(set).toHaveBeenCalledWith("forest"));
   expect(screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+test("app icon errors are ignored only when the reread system state matches", async () => {
+  const info = vi.fn()
+    .mockResolvedValueOnce({ supported: true, selected: "classic" })
+    .mockResolvedValueOnce({ supported: true, selected: "forest" });
+  const applied = account({ appIcon: { info, set: vi.fn().mockRejectedValue({ code: "app_icon" }) } });
+  const result = render(<AccountPage client={applied} />);
+  fireEvent.click(await screen.findByRole("button", { name: "杉林，杉叶青绿，沉静自然" }));
+  await waitFor(() => expect(info).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole("alert")).toBeNull();
+  result.unmount();
+
+  const unchangedInfo = vi.fn()
+    .mockResolvedValueOnce({ supported: true, selected: "classic" })
+    .mockResolvedValueOnce({ supported: true, selected: "classic" });
+  render(<AccountPage client={account({ appIcon: {
+    info: unchangedInfo,
+    set: vi.fn().mockRejectedValue({ code: "app_icon" }),
+  } })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "杉林，杉叶青绿，沉静自然" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("图标未能更换，请稍后重试。");
 });
 
 test("settings sync requires confirmation and preserves a remote conflict error", async () => {
@@ -187,7 +209,7 @@ const preferences: Snapshot = {
   },
 };
 
-test("settings expose My only with the Android capability and omit preference actions there", async () => {
+test("settings expose My only with a personal capability and omit preference actions there", async () => {
   const without = render(<SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />);
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByRole("button", { name: "我的" })).toBeNull();
@@ -198,4 +220,22 @@ test("settings expose My only with the Android capability and omit preference ac
   await screen.findByText("欢迎来到水杉");
   expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
+});
+
+test("iOS exposes My and alternate icons without a fake account client", async () => {
+  const appIcon = {
+    info: vi.fn().mockResolvedValue({ supported: true, selected: "sky" }),
+    set: vi.fn(),
+  };
+  render(<SettingsPage client={{
+    load: async () => preferences,
+    save: vi.fn(),
+    host: { platform: "ios" } as never,
+    appIcon,
+  }} initialPage="account" />);
+  expect(await screen.findByRole("heading", { name: "我的" })).not.toBeNull();
+  expect((await screen.findByRole("heading", { name: "App 图标" })).closest("section")?.textContent)
+    .toContain("iOS 会使用系统备用图标接口保存选择。");
+  expect(screen.getByRole("button", { name: "晴空，清透蓝调，轻盈明亮" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByText("欢迎来到水杉")).toBeNull();
 });

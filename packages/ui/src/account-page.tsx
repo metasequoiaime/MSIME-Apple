@@ -109,7 +109,7 @@ const appIconOptions = [
   { id: "vermilion", title: "朱砂", detail: "朱红印记，纸上东方", color: "#b9473f" },
 ] as const;
 
-function AppIconSettingsCard({ client }: { client: AppIconClient }) {
+function AppIconSettingsCard({ client, platform }: { client: AppIconClient; platform?: "android" | "ios" }) {
   const [info, setInfo] = useState<AppIconInfo | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -131,12 +131,19 @@ function AppIconSettingsCard({ client }: { client: AppIconClient }) {
     setPending(style);
     setError("");
     try {
-      setInfo(await client.set(style));
+      const updated = await client.set(style);
+      setInfo(updated);
+      if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
     } catch {
-      // A launcher may apply the alias before reporting a package-manager
-      // error. Read the OS state again before showing a failure.
-      try { setInfo(await client.info()); }
-      catch { setError("图标未能更换，请稍后重试。"); }
+      // Android launchers and the iOS Simulator can report an error after
+      // applying the icon. Read the OS state again before showing a failure.
+      try {
+        const updated = await client.info();
+        setInfo(updated);
+        if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
+      } catch {
+        setError("图标未能更换，请稍后重试。");
+      }
     } finally {
       setPending(null);
     }
@@ -145,7 +152,11 @@ function AppIconSettingsCard({ client }: { client: AppIconClient }) {
   return <section className="section app-icon-settings">
     <div>
       <h2>App 图标</h2>
-      <p>给主屏幕上的水杉换个颜色。Android 会使用系统启动器的图标别名保存选择。</p>
+      <p>给主屏幕上的水杉换个颜色。{platform === "android"
+        ? "Android 会使用系统启动器的图标别名保存选择。"
+        : platform === "ios"
+          ? "iOS 会使用系统备用图标接口保存选择。"
+          : "系统会使用平台提供的图标切换能力保存选择。"}</p>
     </div>
     {info === null && !error && <p role="status">正在读取图标状态…</p>}
     {error && <p role="alert" className="error">{error}</p>}
@@ -249,8 +260,34 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+  client?: AccountClient;
+  appIcon?: AppIconClient;
+  platform?: "android" | "ios";
+  onOpenPublishedSkins?: () => void;
+  onOpenLocalDesigns?: () => void;
+  onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+}) {
+  const resolvedAppIcon = appIcon ?? client?.appIcon;
+  if (!client) {
+    return <div className="account-page">
+      {resolvedAppIcon && <AppIconSettingsCard client={resolvedAppIcon} platform={platform} />}
+    </div>;
+  }
+  return <AccountDetailsPage
+    client={client}
+    appIcon={resolvedAppIcon}
+    platform={platform}
+    onOpenPublishedSkins={onOpenPublishedSkins}
+    onOpenLocalDesigns={onOpenLocalDesigns}
+    onOpenCommunity={onOpenCommunity}
+  />;
+}
+
+function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
   client: AccountClient;
+  appIcon?: AppIconClient;
+  platform?: "android" | "ios";
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
@@ -420,7 +457,7 @@ export function AccountPage({ client, onOpenPublishedSkins, onOpenLocalDesigns, 
         <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
       </div>
     </section>
-    {client.appIcon && <AppIconSettingsCard client={client.appIcon} />}
+    {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
     {onOpenLocalDesigns && <section className="section account-community-actions">
       <div><h2>我的设计</h2><p>保存在本机的键盘皮肤，不会因登录账号而上传。</p></div>
       <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>打开设计器</button>

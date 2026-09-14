@@ -30,6 +30,10 @@ const typingStatistics: TypingStatisticsClient = {
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
   reset: () => invoke("reset_typing_statistics"),
 };
+const appIcon = {
+  info: () => invoke<{ supported: boolean; selected: string }>("app_icon_info"),
+  set: (style: string) => invoke<{ supported: boolean; selected: string }>("app_icon_set", { style }),
+};
 const client: SettingsClient = {
   resolveFontFamilies: names => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
@@ -75,11 +79,7 @@ const client: SettingsClient = {
   ...(/\bAndroid\b/i.test(navigator.userAgent) ? { typingStatistics, fuzzyPinyin: true, touchKeyboardSchemes: true, customTouchKeyboardSkins: true, customSkinLibrary: {
     load: () => invoke("load_custom_skin_library"),
     mutate: action => invoke("mutate_custom_skin_library", { action }),
-  }, account: {
-    appIcon: {
-      info: () => invoke("app_icon_info"),
-      set: style => invoke("app_icon_set", { style }),
-    },
+  }, appIcon, account: {
     status: () => invoke("account_status"),
     providers: () => invoke("account_providers"),
     requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
@@ -283,6 +283,7 @@ function DesktopSettings() {
             host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
+          ...(host.platform === "ios" ? { appIcon } : {}),
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),

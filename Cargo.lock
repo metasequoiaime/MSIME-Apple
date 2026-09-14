@@ -2358,6 +2358,7 @@ dependencies = [
  "msime-host-macos",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-tauri-mobile-platform",
  "rustix",
  "serde",
  "serde_json",
@@ -2429,6 +2430,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "msime-tauri-mobile-platform"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
@@ -4154,6 +4164,22 @@ dependencies = [
  "objc2-foundation",
  "pastey",
  "tauri",
+]
+
+[[package]]
+name = "tauri-plugin"
+version = "2.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74be5dd4bed9afbd145e5716b5fa2ec28cbc29c34ffa61c258c9273d896c8020"
+dependencies = [
+ "anyhow",
+ "glob",
+ "plist",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tauri-utils",
+ "walkdir",
 ]
 
 [[package]]

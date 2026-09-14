@@ -3906,6 +3906,36 @@ fn ios_host_options_document(
     }
 }
 
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn app_icon_info(
+    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
+) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
+    let platform = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || platform.app_icon_info())
+        .await
+        .map_err(|_| CommandError { code: "app_icon" })?
+        .map_err(|_| CommandError { code: "app_icon" })
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn app_icon_set(
+    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
+    style: String,
+) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
+    if !msime_tauri_mobile_platform::is_supported_app_icon_style(&style) {
+        return Err(CommandError {
+            code: "invalid_app_icon",
+        });
+    }
+    let platform = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || platform.set_app_icon(&style))
+        .await
+        .map_err(|_| CommandError { code: "app_icon" })?
+        .map_err(|_| CommandError { code: "app_icon" })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -3937,6 +3967,8 @@ pub fn run() {
     ));
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_account::init());
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -4266,6 +4298,10 @@ pub fn run() {
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
             android_account::app_icon_set,
+            #[cfg(target_os = "ios")]
+            app_icon_info,
+            #[cfg(target_os = "ios")]
+            app_icon_set,
             #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]

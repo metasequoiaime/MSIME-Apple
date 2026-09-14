@@ -21,7 +21,7 @@ import { defaultTouchKeyboardSkinDesign, type AiSkinClient, type CustomSkinLibra
 export type { AiSkinClient, AiSkinProposal, AiSkinProgress, CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboardSkin, TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
-import { AccountPage, type AccountClient, type AccountCommunityDestination } from "./account-page";
+import { AccountPage, type AccountClient, type AccountCommunityDestination, type AppIconClient } from "./account-page";
 import { ChatPage, type ChatClient } from "./chat-page";
 import { HomePage, type HomePageActions } from "./home-page";
 import { WelcomeFlowPage } from "./onboarding-page";
@@ -567,6 +567,8 @@ export interface SettingsClient {
   home?: HomePageActions;
   /** Android account commands expose user/profile DTOs but never session tokens. */
   account?: AccountClient;
+  /** Mobile hosts expose platform-native launcher or alternate icon selection. */
+  appIcon?: AppIconClient;
   /** Android account commands expose the authenticated EveryAPI chat surface. */
   chat?: ChatClient;
   /** Android performs user-configured AI service requests in its native host. */
@@ -1296,7 +1298,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     (item.id !== "home" || Boolean(client.home))
     &&
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
-    && (item.id !== "account" || Boolean(client.account))
+    && (item.id !== "account" || Boolean(client.account || client.appIcon))
     && (item.id !== "chat" || Boolean(client.chat))
     && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
     && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
@@ -1416,8 +1418,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => setPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => setPage("chat") : undefined} />}
-    {client.account && page === "account" && <AccountPage
+    {(client.account || client.appIcon) && page === "account" && <AccountPage
       client={client.account}
+      appIcon={client.appIcon}
+      platform={androidPlatform ? "android" : client.host?.platform === "ios" ? "ios" : undefined}
       onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
       onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
     />}

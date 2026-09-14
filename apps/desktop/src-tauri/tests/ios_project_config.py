@@ -60,6 +60,40 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
+    def test_tauri_app_packages_and_registers_ios_alternate_icons(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated_project = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        alternate_names = [
+            "AppIconForest",
+            "AppIconSky",
+            "AppIconDusk",
+            "AppIconVermilion",
+        ]
+        self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
+        self.assertIn(
+            "ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: " + " ".join(alternate_names),
+            project,
+        )
+        self.assertIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: true", project)
+        self.assertIn("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES", generated_project)
+        for name in alternate_names:
+            icon_set = APPLE_ROOT / f"Assets.xcassets/{name}.appiconset"
+            self.assertTrue((icon_set / "Contents.json").is_file())
+            self.assertTrue((icon_set / "Icon.png").is_file())
+
+        manifest = (TAURI_ROOT / "Cargo.toml").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        self.assertIn("msime-tauri-mobile-platform", manifest)
+        self.assertIn("builder.plugin(msime_tauri_mobile_platform::init())", rust_entry)
+        self.assertIn("app_icon_info", rust_entry)
+        self.assertIn("app_icon_set", rust_entry)
+        self.assertIn("application.supportsAlternateIcons", swift)
+        self.assertIn("application.setAlternateIconName(requestedName)", swift)
+        self.assertIn("application.alternateIconName != requestedName", swift)
+        self.assertIn('invoke.reject("app_icon", code: "app_icon")', swift)
+
     def test_keyboard_keeps_device_mlkit_and_simulator_fallback_boundaries(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift", project)
