@@ -1,4 +1,5 @@
 #pragma once
+#include "VoiceReviewResult.h"
 #include "VoiceSessionEpoch.h"
 
 #include "FocusGate.h"
@@ -59,9 +60,9 @@ struct VoiceInputConfig {
   std::string polish_prompt_custom_3;
 };
 
-// Owns microphone capture and the asynchronous batch recognizer. All UI
-// state is represented by WaveOverlay; no capture callback calls stop or
-// touches the Windows window procedure directly.
+// Owns microphone capture and the asynchronous batch recognizer. Native UI
+// uses WaveOverlay; review captures expose a bounded VoiceReviewResult instead.
+// No capture callback calls stop or touches the window procedure directly.
 class VoiceInputSession final {
 public:
   using LeaseProvider = std::function<std::optional<FocusLease>()>;
@@ -76,6 +77,12 @@ public:
   VoiceInputSession &operator=(const VoiceInputSession &) = delete;
 
   bool toggle();
+  // Control-thread only, like stop/cancel. Null means busy/unavailable. The
+  // dispatcher must authenticate the controller and retain its focus lease;
+  // this result object grants no authority to stop a different session.
+  std::shared_ptr<VoiceReviewResult> start_review(std::string_view language);
+  bool stop_review(const std::shared_ptr<VoiceReviewResult> &expected);
+  bool cancel_review(const std::shared_ptr<VoiceReviewResult> &expected);
   void stop();
   void cancel();
   void lock();
@@ -84,11 +91,13 @@ public:
   bool locked() const { return locked_.load(); }
 
 private:
-  bool start();
+  bool start(std::shared_ptr<VoiceReviewResult> review = {},
+             std::string_view language = {});
   void finish(std::vector<float> samples, FocusLease lease,
               VoiceInputConfig config, uint64_t session,
               std::shared_ptr<DoubaoAsrClient> doubao,
-              std::shared_ptr<std::atomic_bool> cancelled);
+              std::shared_ptr<std::atomic_bool> cancelled,
+              std::shared_ptr<VoiceReviewResult> review);
   void clear_overlay();
 
   WaveOverlay &overlay_;
@@ -108,6 +117,7 @@ private:
   std::size_t captured_frames_ = 0;
   std::atomic<bool> capture_overflow_{false};
   std::optional<FocusLease> lease_;
+  std::shared_ptr<VoiceReviewResult> review_; // control-thread owned
   std::mutex config_mutex_;
   std::optional<VoiceInputConfig> active_config_;
   std::mutex doubao_mutex_;

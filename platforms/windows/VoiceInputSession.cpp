@@ -179,10 +179,58 @@ bool VoiceInputSession::toggle() {
   return start();
 }
 
-bool VoiceInputSession::start() {
+std::shared_ptr<VoiceReviewResult>
+VoiceInputSession::start_review(std::string_view language) {
+  if (language.empty() ||
+      language.size() > FanyImeVoiceController::MaxLanguageBytes)
+    return {};
+  for (const unsigned char ch : language)
+    if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+          (ch >= '0' && ch <= '9') || ch == '-'))
+      return {};
+  // A panel must not steal a native recording or its in-flight completion.
+  if (recording_.load() || starting_.load())
+    return {};
+  {
+    std::lock_guard lock(tasks_mutex_);
+    for (auto &task : tasks_)
+      if (task.valid() &&
+          task.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return {};
+  }
+  auto review = std::make_shared<VoiceReviewResult>();
+  if (!start(review, language)) {
+    review->fail();
+    return {};
+  }
+  return review;
+}
+
+bool VoiceInputSession::stop_review(
+    const std::shared_ptr<VoiceReviewResult> &expected) {
+  if (!expected || expected != review_)
+    return false;
+  stop();
+  return true;
+}
+
+bool VoiceInputSession::cancel_review(
+    const std::shared_ptr<VoiceReviewResult> &expected) {
+  if (!expected || expected != review_)
+    return false;
+  cancel();
+  return true;
+}
+
+bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
+                              std::string_view language) {
+  if (review_ && review_->active())
+    return false;
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
-  const VoiceInputConfig config = config_provider_();
+  VoiceInputConfig config = config_provider_();
+  if (review)
+    config.language = std::string(language);
   const bool doubao = is_doubao_asr_provider(config.asr_provider);
   // An endpoint whose transport disagrees with the provider is configuration
   // left behind by an earlier choice, so fall back to this provider's own
@@ -194,8 +242,8 @@ bool VoiceInputSession::start() {
   const auto model = config.model.empty()
                          ? default_asr_model(config.asr_provider)
                          : config.model;
-  const bool stream_inline = config.stream_inline_preedit && doubao &&
-                             config.commit_mode == "tsf";
+  const bool stream_inline = voice_inline_allowed(
+      review, config.stream_inline_preedit, doubao, config.commit_mode);
   if (!config.enabled || config.token.empty() || endpoint.empty() ||
       (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
     return false;
@@ -206,6 +254,7 @@ bool VoiceInputSession::start() {
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
   const uint64_t session = session_.fetch_add(1) + 1;
+  review_ = review;
   {
     std::lock_guard lock(config_mutex_);
     active_config_ = config;
@@ -222,11 +271,13 @@ bool VoiceInputSession::start() {
   const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
   if (doubao) {
     auto client = std::make_shared<DoubaoAsrClient>(
-        endpoint, config.doubao_auth_mode, config.app_key, config.token, config.resource_id,
-        config.enable_itn, config.enable_punc, config.enable_ddc,
-        config.boosting_table_id,
-        [this, lease = *lease, generation, session,
-         stream_inline](const std::string &text) {
+        endpoint, config.doubao_auth_mode, config.app_key, config.token,
+        config.resource_id, config.enable_itn, config.enable_punc,
+        config.enable_ddc, config.boosting_table_id,
+        [this, lease = *lease, generation, session, stream_inline,
+         review](const std::string &text) {
+          if (review)
+            return; // panel receives the final bounded result only
           if (session_.load() != session || cancel_requested_.load())
             return;
           session_.with_current(session, [&] {
@@ -252,8 +303,8 @@ bool VoiceInputSession::start() {
       return false;
     }
   }
-  const bool started = capture_->start([this](const float *samples,
-                                               std::size_t frames) {
+  const bool started = capture_->start([this, review](const float *samples,
+                                                      std::size_t frames) {
     if (!samples || (!recording_.load() && !starting_.load()))
       return;
     double sum = 0.0;
@@ -261,7 +312,11 @@ bool VoiceInputSession::start() {
       sum += static_cast<double>(samples[i]) * samples[i];
     const float rms = frames ? static_cast<float>(std::sqrt(sum / frames)) : 0.0f;
     const float normalized = std::min(1.0f, std::max(0.0f, rms - 0.004f) * 14.0f);
-    overlay_.set_input_level(std::pow(normalized, 0.55f));
+    const float level = std::pow(normalized, 0.55f);
+    if (review)
+      review->level(level);
+    else
+      overlay_.set_input_level(level);
     std::shared_ptr<DoubaoAsrClient> client;
     {
       std::lock_guard doubao_lock(doubao_mutex_);
@@ -310,13 +365,15 @@ bool VoiceInputSession::start() {
   }
   recording_.store(true);
   starting_.store(false);
-  overlay_.set_input_level(0.0f);
-  overlay_.set_listening(true);
-  overlay_.set_show_transcript(!stream_inline);
-  overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
-  overlay_.set_actions_visible(false);
-  overlay_.set_transcript(L"");
-  overlay_.show();
+  if (!review) {
+    overlay_.set_input_level(0.0f);
+    overlay_.set_listening(true);
+    overlay_.set_show_transcript(!stream_inline);
+    overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
+    overlay_.set_actions_visible(false);
+    overlay_.set_transcript(L"");
+    overlay_.show();
+  }
   if (config.mute_system_audio) {
     mute_other_system_audio();
     muted_system_audio_.store(true);
@@ -333,6 +390,9 @@ void VoiceInputSession::stop() {
   if (capture_)
     capture_->stop();
   locked_.store(false);
+  const auto review = review_;
+  if (review)
+    review->recognizing();
   overlay_.set_listening(false);
   overlay_.set_input_level(0.0f);
   VoiceInputConfig config;
@@ -353,7 +413,9 @@ void VoiceInputSession::stop() {
     doubao = doubao_;
   }
   const auto cancel_inline = [&] {
-    if (!config.stream_inline_preedit || !doubao || !lease)
+    if (!voice_inline_allowed(review, config.stream_inline_preedit, !!doubao,
+                              config.commit_mode) ||
+        !lease)
       return;
     const auto generation = static_cast<wchar_t>((session_.load() % 0xfffeu) + 1u);
     const auto encoded = voice_composition_bytes(
@@ -366,10 +428,12 @@ void VoiceInputSession::stop() {
   // streaming client has its own transcript and was fed throughout.
   const bool overflowed = capture_overflow_.load() && !doubao;
   if (!lease || overflowed) {
+    if (review)
+      review->fail();
     if (doubao)
       doubao->Cancel();
     cancel_inline();
-    if (overflowed && lease)
+    if (!review && overflowed && lease)
       show_voice_failure(overlay_, session_, session_.load(),
                          L"录音超过 60 秒上限");
     clear_overlay();
@@ -381,6 +445,8 @@ void VoiceInputSession::stop() {
     samples.swap(samples_);
   }
   if (samples.size() < kSampleRate / 4) {
+    if (review)
+      review->fail();
     if (doubao)
       doubao->Cancel();
     cancel_inline();
@@ -388,12 +454,14 @@ void VoiceInputSession::stop() {
     return;
   }
   const uint64_t session = session_.load();
-  const bool stream_inline = config.stream_inline_preedit && doubao &&
-                             config.commit_mode == "tsf";
-  overlay_.set_compact_status(WaveOverlay::CompactStatus::Recognizing);
-  overlay_.set_actions_visible(true);
-  overlay_.set_show_transcript(!stream_inline);
-  overlay_.show();
+  const bool stream_inline = voice_inline_allowed(
+      review, config.stream_inline_preedit, !!doubao, config.commit_mode);
+  if (!review) {
+    overlay_.set_compact_status(WaveOverlay::CompactStatus::Recognizing);
+    overlay_.set_actions_visible(true);
+    overlay_.set_show_transcript(!stream_inline);
+    overlay_.show();
+  }
   std::lock_guard lock(tasks_mutex_);
   tasks_.erase(std::remove_if(tasks_.begin(), tasks_.end(),
                               [](auto &task) {
@@ -407,19 +475,22 @@ void VoiceInputSession::stop() {
     request_cancellations_.push_back(cancelled);
   }
   tasks_.emplace_back(std::async(
-      std::launch::async, [this, samples = std::move(samples), lease = *lease,
-                           config, session, doubao,
-                           cancelled = std::move(cancelled)]() mutable {
+      std::launch::async,
+      [this, samples = std::move(samples), lease = *lease, config, session,
+       doubao, review, cancelled = std::move(cancelled)]() mutable {
         finish(std::move(samples), lease, config, session, std::move(doubao),
-               std::move(cancelled));
+               std::move(cancelled), review);
       }));
 }
 
 void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
                                VoiceInputConfig config, uint64_t session,
                                std::shared_ptr<DoubaoAsrClient> doubao,
-                               std::shared_ptr<std::atomic_bool> cancelled) {
+                               std::shared_ptr<std::atomic_bool> cancelled,
+                               std::shared_ptr<VoiceReviewResult> review) {
   const auto clear_current_overlay = [&] {
+    if (review)
+      review->fail(); // no-op after completion/cancellation
     session_.with_current(session, [&] { clear_overlay(); });
   };
   const auto release_doubao = [&] {
@@ -429,8 +500,8 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     if (doubao_ == doubao)
       doubao_.reset();
   };
-  const bool stream_inline = config.stream_inline_preedit && doubao &&
-                             config.commit_mode == "tsf";
+  const bool stream_inline = voice_inline_allowed(
+      review, config.stream_inline_preedit, !!doubao, config.commit_mode);
   const auto cancel_inline = [&] {
     if (!stream_inline)
       return;
@@ -468,7 +539,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     }
   } catch (const std::exception &) {
     cancel_inline();
-    if (!cancel_requested_.load())
+    if (!review && !cancel_requested_.load())
       show_voice_failure(overlay_, session_, session, L"语音识别失败");
     clear_current_overlay();
     release_doubao();
@@ -480,14 +551,19 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     release_doubao();
     return;
   }
-  session_.with_current(session, [&] { overlay_.set_transcript(wide(text)); });
+  if (!review)
+    session_.with_current(session,
+                          [&] { overlay_.set_transcript(wide(text)); });
   std::string final_text = text;
   if (should_polish(config, text)) {
-    session_.with_current(session, [&] {
-      overlay_.set_compact_status(WaveOverlay::CompactStatus::Processing);
-      overlay_.set_actions_visible(true);
-      overlay_.show();
-    });
+    if (review)
+      review->processing();
+    else
+      session_.with_current(session, [&] {
+        overlay_.set_compact_status(WaveOverlay::CompactStatus::Processing);
+        overlay_.set_actions_visible(true);
+        overlay_.show();
+      });
     const auto endpoint = config.polish_endpoint.empty()
                               ? default_polish_endpoint(config.polish_provider)
                               : config.polish_endpoint;
@@ -517,36 +593,38 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     return;
   }
   session_.with_current(session, [&] {
-    overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
-    overlay_.set_transcript(wide(final_text));
-    const auto converted = wide(final_text);
-    const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
-    if (config.commit_mode == "sendinput") {
-      send_text_via_send_input(converted);
-      clear_overlay();
-    } else if (config.commit_mode == "ctrl_v") {
-      send_text_via_ctrl_v(converted);
-      clear_overlay();
-    } else {
-      const auto encoded = voice_composition_bytes(
-          FanyImeWorkerReplyType::CommitVoiceComposition, converted,
-          generation);
-      if (encoded &&
-          sender_(lease, FanyImeWorkerReplyType::CommitVoiceComposition,
-                  converted, generation) == VoiceCompositionResult::Sent) {
-        clear_overlay();
-      } else {
-        // The TSF route was refused - focus moved to a window with no text
-        // service, or the transaction lock was busy. Upstream falls back to
-        // SendInput rather than dropping the text, which is the whole
-        // recording.
-        if (stream_inline)
-          (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition,
-                        L"", generation);
+    deliver_voice_result(review, final_text, [&] {
+      overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
+      overlay_.set_transcript(wide(final_text));
+      const auto converted = wide(final_text);
+      const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+      if (config.commit_mode == "sendinput") {
         send_text_via_send_input(converted);
         clear_overlay();
+      } else if (config.commit_mode == "ctrl_v") {
+        send_text_via_ctrl_v(converted);
+        clear_overlay();
+      } else {
+        const auto encoded = voice_composition_bytes(
+            FanyImeWorkerReplyType::CommitVoiceComposition, converted,
+            generation);
+        if (encoded &&
+            sender_(lease, FanyImeWorkerReplyType::CommitVoiceComposition,
+                    converted, generation) == VoiceCompositionResult::Sent) {
+          clear_overlay();
+        } else {
+          // The TSF route was refused - focus moved to a window with no text
+          // service, or the transaction lock was busy. Upstream falls back to
+          // SendInput rather than dropping the text, which is the whole
+          // recording.
+          if (stream_inline)
+            (void)sender_(lease, FanyImeWorkerReplyType::CancelVoiceComposition,
+                          L"", generation);
+          send_text_via_send_input(converted);
+          clear_overlay();
+        }
       }
-    }
+    });
   });
   release_doubao();
   {
@@ -557,6 +635,9 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
 }
 
 void VoiceInputSession::cancel() {
+  const auto review = review_;
+  if (review)
+    review->cancel();
   const bool was_recording = recording_.exchange(false);
   cancel_requested_.store(true);
   const auto session = session_.fetch_add(1);
@@ -586,7 +667,7 @@ void VoiceInputSession::cancel() {
     restore_other_system_audio();
   if (was_recording && config.sound_enabled && config.end_sound)
     cue_player_.play_end();
-  if (lease) {
+  if (lease && !review) {
     const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
     const auto encoded = voice_composition_bytes(
         FanyImeWorkerReplyType::CancelVoiceComposition, L"", generation);
