@@ -1499,6 +1499,33 @@ test("macOS support pages use client project and privacy links", async () => {
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
 });
 
+test("macOS and iOS help pages use their native host instructions", async () => {
+  const macos = render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText(/macOS 平台的中文输入法/)).toBeDefined();
+  expect(screen.getByText(/系统设置的键盘输入法/)).toBeDefined();
+  expect(screen.getByText(/候选翻译和 AI 功能仅在用户配置并启用/)).toBeDefined();
+  expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText(/现代 macOS 桌面体验/)).toBeDefined();
+  macos.unmount();
+
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText(/iOS 平台的中文输入法/)).toBeDefined();
+  expect(screen.getByText(/应用的输入源按钮/)).toBeDefined();
+  expect(screen.getByText(/键盘扩展的日常拼音输入无需联网/)).toBeDefined();
+  expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
+});
+
 test("about page validates a newer release before offering its URL", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,

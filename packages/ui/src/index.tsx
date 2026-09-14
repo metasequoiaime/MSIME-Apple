@@ -796,6 +796,42 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = clientHostedPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
+  const platformHelpIntro = androidPlatform
+    ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。"
+    : linuxPlatform
+      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。"
+      : macosPlatform
+        ? "水杉输入法是一款 macOS 平台的中文输入法，通过系统输入法组件接入应用。"
+        : iosPlatform
+          ? "水杉输入法是一款 iOS 平台的中文输入法，通过键盘扩展接入应用。"
+          : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。";
+  const platformQuickStart = androidPlatform
+    ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
+    : linuxPlatform
+      ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
+      : macosPlatform
+        ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
+        : iosPlatform
+          ? "在系统设置中启用水杉键盘，再从应用的输入源按钮切换使用。默认是全拼输入法。"
+          : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。";
+  const platformNetworkDescription = androidPlatform
+    ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
+    : linuxPlatform
+      ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
+      : macosPlatform
+        ? "语音识别、候选翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
+        : iosPlatform
+          ? "键盘扩展的日常拼音输入无需联网；账号、云同步、AI 和语音功能仅在用户启用时联网。"
+          : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。";
+  const platformAboutDescription = androidPlatform
+    ? "为 Android 触屏输入体验打造的开放中文输入法。"
+    : linuxPlatform
+      ? "为 Linux 桌面输入体验打造的开放中文输入法。"
+      : macosPlatform
+        ? "为现代 macOS 桌面体验打造的开放中文输入法。"
+        : iosPlatform
+          ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
+          : "为现代 Windows 桌面体验打造的开放中文输入法。";
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -1902,17 +1938,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
         <div className="section document-page help-document">
-          <p>{androidPlatform ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。" : linuxPlatform ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。" : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。"}</p>
-          <div className="document-subsection"><div className="section-title">快速上手</div><p>{androidPlatform ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。" : linuxPlatform ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。" : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。"}</p></div>
+          <p>{platformHelpIntro}</p>
+          <div className="document-subsection"><div className="section-title">快速上手</div><p>{platformQuickStart}</p></div>
           <div className="document-subsection"><div className="section-title">基本功能</div>
             <p>支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右 2.0、首右 plus 和小鹤。</p>
-            <p>{androidPlatform ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。" : linuxPlatform ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。" : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。"}</p>
+            <p>{platformNetworkDescription}</p>
             <p>更多功能欢迎自由探索～</p>
           </div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-        <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>{androidPlatform ? "为 Android 触屏输入体验打造的开放中文输入法。" : linuxPlatform ? "为 Linux 桌面输入体验打造的开放中文输入法。" : "为现代 Windows 桌面体验打造的开放中文输入法。"}</p></div></div>
+        <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>{platformAboutDescription}</p></div></div>
         <div className="section about-links">
           <div className="about-link-row about-version-row"><div><div className="about-link-title">当前版本</div><div className="about-version">v{currentAppVersion}</div>{updateStatus && <p className="about-update-status" role="status">{updateStatus}</p>}</div><button type="button" className="secondary about-update-button" disabled={updateBusy} onClick={() => void checkForUpdate()}>{updateBusy ? "正在检查…" : "检查更新"}</button></div>
           {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
