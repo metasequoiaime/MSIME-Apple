@@ -62,6 +62,15 @@ constexpr size_t CandidatePageEnd(size_t selectedIndex, size_t candidateCount, s
     return std::min(CandidatePageStart(selectedIndex, candidateCount, pageSize) + pageSize - 1, candidateCount - 1);
 }
 
+// Japanese input schemes reserve '-' and '=' for Engine input while a
+// candidate list is visible.  The direct Japanese scheme (3) and the
+// temporary-Japanese local mode share this host rule; other schemes use the
+// configured paging shortcuts.
+constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, char character)
+{
+    return (scheme == 3 || temporaryJapanese) && (character == '-' || character == '=');
+}
+
 constexpr ControllerKeyAction ClassifyControllerKey(
     unsigned short keyCode, bool candidatePanelVisible,
     CandidatePageShortcut pageShortcut = CandidatePageShortcut::MinusEqual, char pageShortcutCharacter = '\0',

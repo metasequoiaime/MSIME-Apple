@@ -17,4 +17,7 @@ int main() {
     require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, '[', false) == ControllerKeyAction::MoveCandidatePageUp, "bracket page up");
     require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, ']', false) == ControllerKeyAction::MoveCandidatePageDown, "bracket page down");
     require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, '[', true) == ControllerKeyAction::Character, "modified bracket passthrough");
+    require(IsJapaneseMinusEqualInput(3, false, '-') && IsJapaneseMinusEqualInput(3, false, '='), "direct Japanese scheme punctuation");
+    require(IsJapaneseMinusEqualInput(0, true, '-') && IsJapaneseMinusEqualInput(0, true, '='), "temporary Japanese punctuation");
+    require(!IsJapaneseMinusEqualInput(0, false, '-') && !IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
 }
