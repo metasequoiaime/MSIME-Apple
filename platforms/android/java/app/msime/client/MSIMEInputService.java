@@ -1120,11 +1120,29 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
-        if (!character(output)) commitText(fullWidthOutput(String.valueOf(output)));
+        boolean handled = SmartPunctuationContext.isAsciiPunctuation(output)
+            ? punctuation(output) : character(output);
+        if (!handled) commitText(fullWidthOutput(String.valueOf(output)));
         if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();
         }
+    }
+
+    private boolean punctuation(int ascii) {
+        if (session == 0) return false;
+        CharSequence before = null;
+        if (connection != null) {
+            try {
+                // Two UTF-16 code units are sufficient for the immediately preceding scalar.
+                before = connection.getTextBeforeCursor(2, 0);
+            } catch (RuntimeException ignored) {
+                // Editor context is optional and must never be logged or persisted.
+            }
+        }
+        int preceding = SmartPunctuationContext.precedingCodePoint(before);
+        try { return apply(NativeClient.punctuationWithContext(session, ascii, preceding)); }
+        catch (JSONException | LinkageError error) { fail(); return true; }
     }
 
     private static boolean isAsciiLetter(int value) {

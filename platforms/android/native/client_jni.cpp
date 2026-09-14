@@ -245,6 +245,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_characterRaw(JNI
     }
     return response(env, msime_client_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_punctuationWithContextRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jint preceding) {
+    if (ascii < 0 || ascii > 127 || preceding < 0) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid punctuation context");
+        return nullptr;
+    }
+    return response(env, msime_client_punctuation_with_context(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), static_cast<uint32_t>(preceding)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_commandRaw(JNIEnv *env, jclass, jlong handle, jint command) {
     return response(env, msime_client_command(static_cast<uint64_t>(handle), static_cast<uint32_t>(command)));
 }

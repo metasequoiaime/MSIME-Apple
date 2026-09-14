@@ -1030,7 +1030,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
     }
 
-    let snapshot = session.handlePunctuation(symbol)
+    guard let punctuation = KeyboardPunctuationContext.engineInput(
+      for: symbol, japanese: inputScheme.isJapanese) else {
+      render(session.finishComposition())
+      insertOwnText(symbol)
+      return
+    }
+    let preceding = KeyboardPunctuationContext.precedingScalar(
+      textDocumentProxy.documentContextBeforeInput)
+    let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
       render(snapshot)
       return
@@ -1040,7 +1048,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // finish_composition — the leading candidate. commitRaw committed the raw pinyin letters
     // instead, so typing "nihao" then "@" produced "nihao@" rather than "你好@".
     render(session.finishComposition())
-    insertOwnText(symbol)
+    insertOwnText(punctuation)
   }
 
   private func synchronizeInputContext() {

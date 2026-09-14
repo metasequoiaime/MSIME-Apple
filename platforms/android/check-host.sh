@@ -58,7 +58,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/CandidateManagementSmoke.java" \
   "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/DictionarySnapshotQueueSmoke.java" \
-  "$repo_root/platforms/android/tests/DiagnosticPolicySmoke.java"
+  "$repo_root/platforms/android/tests/DiagnosticPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/SmartPunctuationContextSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
@@ -99,6 +100,7 @@ java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
+java -cp "$output_dir" SmartPunctuationContextSmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
   --manifest "$repo_root/platforms/android/AndroidManifest.xml" \

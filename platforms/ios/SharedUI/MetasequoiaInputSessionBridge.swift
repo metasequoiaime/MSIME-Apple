@@ -16,6 +16,10 @@ private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 private func msimeClientCharacter(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation")
 private func msimeClientPunctuation(_ session: UInt64, _ value: MSIMEByte) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_punctuation_with_context")
+private func msimeClientPunctuationWithContext(
+  _ session: UInt64, _ value: MSIMEByte, _ preceding: UInt32
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_command")
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
@@ -155,6 +159,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func handlePunctuation(_ character: String) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(character) else { return diagnostic("标点输入无效") }
     return dispatch { msimeClientPunctuation(handle, byte) }
+  }
+
+  func handlePunctuationWithContext(_ character: String,
+                                    preceding: UInt32) -> MetasequoiaInputSnapshot {
+    guard let byte = Self.ascii(character) else { return diagnostic("标点输入无效") }
+    return dispatch { msimeClientPunctuationWithContext(handle, byte, preceding) }
   }
 
   func handleBackspace() -> MetasequoiaInputSnapshot { command(0) }
