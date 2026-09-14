@@ -205,7 +205,7 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     #[cfg(target_os = "windows")]
     {
         return serde_json::to_value(
-            msime_engine_bridge::capture_device_names()
+            msime_host_api::voice_capture_device_names()
                 .into_iter()
                 .enumerate()
                 .map(|(index, name)| serde_json::json!({

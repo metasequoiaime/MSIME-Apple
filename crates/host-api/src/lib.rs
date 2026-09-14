@@ -49,6 +49,15 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
 };
 
+/// Names of the audio capture devices the Engine can record from.
+///
+/// The desktop shell depends on this crate, not on the Engine bridge, so the
+/// bridge is reached through here the same way the handwriting recognizer is.
+/// Names are display strings from the audio backend and carry no user data.
+pub fn voice_capture_device_names() -> Vec<String> {
+    msime_engine_bridge::capture_device_names()
+}
+
 /// Run the optional offline Engine handwriting recognizer for a panel host.
 /// The caller must provide a trusted absolute model path; strokes are copied
 /// before crossing the C++ bridge. The shared panel uses a 420 by 420 canvas,
