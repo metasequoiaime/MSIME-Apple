@@ -82,7 +82,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePanel: KeyboardCandidatePanelView?
   private var candidatePanelGeneration: UInt64?
   private var emojiPicker: KeyboardEmojiPickerView?
-  private var moreMenu: UIMenu?
+  private enum MoreToolsPage { case root, localInput, keyboardSettings }
+  private var moreTools: [KeyboardToolSection] = []
+  private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
   private var microsoftFinalKey: UIButton?
@@ -674,62 +676,107 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
-    moreMenu = UIMenu(children: [
-      UIAction(title: "表情", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
-        self?.showEmojiPicker()
+    moreTools = makeToolSections()
+    updateMorePickerPage()
+    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+  }
+
+  private func makeToolSections() -> [KeyboardToolSection] {
+    [KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
+      KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in self?.showEmojiPicker() },
+      KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in self?.showClipboardHistory() },
+      KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
+        self?.closeKeyboardPicker(); self?.showKeyboardAI()
       },
-      UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
-        self?.showClipboardHistory()
+      KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
+        self?.closeKeyboardPicker(); self?.showKeyboardVoice()
       },
-      UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardAI()
+      KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
+        self?.showMoreToolsPage(.localInput)
       },
-      UIAction(title: "语音结果", image: UIImage(systemName: "waveform")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardVoice()
+      KeyboardTool(title: "键盘设置", symbol: "gearshape") { [weak self] in
+        self?.showMoreToolsPage(.keyboardSettings)
       },
-      UIMenu(title: "键盘设置", options: .displayInline, children: [
-        UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
-          state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
+    ])]
+  }
+
+  private func makeKeyboardSettingsSections() -> [KeyboardToolSection] {
+    [
+      backToToolsSection(),
+      KeyboardToolSection(title: "键盘设置", kind: .toggle, columns: 2, tools: [
+        KeyboardTool(title: "按键音", symbol: "speaker.wave.2",
+                     selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
+                                                   forKey: KeyboardFeedbackPreference.soundKey)
           if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
           self?.updateShortcutButtons()
         },
-        UIAction(title: "按键振动", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
-          state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
+        KeyboardTool(title: "按键振动", symbol: "iphone.radiowaves.left.and.right",
+                     selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
+                                                   forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
             self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
         },
-        UIAction(title: "全角输入", image: UIImage(systemName: "character.cursor.ibeam"),
-          state: KeyboardLayoutPreference.fullWidthInputEnabled ? .on : .off) { [weak self] _ in
+        KeyboardTool(title: "全角输入", symbol: "character.cursor.ibeam",
+                     selected: KeyboardLayoutPreference.fullWidthInputEnabled) { [weak self] in
           KeyboardLayoutPreference.fullWidthInputEnabled = !KeyboardLayoutPreference.fullWidthInputEnabled
           self?.updateShortcutButtons()
         },
+        KeyboardTool(title: "振动强度", symbol: "waveform",
+                     enabled: KeyboardFeedbackPreference.hapticsEnabled,
+                     caption: KeyboardFeedbackPreference.hapticStrength.title) { [weak self] in
+          guard let self else { return }
+          let strengths = KeyboardHapticStrength.allCases
+          let current = strengths.firstIndex(of: KeyboardFeedbackPreference.hapticStrength) ?? 0
+          let next = strengths[(current + 1) % strengths.count]
+          KeyboardFeedbackPreference.defaults.set(next.rawValue,
+                                                   forKey: KeyboardFeedbackPreference.strengthKey)
+          keyFeedback.impactOccurred(intensity: next.intensity)
+          prepareKeyFeedback()
+          updateShortcutButtons()
+        },
       ]),
-      UIMenu(title: "振动强度", image: UIImage(systemName: "waveform"), children: KeyboardHapticStrength.allCases.map { strength in
-        UIAction(title: strength.title, state: strength == KeyboardFeedbackPreference.hapticStrength ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
-          if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: strength.intensity)
-            self?.prepareKeyFeedback()
-          }
-          self?.updateShortcutButtons()
-        }
-      }),
-      UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
-        UIAction(title: mode.title, attributes: supportsLocalTools ? [] : .disabled) { [weak self] _ in
+    ]
+  }
+
+  private func makeLocalModeSections() -> [KeyboardToolSection] {
+    [
+      backToToolsSection(),
+      KeyboardToolSection(title: "本地输入", kind: .opens, columns: 2,
+                          tools: Self.localInputModes.map { mode in
+        KeyboardTool(title: mode.title, enabled: supportsLocalTools) { [weak self] in
           self?.closeKeyboardPicker()
           self?.openLocalInputMode(mode.trigger)
         }
       }),
+    ]
+  }
+
+  private func backToToolsSection() -> KeyboardToolSection {
+    KeyboardToolSection(title: nil, kind: .opens, columns: 1, tools: [
+      KeyboardTool(title: "返回工具", symbol: "chevron.left") { [weak self] in
+        self?.showMoreToolsPage(.root)
+      },
     ])
-    if let moreMenu { morePicker?.update(menu: moreMenu) }
-    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+  }
+
+  private func showMoreToolsPage(_ page: MoreToolsPage) {
+    moreToolsPage = page
+    updateMorePickerPage()
+  }
+
+  private func updateMorePickerPage() {
+    let sections: [KeyboardToolSection]
+    switch moreToolsPage {
+    case .root: sections = moreTools
+    case .localInput: sections = makeLocalModeSections()
+    case .keyboardSettings: sections = makeKeyboardSettingsSections()
+    }
+    morePicker?.update(sections: sections)
   }
 
   private func makeSpellingStrip() -> UIView {
@@ -2371,8 +2418,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     updateShortcutButtons()
-    guard let moreMenu else { return }
-    let picker = KeyboardMorePickerView(menu: moreMenu, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    moreToolsPage = .root
+    if moreTools.isEmpty { moreTools = makeToolSections() }
+    let picker = KeyboardMorePickerView(sections: moreTools,
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(picker)
