@@ -10,9 +10,9 @@ bool number(std::wstring_view value, uint64_t &out) {
   uint64_t parsed = 0;
   for (const auto digit : value) {
     if (digit < L'0' || digit > L'9') return false;
-    const auto value = static_cast<uint64_t>(digit - L'0');
-    if (parsed > (std::numeric_limits<uint64_t>::max() - value) / 10) return false;
-    parsed = parsed * 10 + value;
+    const auto place = static_cast<uint64_t>(digit - L'0');
+    if (parsed > (std::numeric_limits<uint64_t>::max() - place) / 10) return false;
+    parsed = parsed * 10 + place;
   }
   out = parsed;
   return true;
