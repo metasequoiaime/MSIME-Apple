@@ -307,7 +307,6 @@ export type VoiceInputPreferences = {
   asr_token?: string;
   asr_tokens?: Record<string, string>;
   asr_app_key?: string;
-  doubao_auth_mode?: "api_key" | "legacy" | string;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
   hotkey_ctrl_win?: boolean;
@@ -1213,7 +1212,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
     });
   };
-  const tencentTmt = draft?.tencent_tmt ?? defaultTencentTmt;
+  const tencentTmt = draft?.tencent_tmt ?? defaultTencentTranslation;
   // Which prompt slot the 润色方案 select is on, and the text that slot means.
   // A preset resolves to its shipped prompt; a custom slot to whatever the user
   // stored in it. Selecting a preset used to change an id with nothing behind
@@ -1864,10 +1863,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>}
-        {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>新版控制台使用单 API Key；旧版使用 App ID 和 Access Token</small></span><select aria-label="豆包鉴权方式" value={voiceInput.doubao_auth_mode ?? "api_key"} onChange={event => updateVoice({ doubao_auth_mode: event.target.value === "legacy" ? "legacy" : "api_key" })}><option value="api_key">新版控制台 API Key</option><option value="legacy">旧版控制台 App ID</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label></div>
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>}
-        {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>{linuxPlatform ? "provider 服务必须与此模式匹配" : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}</small></span><select aria-label="豆包鉴权方式" value={doubaoAuthMode} onChange={event => updateVoice({ doubao_auth_mode: event.target.value })}><option value="api_key">新版 API Key</option><option value="legacy">旧版 App ID + Access Token</option></select></label></div>}
+        {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>{linuxPlatform ? "provider 服务必须与此模式匹配" : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}</small></span><select aria-label="豆包鉴权方式" value={doubaoAuthMode} onChange={event => updateVoice({ doubao_auth_mode: event.target.value === "legacy" ? "legacy" : "api_key" })}><option value="api_key">新版 API Key</option><option value="legacy">旧版 App ID + Access Token</option></select></label></div>}
         {!androidPlatform && !linuxPlatform && <>
           <div className="section"><label className="section-header"><span className="section-title">识别接口地址<small>留空使用当前 provider 默认地址</small></span><input aria-label="识别接口地址" type="url" value={voiceInput.asr_endpoint ?? ""} onChange={event => updateVoice({ asr_endpoint: event.target.value })} /></label></div>
           {voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && <div className="section"><label className="section-header"><span className="section-title">Doubao App Key<small>旧版控制台鉴权使用</small></span><SecretInput label="Doubao App Key" value={voiceInput.asr_app_key ?? ""} onChange={value => updateVoice({ asr_app_key: value })} /></label></div>}

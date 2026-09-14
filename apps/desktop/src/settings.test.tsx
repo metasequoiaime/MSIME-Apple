@@ -390,7 +390,7 @@ test("voice settings persist under the shared voice_input contract", async () =>
     // That is the point of the change: the shipped endpoint default is Doubao's
     // websocket URL, and leaving it behind routed other providers' tokens to
     // ByteDance.
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", doubao_auth_mode: "api_key", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", doubao_auth_mode: "legacy", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
       // Tokens are kept per provider, so switching also moves the credential
       // into the slot being left rather than carrying it to the new endpoint.
       asr_token: "", asr_tokens: {} },
@@ -729,7 +729,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   const host: HostCapabilities = {
     platform: "linux", restart_input_method: true, panel_windows: true, ime_mode_scope: true,
     typing_statistics: false, fuzzy_pinyin: true, system_fonts: true, window_chrome: true,
-    floating_toolbar: true, floating_toolbar_appearance: false,
+    floating_toolbar: true, floating_toolbar_appearance: false, floating_toolbar_components: false,
     mode_switch_shortcuts: true, panel_shortcuts: true, voice_capture_devices: true,
     candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false,
   };
