@@ -199,6 +199,36 @@ void session_pump_tests(const std::string &options) {
     }
   }
   {
+    // TSF owns the pure-punctuation edit session even when no composition is
+    // active. The configured production handler must still consume the
+    // request and return the Engine's exact punctuation result; an empty
+    // reply would make SessionPump disconnect the client.
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.resize(2);
+    auto &punctuation = transport.packets.back();
+    punctuation.keycode = 0xBC;
+    punctuation.wch = ',';
+    punctuation.request_id = 2;
+    SessionPump pump(
+        transport, queue, gate,
+        [](InputState &state, const FocusLease &lease,
+           const FanyImeNamedpipeData &packet) {
+          auto reply = state.configured_key(
+              lease, packet, TsfPreeditStyle::Local, {});
+          require(reply && reply->encoded && static_cast<bool>(*reply->encoded));
+          require(reply->encoded->packet.msg_type ==
+                  FanyImeReplyType::CommitExactText);
+          require(reply->source.transition.at("commit") == "，");
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected);
+    require(transport.writes.size() == 2);
+    queue.stop();
+  }
+  {
     FocusGate gate;
     InputQueue queue(gate, 2, 8, options);
     FixtureTransport transport;
