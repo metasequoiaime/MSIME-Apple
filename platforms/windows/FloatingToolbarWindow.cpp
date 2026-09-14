@@ -4,6 +4,7 @@
 #include "ToolbarLayout.h"
 #include "ToolbarCoordinates.h"
 #include "ToolbarClick.h"
+#include "ToolbarModeCommand.h"
 #include "WindowShadow.h"
 #include "IconFont.h"
 #include <algorithm>
@@ -464,15 +465,11 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (valid_click) {
         const size_t position = *position_at;
         const int slot = active[position];
-        if (slot == 0) self->click_(ModeClick{value->lease, WorkerMode::Chinese});
-        else if (slot == 1) self->click_(ModeClick{
-            value->lease, value->fullwidth && *value->fullwidth
-                                     ? WorkerMode::Halfwidth
-                                     : WorkerMode::Fullwidth});
-        else if (slot == 2) self->click_(ModeClick{
-            value->lease, value->chinese_punctuation && *value->chinese_punctuation
-                                     ? WorkerMode::AsciiPunctuation
-                                     : WorkerMode::ChinesePunctuation});
+        if (slot <= kToolbarPunctuation) {
+          if (auto command = toolbar_mode_command(
+                  slot, value->chinese, value->fullwidth, value->chinese_punctuation))
+            self->click_(ModeClick{value->lease, *command});
+        }
         else if (slot == 3 && self->character_set_action_)
           self->character_set_action_();
         else if (slot == 4 && self->emoji_action_)
