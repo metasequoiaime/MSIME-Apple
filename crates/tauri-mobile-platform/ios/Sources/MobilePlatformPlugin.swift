@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Security
 import Tauri
 import UIKit
@@ -13,6 +14,50 @@ private struct SaveAccountSessionArgs: Decodable {
 
 private struct CopyTextArgs: Decodable {
   let text: String
+}
+
+private struct SaveVoiceTextArgs: Decodable {
+  let text: String
+}
+
+private struct VoiceTextHandoff: Encodable {
+  let version: Int = 1
+  let id: UUID
+  let text: String
+  let createdAt: Date
+  let expiresAt: Date
+}
+
+private final class VoiceTextHandoffWriter {
+  private static let maximumBytes = 256 * 1024
+  private static let lifetime: TimeInterval = 600
+  private let directory: URL?
+
+  init() {
+    directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")?
+      .appendingPathComponent("VoiceHandoff", isDirectory: true)
+  }
+
+  func save(_ text: String, now: Date = Date()) throws {
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          text.count <= 10_000, !text.unicodeScalars.contains(where: { $0.value == 0 }),
+          let directory else { throw NSError(domain: "voice_handoff", code: 1) }
+    let entry = VoiceTextHandoff(id: UUID(), text: text, createdAt: now,
+      expiresAt: now.addingTimeInterval(Self.lifetime))
+    let data = try JSONEncoder().encode(entry)
+    guard data.count <= Self.maximumBytes else { throw NSError(domain: "voice_handoff", code: 2) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    let descriptor = open(directory.appendingPathComponent("transfer.lock").path,
+      O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw NSError(domain: "voice_handoff", code: 3) }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+      throw NSError(domain: "voice_handoff", code: 4)
+    }
+    try data.write(to: directory.appendingPathComponent("result.json"),
+      options: [.atomic, .completeFileProtection])
+  }
 }
 
 private struct SaveKeyboardPreferencesArgs: Decodable {
@@ -225,6 +270,7 @@ private struct AccountSessionKeychain {
 final class MobilePlatformPlugin: Plugin {
   private let accountSession = AccountSessionKeychain()
   private let keyboardPreferences = IOSKeyboardPreferenceStore()
+  private let voiceHandoff = VoiceTextHandoffWriter()
 
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
@@ -363,6 +409,16 @@ final class MobilePlatformPlugin: Plugin {
     onMain {
       UIPasteboard.general.string = args.text
       invoke.resolve()
+    }
+  }
+
+  @objc public func saveVoiceText(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(SaveVoiceTextArgs.self)
+      try voiceHandoff.save(args.text)
+      invoke.resolve()
+    } catch {
+      invoke.reject("voice_handoff", code: "voice_handoff")
     }
   }
 

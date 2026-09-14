@@ -37,8 +37,10 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use msime_client_core::typing_statistics::{
-    TypingSource, TypingStatistics, TypingStatisticsStore,
+    TypingStatistics, TypingStatisticsStore,
 };
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use msime_client_core::typing_statistics::TypingSource;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
 // The packaged recognizer runs on every host; only the socket provider is unix.
@@ -3136,10 +3138,24 @@ async fn send_voice_text(
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let _ = (app, state, typing_statistics, store, text);
-        Err(HostActionError {
-            code: "unavailable",
-        })
+        #[cfg(target_os = "ios")]
+        {
+            let platform = app
+                .try_state::<MobilePlatform<tauri::Wry>>()
+                .ok_or(HostActionError { code: "unavailable" })?
+                .inner()
+                .clone();
+            platform
+                .save_voice_text(&text)
+                .map_err(|_| HostActionError { code: "unavailable" })?;
+            let _ = (state, typing_statistics, store);
+            Ok(())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = (app, state, typing_statistics, store, text);
+            Err(HostActionError { code: "unavailable" })
+        }
     }
 }
 

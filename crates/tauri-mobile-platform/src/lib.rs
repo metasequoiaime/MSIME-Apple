@@ -104,6 +104,12 @@ struct CopyTextRequest<'a> {
     text: &'a str,
 }
 
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
+struct SaveVoiceTextRequest<'a> {
+    text: &'a str,
+}
+
 #[cfg(any(target_os = "ios", test))]
 #[derive(Deserialize)]
 struct LegacyAppleAccountSession {
@@ -256,6 +262,15 @@ impl<R: Runtime> MobilePlatform<R> {
         }
         self.0
             .run_mobile_plugin("copyText", CopyTextRequest { text })
+            .map_err(|_| ())
+    }
+
+    pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
+        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("saveVoiceText", SaveVoiceTextRequest { text })
             .map_err(|_| ())
     }
 
