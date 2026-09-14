@@ -1344,7 +1344,23 @@ fn restart_input_method() -> Result<(), HostActionError> {
             code: "unavailable",
         })
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe().map_err(|_| HostActionError { code: "unavailable" })?;
+        let app = executable
+            .ancestors()
+            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("app"))
+            .ok_or(HostActionError { code: "unavailable" })?;
+        let status = std::process::Command::new("open")
+            .arg("-n")
+            .arg(app)
+            .arg("--args")
+            .arg("--reregister-input-source")
+            .status()
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        return status.success().then_some(()).ok_or(HostActionError { code: "unavailable" });
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         Err(HostActionError {
             code: "unavailable",
