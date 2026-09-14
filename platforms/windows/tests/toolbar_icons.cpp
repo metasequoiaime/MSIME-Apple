@@ -86,6 +86,45 @@ int main() {
     require(toolbar_icon(99, std::nullopt).codepoint == 0);
     require(std::wcscmp(toolbar_icon(99, true).fallback, L"?") == 0);
 
+    // The language button reflects more than Chinese/English.
+    {
+      ToolbarLanguageState caps;
+      caps.caps_lock = true;
+      // Caps Lock wins over every input mode: it changes what each letter key
+      // does, so showing 中 there would say the wrong thing.
+      require(toolbar_icon(kToolbarLanguage, true, caps).codepoint == 0xE7B5);
+      require(toolbar_icon(kToolbarLanguage, false, caps).codepoint == 0xE7B5);
+      require(std::wcscmp(toolbar_icon(kToolbarLanguage, true, caps).fallback,
+                          L"A") == 0);
+      // Even with an unreported mode, Caps Lock is known and shown.
+      require(toolbar_icon(kToolbarLanguage, std::nullopt, caps).codepoint ==
+              0xE7B5);
+
+      ToolbarLanguageState japanese;
+      japanese.japanese = true;
+      require(toolbar_icon(kToolbarLanguage, true, japanese).codepoint == 0xE7DE);
+      require(toolbar_icon(kToolbarLanguage, false, japanese).codepoint == 0xE7DE);
+
+      // Caps Lock beats Japanese too, and the two together are not a fourth
+      // state.
+      ToolbarLanguageState both;
+      both.caps_lock = true;
+      both.japanese = true;
+      require(toolbar_icon(kToolbarLanguage, true, both).codepoint == 0xE7B5);
+
+      // With neither, the button is the ordinary CN/EN pair.
+      ToolbarLanguageState plain;
+      require(toolbar_icon(kToolbarLanguage, true, plain).codepoint == 0xE982);
+      require(toolbar_icon(kToolbarLanguage, false, plain).codepoint == 0xE983);
+      require(!toolbar_icon(kToolbarLanguage, std::nullopt, plain).codepoint);
+
+      // No other button is affected by the language state.
+      require(toolbar_icon(kToolbarEmoji, std::nullopt, caps).codepoint ==
+              toolbar_icon(kToolbarEmoji, std::nullopt, plain).codepoint);
+      require(toolbar_icon(kToolbarFullwidth, true, caps).codepoint ==
+              toolbar_icon(kToolbarFullwidth, true, plain).codepoint);
+    }
+
     std::cout << "Toolbar icons: glyphs and fallbacks match the shipped set\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

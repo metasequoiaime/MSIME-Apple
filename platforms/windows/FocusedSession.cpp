@@ -254,6 +254,19 @@ FocusedSession::apply_cloud_response(const FocusLease &lease,
   });
   return result;
 }
+std::optional<nlohmann::json>
+FocusedSession::apply_ai_candidates(const FocusLease &lease,
+                                    const std::string &query,
+                                    const std::string &candidates) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    result = session_.apply_ai_candidates(lease.epoch, query, candidates);
+  });
+  return result;
+}
 std::optional<std::string>
 FocusedSession::translation_query(const FocusLease &lease) {
   check_thread();

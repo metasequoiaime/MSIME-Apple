@@ -245,4 +245,37 @@ int main() {
   place.scale = 0.0;
   place.anchor_y = 700;
   require(candidate_card_placement(place).y == 703);
+
+  // An external skin package may ask for a wider card than the font implies:
+  // the artwork is drawn against that width, and a narrower card makes the
+  // decoration overhang it.
+  {
+    CandidateCardInput skinned;
+    skinned.item_widths = {40.0};
+    const auto plain = candidate_card_size(skinned);
+    skinned.skin_min_width = plain.width + 120.0;
+    const auto wide = candidate_card_size(skinned);
+    require(near(wide.width, plain.width + 120.0));
+    // Height is untouched by a width floor.
+    require(near(wide.height, plain.height));
+
+    // The floor only raises: a package must not be able to shrink the card
+    // below what its own text needs.
+    skinned.skin_min_width = 10.0;
+    require(near(candidate_card_size(skinned).width, plain.width));
+    skinned.skin_min_width = 0.0;
+    require(near(candidate_card_size(skinned).width, plain.width));
+
+    // Nonsense values are ignored rather than propagated into the geometry.
+    skinned.skin_min_width = -50.0;
+    require(near(candidate_card_size(skinned).width, plain.width));
+    skinned.skin_min_width = std::numeric_limits<double>::quiet_NaN();
+    require(near(candidate_card_size(skinned).width, plain.width));
+
+    // The work area cap still wins over the skin's floor: a card must not be
+    // pushed wider than the screen it has to fit on.
+    skinned.skin_min_width = 5000.0;
+    skinned.max_width = plain.width + 40.0;
+    require(near(candidate_card_size(skinned).width, plain.width + 40.0));
+  }
 }

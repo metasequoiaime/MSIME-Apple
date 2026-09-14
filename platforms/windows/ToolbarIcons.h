@@ -31,10 +31,26 @@ enum ToolbarButton {
 // full width, Chinese punctuation, traditional output - and is absent when the
 // Server has not reported it yet. An unreported mode shows a question mark
 // rather than a guessed state, which would tell the user the wrong thing.
-inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state) {
+// Extra state the language button reflects beyond Chinese/English.
+//
+// The shipped toolbar renders four distinct things there: 'A' while Caps Lock
+// is on, 日 in Japanese input mode, and 中/英 otherwise. Showing 中 while Caps
+// Lock is on tells the user the wrong thing about what the next key will do.
+struct ToolbarLanguageState {
+  bool caps_lock = false;
+  bool japanese = false;
+};
+inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
+                                ToolbarLanguageState language = {}) {
   const ToolbarIcon unknown{0, L"?"};
   switch (button) {
   case kToolbarLanguage:
+    // Caps Lock wins over everything: it changes what every letter key does,
+    // whatever input mode is selected.
+    if (language.caps_lock)
+      return {0xE7B5, L"A"};
+    if (language.japanese)
+      return {0xE7DE, L"日"};
     if (!state)
       return unknown;
     return *state ? ToolbarIcon{0xE982, L"中"}   // 中

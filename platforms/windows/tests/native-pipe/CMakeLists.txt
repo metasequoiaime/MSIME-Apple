@@ -1,4 +1,4 @@
-add_library(msime-windows-pipe STATIC ../../PipeIo.cpp ../../PipePeer.cpp ../../PipeHandshake.cpp ../../PipeListener.cpp ../../PipeRegistry.cpp ../../PipeIntake.cpp ../../PipeService.cpp ../../PipeMainTransport.cpp ../../AuxListener.cpp)
+add_library(msime-windows-pipe STATIC ../../PipeIo.cpp ../../PipePeer.cpp ../../PipeHandshake.cpp ../../PipeListener.cpp ../../PipeRegistry.cpp ../../PipeIntake.cpp ../../PipeService.cpp ../../PipeMainTransport.cpp ../../AuxListener.cpp ../../DiagnosticListener.cpp)
 target_include_directories(msime-windows-pipe PUBLIC ../..)
 target_link_libraries(msime-windows-pipe PUBLIC advapi32 msime-windows-replies)
 add_executable(windows-pipe-io ../pipe_io.cpp)

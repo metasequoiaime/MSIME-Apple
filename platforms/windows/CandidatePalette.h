@@ -102,6 +102,14 @@ struct CandidatePalette {
   // not, and without a selected colour the row's text would vanish into it.
   CandidateColor selected_text{0.0f, 0.0f, 0.0f, 0.0f};
   CandidateColor selected_number{0.0f, 0.0f, 0.0f, 0.0f};
+  // The candidate right-click flyout. Separate from the card's own colours
+  // because the shipped skins give it its own, and because the OS popup the
+  // client used instead took whatever the Windows theme happened to be - a
+  // light system menu over a dark card.
+  CandidateColor menu_fill = candidate_rgb(0x2D2D2D);
+  CandidateColor menu_border = candidate_rgb(0x9B9B9B, 0.18f);
+  CandidateColor menu_text = candidate_rgb(0xE9E8E8);
+  CandidateColor menu_hover = candidate_rgb(0x414141);
   float radius = 6.0f;
   float border_width = 1.5f;
   float container_padding = 5.0f;
@@ -118,6 +126,10 @@ inline CandidatePalette candidate_light_palette() {
   palette.number = candidate_rgb(0x1A1A1A, 0.55f);
   palette.selected = candidate_rgb(0xE8E8E8);
   palette.hover = candidate_rgb(0xECECEC);
+  palette.menu_fill = candidate_rgb(0xFFFFFF);
+  palette.menu_border = {0.0f, 0.0f, 0.0f, 0.12f};
+  palette.menu_text = candidate_rgb(0x1A1A1A);
+  palette.menu_hover = candidate_rgb(0xECECEC);
   return palette;
 }
 // Is this one of the ids the product ships? The shared catalog refuses to load
@@ -148,12 +160,20 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
       palette.hover = candidate_rgb(0x07C160, 0.32f);
       palette.text = candidate_rgb(0xB7B7B7);
       palette.number = candidate_rgb(0x858585);
+      palette.menu_fill = candidate_rgb(0x1F1F1F);
+      palette.menu_border = candidate_rgb(0x343434);
+      palette.menu_text = candidate_rgb(0xD0D0D0);
+      palette.menu_hover = candidate_rgb(0x2A2A2A);
     } else {
       palette.surface = candidate_rgb(0xF7F7F7);
       palette.border = candidate_rgb(0xDEDEDE);
       palette.hover = candidate_rgb(0x07C160, 0.14f);
       palette.text = candidate_rgb(0x333333);
       palette.number = candidate_rgb(0x757575);
+      palette.menu_fill = candidate_rgb(0xFFFFFF);
+      palette.menu_border = candidate_rgb(0xD9D9D9);
+      palette.menu_text = candidate_rgb(0x333333);
+      palette.menu_hover = candidate_rgb(0xEEEEEE);
     }
   } else if (id == "willow_green") {
     palette.border_width = 0.0f;
@@ -175,6 +195,10 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
       palette.hover = candidate_rgb(0x65C98D, 0.22f);
       palette.text = candidate_rgb(0xD8DBD8);
       palette.number = candidate_rgb(0xA6ABA7);
+      palette.menu_fill = candidate_rgb(0x343635);
+      palette.menu_border = candidate_rgb(0x454845);
+      palette.menu_text = candidate_rgb(0xE0E2DF);
+      palette.menu_hover = candidate_rgb(0x414441);
     } else {
       palette.surface = candidate_rgb(0xF4F5F3);
       palette.accent = candidate_rgb(0x58B980);
@@ -182,6 +206,10 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
       palette.hover = candidate_rgb(0x58B980, 0.16f);
       palette.text = candidate_rgb(0x343936);
       palette.number = candidate_rgb(0x686F6A);
+      palette.menu_fill = candidate_rgb(0xFBFCFA);
+      palette.menu_border = candidate_rgb(0xD8DED9);
+      palette.menu_text = candidate_rgb(0x343936);
+      palette.menu_hover = candidate_rgb(0xE9EEEA);
     }
   } else if (id == "graphite") {
     palette.border_width = 1.0f;
@@ -201,6 +229,10 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
       palette.number = candidate_rgb(0x707987);
       palette.selected_text = candidate_rgb(0xF1F3F5);
       palette.selected_number = candidate_rgb(0xF1F3F5);
+      palette.menu_fill = candidate_rgb(0x23272C);
+      palette.menu_border = candidate_rgb(0x3A4047);
+      palette.menu_text = candidate_rgb(0xC7CDD5);
+      palette.menu_hover = candidate_rgb(0x30353B);
     } else {
       palette.surface = candidate_rgb(0xFBFBFC);
       palette.border = candidate_rgb(0xE2E5E9);
@@ -210,6 +242,10 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
       palette.number = candidate_rgb(0x8993A1);
       palette.selected_text = candidate_rgb(0x111827);
       palette.selected_number = candidate_rgb(0x111827);
+      palette.menu_fill = candidate_rgb(0xFFFFFF);
+      palette.menu_border = candidate_rgb(0xDFE3E8);
+      palette.menu_text = candidate_rgb(0x374151);
+      palette.menu_hover = candidate_rgb(0xF1F3F5);
     }
   }
   return palette;

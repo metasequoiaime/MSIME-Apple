@@ -119,7 +119,12 @@ impl HostCapabilities {
             restart_input_method: matches!(platform, HostPlatform::Windows | HostPlatform::Linux),
             panel_windows: platform.is_desktop(),
             // IBus keeps a session-wide mode; the other hosts track it per application.
-            ime_mode_scope: platform == HostPlatform::Linux,
+            // Windows keeps a cross-application CN/EN authority now, so the
+            // choice is real there too.
+            ime_mode_scope: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows
+            ),
             typing_statistics: true,
             // Windows, Linux, macOS and Android apply the shared fuzzy-pinyin
             // options; iOS will opt in when its host consumes the contract.
@@ -538,7 +543,9 @@ mod tests {
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(windows.restart_input_method);
-        assert!(!windows.ime_mode_scope);
+        // Windows keeps a cross-application CN/EN authority, so the scope
+        // choice is real there.
+        assert!(windows.ime_mode_scope);
         assert!(windows.panel_windows);
         // These stay false until the Windows host actually consumes them;
         // showing the controls earlier would offer settings that do nothing.

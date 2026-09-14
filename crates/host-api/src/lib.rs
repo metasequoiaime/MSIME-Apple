@@ -469,7 +469,11 @@ pub struct LocalEmojiCatalogSlice {
 }
 
 /// Read catalog rows without collapsing equal text from distinct categories.
-#[cfg(unix)]
+// Not unix-gated: the bodies only call the engine bridge, which builds on
+// Windows too (its build.rs has explicit Windows branches). The gate was a
+// porting gap, and it left the Windows desktop falling back to the compact
+// built-in catalog - 97 emoji against the several thousand rows in others.db -
+// behind a permanent "catalog failed to load" banner.
 pub fn local_emoji_catalog_slice(
     resources: &str,
     category: &str,
@@ -507,7 +511,6 @@ pub struct LocalSymbolCatalogGroup {
 }
 
 /// Preserve Engine-owned symbol parent categories and subgroup order.
-#[cfg(unix)]
 pub fn local_symbol_catalog(
     resources: &str,
 ) -> Result<Vec<LocalSymbolCatalogGroup>, &'static str> {
@@ -553,7 +556,6 @@ pub fn local_symbol_catalog(
 }
 
 /// Read one bounded page from the Engine-owned `others.db` catalog.
-#[cfg(unix)]
 pub fn local_emoji_catalog_page(
     resources: &str,
     search: &str,

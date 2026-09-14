@@ -26,7 +26,6 @@ use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsSto
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
-#[cfg(unix)]
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -824,7 +823,6 @@ struct EmojiCatalogResponse {
     unavailable: Vec<&'static str>,
 }
 
-#[cfg(unix)]
 fn emoji_category_icon(title: &str) -> &'static str {
     [
         ("Smileys", "😀"),
@@ -842,7 +840,11 @@ fn emoji_category_icon(title: &str) -> &'static str {
     .unwrap_or("☺")
 }
 
-#[cfg(unix)]
+// Reads the real catalog on every desktop host. The Windows build used to hit
+// a stub that always failed, so the panel fell back to the compact built-in
+// catalog - 97 emoji, 18 kaomoji, 48 symbols - behind a permanent "catalog
+// failed to load" banner, and the symbol sub-tabs collapsed to one flat tab
+// because only this path fills in each group's parent category.
 fn read_local_emoji_groups(
     resources: &str,
     category: &str,
@@ -936,14 +938,6 @@ fn read_local_emoji_groups(
         .into_iter()
         .filter(|group| !group.items.is_empty())
         .collect())
-}
-
-#[cfg(not(unix))]
-fn read_local_emoji_groups(
-    _resources: &str,
-    _category: &str,
-) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
-    Err("local emoji catalog unavailable")
 }
 
 #[tauri::command]
