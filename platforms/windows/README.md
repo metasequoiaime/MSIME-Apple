@@ -54,6 +54,8 @@ CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐�
 
 ## 本地验证
 
+`VoiceControllerProtocol.h` 直接消费固定 Engine 的 `voice_controller.h` v2 布局，处理有界消息、UTF-8 和语言标识，不复制 opcode。`VoiceControllerConnection.h` 在专用连接上执行 Hello、OS 对端认证、请求顺序和有界读写，拒绝重放；它不接受客户端提供的 TSF 目标身份。`windows-voice-controller-protocol` 可在非 Windows 运行，`windows-voice-controller-connection` 使用真实 Windows Named Pipe。它们不代表 Server 已启动 v2 监听器，也不代表 Tauri 已能录音；监听器还必须将任务排到原生控制线程、保存并复核 Server 内部焦点租约、在断线时取消匹配会话，并确保面板会话不会被原生端重复上屏。
+
 依赖 CMake 3.25+、C++17、nlohmann-json 3.11+ 以及为运行平台构建的 msime-host-api。下面测试驱动真实共享 Rust/C++ 库；在 macOS/Linux 运行不等于 Windows 宿主验收：
 
 ```sh
