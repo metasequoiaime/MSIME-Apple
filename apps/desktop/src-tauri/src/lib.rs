@@ -26,6 +26,7 @@ use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsSto
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
+use tauri::Emitter;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -3212,8 +3213,7 @@ fn sync_clipboard_history_blocking(
     Ok(history.entries().to_vec())
 }
 
-#[tauri::command]
-async fn copy_text(
+async fn copy_text_impl(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -3268,6 +3268,27 @@ async fn copy_text(
                 code: "unavailable",
             })?
     }
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    account: tauri::State<'_, android_account::AccountState>,
+) -> Result<(), HostActionError> {
+    copy_text_impl(text, state, store, account).await
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<(), HostActionError> {
+    copy_text_impl(text, state, store).await
 }
 
 fn copy_text_blocking(
