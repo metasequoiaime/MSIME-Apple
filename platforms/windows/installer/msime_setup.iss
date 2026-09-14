@@ -239,7 +239,7 @@ begin
   ShellExecAsOriginalUser(
     '',
     ExpandConstant('{commonpf64}\metasequoiaime\server\{#MyAppExeName}'),
-    '',
+    '--production',
     '',
     SW_SHOWNORMAL,
     ewNoWait,
