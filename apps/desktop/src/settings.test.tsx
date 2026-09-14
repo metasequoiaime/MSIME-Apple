@@ -753,15 +753,16 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
 
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
-test("candidate appearance settings persist and use legacy defaults", async () => {
+test("candidate appearance settings persist and use Windows baseline defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
-  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("16");
+  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  expect((screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement).value).toBe("15");
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
-  expect(screen.getByRole("switch", { name: /Fluent/ }).getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -772,14 +773,15 @@ test("font family controls preserve order, validate drafts and save Unicode", as
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
   const primary = await screen.findByLabelText("候选窗主字体");
-  expect((primary as HTMLInputElement).value).toBe("Segoe UI");
+  expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
+  expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("Noto Sans SC");
+  expect((screen.getByLabelText("补充字体 2") as HTMLInputElement).value).toBe("Microsoft YaHei");
   fireEvent.change(primary, { target: { value: "示例主字体" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
+  fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "" } });
   expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.submit(mounted.container.querySelector("form")!);
   expect(save).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "示例一" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
   fireEvent.change(screen.getByLabelText("补充字体 2"), { target: { value: "示例二" } });
   fireEvent.click(screen.getByRole("button", { name: "上移补充字体 2" }));
   expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("示例二");
@@ -1186,7 +1188,7 @@ test("appearance preview follows drafts, skin selection and reload without savin
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
   expect(preview.querySelectorAll(".cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
-  expect(preview.querySelector('[data-font-size="16"]')).not.toBeNull();
+  expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选数量"), { target: { value: "9" } });
@@ -1205,7 +1207,7 @@ test("appearance preview follows drafts, skin selection and reload without savin
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
   confirm.mockRestore();
   await waitFor(() => expect(preview.querySelectorAll(".cand")).toHaveLength(5));
-  expect(preview.querySelector(".skin-fluent")).not.toBeNull();
+  expect(preview.querySelector(".skin-willow_green")).not.toBeNull();
   expect(preview.querySelector(".pinyin")).not.toBeNull();
   expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(false);
   expect(preview.querySelector(".preedit-hidden")).toBeNull();
@@ -1270,7 +1272,7 @@ test("skin preview switches are independent, reversible and do not change saved 
     expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
     fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
     expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
-    expect(screen.getByRole("switch", { name: /Fluent/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe("true");
     for (const other of cards.filter(item => item !== card))
       expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
     fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));

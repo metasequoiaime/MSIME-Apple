@@ -435,7 +435,7 @@ pub struct Preferences {
     pub candidate_page_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
-    #[serde(default = "default_candidate_font_size")]
+    #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_text_color: Option<String>,
@@ -453,7 +453,7 @@ pub struct Preferences {
     pub candidate_border_color: Option<String>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
-    #[serde(default)]
+    #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
@@ -798,9 +798,9 @@ impl Default for FloatingToolbarPreferences {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
-    #[default]
     Dark,
     Light,
+    #[default]
     System,
 }
 
@@ -1007,7 +1007,11 @@ fn enabled_by_default() -> bool {
 }
 
 fn default_candidate_font_size() -> u8 {
-    16
+    18
+}
+
+fn default_candidate_preedit_font_size() -> u8 {
+    15
 }
 
 fn default_touch_key_spacing_tenths() -> u8 {
@@ -1019,10 +1023,13 @@ fn default_touch_row_spacing_tenths() -> u8 {
 }
 
 fn default_candidate_skin() -> String {
-    "fluent".to_owned()
+    "willow_green".to_owned()
 }
 fn default_candidate_font_family() -> String {
-    "Segoe UI".to_owned()
+    "Noto Sans SC".to_owned()
+}
+fn default_candidate_fallback_fonts() -> Vec<String> {
+    vec!["Noto Sans SC".to_owned(), "Microsoft YaHei".to_owned()]
 }
 
 fn default_commit_mode() -> String {
@@ -1071,9 +1078,9 @@ impl Default for Preferences {
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_preedit_uses_raw: true,
-            candidate_page_size: 5,
+            candidate_page_size: 6,
             candidate_font_size: default_candidate_font_size(),
-            candidate_preedit_font_size: default_candidate_font_size(),
+            candidate_preedit_font_size: default_candidate_preedit_font_size(),
             candidate_text_color: None,
             candidate_number_color: None,
             candidate_accent_color: None,
@@ -1082,7 +1089,7 @@ impl Default for Preferences {
             candidate_surface_color: None,
             candidate_border_color: None,
             candidate_font_family: default_candidate_font_family(),
-            candidate_fallback_fonts: Vec::new(),
+            candidate_fallback_fonts: default_candidate_fallback_fonts(),
             learning: true,
             autocorrect: true,
             quanpin: QuanpinPreferences::default(),
@@ -3030,7 +3037,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(saved.preferences.candidate_font_size, 32);
-        assert!(initial.preferences.candidate_font_size == 16);
+        assert_eq!(initial.preferences.candidate_font_size, 18);
+        assert_eq!(initial.preferences.candidate_preedit_font_size, 15);
+        assert_eq!(initial.preferences.candidate_page_size, 6);
+        assert_eq!(initial.preferences.candidate_skin, "willow_green");
+        assert_eq!(initial.preferences.theme, ThemeMode::System);
+        assert_eq!(initial.preferences.candidate_font_family, "Noto Sans SC");
+        assert_eq!(
+            initial.preferences.candidate_fallback_fonts,
+            vec!["Noto Sans SC".to_owned(), "Microsoft YaHei".to_owned()]
+        );
     }
 
     #[test]

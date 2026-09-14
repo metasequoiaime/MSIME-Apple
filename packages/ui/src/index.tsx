@@ -4,7 +4,7 @@ import { HostActionButton } from "./HostActionButton";
 import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, parsePersonalDictionaryImport, personalDictionaryExample, readDictionaryFile, type PersonalDictionaryImportEntry } from "./dictionary-file";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
-import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
+import { candidateFontSize, candidateFontSizes, candidatePreeditFontSize } from "./candidate-font-size";
 import { candidateTextColor } from "./candidate-text-color";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { CandidateFontControls } from "./candidate-font-controls";
@@ -1275,7 +1275,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
-  const themeMode = draft?.theme ?? "dark";
+  const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
@@ -1440,7 +1440,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>}
-        {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidateFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
+        {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidatePreeditFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>}
         <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
@@ -1501,11 +1501,11 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。</div>
         {snapshot?.candidate_skin_catalog && <div className="skin-catalog-status" role="status">外部皮肤目录：{snapshot.candidate_skin_catalog.scanned ? `已扫描（${snapshot.candidate_skin_catalog.packages.length} 个）` : "尚未扫描"}{snapshot.candidate_skin_catalog.issues?.length ? `，${snapshot.candidate_skin_catalog.issues.length} 个问题` : ""}</div>}
         <div className="skin-grid">
-          {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
+          {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "willow_green") === id ? " selected" : ""}`} key={id}>
             <div className="skin-card-header">
               <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
               <div className="skin-card-actions">
-                <button type="button" role="switch" aria-label={title} aria-checked={(draft.candidate_skin ?? "fluent") === id} className="skin-selection-switch" onClick={() => setDraft({ ...draft, candidate_skin: id })}><span /></button>
+                <button type="button" role="switch" aria-label={title} aria-checked={(draft.candidate_skin ?? "willow_green") === id} className="skin-selection-switch" onClick={() => setDraft({ ...draft, candidate_skin: id })}><span /></button>
                 <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark" }))}>
                   {(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark" ? "预览浅色" : "预览深色"}
                 </button>
@@ -1518,14 +1518,14 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             </div>
           </article>)}
         </div>
-        <ExternalSkins activeTheme={candidatePreviewTheme} scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} readImage={client.readSkinImage} readFont={client.readSkinFont} readToolbarCss={client.readSkinToolbarCss} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
+        <ExternalSkins activeTheme={candidatePreviewTheme} scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} readImage={client.readSkinImage} readFont={client.readSkinFont} readToolbarCss={client.readSkinToolbarCss} selected={draft.candidate_skin ?? "willow_green"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
         <div className="section floating-toolbar-card">
           <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
           <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
             <div className="floating-toolbar-preview-label">预览</div>
-            <div className={`skin-card-preview toolbar-settings-preview skin-${draft.candidate_skin ?? "fluent"}`} data-preview-theme={toolbarPreviewTheme}>
+            <div className={`skin-card-preview toolbar-settings-preview skin-${draft.candidate_skin ?? "willow_green"}`} data-preview-theme={toolbarPreviewTheme}>
               <SkinToolbarPreview preferences={floatingToolbar} />
             </div>
           </div>

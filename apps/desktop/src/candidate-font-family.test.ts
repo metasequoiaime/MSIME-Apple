@@ -13,4 +13,7 @@ test("font families are quoted literals, preserving fallback order", () => {
   expect(candidateFamilyStyle({ candidate_font_family: "主字体", candidate_fallback_fonts: ["示例一", "示例二"] })).toEqual({
     "--appearance-font-family": '"主字体", "示例一", "示例二", sans-serif',
   });
+  expect(candidateFamilyStyle({})).toEqual({
+    "--appearance-font-family": '"Noto Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+  });
 });

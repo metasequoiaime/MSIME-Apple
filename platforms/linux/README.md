@@ -116,6 +116,8 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 中英混输默认在预编辑达到 5 个字母后显示英文候选，与 Windows `develop` 基线一致；用户仍可在设置中选择 1–8 个字符，显式配置优先于默认值。
 
+新建共享偏好使用 Windows `develop` 的候选外观基线：跟随系统明暗、杨柳青皮肤、每页 6 项、18px 候选文字、15px 候选预编辑，以及 `Noto Sans SC` / `Microsoft YaHei` 字体回退栈。Linux IBus 只应用 panel 协议可表达的主题、皮肤色和页大小；字体继续由桌面 panel 管理，但 Tauri 设置与预览保留完整共享配置。已有偏好文件和显式宿主选项不被默认值覆盖。
+
 Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。
 
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。

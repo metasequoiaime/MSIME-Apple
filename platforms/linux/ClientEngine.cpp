@@ -1295,6 +1295,9 @@ std::optional<guint> candidate_selected_color(const Json &preferences) {
   return std::nullopt;
 }
 std::optional<guint> candidate_selected_text_color(const Json &preferences) {
+  if (const auto custom =
+          palette_color(preferences.value("candidate_text_color", Json(nullptr))))
+    return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
@@ -1306,6 +1309,9 @@ std::optional<guint> candidate_selected_text_color(const Json &preferences) {
   return candidate_text_color(preferences);
 }
 std::optional<guint> candidate_selected_number_color(const Json &preferences) {
+  if (const auto custom =
+          palette_color(preferences.value("candidate_number_color", Json(nullptr))))
+    return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
@@ -2413,7 +2419,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       nullptr);
   auto page_size_menu = ibus_prop_list_new();
   const auto page_size = s.candidate_page_size_override.value_or(
-      configured.at("preferences").value("candidate_page_size", 5));
+      configured.at("preferences").value("candidate_page_size", 6));
   for (uint8_t value = 1; value <= 9; ++value) {
     auto item = ibus_property_new(
         (std::string("CandidatePageSize/") + std::to_string(value)).c_str(),
@@ -4100,7 +4106,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         if (suffix.size() != 1 || suffix.front() < '1' || suffix.front() > '9') return;
         const auto selected = static_cast<uint8_t>(suffix.front() - '0');
         if (s.candidate_page_size_override.value_or(
-                configured.at("preferences").value("candidate_page_size", 5)) == selected)
+                configured.at("preferences").value("candidate_page_size", 6)) == selected)
           return;
         const auto directory = configured.value("preferences_directory", std::string{});
         if (!directory.empty() && directory.front() == '/') {
