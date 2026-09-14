@@ -193,7 +193,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos
             ),
-            candidate_follow_cursor: platform == HostPlatform::Windows,
+            // macOS CandidatePanel tracks the current insertion rect just like
+            // the Windows candidate window; expose the shared toggle there.
+            candidate_follow_cursor: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
         }
     }
 }
@@ -600,6 +602,7 @@ mod tests {
         assert!(macos.candidate_font_controls);
         assert!(macos.candidate_row_colors);
         assert!(macos.candidate_selection_appearance);
+        assert!(macos.candidate_follow_cursor);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
         assert!(
