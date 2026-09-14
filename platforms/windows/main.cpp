@@ -481,10 +481,10 @@ private:
 int wmain(int argc, wchar_t **argv) {
   using namespace msime::windows;
   if (argc == 2 && std::wstring(argv[1]) == L"--help") {
-    std::cout << "MSIME Client preview Server: --config <absolute-json-path>\n"
-                 "No TSF registration or production pipe names. Ctrl+C stops.\n"
-                 "Unsupported routes (including unobserved Enter) disconnect; "
-                 "not a complete IME.\n";
+    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
+                 "Managed launches use the installed TSF pipe names; preview "
+                 "launches use names from the config. Ctrl+C stops.\n"
+                 "Unsupported routes (including unobserved Enter) disconnect.\n";
     return 0;
   }
   const auto launch = parse_server_arguments(argc, argv);
