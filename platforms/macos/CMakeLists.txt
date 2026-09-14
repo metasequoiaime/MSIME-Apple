@@ -521,7 +521,7 @@ target_link_libraries(voice-wave-overlay-test PRIVATE "-framework Cocoa")
 add_test(NAME voice-wave-overlay COMMAND voice-wave-overlay-test)
 
 add_executable(voice-audio-muter-test tests/VoiceAudioMuterTest.mm VoiceAudioMuter.mm)
-target_compile_options(voice-audio-muter-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+target_compile_options(voice-audio-muter-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-audio-muter-test PRIVATE "-framework Foundation" "-framework CoreAudio")
 add_test(NAME voice-audio-muter COMMAND voice-audio-muter-test)
 
