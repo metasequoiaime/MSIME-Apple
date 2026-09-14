@@ -8,6 +8,7 @@ param(
     # Historical or custom layouts remain available through explicit overrides.
     [string]$TsfDirectory = 'windows',
     [string]$ServerDirectory = 'server',
+    # Deprecated compatibility argument; UI assets are embedded in Tauri now.
     [string]$UiHtmlDirectory = 'ui-html',
     [string]$HelpCodeDirectory = 'vendor/MetasequoiaImeEngine/helpcode',
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
@@ -91,7 +92,6 @@ if ($Tsf64ReleaseDirectory) {
     $tsf64Release = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.dll'
     $tsf64Pdb = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
 }
-$webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
 $tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) 'msime_host_api.dll'
 $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) 'msime_host_api.dll'
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
@@ -149,11 +149,6 @@ Assert-PathExists -LiteralPath $serverConfig -Description 'Server config.toml'
 Assert-PathExists -LiteralPath $appIcon -Description '应用图标'
 Assert-PathExists -LiteralPath $thirdPartyNotices -Description '第三方声明 THIRD_PARTY_NOTICES.txt'
 Assert-PathExists -LiteralPath $license -Description '许可证 LICENSE'
-Assert-PathExists -LiteralPath (Join-Path $webviewRoot 'shared') -Description '共享 WebView 消息契约'
-Assert-PathExists -LiteralPath (Join-Path $webviewRoot 'candwnd') -Description '候选窗 HTML 目录'
-Assert-PathExists -LiteralPath (Join-Path $webviewRoot 'ftb') -Description '悬浮工具栏 HTML 目录'
-Assert-PathExists -LiteralPath (Join-Path $webviewRoot 'menu') -Description '菜单 HTML 目录'
-Assert-PathExists -LiteralPath (Join-Path $webviewRoot 'settings\ime-settings\dist') -Description '设置页面 dist 目录'
 
 if (-not $Light) {
     Assert-PathExists -LiteralPath $factoryConfig -Description '出厂配置 default_config\config.default.toml'
@@ -214,7 +209,7 @@ if (-not $Light) {
 }
 
 if ($Light) {
-    Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，只刷新 TSF、Server、HTML。'
+    Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，刷新 TSF、Server 与 Tauri。'
     New-Item -ItemType Directory -Path $targetAppData -Force | Out-Null
 }
 else {
@@ -251,15 +246,9 @@ $targetAudios = Join-Path $targetAppData 'audios'
 Copy-DirectoryContents -Source $iconSource -Destination $targetIcons
 Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
 if (Test-Path -LiteralPath $targetHtml) {
+    # Remove obsolete package staging, not the user's installed files.
     Remove-Item -LiteralPath $targetHtml -Recurse -Force
 }
-$targetWebview = Join-Path $targetHtml 'webview2'
-Copy-DirectoryContents -Source (Join-Path $webviewRoot 'shared') -Destination (Join-Path $targetWebview 'shared')
-Copy-DirectoryContents -Source (Join-Path $webviewRoot 'candwnd') -Destination (Join-Path $targetWebview 'candwnd')
-Copy-DirectoryContents -Source (Join-Path $webviewRoot 'ftb') -Destination (Join-Path $targetWebview 'ftb')
-Copy-DirectoryContents -Source (Join-Path $webviewRoot 'menu') -Destination (Join-Path $targetWebview 'menu')
-Copy-DirectoryContents -Source (Join-Path $webviewRoot 'settings\ime-settings\dist') `
-    -Destination (Join-Path $targetWebview 'settings\ime-settings\dist')
 
 # Server Release 输出整体复制，但测试程序及其 PDB 绝不能进入安装包。
 # 其他 PDB 保留在对应 EXE 旁边，方便安装后直接进行崩溃分析。
@@ -352,20 +341,6 @@ $updatedIss = [regex]::Replace(
 )
 $updatedIss = $updatedIss.TrimEnd("`r", "`n") + "`r`n"
 Set-Content -LiteralPath $targetIss -Value $updatedIss -Encoding utf8NoBOM -NoNewline
-
-# 设置页是已构建的静态资源，同步其“当前版本”展示。
-$settingsDist = Join-Path $targetWebview 'settings\ime-settings\dist'
-Get-ChildItem -LiteralPath $settingsDist -Recurse -File -Include '*.js', '*.html' | ForEach-Object {
-    $content = Get-Content -LiteralPath $_.FullName -Raw
-    $updated = [regex]::Replace(
-        $content,
-        '(<div class="about-version">)v\d+(?:\.\d+)+(</div>)',
-        "`$1v$TargetVersion`$2"
-    )
-    if ($updated -ne $content) {
-        Set-Content -LiteralPath $_.FullName -Value $updated -Encoding utf8NoBOM
-    }
-}
 
 $serverBinaryCount = @(Get-ChildItem -LiteralPath $targetServer -Recurse -File -Include '*.exe', '*.dll').Count
 $tsfBinaryCount = @(Get-ChildItem -LiteralPath $targetTsf -Recurse -File -Include '*.exe', '*.dll').Count

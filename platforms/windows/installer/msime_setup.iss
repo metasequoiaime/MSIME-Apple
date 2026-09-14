@@ -129,15 +129,10 @@ Source: "{#MySourceRoot}\server_exe\*"; \
     DestDir: "{commonpf64}\metasequoiaime\server"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
-#ifdef LightPackage
-; 轻量包只覆盖前端 HTML，不带词库/辅助码/出厂配置。
-Source: "{#MySourceRoot}\app_data\html\*"; \
-    DestDir: "{localappdata}\metasequoiaime\html"; \
-    Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
-#else
+#ifndef LightPackage
 ; 包内故意不带 config.toml。通配复制再排除一次，防止以后又把用户配置打进包内。
 Source: "{#MySourceRoot}\app_data\*"; DestDir: "{localappdata}\metasequoiaime"; \
-    Excludes: "\config.toml,\config.base.toml,\config.default.toml"; \
+    Excludes: "\config.toml,\config.base.toml,\config.default.toml,\html\*"; \
     Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
 ; 用户配置只在首次安装时从出厂模板生成。升级时绝不覆盖已有 config.toml；

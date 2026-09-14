@@ -46,12 +46,7 @@ try {
         'MetasequoiaImeDict/out/msime.db',
         'MetasequoiaImeDict/out/others.db',
         'MetasequoiaImeDict/out/dict_japanese.dat',
-        'MetasequoiaImeDict/source/mozc_dictionary_oss/README.txt',
-        'ui-html/webview2/shared/runtime.js',
-        'ui-html/webview2/candwnd/index.html',
-        'ui-html/webview2/menu/index.html',
-        'ui-html/webview2/ftb/index.html',
-        'ui-html/webview2/settings/ime-settings/dist/index.html'
+        'MetasequoiaImeDict/source/mozc_dictionary_oss/README.txt'
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
@@ -98,7 +93,8 @@ try {
         }
     }
     [IO.File]::WriteAllText($pinned, $originalPinned)
-    foreach ($file in @('app_data/html/webview2/shared/runtime.js', 'app_data/dictionary-manifest.json',
+    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Full package contains legacy HTML' }
+    foreach ($file in @('app_data/dictionary-manifest.json',
                          'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'server_exe/MetasequoiaImeServer.pdb',
@@ -167,7 +163,9 @@ try {
     if (-not $rejected) { throw 'Missing Tauri shell was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing shell damaged previous staging' }
     [IO.File]::WriteAllText($desktop, 'fixture')
+    Write-Fixture 'installer/app_data/html/webview2/stale.html' 'synthetic obsolete staging'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
+    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Light package retained legacy HTML staging' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
     foreach ($arch in @('32', '64')) {
@@ -267,12 +265,7 @@ try {
             throw 'Explicit TSF directory override was ignored'
         }
     }
-    if (-not (Test-Path (Join-Path $installer 'app_data/html/webview2/shared/runtime.js'))) { throw 'Light package lost shared contracts' }
-    Remove-Item (Join-Path $fixture 'ui-html/webview2/shared') -Recurse -Force
-    $rejected = $false
-    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . } catch { $rejected = $true }
-    if (-not $rejected) { throw 'Missing shared contracts were accepted' }
-    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Rejected package damaged previous staging' }
+    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Legacy HTML reappeared in staging' }
     Write-Host 'Full/light package contracts, provenance, exclusions and failure staging passed'
 } finally {
     if (Test-Path $fixture) { Remove-Item $fixture -Recurse -Force }
