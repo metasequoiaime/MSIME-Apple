@@ -26,14 +26,19 @@ int main(int argc, char **argv) {
         Wait(^BOOL { return done; });
         assert(![request polishText:@"second" completion:^(NSString *, NSError *) {} error:nil]);
         options[@"polish_model"] = @"fixture-model";
-        for (NSString *path in @[@"/failure", @"/empty"]) {
+        for (NSString *path in @[@"/failure", @"/empty", @"/stall-headers", @"/stall-body"]) {
             options[@"polish_endpoint"] = [base stringByAppendingString:path];
             request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
             done = NO;
+            const NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
             assert([request polishText:@"synthetic transcript" completion:^(NSString *text, NSError *error) {
                 assert(!error && [text isEqual:@"synthetic transcript"]); done = YES;
             } error:nil]);
             Wait(^BOOL { return done; });
+            if ([path hasPrefix:@"/stall-"]) {
+                const NSTimeInterval elapsed = NSProcessInfo.processInfo.systemUptime - started;
+                assert(elapsed >= 2.5 && elapsed < 5);
+            }
         }
         options[@"polish_enabled"] = @NO;
         request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];

@@ -44,6 +44,17 @@ int main(int argc, char **argv) {
             assert(!error && [text isEqual:@"synthetic transcript"]); done = YES;
         } error:nil]);
         Wait(^BOOL { return done; });
+        // Optional polish must not hold an already recognized transcript for 30s.
+        options[@"polish_endpoint"] = [base stringByAppendingString:@"/polish-timeout"];
+        request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil];
+        done = NO;
+        const NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+        assert([request recognizePCM:valid completion:^(NSString *text, NSError *error) {
+            assert(NSThread.isMainThread && !error && [text isEqual:@"synthetic transcript"]); done = YES;
+        } error:nil]);
+        Wait(^BOOL { return done; });
+        const NSTimeInterval elapsed = NSProcessInfo.processInfo.systemUptime - started;
+        assert(elapsed >= 2.5 && elapsed < 5);
         request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil];
         [request cancel];
         assert(![request recognizePCM:valid completion:^(NSString *, NSError *) { assert(false); } error:nil]);

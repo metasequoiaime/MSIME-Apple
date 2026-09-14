@@ -291,7 +291,10 @@ std::string polish_cloud_text(
   curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
   curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, cancelled.get());
   curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 15000L);
-  curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 30000L);
+  // Match MSIME-Windows develop 30a22e6f: optional polish has a 3s total
+  // budget, including connection and body transfer. Callers retain ASR text
+  // on failure; a slow polish service must not hold that text for 30s.
+  curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 3000L);
   curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
   const auto result = curl_easy_perform(curl.get());
   if (result != CURLE_OK)

@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 
 errors = []
 counts = {}
@@ -30,9 +31,14 @@ class Handler(BaseHTTPRequestHandler):
                 document = json.loads(body)
                 assert document["messages"][0]["content"] == "synthetic prompt"
                 response = {"choices": [{"message": {"content": "synthetic polished"}}]}
+            if self.path == "/polish-timeout":
+                time.sleep(6)
             self.send_response(500 if self.path == "/polish-failure" else 200)
             self.end_headers()
             self.wfile.write(json.dumps(response).encode())
+        except (BrokenPipeError, ConnectionResetError):
+            if self.path != "/polish-timeout":
+                errors.append("unexpected disconnected fixture")
         except Exception:
             errors.append("fixture assertion failed")
             self.send_error(500)
@@ -50,7 +56,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
     result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=20)
     assert result.returncode == 0 and not errors
-    assert counts == {"/asr": 2, "/polish": 1, "/polish-failure": 1}
+    assert counts == {"/asr": 3, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}
 finally:
     server.shutdown()
     server.server_close()
