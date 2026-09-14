@@ -316,13 +316,22 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             // user nothing but "check the format", leaving the dictionary
             // half-written with no way to know how far it got.
             let mut rejected_lines: Vec<usize> = Vec::new();
+            // The bridge entry carries no line number, so the parsed report is
+            // what maps a refused row back to the line the user has to fix.
+            // The two lists are built from the same rows in the same order.
+            let source_lines: Vec<usize> = report
+                .as_ref()
+                .map(|parsed| parsed.entries.iter().map(|entry| entry.line).collect())
+                .unwrap_or_default();
             for (index, entry) in entries.iter().enumerate() {
                 let receipt = format!("{request_id}-{index}");
                 // The batch already owns the maintenance lock; use the Engine bridge directly.
                 let result =
                     msime_engine_bridge::dictionary_edit(&options, None, Some(entry), &receipt);
                 if result.is_err() {
-                    rejected_lines.push(entry.line);
+                    // A hans import has no parsed report, so its rows have no
+                    // line to name; they are still counted.
+                    rejected_lines.push(source_lines.get(index).copied().unwrap_or(0));
                     continue;
                 }
                 applied += 1;
@@ -444,7 +453,9 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     match request.action {
-        Operation::List { offset, limit } => {
+        // The personal dictionary has one kind, so the kind and prefix the
+        // desktop browser sends do not apply here.
+        Operation::List { offset, limit, .. } => {
             if offset > 1_000_000 || !(1..=1000).contains(&limit) {
                 return Err("invalid dictionary page".into());
             }
