@@ -101,6 +101,8 @@ final class HandwritingRecognizer {
 
 final class HandwritingCanvas: UIView {
   private(set) var strokes: [[CGPoint]] = []
+  /// 卡片画在这个矩形里;墨迹不受它限制,整块面板都能写。
+  var cardRect: CGRect = .zero { didSet { if cardRect != oldValue { setNeedsDisplay() } } }
   var onChange: (() -> Void)?
   var onStrokeBegan: (() -> Void)?
   var acceptsInk = true
@@ -119,7 +121,7 @@ final class HandwritingCanvas: UIView {
     accessibilityHint = "用手指书写，停笔后选择上方候选文字"
     isMultipleTouchEnabled = false
     isOpaque = false
-    layer.cornerRadius = 10
+    // 圆角由 draw 画在 cardRect 上,不再是整个视图的图层圆角 —— 视图现在铺满面板。
     clipsToBounds = true
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -160,26 +162,29 @@ final class HandwritingCanvas: UIView {
   override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
     let skin = KeyboardSkinPreference.selected
-    skin.keyBackground.setFill(); context.fill(bounds)
+    let card = cardRect.isEmpty ? bounds : cardRect
+    UIBezierPath(roundedRect: card, cornerRadius: 10).addClip()
+    skin.keyBackground.setFill(); context.fill(card)
     context.setStrokeColor(skin.accent.withAlphaComponent(0.12).cgColor)
     context.setLineDash(phase: 0, lengths: [4, 4]); context.setLineWidth(1)
-    context.move(to: CGPoint(x: bounds.midX, y: 0)); context.addLine(to: CGPoint(x: bounds.midX, y: bounds.height))
-    context.move(to: CGPoint(x: 0, y: bounds.midY)); context.addLine(to: CGPoint(x: bounds.width, y: bounds.midY)); context.strokePath()
+    context.move(to: CGPoint(x: card.midX, y: card.minY)); context.addLine(to: CGPoint(x: card.midX, y: card.maxY))
+    context.move(to: CGPoint(x: card.minX, y: card.midY)); context.addLine(to: CGPoint(x: card.maxX, y: card.midY)); context.strokePath()
     context.setLineDash(phase: 0, lengths: [])
+    context.resetClip()
     drawInk(context, color: skin.keyForeground, width: 3)
-    if strokes.isEmpty {
-      let text = "在此手写"
-      let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 21), .foregroundColor: skin.keyForeground.withAlphaComponent(0.3)]
-      let size = (text as NSString).size(withAttributes: attrs)
-      (text as NSString).draw(at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
-    }
+    // 占位字不在这里画。The status label sits centred on the same card and says the same thing, and it
+    // also carries the live messages -- downloading, recognising, failed -- so two hints were stacked
+    // on top of each other. One of them has to go, and it is the one that can only ever say one thing.
   }
   func setTestStrokes(_ values: [[CGPoint]]) { strokes = values; setNeedsDisplay(); onChange?() }
 }
 
 final class HandwritingInputView: UIView {
   let canvas = HandwritingCanvas()
-  private let candidates = UIStackView()
+  /// 卡片该画在哪儿 —— 透明,只提供几何,不接触摸。
+  private let cardGuide = UIView()
+  /// 识别结果交给控制器铺到共享候选条上 —— 手写不再自己维护一条。
+  var onResults: (([String]) -> Void)?
   private let status = UILabel()
   private var recognizerStorage: HandwritingRecognizer?
   private var recognizer: HandwritingRecognizer {
@@ -187,6 +192,8 @@ final class HandwritingInputView: UIView {
     return recognizerStorage!
   }
   private let modelButton = UIButton(type: .system)
+  private var statusCentred: NSLayoutConstraint?
+  private var statusBelowModelButton: NSLayoutConstraint?
   private var downloadTask: Task<Void, Never>?
   var canDownload: () -> Bool = { false }
   func activate() {
@@ -194,6 +201,7 @@ final class HandwritingInputView: UIView {
     modelButton.isEnabled = true
     canvas.acceptsInk = ready
     modelButton.isHidden = ready
+    placeStatus()
     if !ready && downloadTask == nil {
       modelButton.setTitle("下载中文手写模型", for: .normal)
       showStatus(canDownload() ? "首次下载后可离线手写" : "首次下载需在系统设置允许完全访问")
@@ -234,25 +242,33 @@ final class HandwritingInputView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
+    // 候选交给共享的候选条,这里不再自带一条。Two candidate strips stacked on one screen is the same
+    // duplication the reply panel had, and the private one cost the canvas 36pt of the little height
+    // it has -- in a mode whose entire job is the canvas.
     let column = UIStackView(); column.axis = .vertical; column.spacing = 4
-    let scroll = UIScrollView(); scroll.showsHorizontalScrollIndicator = false
-    scroll.disableEdgeEffects()
-    candidates.axis = .horizontal; candidates.spacing = 8
-    status.font = .systemFont(ofSize: 12); status.text = "一次写一个字，停笔后选字"; status.accessibilityIdentifier = "handwritingStatus"
-    candidates.addArrangedSubview(status)
-    scroll.addSubview(candidates)
-    candidates.translatesAutoresizingMaskIntoConstraints = false
+    // 提示话写在画布里,不占候选条。The strip was doing both jobs: a status line sat where the
+    // candidates belong, and showStatus("") left an empty label parked in front of the first one, so
+    // the row never started where the eye expected. The canvas is where the user is looking anyway.
+    status.font = .systemFont(ofSize: 13); status.text = "在此手写，停笔后选字"
+    status.accessibilityIdentifier = "handwritingStatus"
+    status.textAlignment = .center
+    status.numberOfLines = 2
+    status.translatesAutoresizingMaskIntoConstraints = false
+    // 画布和工具列之间的横向留白跟随布局偏好 —— 横向不吃总高,可以跟。
+    let row = UIStackView(); row.spacing = KeyboardLayoutPreference.keySpacing
+    // 卡片的位置由这个透明占位视图定义;画布本身铺满整块面板,负责收笔迹和画墨迹。
+    // 这样看上去和以前一样,但手指落在面板任何地方都能写,而不是只有那张卡片里。
+    cardGuide.isUserInteractionEnabled = false
+    cardGuide.backgroundColor = .clear
+    row.addArrangedSubview(cardGuide)
+    cardGuide.addSubview(status)
     NSLayoutConstraint.activate([
-      candidates.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-      candidates.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-      candidates.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-      candidates.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-      candidates.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-      scroll.heightAnchor.constraint(equalToConstant: 32),
+      status.centerXAnchor.constraint(equalTo: cardGuide.centerXAnchor),
+      status.leadingAnchor.constraint(greaterThanOrEqualTo: cardGuide.leadingAnchor, constant: 12),
+      status.trailingAnchor.constraint(lessThanOrEqualTo: cardGuide.trailingAnchor, constant: -12),
     ])
-    column.addArrangedSubview(scroll)
-    let row = UIStackView(); row.spacing = 6; row.addArrangedSubview(canvas)
-    let tools = UIStackView(); tools.axis = .vertical; tools.spacing = 4; tools.distribution = .fillEqually
+    let tools = UIStackView(); tools.axis = .vertical; tools.spacing = 4
+    tools.distribution = .fillEqually
     for (title, id, action) in [
       ("撤销", "handwritingUndo", { [weak self] in self?.canvas.undo() }),
       ("清空", "handwritingClear", { [weak self] in self?.clear() }),
@@ -263,11 +279,29 @@ final class HandwritingInputView: UIView {
       button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
       tools.addArrangedSubview(button)
     }
-    tools.widthAnchor.constraint(equalToConstant: 44).isActive = true
+    tools.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     row.addArrangedSubview(tools); column.addArrangedSubview(row)
     addSubview(column); column.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([column.leadingAnchor.constraint(equalTo: leadingAnchor), column.trailingAnchor.constraint(equalTo: trailingAnchor), column.topAnchor.constraint(equalTo: topAnchor), column.bottomAnchor.constraint(equalTo: bottomAnchor)])
-    canvas.addSubview(modelButton)
+    // 画布垫在最底下,铺满整块面板。工具键在它上面,照常接点击。
+    insertSubview(canvas, at: 0)
+    canvas.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      canvas.leadingAnchor.constraint(equalTo: leadingAnchor),
+      canvas.trailingAnchor.constraint(equalTo: trailingAnchor),
+      canvas.topAnchor.constraint(equalTo: topAnchor),
+      canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+    // 和假名侧列同一个比例,不是写死的 44 —— 窄一格的侧列在别的方案里都不存在。
+    //
+    // 接在 addSubview 之后。两个视图之间的约束在双方入树之前激活就是 "no common ancestor",而那是
+    // 抛异常不是告警,整个键盘会当场构造失败;常量约束没有这个问题,所以上面那条可以写在前面。
+    // 横屏下 17% 就是 138pt,三个小键占不了那么宽,所以给个上限。
+    tools.widthAnchor.constraint(lessThanOrEqualToConstant: 72).isActive = true
+    let share = tools.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17)
+    share.priority = .defaultHigh
+    share.isActive = true
+    cardGuide.addSubview(modelButton)
     modelButton.translatesAutoresizingMaskIntoConstraints = false
     modelButton.backgroundColor = .secondarySystemBackground
     modelButton.layer.cornerRadius = 12
@@ -277,21 +311,60 @@ final class HandwritingInputView: UIView {
     modelButton.isHidden = true
     modelButton.addAction(UIAction { [weak self] _ in self?.toggleDownload() }, for: .primaryActionTriggered)
     NSLayoutConstraint.activate([
-      modelButton.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
-      modelButton.centerYAnchor.constraint(equalTo: canvas.centerYAnchor),
-      modelButton.widthAnchor.constraint(equalTo: canvas.widthAnchor, multiplier: 0.85),
+      modelButton.centerXAnchor.constraint(equalTo: cardGuide.centerXAnchor),
+      modelButton.centerYAnchor.constraint(equalTo: cardGuide.centerYAnchor),
+      modelButton.widthAnchor.constraint(equalTo: cardGuide.widthAnchor, multiplier: 0.85),
       modelButton.heightAnchor.constraint(equalToConstant: 44),
     ])
     canvas.onStrokeBegan = { [weak self] in self?.invalidate(); self?.showStatus("书写中…") }
     canvas.onChange = { [weak self] in self?.scheduleRecognition() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-  private func invalidate() { revision = UUID(); task?.cancel(); task = nil; results = [] }
+  private func invalidate() {
+    revision = UUID(); task?.cancel(); task = nil; results = []
+    onResults?([])
+  }
   func clear() { invalidate(); canvas.clear() }
+  /// 画布中央本来就站着下载按钮,提示得让开它,否则两行字叠在一起。
+  ///
+  /// 约束等到双方都进了视图树再建 —— 在 init 里提前引用还没 addSubview 的按钮,激活时就是
+  /// "no common ancestor" 异常,而且是抛出而不是警告,整个键盘会当场构造失败。
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    canvas.cardRect = cardGuide.convert(cardGuide.bounds, to: canvas)
+  }
+
+  /// 除了真正的按钮,面板里的触摸一律交给画布。
+  ///
+  /// 画布垫在最底下,而它上面盖着两层 UIStackView。A stack view takes touches itself: hit testing
+  /// returns it whenever no deeper subview claims the point, so every stroke landed on the stack and
+  /// the canvas underneath never saw one -- the panel stopped accepting ink entirely, including on
+  /// the card that used to work. Only UIControl gets to keep a hit here; the tool keys and the model
+  /// download button are controls, the containers are not.
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    guard let hit = super.hitTest(point, with: event) else { return nil }
+    return hit is UIControl ? hit : canvas
+  }
+
+  private func placeStatus() {
+    guard status.superview != nil else { return }
+    if statusCentred == nil {
+      statusCentred = status.centerYAnchor.constraint(equalTo: cardGuide.centerYAnchor)
+    }
+    if statusBelowModelButton == nil, modelButton.superview != nil {
+      statusBelowModelButton = status.topAnchor.constraint(
+        equalTo: modelButton.bottomAnchor, constant: 10)
+    }
+    let sharesTheCanvas = !modelButton.isHidden && statusBelowModelButton != nil
+    statusBelowModelButton?.isActive = sharesTheCanvas
+    statusCentred?.isActive = !sharesTheCanvas
+  }
+
+  /// 提示写在画布上,候选归共享候选条 —— 两个角色分开,识别出的字就从那条的最左边开始。
   private func showStatus(_ text: String) {
-    candidates.arrangedSubviews.forEach { candidates.removeArrangedSubview($0); $0.removeFromSuperview() }
     status.text = text; status.textColor = KeyboardSkinPreference.selected.keyForeground
-    candidates.addArrangedSubview(status)
+    status.isHidden = text.isEmpty
+    placeStatus()
   }
   private func scheduleRecognition() {
     invalidate()
@@ -307,23 +380,20 @@ final class HandwritingInputView: UIView {
         guard !Task.isCancelled, self.revision == current else { return }
         self.results = words
         self.showStatus(words.isEmpty ? "未识别，请撤销或重新书写" : "")
-        for (index, word) in words.enumerated() {
-          let button = KeyboardKeyButton(type: .system); button.setTitle(word, for: .normal)
-          button.titleLabel?.font = .systemFont(ofSize: 21)
-          button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-          button.accessibilityIdentifier = "handwritingCandidate-\(index)"
-          button.addAction(UIAction { [weak self] _ in
-            guard let self, self.revision == current, self.results.contains(word) else { return }
-            self.clear(); self.onInsert?(word)
-          }, for: .primaryActionTriggered)
-          self.candidates.addArrangedSubview(button)
-        }
+        self.onResults?(words)
       } catch is CancellationError { } catch {
         guard let self, self.revision == current else { return }
         self.showStatus("识别失败，请重写后重试")
       }
     }
   }
+  /// 共享候选条上点第 index 个 —— 位置对不上就当过期,不上屏。
+  @discardableResult func use(at index: Int) -> Bool {
+    guard results.indices.contains(index) else { return false }
+    let word = results[index]
+    clear(); onInsert?(word); return true
+  }
+
   @discardableResult func commitFirst() -> Bool {
     guard let word = results.first else { return false }; clear(); onInsert?(word); return true
   }

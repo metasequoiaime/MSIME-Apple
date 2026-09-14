@@ -13,7 +13,7 @@
     <key>CFBundleIconFile</key>
     <string>MetasequoiaIME.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>com.houko.inputmethod.MetasequoiaIME</string>
+    <string>app.msime.inputmethod.MetasequoiaIME</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -28,10 +28,10 @@
     <dict>
         <key>tsInputModeListKey</key>
         <dict>
-            <key>com.houko.inputmethod.MetasequoiaIME.Hans</key>
+            <key>app.msime.inputmethod.MetasequoiaIME.Hans</key>
             <dict>
                 <key>TISInputSourceID</key>
-                <string>com.houko.inputmethod.MetasequoiaIME.Hans</string>
+                <string>app.msime.inputmethod.MetasequoiaIME.Hans</string>
                 <key>TISIntendedLanguage</key>
                 <string>zh-Hans</string>
                 <key>tsInputModeMenuIconFileKey</key>
@@ -54,11 +54,11 @@
         </dict>
         <key>tsVisibleInputModeOrderedArrayKey</key>
         <array>
-            <string>com.houko.inputmethod.MetasequoiaIME.Hans</string>
+            <string>app.msime.inputmethod.MetasequoiaIME.Hans</string>
         </array>
     </dict>
     <key>InputMethodConnectionName</key>
-    <string>com.houko.inputmethod.MetasequoiaIME_Connection</string>
+    <string>app.msime.inputmethod.MetasequoiaIME_Connection</string>
     <key>InputMethodServerControllerClass</key>
     <string>MetasequoiaInputController</string>
     <key>InputMethodServerDelegateClass</key>
@@ -84,7 +84,7 @@
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>TISInputSourceID</key>
-    <string>com.houko.inputmethod.MetasequoiaIME</string>
+    <string>app.msime.inputmethod.MetasequoiaIME</string>
     <key>TISIntendedLanguage</key>
     <string>zh-Hans</string>
     <key>TISInputSourceLanguages</key>

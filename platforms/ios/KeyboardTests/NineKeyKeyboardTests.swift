@@ -202,6 +202,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(q.superview).isHidden)
         XCTAssertEqual(q.bounds.height, try button("returnKey", in: controller).bounds.height, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(q.bounds.height, 44)
+        // 拉丁输入框强制英文键盘,所以这里是小写 —— 中文下的大写键面由
+        // testLetterFacesAreUppercaseUntilEnglishTakesOver 覆盖。
         if type != .asciiCapable { XCTAssertEqual(q.configuration?.title, "q") }
         XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
         q.sendActions(for: .primaryActionTriggered)
@@ -586,8 +588,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
+      // 键盘设置紧跟在品牌键后面,选择输入方案挪到了收起键旁边。
+      XCTAssertTrue(toolbar.arrangedSubviews[1] === (try button("layoutShortcut", in: controller)))
       let skinIndex = try XCTUnwrap(toolbar.arrangedSubviews.firstIndex(of: button("skinShortcut", in: controller)))
-      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("layoutShortcut", in: controller)))
+      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("schemeButton", in: controller)))
+      XCTAssertTrue(toolbar.arrangedSubviews.last === (try button("dismissShortcut", in: controller)))
       for item in toolbar.arrangedSubviews {
         XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
@@ -712,8 +717,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
-        XCTAssertEqual(card.bounds.height, 62, accuracy: 0.1)
+        // 行平分面板高度,所以只有下限;底下不该再留一块裸背景。
+        XCTAssertGreaterThanOrEqual(card.bounds.height, 62)
       }
+      let lowestCard = try ChineseInputScheme.allCases
+        .map { try button("schemeCard-\($0.rawValue)", in: controller).convert(button("schemeCard-\($0.rawValue)", in: controller).bounds, to: picker).maxY }
+        .max() ?? 0
+      XCTAssertGreaterThan(lowestCard, picker.bounds.height - 80,
+                           "卡片下面空出了一大块背景")
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -1073,6 +1084,37 @@ final class NineKeyKeyboardTests: XCTestCase {
     } as? UIButton)
   }
 
+  func testLetterFacesAreUppercaseUntilEnglishTakesOver() throws {
+    // 中文和日语罗马字的键面用大写,英文回小写由 shift 决定。键面的大小写只是外观:拼音键敲出去的
+    // 一直是小写字母,所以读屏在那里念「字母」而不是「大写」。
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .japanese] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
+      controller.view.layoutIfNeeded()
+
+      let a = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
+      XCTAssertEqual(a.configuration?.title, "A", "\(scheme) 的键面应当是大写")
+      XCTAssertEqual(a.accessibilityLabel, "字母 A", "拼音键面的大写不是 shift,不该念成「大写」")
+
+      // 敲下去交给引擎的仍然是小写。
+      a.sendActions(for: .primaryActionTriggered)
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
+
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "a", "英文下应当回到小写")
+
+      try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "A", "英文按下 shift 才大写")
+      XCTAssertEqual(a.accessibilityLabel, "大写 A", "这次真的会敲出大写")
+    }
+  }
+
   func testShortcutsYieldToCandidatesWithoutMovingKeys() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousScript = ChineseOutputPreference.usesTraditional
@@ -1091,8 +1133,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(toolbar.isHidden)
       let brand = try XCTUnwrap(descendants(toolbar).first { $0.accessibilityIdentifier == "keyboardBrandIcon" } as? UIImageView)
       XCTAssertNotNil(brand.image)
-      XCTAssertEqual(brand.bounds.width, 24, accuracy: 0.1)
-      XCTAssertEqual(brand.bounds.height, 24, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.width, 28, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.height, 28, accuracy: 0.1)
+      // 源图是白底黑字、没有 alpha,直接贴就是一块白方块;转成模板图才能跟着皮肤着色。
+      XCTAssertEqual(brand.image?.renderingMode, .alwaysTemplate)
       let brandSlot = try XCTUnwrap(brand.superview)
       XCTAssertGreaterThanOrEqual(brand.frame.minX, 6)
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
@@ -1213,7 +1257,12 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           controller.view.layoutIfNeeded()
-          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          // 假名面板自带 ⌫ / 空白 / 改行,共用底排整条收起,所以这一层要量的是面板自己的改行键。它跨两行,只要不矮于普通键即可。
+          if scheme == .japaneseNineKey {
+            XCTAssertGreaterThanOrEqual(try button("japaneseReturn", in: controller).bounds.height, reference - 0.5)
+          } else {
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)

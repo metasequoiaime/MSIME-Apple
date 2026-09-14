@@ -4,6 +4,8 @@
 
 @protocol MetasequoiaCandidatePanelDelegate <NSObject>
 - (void)candidateSelected:(NSAttributedString *)candidate;
+// 右键某个候选:固顶或取消固顶。
+- (void)candidatePinToggled:(NSAttributedString *)candidate;
 - (void)candidatePanelPreviousPage;
 - (void)candidatePanelNextPage;
 @end

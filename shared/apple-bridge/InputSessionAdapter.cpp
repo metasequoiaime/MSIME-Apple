@@ -76,6 +76,11 @@ InputSnapshot InputSessionAdapter::make_snapshot(KeyResult result)
     snapshot.diagnostic = std::move(result.diagnostic);
     const auto view = impl_->session.snapshot();
     snapshot.preedit = view.preedit;
+    // 只有日语填。For the Chinese schemes normalized_segmentation is the segmented pinyin, and the
+    // preedit they already show is what the user typed; handing the segmentation over instead would
+    // change what every Chinese composition looks like.
+    if (view.scheme == SchemeType::JapaneseRomaji)
+        snapshot.reading = view.normalized_segmentation;
     snapshot.candidates.reserve(view.candidates.size());
     snapshot.candidate_codes.reserve(view.candidates.size());
     for (const auto &candidate : view.candidates)
@@ -181,6 +186,16 @@ InputSnapshot InputSessionAdapter::handle_candidate_key(char character)
 InputSnapshot InputSessionAdapter::handle_punctuation(char character)
 {
     return make_snapshot(impl_->session.punctuation(character));
+}
+
+InputSnapshot InputSessionAdapter::cycle_kana_variant()
+{
+    return make_snapshot(impl_->session.command(Command::CycleKanaVariant));
+}
+
+InputSnapshot InputSessionAdapter::commit_reading()
+{
+    return make_snapshot(impl_->session.command(Command::CommitReading));
 }
 
 InputSnapshot InputSessionAdapter::handle_backspace()

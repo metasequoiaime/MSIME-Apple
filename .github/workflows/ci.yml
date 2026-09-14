@@ -110,9 +110,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 build/MetasequoiaIME.app
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
           plutil -lint build/MetasequoiaIME.app/Contents/Info.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "com.houko.inputmethod.MetasequoiaIME"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "app.msime.inputmethod.MetasequoiaIME"
           test "$(/usr/libexec/PlistBuddy -c 'Print :TISIntendedLanguage' build/MetasequoiaIME.app/Contents/Info.plist)" = "zh-Hans"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:com.houko.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
 
   # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
   # layer that parses untrusted input", written after an audit of a sibling frontend turned up a
@@ -162,11 +162,21 @@ jobs:
   ios:
     name: iOS Simulator
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.mac_only != true }}
-    # ML Kit ships x86_64 simulator binaries; run them natively instead of under Rosetta.
-    runs-on: macos-15-intel
+    # ML Kit ships x86_64 simulator binaries, so the full suite -- the three handwriting cases
+    # included -- needs an Intel runner, and this job's own notes below measure what that costs: a
+    # test build of twenty-five minutes before a case runs, on a Simulator half the speed of an
+    # arm64 one.
+    #
+    # A pull request buys that time back by dropping ML Kit. Without it the Podfile has no
+    # dependencies left, so the run builds the xcodegen project directly and skips the three
+    # handwriting cases; everything else compiles and simulates natively on arm64. A merge into
+    # develop or main still runs the whole suite on Intel, so the handwriting coverage and the
+    # CocoaPods integration are deferred to merge rather than dropped.
+    runs-on: ${{ github.event_name == 'pull_request' && 'macos-15' || 'macos-15-intel' }}
     timeout-minutes: 130
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      MSIME_IOS_SKIP_HANDWRITING: ${{ github.event_name == 'pull_request' && '1' || '0' }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -191,7 +201,9 @@ jobs:
         run: |
           mkdir -p build/ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
-          pod install --deployment --project-directory=platforms/ios
+          if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
+            pod install --deployment --project-directory=platforms/ios
+          fi
       - name: Test native iOS keyboard and settings
         # A pull request runs the unit suites and a handful of interface cases; a merge into develop
         # or main runs everything. The interface suite is 96% of this step -- 45 minutes for 37 cases

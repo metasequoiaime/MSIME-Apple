@@ -38,6 +38,9 @@ final class KeyboardSchemePickerView: UIView {
     let panel = UIStackView()
     panel.axis = .vertical
     panel.spacing = 4
+    // 行平分整块面板的高度。The rows were pinned to 62pt while the picker fills the whole keyboard,
+    // so everything below the last row was bare backdrop -- a dead block under the cards.
+    panel.distribution = .fillEqually
     panel.backgroundColor = skin.keyBackground
     panel.layer.cornerRadius = 18
     panel.isLayoutMarginsRelativeArrangement = true
@@ -74,7 +77,7 @@ final class KeyboardSchemePickerView: UIView {
       for card in cards[start..<min(start + 4, cards.count)] { row.addArrangedSubview(card) }
       while row.arrangedSubviews.count < 4 { row.addArrangedSubview(UIView()) }
       panel.addArrangedSubview(row)
-      row.heightAnchor.constraint(equalToConstant: 62).isActive = true
+      row.heightAnchor.constraint(greaterThanOrEqualToConstant: 62).isActive = true
     }
 
     for child in [close, settings, content] {
@@ -104,6 +107,10 @@ final class KeyboardSchemePickerView: UIView {
       panel.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
       panel.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
     ])
+    // 有富余就撑满,内容比键盘高就照常滚动。
+    let fill = panel.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -10)
+    fill.priority = .defaultHigh
+    fill.isActive = true
   }
 
   private func makeCard(title: String, glyph: String, badge: String, selected: Bool,

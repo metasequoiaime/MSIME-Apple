@@ -50,8 +50,8 @@ void *GetInputSourceProperty(TISInputSourceRef inputSource, CFStringRef property
     {
         return nullptr;
     }
-    CFStringRef identifier = inputSource == parentSource ? CFSTR("com.houko.inputmethod.MetasequoiaIME")
-                                                         : CFSTR("com.houko.inputmethod.MetasequoiaIME.Hans");
+    CFStringRef identifier = inputSource == parentSource ? CFSTR("app.msime.inputmethod.MetasequoiaIME")
+                                                         : CFSTR("app.msime.inputmethod.MetasequoiaIME.Hans");
     return const_cast<void *>(reinterpret_cast<const void *>(identifier));
 }
 
@@ -89,7 +89,7 @@ int main()
 
         const void *sources[] = {parentSource, modeSource};
         sourceList = CFArrayCreate(nullptr, sources, 2, nullptr);
-        NSString *bundleIdentifier = @"com.houko.inputmethod.MetasequoiaIME";
+        NSString *bundleIdentifier = @"app.msime.inputmethod.MetasequoiaIME";
         require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,

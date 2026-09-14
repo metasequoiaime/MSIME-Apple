@@ -99,7 +99,13 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
     guard controller === appleController else { return }
     appleController = nil; appleChallenge = nil; authorizing = false
-    if (error as? ASAuthorizationError)?.code != .canceled { message = "Apple 登录未完成，请重试。" }
+    // 把真正的错误带出来。"请重试" was all the user and the log ever saw, so a build that can never
+    // succeed -- an ad-hoc signature carries no com.apple.developer.applesignin entitlement, which
+    // ASAuthorizationServices refuses outright -- looked exactly like a flaky network.
+    guard (error as? ASAuthorizationError)?.code != .canceled else { return }
+    let reason = (error as NSError).localizedFailureReason ?? error.localizedDescription
+    message = "Apple 登录未完成：\(reason)（\((error as NSError).domain) \((error as NSError).code)）"
+    NSLog("[Metasequoia] Apple sign-in failed: %@", error as NSError)
   }
   func rename() {
     let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,7 +140,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil; code = ""; target = ""; challenge = nil }
 }
 
-private struct MacAccountView: View {
+struct MacAccountView: View {
   @ObservedObject var model: MacAccountModel
   @State private var deleting = false
   @State private var clipboard = false
@@ -147,6 +153,16 @@ private struct MacAccountView: View {
       Form {
       if let user = model.user {
         Text(user.preferredDisplayName).font(.title2)
+        // 匿名账号是装完自动开的,用户没做过任何操作,所以「它从哪来、丢了会怎样」必须写在他会看到的
+        // 地方。提示放在这一页而不是打字时弹出来:内容是一次性的,但看的时机该由用户决定。
+        if let anonymous = BackendAnonymousAccount.stored() {
+          Text("本机账号 \(anonymous.subject)")
+            .font(.callout)
+          Text("安装时自动创建,用于候选词翻译与云同步。凭据只保存在本机钥匙串,清除钥匙串或更换设备后无法找回这个账号及其云端词库 —— 想长期保留请绑定 Apple 或邮箱。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
         Button("云剪贴板…") { clipboard = true }
@@ -217,6 +233,42 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   @objc func showAccount() { showWindow(nil); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); model.load() }
   func windowWillClose(_ notification: Notification) { model.close() }
+}
+
+// 设置页里直接用的账号视图。The preferences page used to hold a button that opened this same UI in a
+// separate window, so reaching the sign-in meant a panel on top of a panel; the view is plain SwiftUI
+// and hosting it inline costs nothing.
+//
+// 桥接沿用本文件既有的做法:只导出 @_cdecl 的 C 函数。这个 target 不生成 -Swift.h,所以 ObjC 那边
+// 看不见 Swift 类,只能收一个 NSView。
+@MainActor
+private final class AccountPane {
+  static let shared = AccountPane()
+  let model = MacAccountModel()
+  lazy var hosting: NSHostingView<MacAccountView> = {
+    let view = NSHostingView(rootView: MacAccountView(model: model))
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
+  }()
+}
+
+@_cdecl("MSIMEAccountPaneView")
+func accountPaneView() -> NSView {
+  MainActor.assumeIsolated { AccountPane.shared.hosting }
+}
+
+// 登录要一个 presentationAnchor;嵌进设置页之后它没有自己的窗口,得由宿主交出来。
+@_cdecl("MSIMEAccountPaneAttach")
+func accountPaneAttach(_ window: NSWindow?) {
+  MainActor.assumeIsolated {
+    AccountPane.shared.model.window = window
+    AccountPane.shared.model.load()
+  }
+}
+
+@_cdecl("MSIMEAccountPaneClose")
+func accountPaneClose() {
+  MainActor.assumeIsolated { AccountPane.shared.model.close() }
 }
 
 @_cdecl("MSIMEShowBackendAccount")

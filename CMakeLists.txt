@@ -316,7 +316,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources/Licenses)
     set_source_files_properties(${METASEQUOIA_IME_UNINSTALLER}
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources HEADER_FILE_ONLY TRUE)
-    set_target_properties(MetasequoiaIME PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/MetasequoiaIME-Info.plist MACOSX_BUNDLE_BUNDLE_NAME "Metasequoia IME" MACOSX_BUNDLE_GUI_IDENTIFIER "com.houko.inputmethod.MetasequoiaIME" MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION} MACOSX_BUNDLE_BUNDLE_VERSION ${METASEQUOIA_BUILD_NUMBER} OUTPUT_NAME MetasequoiaIME BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "@executable_path/../Frameworks")
+    set_target_properties(MetasequoiaIME PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/MetasequoiaIME-Info.plist MACOSX_BUNDLE_BUNDLE_NAME "Metasequoia IME" MACOSX_BUNDLE_GUI_IDENTIFIER "app.msime.inputmethod.MetasequoiaIME" MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION} MACOSX_BUNDLE_BUNDLE_VERSION ${METASEQUOIA_BUILD_NUMBER} OUTPUT_NAME MetasequoiaIME BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "@executable_path/../Frameworks")
     target_compile_options(MetasequoiaIME PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_include_directories(MetasequoiaIME PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
     target_link_libraries(MetasequoiaIME PRIVATE MSIMEBackendAccount MetasequoiaMacDictionaryRuntime MetasequoiaAppleVoice MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${CARBON_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})

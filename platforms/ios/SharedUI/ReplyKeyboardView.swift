@@ -75,22 +75,23 @@ struct ReplyKeyboardView: View {
   @ObservedObject var model: ReplyKeyboardModel
   let paste: () -> Void
   let generate: (String) -> Void
-  let schemes: () -> Void
-  let skins: () -> Void
-  let dismiss: () -> Void
   private let styles = ["😁 专属回复", "🥰 暖心关怀", "📣 捧场王", "😍 恋人", "🌪 幽默风趣", "👔 成熟稳重", "💬 土味情话", "🤩 高情商", "🙌 委婉拒绝"]
   private var skin: KeyboardSkin { KeyboardSkinPreference.selected }
+  // 圆角、间距跟着皮肤和布局偏好走,不写死 —— 这一屏才和别的方案是同一块键盘。
+  private var radius: CGFloat { CGFloat(skin.cornerRadius) }
+  private var keyGap: CGFloat { CGFloat(KeyboardLayoutPreference.keySpacing) }
+  private var rowGap: CGFloat { CGFloat(KeyboardLayoutPreference.rowSpacing) }
+  private var keySurface: Color { Color(uiColor: skin.keyBackground) }
 
   var body: some View {
-    VStack(spacing: 5) {
-      HStack(spacing: 8) {
+    VStack(spacing: rowGap) {
+      // 只留这个方案独有的两件。选方案 / 皮肤 / 收起都回到共享快捷栏,它现在就在这一屏上方,
+      // 不必也不该在这里再摆一份长得差不多的。
+      HStack(spacing: keyGap) {
         Picker("操作", selection: $model.polish) {
           Text("帮你回").tag(false)
           Text("帮润色").tag(true)
         }.pickerStyle(.segmented).frame(maxWidth: 200).accessibilityIdentifier("replyMode")
-        Button(action: schemes) {
-          Image(systemName: "keyboard").font(.system(size: 22))
-        }.accessibilityLabel("选择输入方案").accessibilityIdentifier("replySchemes")
         Spacer(minLength: 0)
         Menu {
           if CommunityLibrary.replies.isEmpty { Text("在 App 社区收藏并添加回复模板") }
@@ -99,48 +100,46 @@ struct ReplyKeyboardView: View {
           }
         } label: { Image(systemName: "bookmark") }
           .accessibilityLabel("回复模板").accessibilityIdentifier("replyTemplates").disabled(model.busy)
-        Button(action: skins) { Image(systemName: "tshirt") }.accessibilityLabel("切换皮肤")
-        Button(action: dismiss) { Image(systemName: "chevron.down") }.accessibilityLabel("收起键盘")
       }.frame(height: 36)
-      HStack(spacing: 6) {
+      HStack(spacing: keyGap) {
         Button(action: paste) {
           Text(model.text.isEmpty ? "+ 粘贴 TA 的话帮你回" : model.text)
             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
         }.accessibilityIdentifier("replySource")
         Button("粘贴", action: paste).accessibilityIdentifier("replyPaste")
-          .padding(.horizontal, 10).foregroundStyle(.white).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 9))
+          .padding(.horizontal, 10).foregroundStyle(.white).background(Color.accentColor, in: RoundedRectangle(cornerRadius: radius))
       }.frame(height: 38).padding(.horizontal, 10)
-        .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 10))
-      HStack(alignment: .top, spacing: 6) {
+        .background(keySurface, in: RoundedRectangle(cornerRadius: radius))
+      HStack(alignment: .top, spacing: keyGap) {
         if model.replies.isEmpty {
-          VStack(spacing: 5) {
+          VStack(spacing: rowGap) {
             ForEach(0..<3) { row in
-              HStack(spacing: 5) {
+              HStack(spacing: keyGap) {
                 ForEach(0..<3) { column in
                   let label = styles[row * 3 + column]
                   Button { generate(String(label.dropFirst(2))) } label: {
                     Text(label).font(.system(size: 14, weight: .medium)).minimumScaleFactor(0.7).lineLimit(1)
                       .frame(maxWidth: .infinity, maxHeight: .infinity)
                   }.disabled(model.busy).accessibilityIdentifier("replyStyle_\(row * 3 + column)")
-                    .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .background(keySurface, in: RoundedRectangle(cornerRadius: radius))
                 }
               }
             }
           }
         } else {
           ScrollView {
-            VStack(spacing: 6) {
+            VStack(spacing: keyGap) {
               ForEach(model.replies, id: \.self) { reply in
                 Button { model.use(reply) } label: {
                   Text(reply).font(.system(size: 15)).multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(10)
                 }.accessibilityIdentifier("replyCandidate")
-                  .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 10))
+                  .background(keySurface, in: RoundedRectangle(cornerRadius: radius))
               }
             }
           }.accessibilityIdentifier("replyCandidates").disablingScrollEdgeEffects()
         }
-        VStack(spacing: 5) {
+        VStack(spacing: rowGap) {
           Button { if !model.text.isEmpty { model.setText(String(model.text.dropLast())) } } label: {
             Image(systemName: "delete.left")
           }.accessibilityLabel("删除源文字").accessibilityIdentifier("replyDelete")
@@ -153,7 +152,7 @@ struct ReplyKeyboardView: View {
             Button("换一句") { generate(model.style) }.accessibilityIdentifier("replyRegenerate")
           }
         }.frame(width: 60)
-          .buttonStyle(ReplyActionStyle(background: Color(uiColor: skin.keyBackground).opacity(0.7)))
+          .buttonStyle(ReplyActionStyle(background: keySurface.opacity(0.7), radius: radius))
       }.frame(maxHeight: .infinity)
       HStack(spacing: 4) {
         if model.busy { ProgressView().scaleEffect(0.7) }
@@ -172,9 +171,10 @@ struct ReplyKeyboardView: View {
 
 private struct ReplyActionStyle: ButtonStyle {
   let background: Color
+  let radius: CGFloat
   func makeBody(configuration: Configuration) -> some View {
     configuration.label.font(.system(size: 14, weight: .medium))
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(background.opacity(configuration.isPressed ? 0.6 : 1), in: RoundedRectangle(cornerRadius: 10))
+      .background(background.opacity(configuration.isPressed ? 0.6 : 1), in: RoundedRectangle(cornerRadius: radius))
   }
 }

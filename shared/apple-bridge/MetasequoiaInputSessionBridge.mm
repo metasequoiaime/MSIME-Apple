@@ -79,6 +79,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 - (instancetype)initWithHandled:(BOOL)handled
                      commitText:(nullable NSString *)commitText
                         preedit:(NSString *)preedit
+                        reading:(NSString *)reading
                      candidates:(NSArray<NSString *> *)candidates
                  candidateCodes:(NSArray<NSString *> *)candidateCodes
                candidateGlosses:(NSArray<NSString *> *)candidateGlosses
@@ -91,6 +92,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 - (instancetype)initWithHandled:(BOOL)handled
                      commitText:(nullable NSString *)commitText
                         preedit:(NSString *)preedit
+                        reading:(NSString *)reading
                      candidates:(NSArray<NSString *> *)candidates
                  candidateCodes:(NSArray<NSString *> *)candidateCodes
                candidateGlosses:(NSArray<NSString *> *)candidateGlosses
@@ -102,6 +104,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         _handled = handled;
         _commitText = [commitText copy];
         _preedit = [preedit copy];
+        _reading = [reading copy];
         _candidates = [candidates copy];
         _candidateCodes = [candidateCodes copy];
         _candidateGlosses = [candidateGlosses copy];
@@ -201,6 +204,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     return [[MetasequoiaInputSnapshot alloc] initWithHandled:NO
                                                   commitText:nil
                                                      preedit:@""
+                                                     reading:@""
                                                   candidates:@[]
                                               candidateCodes:@[]
                                             candidateGlosses:@[]
@@ -379,6 +383,20 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         return [self snapshotFrom:_adapter->handle_punctuation('\0')];
     }
     return [self snapshotFrom:_adapter->handle_punctuation(utf8[0])];
+}
+
+- (MetasequoiaInputSnapshot *)commitReading
+{
+    if (_suspended)
+        return [self suspendedSnapshot];
+    return [self snapshotFrom:_adapter->commit_reading()];
+}
+
+- (MetasequoiaInputSnapshot *)cycleKanaVariant
+{
+    if (_suspended)
+        return [self suspendedSnapshot];
+    return [self snapshotFrom:_adapter->cycle_kana_variant()];
 }
 
 - (MetasequoiaInputSnapshot *)handleBackspace
@@ -620,6 +638,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     return [[MetasequoiaInputSnapshot alloc] initWithHandled:snapshot.handled
                                                   commitText:commitText
                                                      preedit:StringFromUTF8(snapshot.preedit)
+                                                     reading:StringFromUTF8(snapshot.reading)
                                                   candidates:candidates
                                               candidateCodes:candidateCodes
                                             candidateGlosses:candidateGlosses

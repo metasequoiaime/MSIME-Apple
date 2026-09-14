@@ -1,5 +1,5 @@
 "CFBundleDisplayName" = "水杉输入法";
 "CFBundleName" = "水杉输入法";
-"com.houko.inputmethod.MetasequoiaIME" = "水杉输入法";
-"com.houko.inputmethod.MetasequoiaIME.Hans" = "水杉输入法";
+"app.msime.inputmethod.MetasequoiaIME" = "水杉输入法";
+"app.msime.inputmethod.MetasequoiaIME.Hans" = "水杉输入法";
 "NSMicrophoneUsageDescription" = "仅在开始语音输入时录音，用于识别并输入您说出的文字。";

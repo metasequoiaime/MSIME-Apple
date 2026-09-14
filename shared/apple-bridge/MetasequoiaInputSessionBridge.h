@@ -23,6 +23,10 @@ typedef NS_ENUM(NSInteger, MetasequoiaFrequencyAdjustmentMode) {
 @property(nonatomic, readonly, getter=isHandled) BOOL handled;
 @property(nonatomic, copy, readonly, nullable) NSString *commitText;
 @property(nonatomic, copy, readonly) NSString *preedit;
+/// 组字行该显示的读音;日语下是假名,其余方案为空。
+/// The preedit is the raw input the scheme was fed. On the kana keyboard the user never typed a
+/// latin letter, so showing it put romaji on screen for keys they never pressed.
+@property(nonatomic, copy, readonly) NSString *reading;
 @property(nonatomic, copy, readonly) NSArray<NSString *> *candidates;
 /// The dictionary key each candidate was found by, in the same order and of the same count. A wubi
 /// code shorter than four letters answers with the codes it can still become, and this is what says
@@ -48,6 +52,10 @@ typedef NS_ENUM(NSInteger, MetasequoiaFrequencyAdjustmentMode) {
 - (MetasequoiaInputSnapshot *)handleCandidateKey:(NSString *)character;
 - (MetasequoiaInputSnapshot *)handlePunctuation:(NSString *)character;
 - (MetasequoiaInputSnapshot *)handleBackspace;
+/// 小゛゜:把刚打的假名换成下一个变体。日语以外的方案不响应。
+- (MetasequoiaInputSnapshot *)cycleKanaVariant;
+/// 無変換確定:把假名原样上屏,不经过候选。日语以外的方案不响应。
+- (MetasequoiaInputSnapshot *)commitReading;
 - (MetasequoiaInputSnapshot *)commitCandidate;
 - (MetasequoiaInputSnapshot *)finishComposition;
 - (MetasequoiaInputSnapshot *)commitRaw;

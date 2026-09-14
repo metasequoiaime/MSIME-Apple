@@ -14,7 +14,7 @@
 
 namespace
 {
-NSString *const MetasequoiaDictionaryErrorDomain = @"com.houko.inputmethod.MetasequoiaIME.dictionary";
+NSString *const MetasequoiaDictionaryErrorDomain = @"app.msime.inputmethod.MetasequoiaIME.dictionary";
 NSString *const MetasequoiaResetMarkerName = @".metasequoia-learning-reset.plist";
 NSString *const MetasequoiaResetPreparedPhase = @"prepared";
 NSString *const MetasequoiaResetBackedUpPhase = @"backed-up";

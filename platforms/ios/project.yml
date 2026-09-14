@@ -95,6 +95,7 @@ targets:
       - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendSkinArtworkClient.swift
       - path: shared/backend/BackendAccountSession.swift
+      - path: shared/backend/BackendAnonymousAccount.swift
       - path: shared/backend/BackendClipboardClient.swift
       - path: shared/backend/BackendPreferencesClient.swift
       - path: shared/backend/IOSPreferencePlan.swift
@@ -253,6 +254,7 @@ targets:
       - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendSkinArtworkClient.swift
       - path: shared/backend/BackendAccountSession.swift
+      - path: shared/backend/BackendAnonymousAccount.swift
       - path: platforms/ios/KeyboardExtension/Sources
       - path: platforms/ios/App/Services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
@@ -309,6 +311,7 @@ targets:
       - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendSkinArtworkClient.swift
       - path: shared/backend/BackendAccountSession.swift
+      - path: shared/backend/BackendAnonymousAccount.swift
       - path: shared/backend/BackendClipboardClient.swift
       - path: shared/backend/BackendPreferencesClient.swift
       - path: shared/backend/IOSPreferencePlan.swift

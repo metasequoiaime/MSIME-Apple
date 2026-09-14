@@ -3,7 +3,7 @@
 
 namespace
 {
-NSString *const service = @"com.houko.inputmethod.MetasequoiaIME.voice";
+NSString *const service = @"app.msime.inputmethod.MetasequoiaIME.voice";
 NSError *Error(NSString *message)
 {
     return [NSError errorWithDomain:service code:1 userInfo:@{NSLocalizedDescriptionKey : message}];

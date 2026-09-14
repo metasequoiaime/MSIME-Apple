@@ -51,12 +51,17 @@ static bool CandidateRegionsMatch(NSBitmapImageRep *left, NSBitmapImageRep *righ
 
 @interface CandidatePanelTestDelegate : NSObject <MetasequoiaCandidatePanelDelegate>
 @property(nonatomic, strong) NSAttributedString *selection;
+@property(nonatomic, strong) NSAttributedString *pinned;
 @property(nonatomic) NSUInteger nextPages;
 @end
 @implementation CandidatePanelTestDelegate
 - (void)candidateSelected:(NSAttributedString *)candidate
 {
     self.selection = candidate;
+}
+- (void)candidatePinToggled:(NSAttributedString *)candidate
+{
+    self.pinned = candidate;
 }
 - (void)candidatePanelNextPage
 {
@@ -161,8 +166,14 @@ int main()
         for (NSView *view in panel.window.contentView.subviews)
             if ([view isKindOfClass:NSButton.class] && view.tag == 0)
                 horizontalButton = (NSButton *)view;
-        Require(horizontalButton != nil && ![horizontalButton.accessibilityLabel containsString:@"metasequoia"],
-                "A horizontal candidate window still presented the vertical-only gloss.");
+        // 横排和竖排一样要出释义。
+        Require(horizontalButton != nil && [horizontalButton.accessibilityLabel containsString:@"metasequoia"],
+                "A horizontal candidate window dropped the gloss.");
+        const CGFloat horizontalWithGloss = panel.candidateFrame.size.width;
+        [panel setCandidateData:@[ plain ]];
+        Require(horizontalWithGloss > panel.candidateFrame.size.width,
+                "A horizontal gloss did not widen the candidate window.");
+        [panel setCandidateData:@[ translated ]];
         for (const CGFloat measured : {0.0, 40.0, 208.0, 292.0, 1000.0})
             Require(metasequoia::mac::CandidateGlossDrawnWidth(measured, 10000.0) +
                             2.0 * metasequoia::mac::kCandidateGlossGap <=

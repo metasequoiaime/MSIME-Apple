@@ -4,6 +4,11 @@ extern "C" bool MSIMEBackendAccountSignedIn(void);
 
 #import "PreferencesWindowController.h"
 
+// 这几个要在 Cocoa 之后声明 —— 它们的签名里有 NSView / NSWindow。
+extern "C" NSView *MSIMEAccountPaneView(void);
+extern "C" void MSIMEAccountPaneAttach(NSWindow *window);
+extern "C" void MSIMEAccountPaneClose(void);
+
 #include "CandidateFontSize.h"
 #include "CandidatePageSize.h"
 #include "CandidatePanelStyle.h"
@@ -1108,16 +1113,18 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     navigation.translatesAutoresizingMaskIntoConstraints = NO;
     [navigation setCustomSpacing:30.0 afterView:brandRow];
     NSArray<NSString *> *labels = @[
-        @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"语音输入",
-        @"帮助", @"反馈"
+        @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号",
+        @"语音输入", @"帮助", @"反馈"
     ];
     NSArray<NSString *> *symbols = @[
         @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
-        @"command", @"ellipsis.rectangle", @"mic", @"questionmark.square", @"ladybug"
+        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"mic", @"questionmark.square", @"ladybug"
     ];
     NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
     // Keep page indices stable; appearance leads the navigation to match the visual settings workflow.
-    for (NSNumber *pageIndex in @[ @1, @0, @6, @7, @3, @2, @9, @8, @10, @4, @11 ])
+    // 账号领头。The sign-in lived three levels down under 关于与更新, where nothing about the name
+    // suggested that候选翻译 and everything else needing an account was gated behind it.
+    for (NSNumber *pageIndex in @[ @9, @1, @0, @6, @7, @3, @2, @10, @8, @11, @4, @12 ])
     {
         NSInteger index = pageIndex.integerValue;
         NSButton *button = [[MetasequoiaSettingsNavigationButton alloc] initWithFrame:NSZeroRect];
@@ -1708,13 +1715,6 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                 NSForegroundColorAttributeName : [NSColor linkColor],
             }];
 
-    NSButton *accountButton = [NSButton buttonWithTitle:@"管理水杉账号…"
-                                                 target:self
-                                                 action:@selector(showBackendAccount:)];
-    accountButton.bezelStyle = NSBezelStyleRounded;
-    accountButton.accessibilityIdentifier = @"MetasequoiaBackendAccount";
-    NSBox *accountCard = CardWithViews(@[ PreferenceRow(@"登录与账号管理", accountButton) ], 4.0);
-
     NSBox *updateCard = CardWithViews(
         @[
             PreferenceRow(@"当前版本", _versionLabel),
@@ -1730,15 +1730,22 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     feedbackCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSView *updatesPage = PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。", @[
-        SectionLabel(@"水杉账号"), accountCard, SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"),
-        feedbackCard
-    ]);
+    NSView *updatesPage =
+        PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
+                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
     updatesPage.accessibilityLabel = @"更新与反馈设置页";
+
+    // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
+    // top of a panel, for a view that is plain SwiftUI and hosts inline perfectly well.
+    NSView *accountPaneView = MSIMEAccountPaneView();
+    [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:360.0].active = YES;
+    NSView *accountPage =
+        PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[ accountPaneView ]);
+    accountPage.accessibilityLabel = @"账号设置页";
 
     _preferencePages = @[
         generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage, helpcodePage, shortcutsPage,
-        floatingPage
+        floatingPage, accountPage
     ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
@@ -1788,7 +1795,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)showBackendAccount:(id)sender
 {
     (void)sender;
-    MSIMEShowBackendAccount();
+    // 跳到账号页,不再另开一个窗。The sign-in is right here now; opening a second panel over the
+    // preferences window to reach it was the whole complaint.
+    const NSInteger accountIndex = 9;
+    [self showPreferencesPageAtIndex:accountIndex navigationIndex:accountIndex];
+    MSIMEAccountPaneAttach(self.window);
 }
 
 - (void)refreshUpdateControls
@@ -1811,15 +1822,17 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
 - (void)selectPreferencesPage:(NSButton *)sender
 {
+    // 下标约定:前面是真正的设置页,后面是开别的窗/开网页的动作。账号页加在页面区末尾,所以这条界线
+    // 和后面那几个动作的下标一起后移了一位 —— 加在最后会落进动作区,点了只会把按钮弹回去。
     const NSInteger selectedIndex = sender.tag;
-    if (selectedIndex >= 9)
+    if (selectedIndex >= static_cast<NSInteger>(_preferencePages.count))
     {
         sender.state = NSControlStateValueOff;
-        if (selectedIndex == 9)
+        if (selectedIndex == 10)
             [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
-        else if (selectedIndex == 10)
-            [self openWebsite:nil];
         else if (selectedIndex == 11)
+            [self openWebsite:nil];
+        else if (selectedIndex == 12)
             [self openFeedback:nil];
         return;
     }
@@ -1832,6 +1845,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     {
         const BOOL selected = index == pageIndex;
         _preferencePages[index].hidden = !selected;
+    }
+    // 账号视图靠宿主窗口当登录的 presentationAnchor,嵌进来之后它自己没有 window 可指。
+    if (pageIndex == 9)
+    {
+        MSIMEAccountPaneAttach(self.window);
+    }
+    else
+    {
+        MSIMEAccountPaneClose();
     }
     for (NSButton *button in _navigationButtons)
     {
@@ -2310,7 +2332,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _repeatPunctuationButton.state =
         MetasequoiaInputFlag(@"repeatPunctuation") ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateTranslationButton.state =
-        MetasequoiaInputFlag(@"candidateTranslation") ? NSControlStateValueOn : NSControlStateValueOff;
+        MetasequoiaInputFlag(@"candidateTranslation", YES) ? NSControlStateValueOn : NSControlStateValueOff;
     _cloudCandidatesButton.state =
         MetasequoiaInputFlag(@"cloudCandidates") ? NSControlStateValueOn : NSControlStateValueOff;
     [_translationProviderButton

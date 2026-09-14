@@ -106,7 +106,12 @@ final class KeyboardCandidatePanelView: UIView {
       let chip = makeChip(
         candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
         number: offset + 1)
-      let width = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+      // 按自然宽度量,并且不许超过一行的可用宽度。
+      let natural = chip.systemLayoutSizeFitting(
+        CGSize(width: available, height: UIView.layoutFittingCompressedSize.height),
+        withHorizontalFittingPriority: .fittingSizeLevel,
+        verticalFittingPriority: .fittingSizeLevel).width
+      let width = min(ceil(natural), available)
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
         row = makeRow(spacing: spacing)
@@ -141,6 +146,11 @@ final class KeyboardCandidatePanelView: UIView {
           ]))
     }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
+    // 候选一行写完,写不下就截断。Leaving this unset let a long candidate wrap inside its own chip,
+    // and it broke the packing as well: a wrapping title measures at its narrowest under a
+    // compressed fit, so every chip was measured far thinner than it draws, each row was handed
+    // more chips than fit, and the whole panel spilled past its width.
+    configuration.titleLineBreakMode = .byTruncatingTail
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor =
