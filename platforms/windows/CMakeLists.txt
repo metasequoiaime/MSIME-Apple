@@ -442,3 +442,13 @@ endif()
 set_tests_properties(windows-session PROPERTIES TIMEOUT 30)
 add_test(NAME windows-reply-codec COMMAND windows-reply-codec)
 add_test(NAME windows-reply-composer COMMAND windows-reply-composer)
+
+add_executable(windows-voice-control-message
+               VoiceControlMessage.cpp tests/voice_control_message.cpp)
+target_include_directories(windows-voice-control-message PRIVATE .)
+if(MSVC)
+  target_compile_options(windows-voice-control-message PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-voice-control-message PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-voice-control-message COMMAND windows-voice-control-message)
