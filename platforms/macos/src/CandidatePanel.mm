@@ -110,22 +110,32 @@ static const CGFloat kCandidateNumberGap = 6.0;
         const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
         const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
         const CGFloat available = MAX(0.0, self.bounds.size.width - textLeft - 8.0);
-        CGFloat y = self.bounds.size.height - 6.0 - wordSize.height;
+        // 按距顶端的距离排版,再按 isFlipped 换算成 y。这个绘制上下文是翻转的(y 向下增),直接从
+        // bounds.height 往下减会把释义画到词的上面 —— 原来的代码全部垂直居中,从没暴露过方向。
+        __block CGFloat fromTop = 6.0;
+        const BOOL flipped = self.isFlipped;
+        const CGFloat boxHeight = self.bounds.size.height;
+        CGFloat (^lineY)(CGFloat) = ^(CGFloat lineHeight) {
+          const CGFloat y = flipped ? fromTop : boxHeight - fromTop - lineHeight;
+          fromTop += lineHeight;
+          return y;
+        };
+        const CGFloat wordY = lineY(wordSize.height + 2.0);
         if (number.length > 0)
-            [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
+            [number drawAtPoint:NSMakePoint(textLeft, wordY) withAttributes:numberAttributes];
         const CGFloat wordX = textLeft + (number.length > 0 ? numberSize.width + kCandidateNumberGap : 0.0);
-        [word drawInRect:NSMakeRect(wordX, y, MAX(0.0, self.bounds.size.width - wordX - 8.0), wordSize.height)
+        [word drawInRect:NSMakeRect(wordX, wordY, MAX(0.0, self.bounds.size.width - wordX - 8.0), wordSize.height)
             withAttributes:titleAttributes];
         // 两行释义的位置固定,空着也占 —— 模型是几秒后才回的,等结果到了再长高会让整条候选条当场跳一下。
         const NSSize primarySize = [@"Ag" sizeWithAttributes:primaryAttributes];
-        y -= primarySize.height + 2.0;
+        const CGFloat primaryY = lineY(primarySize.height + 1.0);
         if (primary.length > 0)
-            [primary drawInRect:NSMakeRect(textLeft, y, available, primarySize.height)
+            [primary drawInRect:NSMakeRect(textLeft, primaryY, available, primarySize.height)
                  withAttributes:primaryAttributes];
         const NSSize secondarySize = [@"Ag" sizeWithAttributes:secondaryAttributes];
-        y -= secondarySize.height + 1.0;
+        const CGFloat secondaryY = lineY(secondarySize.height);
         if (secondary.length > 0)
-            [secondary drawInRect:NSMakeRect(textLeft, y, available, secondarySize.height)
+            [secondary drawInRect:NSMakeRect(textLeft, secondaryY, available, secondarySize.height)
                    withAttributes:secondaryAttributes];
         return;
     }

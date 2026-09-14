@@ -1215,7 +1215,7 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
             candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get(), wubiTypedCode));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
-        BOOL carriesTranslation = NO;
+        NSString *onlineGloss = nil;
         if (onlineTranslation)
         {
             NSString *language =
@@ -1225,13 +1225,14 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
                       .code);
             NSString *translation = _translationCache[
                 [NSString stringWithFormat:@"%@|%@", language, MetasequoiaStringFromUtf8(candidate.word)]];
+            // 释义走属性,不拼进显示串。拼接是横排面板还不读这个属性时的将就 —— 面板拿到「苹果 apple」
+            // 这样一个标题就没法把释义单独排一行,而叠排的整个意义就是让它独占一行。
             if (translation.length)
-            {
-                convertedDisplay = [NSString stringWithFormat:@"%@  %@", convertedDisplay, translation];
-                carriesTranslation = YES;
-            }
+                onlineGloss = translation;
         }
         NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
+        if (onlineGloss.length > 0)
+            indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, onlineGloss);
         // 第二条释义单独挂,不并进显示文本:候选格把它画在自己那一行,而上屏的仍然只是候选词本身。
         if (secondaryLanguage.length > 0)
         {
@@ -1240,7 +1241,7 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
             if (secondary.length > 0)
                 indexed = MetasequoiaCandidateStringByAddingSecondaryTranslation(indexed, secondary);
         }
-        if (glossDictionary != nullptr && !carriesTranslation)
+        if (glossDictionary != nullptr && onlineGloss.length == 0)
         {
             if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
             {
