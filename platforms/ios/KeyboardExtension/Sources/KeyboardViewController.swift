@@ -1585,6 +1585,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// while composing so a settings reload cannot interrupt Engine state.
   private func synchronizeSharedTouchPreferences() {
     guard let preferences = session.sharedPreferences else { return }
+    if let glossEnabled = preferences["candidate_english_gloss"] as? Bool,
+       glossEnabled != CandidateGlossPreference.enabled {
+      CandidateGlossPreference.enabled = glossEnabled
+      candidateGlossEpoch &+= 1
+      candidateGlossRequestedGeneration = nil
+      visibleCandidateGlosses = []
+    }
     var skinChanged = false
     var customSkinChanged = false
     let rawSkin = preferences["touch_keyboard_skin"] as? String
@@ -1636,6 +1643,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyLayoutPreferences()
     updateShortcutButtons()
     updatePreferredKeyboardHeight()
+    scheduleCandidateGlosses()
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on

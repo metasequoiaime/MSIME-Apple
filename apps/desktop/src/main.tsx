@@ -292,7 +292,7 @@ function DesktopSettings() {
           // candidate controllers, so the setting is real on both hosts.
           candidateEnglishGloss: host.platform === "linux" ||
             host.platform === "android" || host.platform === "windows" ||
-            host.platform === "macos",
+            host.platform === "macos" || host.platform === "ios",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
           ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, settingsSync: accountSettingsSync }, chat: accountChat,

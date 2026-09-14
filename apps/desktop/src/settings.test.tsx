@@ -123,6 +123,23 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
   expect(screen.getByRole("checkbox", { name: "显示英文释义" })).toBeTruthy();
 });
 
+test("iOS exposes the shared offline candidate gloss setting", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save,
+    host: { platform: "ios" } as HostCapabilities,
+    candidateEnglishGloss: true,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: true }));
+});
+
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);

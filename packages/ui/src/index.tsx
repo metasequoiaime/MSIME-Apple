@@ -630,7 +630,7 @@ export interface SettingsClient {
   customSkinLibrary?: CustomSkinLibraryClient;
   /** Android account-backed AI skin draw and artwork jobs. */
   aiSkins?: AiSkinClient;
-  /** Linux and Android can show packaged offline English glosses without changing candidate identity. */
+  /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
 }
 
