@@ -795,7 +795,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [self showAccount:sender];
     });
 }
-- (void)showCloudDictionary:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=cloud-dictionary"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [self showAccount:nil]; }
+- (void)showCloudDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"cloud-dictionary", NSWorkspace.sharedWorkspace, ^{ [self showAccount:nil]; }); }
 - (void)showHandwriting:(id)sender {
     (void)sender;
     NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
@@ -846,9 +846,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
-    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
-    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=keyboard"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
-    [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
+    MSIMEOpenDesktopRoute(@"keyboard", NSWorkspace.sharedWorkspace, ^{ [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard]; });
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
