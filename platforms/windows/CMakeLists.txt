@@ -523,3 +523,18 @@ add_executable(windows-voice-session-epoch tests/voice_session_epoch.cpp)
 target_link_libraries(windows-voice-session-epoch PRIVATE Threads::Threads)
 add_test(NAME windows-voice-session-epoch COMMAND windows-voice-session-epoch)
 set_tests_properties(windows-voice-session-epoch PROPERTIES TIMEOUT 10)
+
+# Tests in this tree check with assert(), but the suite is configured, built and
+# run in Release (platforms/windows/README.md), where NDEBUG compiles every one
+# of them away. That cost more than coverage: three targets stopped building
+# because /WX saw the variables an elided assert had left unused, and the tests
+# that still built were reporting success without checking anything. Keep the
+# assertions for the test executables only - the Server, the TIP and msimeui
+# keep NDEBUG, so nothing shipped gains an assert.
+get_property(msime_windows_tests DIRECTORY PROPERTY TESTS)
+foreach(msime_windows_test IN LISTS msime_windows_tests)
+  if(TARGET ${msime_windows_test})
+    target_compile_options(${msime_windows_test} PRIVATE
+                           $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+  endif()
+endforeach()
