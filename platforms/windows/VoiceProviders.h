@@ -17,6 +17,8 @@ std::string default_polish_model(std::string_view provider);
 bool is_doubao_asr_provider(std::string_view provider);
 // ws:// or wss://. Used to spot an endpoint left over from another provider.
 bool voice_endpoint_is_websocket(std::string_view endpoint);
+std::string resolved_asr_endpoint(std::string_view provider,
+                                  std::string_view configured_endpoint);
 std::string recognize_cloud_asr(
     const std::vector<float> &samples, std::string_view provider,
     std::string_view endpoint, std::string_view model, std::string_view token,
