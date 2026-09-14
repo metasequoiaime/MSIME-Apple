@@ -247,6 +247,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
+    // The Tauri settings app writes the shared PreferencesStore rather than the
+    // legacy App Group UserDefaults used by the old SwiftUI settings page.
+    // Reload it off-thread so a fuzzy-pinyin change is visible the next time
+    // the keyboard appears without blocking UIKit's input lifecycle.
+    session.reloadSharedPreferences { [weak self] loaded in
+      guard let self, loaded else { return }
+      self.applyLearningPreferences()
+    }
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
     renderCandidateStrip()
@@ -1314,7 +1322,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       mode, triggerCount: FrequencyAdjustmentPreference.triggerCount,
       linearStep: FrequencyAdjustmentPreference.linearStep)
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
-    _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
+    let legacyFuzzyPreferenceExists = FuzzyPinyinPreference.defaults.object(
+      forKey: FuzzyPinyinPreference.enabledKey) != nil
+    let fuzzyRules = legacyFuzzyPreferenceExists
+      ? FuzzyPinyinPreference.activeRules
+      : (session.sharedFuzzyPinyinRules ?? FuzzyPinyinPreference.activeRules)
+    if session.fuzzyPinyinRulesApplied != fuzzyRules {
+      _ = session.setFuzzyPinyinRules(fuzzyRules)
+    }
     session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
   }
 

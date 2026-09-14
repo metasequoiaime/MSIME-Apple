@@ -38,6 +38,8 @@ private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: U
 private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
 private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_load_preferences")
+private func msimeClientLoadPreferences(_ directory: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_view")
 private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_all_candidates")
@@ -118,8 +120,10 @@ private enum InputBridgeFailure: LocalizedError {
 final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var handle: UInt64 = 0
   private var options: [String: Any]
+  private var stateRoot: String?
   private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
+  private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
   // Nine-key lives on the session, not in the preferences the options carry, so a rebuilt session
   // starts back on the 26-key layout unless it is told again.
@@ -127,6 +131,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
+    self.stateRoot = nil
+    self.appliedFuzzyPinyinRules = nil
     do {
       let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
       if EnglishMixedCandidatesMigration.shouldMigrate(customStateRoot: stateRoot),
@@ -136,6 +142,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       }
       options = try Self.callOptions(msimeClientPrepareHost,
                                      bootstrap)
+      self.stateRoot = options["preferences_directory"] as? String
+        ?? bootstrap["state_root"] as? String
       var preferences = options["preferences"] as? [String: Any] ?? [:]
       preferences["candidate_page_size"] = 9
       // The shared preference default is English, and iOS has no setting that overrides it: the
@@ -163,6 +171,64 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return !mode.isEmpty && mode != "none"
   }
   var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
+
+  /// Reload the canonical PreferencesStore written by the Tauri settings host.
+  /// Disk and lock work stays off the keyboard thread; the accepted snapshot is
+  /// applied on the session's owning (main) thread before the callback returns.
+  func reloadSharedPreferences(completion: @escaping (Bool) -> Void) {
+    guard handle != 0, let stateRoot else { completion(false); return }
+    let path = Data(stateRoot.utf8)
+    DispatchQueue.global(qos: .utility).async { [weak self, path] in
+      guard self != nil else { return }
+      let snapshot: [String: Any]?
+      do {
+        snapshot = try path.withUnsafeBytes { bytes in
+          try MetasequoiaInputSessionBridge.decode(msimeClientLoadPreferences(
+            bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(path.count))) as? [String: Any]
+        }
+      } catch {
+        snapshot = nil
+      }
+      DispatchQueue.main.async { [weak self] in
+        guard let self, let snapshot,
+              let preferences = snapshot["preferences"] as? [String: Any],
+              let revision = snapshot["revision"] as? NSNumber else {
+          completion(false)
+          return
+        }
+        guard revision.uint64Value >= self.revision else {
+          completion(false)
+          return
+        }
+        // Keep the session's engine configuration stable while the keyboard is
+        // visible; applyLearningPreferences will update only the fuzzy-pinyin
+        // contract below. This avoids changing the selected scheme underneath
+        // UIKit while a Tauri settings write is being observed.
+        self.options["preferences"] = preferences
+        self.revision = max(self.revision, revision.uint64Value)
+        completion(true)
+      }
+    }
+  }
+
+  /// The active fuzzy-pinyin bitset from the shared PreferencesStore.
+  /// `nil` is reserved for an unavailable/legacy session so the native
+  /// compatibility preference can still be used by older hosts.
+  var sharedFuzzyPinyinRules: UInt32? {
+    guard let preferences = options["preferences"] as? [String: Any],
+          let fuzzy = preferences["fuzzy_pinyin"] as? [String: Any],
+          let enabled = fuzzy["enabled"] as? Bool,
+          let names = fuzzy["rules"] as? [String] else { return nil }
+    guard enabled else { return 0 }
+    let ruleIDs = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l",
+                   "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
+    let selected = Set(names)
+    return ruleIDs.enumerated().reduce(UInt32(0)) { value, entry in
+      selected.contains(entry.element) ? value | (1 << entry.offset) : value
+    }
+  }
+
+  var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
   func handleCharacter(_ character: String) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: false) }
@@ -273,10 +339,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   @discardableResult func setFuzzyPinyinRules(_ rules: UInt32) -> Bool {
     let names = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
-    return updatePreferences { prefs in
+    let applied = updatePreferences { prefs in
       prefs["fuzzy_pinyin"] = ["enabled": rules != 0, "seeded": true,
                                 "rules": names.enumerated().compactMap { rules & (1 << $0.offset) == 0 ? nil : $0.element }]
     }
+    if applied { appliedFuzzyPinyinRules = rules }
+    return applied
   }
 
   func setWubiMixedPinyin(_ enabled: Bool) {

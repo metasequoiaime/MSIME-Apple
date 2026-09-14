@@ -139,14 +139,16 @@ impl HostCapabilities {
                 HostPlatform::Linux | HostPlatform::Windows
             ),
             typing_statistics: true,
-            // Windows, Linux, macOS and Android apply the shared fuzzy-pinyin
-            // options; iOS will opt in when its host consumes the contract.
+            // Every input host consumes the shared fuzzy-pinyin options. The
+            // iOS Tauri settings surface writes the same PreferencesStore that
+            // the keyboard extension reloads before applying its session.
             fuzzy_pinyin: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Linux
                     | HostPlatform::Macos
                     | HostPlatform::Android
+                    | HostPlatform::Ios
             ),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
@@ -614,6 +616,10 @@ mod tests {
         assert!(!android.candidate_font_controls);
         assert!(!android.candidate_row_colors);
         assert!(!android.candidate_selection_appearance);
+        let ios = HostCapabilities::for_platform(HostPlatform::Ios);
+        assert!(ios.fuzzy_pinyin);
+        assert!(ios.typing_statistics);
+        assert!(!ios.panel_windows);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
