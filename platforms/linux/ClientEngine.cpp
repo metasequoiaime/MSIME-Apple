@@ -2969,9 +2969,12 @@ void render(IBusEngine *engine, const Json &view) {
         highlighted && state(engine).candidate_selected_text_color
             ? state(engine).candidate_selected_text_color
             : state(engine).candidate_text_color;
-    // Fixed candidates keep the accent priority used by the Windows
-    // presenter, including when the row is highlighted.
-    if (fixed_position > 0 && state(engine).candidate_accent_color)
+    // Windows lets the selected-row text colour win for every candidate;
+    // fixed entries use the accent only while they are not highlighted.
+    if (highlighted && row_text_color)
+      ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 *row_text_color, 0, G_MAXUINT);
+    else if (fixed_position > 0 && state(engine).candidate_accent_color)
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
           *state(engine).candidate_accent_color, 0, G_MAXUINT);

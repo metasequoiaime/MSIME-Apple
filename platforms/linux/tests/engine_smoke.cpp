@@ -30,6 +30,8 @@ struct Observation {
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
   guint first_candidate_number_color = 0;
+  std::string first_candidate_fix_name;
+  std::string first_candidate_clear_name;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -74,39 +76,52 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   g_object_ref_sink(object);
   if (std::string(name) == "UpdateAuxiliaryText")
     seen.auxiliary = ibus_text_get_text(IBUS_TEXT(object));
-  auto observe_property = [&](IBusProperty *property) {
-    if (std::string(ibus_property_get_key(property)) == "InputMode") {
+  auto observe_property = [&](auto &&self, IBusProperty *property) -> void {
+    const std::string key = ibus_property_get_key(property);
+    if (key == "CandidateActions") {
+      seen.first_candidate_fix_name.clear();
+      seen.first_candidate_clear_name.clear();
+    }
+    if (seen.first_candidate_fix_name.empty() &&
+        (key == "CandidateFix1" || key.rfind("CandidateFix1/", 0) == 0))
+      seen.first_candidate_fix_name = key;
+    if (seen.first_candidate_clear_name.empty() &&
+        (key == "CandidateClear" || key.rfind("CandidateClear/", 0) == 0))
+      seen.first_candidate_clear_name = key;
+    if (key == "InputMode") {
       seen.input_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
     }
-    if (std::string(ibus_property_get_key(property)) == "SmartPunctuation")
+    if (key == "SmartPunctuation")
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
-    if (std::string(ibus_property_get_key(property)) == "EnglishMode")
+    if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
-    if (std::string(ibus_property_get_key(property)) == "TraditionalOutput")
+    if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
-    if (std::string(ibus_property_get_key(property)) == "Punctuation")
+    if (key == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
-    if (std::string(ibus_property_get_key(property)) ==
-        "AutocorrectTransposition")
+    if (key == "AutocorrectTransposition")
       seen.autocorrect_transposition =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
-    if (std::string(ibus_property_get_key(property)) == "AutocorrectNeighbor")
+    if (key == "AutocorrectNeighbor")
       seen.autocorrect_neighbor =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (auto sub_properties = ibus_property_get_sub_props(property))
+      for (guint i = 0; auto child = ibus_prop_list_get(sub_properties, i); ++i)
+        self(self, child);
   };
   if (std::string(name) == "RegisterProperties") {
     auto properties = IBUS_PROP_LIST(object);
     for (guint i = 0; auto property = ibus_prop_list_get(properties, i); ++i) {
-      observe_property(property);
+      observe_property(observe_property, property);
       if (std::string(ibus_property_get_key(property)) == "InputMode")
         seen.mode_registered = true;
     }
   }
   if (std::string(name) == "UpdateProperty")
-    observe_property(IBUS_PROPERTY(object));
+    observe_property(observe_property, IBUS_PROPERTY(object));
   if (std::string(name) == "CommitText")
     seen.committed += ibus_text_get_text(IBUS_TEXT(object));
   if (std::string(name) == "UpdatePreeditText") {
@@ -1202,6 +1217,8 @@ int main(int argc, char **argv) {
                            IBUS_Return, IBUS_KP_Enter})
       require(!key(idle_key) && seen.committed.empty(),
               "Idle composition edit key was intercepted");
+    seen.first_candidate_fix_name.clear();
+    seen.first_candidate_clear_name.clear();
     phrase();
     require(seen.preedit_visible && seen.preedit == "nihao",
             "Preedit signal missing");
@@ -1216,6 +1233,19 @@ int main(int argc, char **argv) {
             "Selected candidate color attribute missing");
     require(seen.first_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
+    require(!seen.first_candidate_fix_name.empty() &&
+                !seen.first_candidate_clear_name.empty(),
+            "Candidate position actions were not published");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", seen.first_candidate_fix_name.c_str(),
+                         PROP_STATE_UNCHECKED));
+    require(seen.candidates.front().find("固定1") != std::string::npos,
+            "Candidate position action did not fix the highlighted candidate");
+    require(seen.first_candidate_color == 0x123456,
+            "Highlighted fixed candidate did not keep selected-row text color");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", seen.first_candidate_clear_name.c_str(),
+                         PROP_STATE_UNCHECKED));
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     invoke("Reset");
