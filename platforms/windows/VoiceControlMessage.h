@@ -4,10 +4,15 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include "windows_ipc.h"
 
 namespace msime::windows {
 
-enum class VoiceControlCommand : uint32_t { Start = 1, Stop = 2, Cancel = 3 };
+enum class VoiceControlCommand : uint32_t {
+  Start = FanyImeVoiceControl::Start,
+  Stop = FanyImeVoiceControl::Stop,
+  Cancel = FanyImeVoiceControl::Cancel
+};
 
 struct VoiceControlMessage {
   VoiceControlCommand command;
@@ -19,7 +24,7 @@ struct VoiceControlMessage {
 // Bounded UTF-16 text framing for the authenticated control pipe. The
 // receiver still validates identity and epoch against PipeRegistry; this
 // codec only validates the message shape and prevents oversized allocations.
-inline constexpr size_t kVoiceControlMessageChars = 96;
+inline constexpr size_t kVoiceControlMessageChars = FanyImeVoiceControl::MaxMessageChars;
 
 std::optional<std::wstring> encode_voice_control(const VoiceControlMessage &message);
 std::optional<VoiceControlMessage> decode_voice_control(std::wstring_view text);

@@ -44,7 +44,8 @@ std::optional<VoiceControlMessage> decode_voice_control(std::wstring_view text) 
         (index == 3 && end != std::wstring_view::npos)) return std::nullopt;
     begin = end == std::wstring_view::npos ? text.size() : end + 1;
   }
-  if (values[0] < 1 || values[0] > 3 || values[1] == 0 || values[2] == 0 || values[3] == 0)
+  if (values[0] < FanyImeVoiceControl::Start || values[0] > FanyImeVoiceControl::Cancel ||
+      values[1] == 0 || values[2] == 0 || values[3] == 0)
     return std::nullopt;
   return VoiceControlMessage{static_cast<VoiceControlCommand>(values[0]), values[1], values[2], values[3]};
 }
