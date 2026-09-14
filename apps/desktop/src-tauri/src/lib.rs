@@ -694,6 +694,18 @@ async fn test_api_credential(
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
+            if service.starts_with("translation.") {
+                let milliseconds = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+                    .unwrap_or(0);
+                return msime_client_core::credential_translation::test(
+                    &service,
+                    &config,
+                    milliseconds,
+                    &msime_client_core::credential_translation::HttpTransport,
+                );
+            }
             msime_client_core::credential_test::test_chat(
                 &service,
                 &config,
