@@ -42,7 +42,7 @@ export type { SkinFont, SkinFontReader } from "./skin-font";
 export { POLISH_CUSTOM_IDS, POLISH_PRESETS, POLISH_PRESET_IDS, POLISH_PRESET_NAMES, isPolishCustomSlot, normalizePolishSlot, polishPresetPrompt, type PolishPresetId } from "./polish-presets";
 export { ASR_PROVIDER_DEFAULTS, POLISH_PROVIDER_DEFAULTS, asrProviderUpdate, polishProviderUpdate, type ProviderDefaults } from "./voice-providers";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
-import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
+import { compareVersions, describeInstallerTrust, parseVersion, validateGitHubRelease, validateManifest, type GitHubRelease, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
 export { emojiDisplayName } from "./panels";
 export { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type CloudCandidate, type CloudCandidateKind, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryCatalogEntry, type CloudDictionaryEntry, type CloudDictionaryFileFormat, type CloudDictionaryKind, type CloudDictionaryPanelClient, type CloudDictionarySnapshotMetadata, type CloudDictionarySnapshotRequest, type CloudFixedPosition, type CloudRankingMode, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
@@ -159,6 +159,7 @@ const appVersion = "0.1.0";
 const releasesPageUrl = "https://github.com/metasequoiaime/MSIME-Windows/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/MSIME-Client/releases";
 const updateManifestUrl = "https://msime.app/update.json";
+const clientLatestReleaseUrl = "https://api.github.com/repos/metasequoiaime/MSIME-Client/releases/latest";
 const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE";
 const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -786,7 +787,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   const showVoiceCaptureDevices = !androidPlatform && (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const showDesktopMaintenanceShortcuts = !host || (host.platform !== "android" && host.platform !== "ios");
-  const platformReleasesPageUrl = linuxPlatform || androidPlatform ? linuxReleasesPageUrl : releasesPageUrl;
+  const clientHostedPlatform = linuxPlatform || androidPlatform || macosPlatform || host?.platform === "ios";
+  const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = linuxPlatform || androidPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = linuxPlatform || androidPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -945,10 +947,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   async function checkForUpdate() {
     setUpdateBusy(true); setUpdateStatus(""); setAvailableUpdate(null);
     try {
-      const response = await fetch(`${updateManifestUrl}?t=${Date.now()}`, { cache: "no-store" });
+      const endpoint = clientHostedPlatform ? clientLatestReleaseUrl : updateManifestUrl;
+      const response = await fetch(`${endpoint}?t=${Date.now()}`, { cache: "no-store" });
+      if (clientHostedPlatform && response.status === 404) {
+        setUpdateStatus("暂无可用发行版");
+        return;
+      }
       if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
-      const manifest = await response.json() as UpdateManifest;
-      const update = validateManifest(manifest, platformReleasesPageUrl);
+      const manifest = await response.json() as UpdateManifest | GitHubRelease;
+      const update = clientHostedPlatform
+        ? validateGitHubRelease(manifest as GitHubRelease, platformReleasesPageUrl)
+        : validateManifest(manifest as UpdateManifest, platformReleasesPageUrl);
       const current = parseVersion(appVersion);
       if (!update || !current) throw new Error("invalid update manifest");
       if (compareVersions(update.version, current) > 0) {

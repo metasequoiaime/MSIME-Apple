@@ -218,6 +218,8 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 Linux 关于页的“IBus 宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 宿主在偏好目录写入仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
 
+Linux 关于页的“检查更新”查询 MSIME-Client 自身的 GitHub 最新发行版，不复用只发布 Windows 安装程序的 `msime.app/update.json`。发行页地址必须属于固定的 MSIME-Client releases 路径才会显示；仓库尚无发行版时显示正常的“暂无可用发行版”状态，网络错误或无效响应才报告检查失败。Windows 继续使用带安装程序签名和 SHA256 元数据的原有清单。
+
 ## Windows parity gaps
 
 Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开关首次从关闭切换为开启时，偏好存储会一次性选中 11 条规则；用户之后删减规则、暂时关闭再恢复时保留删减结果，并用内部播种标记避免空规则集被再次填充。规则计算仍由 Engine 完成。

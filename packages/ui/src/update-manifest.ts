@@ -8,6 +8,11 @@ export type UpdateManifest = {
   signed?: unknown;
 };
 
+export type GitHubRelease = {
+  tag_name?: unknown;
+  html_url?: unknown;
+};
+
 export type ValidatedUpdate = {
   version: Version;
   releaseUrl: string;
@@ -45,6 +50,20 @@ export function validateManifest(manifest: UpdateManifest, releasesPageUrl: stri
     installerName: typeof manifest.installerName === "string" && installerNamePattern.test(manifest.installerName) ? manifest.installerName : null,
     installerSha256: typeof manifest.installerSha256 === "string" && sha256Pattern.test(manifest.installerSha256) ? manifest.installerSha256 : null,
     signed: typeof manifest.signed === "boolean" ? manifest.signed : null,
+  };
+}
+
+export function validateGitHubRelease(release: GitHubRelease, releasesPageUrl: string): ValidatedUpdate | null {
+  if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") return null;
+  if (!release.html_url.startsWith(`${releasesPageUrl}/tag/`)) return null;
+  const version = parseVersion(release.tag_name);
+  if (!version) return null;
+  return {
+    version,
+    releaseUrl: release.html_url,
+    installerName: null,
+    installerSha256: null,
+    signed: null,
   };
 }
 

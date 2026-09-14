@@ -7,6 +7,7 @@ import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
 import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
 
 afterEach(cleanup);
 
@@ -1435,6 +1436,55 @@ test("about page validates a newer release before offering its URL", async () =>
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/releases"));
   vi.unstubAllGlobals();
+});
+
+test("Linux checks the client release feed and treats no release as a normal result", async () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+  vi.stubGlobal("fetch", fetch);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "linux" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("暂无可用发行版")).toBeDefined();
+  expect(fetch).toHaveBeenCalledWith(
+    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/MSIME-Client\/releases\/latest\?t=\d+$/),
+    { cache: "no-store" },
+  );
+  vi.unstubAllGlobals();
+});
+
+test("Linux offers a validated newer client release", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      tag_name: "v1.2.0",
+      html_url: "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+    }),
+  }));
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    host: { platform: "linux" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(
+    "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+  ));
+  expect(screen.queryByText(/SHA256/)).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("client release validation rejects a release URL outside MSIME-Client", () => {
+  expect(validateGitHubRelease({
+    tag_name: "v1.2.0",
+    html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
+  }, "https://github.com/metasequoiaime/MSIME-Client/releases")).toBeNull();
 });
 
 test("screen keyboard and handwriting pages expose the native panel actions", async () => {
