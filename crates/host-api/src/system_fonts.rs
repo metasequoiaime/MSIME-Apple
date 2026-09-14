@@ -1,11 +1,20 @@
 //! Installed family names only; never expose font files or paths to the webview.
 pub fn supported() -> bool {
-    cfg!(any(target_os = "macos", target_os = "linux"))
+    cfg!(any(target_os = "macos", target_os = "linux", windows))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub fn list() -> Result<Vec<String>, &'static str> {
     Err("unsupported")
+}
+
+#[cfg(windows)]
+#[path = "system_fonts_windows.rs"]
+mod windows_catalog;
+
+#[cfg(windows)]
+pub fn list() -> Result<Vec<String>, &'static str> {
+    windows_catalog::list()
 }
 
 #[cfg(target_os = "linux")]
