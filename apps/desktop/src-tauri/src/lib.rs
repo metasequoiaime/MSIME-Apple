@@ -28,7 +28,6 @@ use msime_client_core::typing_statistics::{
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
-use tauri::Emitter;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -3526,43 +3525,46 @@ pub fn run() {
             {
                 let linger = DesktopSettingsLinger::default();
                 app.manage(linger.clone());
-                app.on_window_event(move |window, event| {
-                    if window.label() != "main" {
-                        return;
-                    }
-                    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
-                        return;
-                    };
-                    if linger.quitting.load(Ordering::Acquire) {
-                        return;
-                    }
-                    api.prevent_close();
-                    let generation = linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = window.hide();
-                    let app = window.app_handle().clone();
-                    let linger = linger.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(10 * 60));
-                        let timer_app = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if linger
-                                .generation
-                                .compare_exchange(
-                                    generation,
-                                    generation + 1,
-                                    Ordering::AcqRel,
-                                    Ordering::Acquire,
-                                )
-                                .is_ok()
-                            {
-                                linger.quitting.store(true, Ordering::Release);
-                                if let Some(window) = timer_app.get_webview_window("main") {
-                                    let _ = window.close();
+                // The handler belongs to the window: App has no on_window_event,
+                // and the label check this replaces only ever admitted "main".
+                if let Some(main) = app.get_webview_window("main") {
+                    let window = main.clone();
+                    main.on_window_event(move |event| {
+                        let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                            return;
+                        };
+                        if linger.quitting.load(Ordering::Acquire) {
+                            return;
+                        }
+                        api.prevent_close();
+                        let generation =
+                            linger.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                        let _ = window.hide();
+                        let app = window.app_handle().clone();
+                        let linger = linger.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(10 * 60));
+                            let timer_app = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if linger
+                                    .generation
+                                    .compare_exchange(
+                                        generation,
+                                        generation + 1,
+                                        Ordering::AcqRel,
+                                        Ordering::Acquire,
+                                    )
+                                    .is_ok()
+                                {
+                                    linger.quitting.store(true, Ordering::Release);
+                                    if let Some(window) = timer_app.get_webview_window("main") {
+                                        let _ = window.close();
+                                    }
                                 }
-                            }
+                            });
                         });
                     });
-                });
+                }
             }
             #[cfg(unix)]
             app.manage(voice_sessions::VoiceSessions::default());
