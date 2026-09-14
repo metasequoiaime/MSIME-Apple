@@ -80,10 +80,15 @@ Json skin_display_preferences(Json preferences) {
     if (!preferences.value("candidate_accent_color", Json(nullptr)).is_string() &&
         palette.contains("accent"))
       preferences["candidate_accent_color"] = palette["accent"];
-    if (!preferences.value("candidate_selected_color", Json(nullptr)).is_string() &&
+    if (!preferences.value("candidate_selected_color", Json(nullptr))
+             .is_string() &&
         palette.contains("selected"))
       preferences["candidate_selected_color"] = palette["selected"];
-    if (palette.contains("surface"))
+    const bool custom_surface =
+        preferences.value("candidate_background_color", Json(nullptr))
+            .is_string() ||
+        preferences.value("candidate_surface_color", Json(nullptr)).is_string();
+    if (!custom_surface && palette.contains("surface"))
       preferences["candidate_background_color"] = palette["surface"];
     break;
   }
@@ -1454,15 +1459,39 @@ std::optional<std::string> surrounding_following_character(const State &s) {
   const auto *end = g_utf8_next_char(start);
   return std::string(start, static_cast<std::size_t>(end - start));
 }
-bool try_skip_paired_closing(IBusEngine *engine, guint key) {
+bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
   if (key > 0x7f) return false;
+  std::uint32_t paired_modifiers = 0;
+  if (flags & IBUS_CONTROL_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Control);
+  if (flags & IBUS_MOD1_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Alt);
+  if (flags & IBUS_MOD4_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Super);
+  if (flags & IBUS_SUPER_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Super);
+  if (flags & IBUS_META_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Meta);
+  if (flags & IBUS_HYPER_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Hyper);
+  if (flags & IBUS_MOD5_MASK)
+    paired_modifiers |= static_cast<std::uint32_t>(
+        msime::linux_host::PairedPunctuationModifier::Mod5);
   const auto closing = msime::linux_host::paired_closing_for_key(
       static_cast<char>(key), s.fullwidth);
   if (!closing) return false;
   const auto following = surrounding_following_character(s);
+  const bool modifiers_allowed =
+      msime::linux_host::paired_closing_modifiers_allowed(paired_modifiers);
   if (!s.paired_tracker.consume(*closing, following.value_or(""),
-                                    following.has_value()))
+                                following.has_value(), modifiers_allowed))
     return false;
   s.last_smart_punctuation = 0;
   s.last_smart_punctuation_time = 0;
@@ -3062,6 +3091,8 @@ Json voice_provider_options(const Json &preferences) {
     if (!voice.contains(key) || !voice.at(key).is_string())
       continue;
     auto value = voice.at(key).get<std::string>();
+    if (std::string_view(key) == "doubao_auth_mode" && value != "api_key" && value != "legacy")
+      continue;
     if (value.size() > 512) {
       size_t end = 512;
       while (end && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;
@@ -4924,11 +4955,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const auto active_scheme = s.scheme_override.value_or(configured_scheme);
     if (active_scheme == "japanese")
       return FALSE;
+    if (menu_save_pending)
+      return FALSE;
+    const bool next = !s.traditional_output;
+    const auto directory = configured.value("preferences_directory", std::string{});
+    if (!directory.empty() && directory.front() == '/') {
+      save_menu_preference(engine, MenuPreference::TraditionalOutput, next);
+      return TRUE;
+    }
     guarded(engine, "toggle_character_set", [&] {
       s.open();
       if (!s.session)
         return;
-      s.traditional_output = !s.traditional_output;
+      s.traditional_output = next;
       s.traditional_output_override = s.traditional_output;
       render(engine, s.view);
       publish_mode(engine);
@@ -5067,7 +5106,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
-    if (try_skip_paired_closing(engine, key)) {
+    if (try_skip_paired_closing(engine, key, flags)) {
       handled = true;
       return;
     }

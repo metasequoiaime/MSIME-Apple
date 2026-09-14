@@ -380,6 +380,7 @@ test("voice settings persist under the shared voice_input contract", async () =>
   expect(enabled.checked).toBe(true);
   fireEvent.click(enabled);
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), { target: { value: "doubao" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), { target: { value: "legacy" } });
   fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -394,6 +395,20 @@ test("voice settings persist under the shared voice_input contract", async () =>
       // into the slot being left rather than carrying it to the new endpoint.
       asr_token: "", asr_tokens: {} },
   });
+});
+
+test("voice settings default to the single API Key mode", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const authMode = await screen.findByRole("combobox", { name: "豆包鉴权方式" }) as HTMLSelectElement;
+  expect(authMode.value).toBe("api_key");
+  fireEvent.change(authMode, { target: { value: "legacy" } });
+  fireEvent.change(authMode, { target: { value: "api_key" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("api_key");
 });
 
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
@@ -593,6 +608,13 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
+});
+
+test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
+  const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("鼠标滚轮")).toBeDefined();
 });
 
 test("utility mode switches preserve defaults and drafts across pages", async () => {

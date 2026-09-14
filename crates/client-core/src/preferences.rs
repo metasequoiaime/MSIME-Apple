@@ -342,6 +342,8 @@ pub struct Preferences {
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
+    pub niutrans: NiuTransPreferences,
+    #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub character_width: CharacterWidthPreference,
@@ -679,6 +681,14 @@ pub struct TencentTmtPreferences {
     pub region: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NiuTransPreferences {
+    pub enabled: bool,
+    pub app_id: String,
+    pub apikey: String,
+}
+
 impl Default for TencentTmtPreferences {
     fn default() -> Self {
         Self {
@@ -984,6 +994,7 @@ impl Default for KeybindingPreferences {
 fn enabled_by_default() -> bool {
     true
 }
+
 fn default_candidate_font_size() -> u8 {
     16
 }
@@ -1015,6 +1026,7 @@ impl Default for Preferences {
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
+            niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             character_width: CharacterWidthPreference::default(),
@@ -1294,6 +1306,18 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTencentTmt);
         }
+        let niutrans = &self.niutrans;
+        if niutrans.app_id.len() > 4096
+            || niutrans.apikey.len() > 4096
+            || niutrans.app_id.chars().any(char::is_control)
+            || niutrans.apikey.chars().any(char::is_control)
+            || (!niutrans.app_id.is_empty()
+                && !crate::translation::usable_niutrans_credential(&niutrans.app_id))
+            || (!niutrans.apikey.is_empty()
+                && !crate::translation::usable_niutrans_credential(&niutrans.apikey))
+        {
+            return Err(PreferencesError::InvalidNiuTrans);
+        }
         let translation = &self.custom_translation;
         if translation.endpoint.len() > 2048
             || translation.api_key.len() > 4096
@@ -1484,6 +1508,8 @@ pub enum PreferencesError {
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
     InvalidTencentTmt,
+    #[error("NiuTrans translation credentials are invalid")]
+    InvalidNiuTrans,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
@@ -3198,6 +3224,34 @@ mod tests {
                 preferences.validate(),
                 Err(PreferencesError::InvalidTencentTmt)
             ));
+        }
+    }
+
+    #[test]
+    fn niutrans_translation_defaults_migrate_and_validate() {
+        let defaults = Preferences::default();
+        assert!(!defaults.niutrans.enabled);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("niutrans");
+        let restored: Preferences = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.niutrans, defaults.niutrans);
+        let mut configured = defaults.clone();
+        configured.niutrans.enabled = true;
+        configured.niutrans.app_id = "synthetic-app".into();
+        configured.niutrans.apikey = "synthetic-key".into();
+        assert!(configured.validate().is_ok());
+        for (app_id, apikey) in [
+            ("x".repeat(4097), String::new()),
+            (String::new(), "x".repeat(4097)),
+            ("bad\napp".into(), String::new()),
+            (String::new(), "bad\rkey".into()),
+            ("<YOUR_APP_ID>".into(), String::new()),
+            (String::new(), "FAKESECRET_key".into()),
+        ] {
+            let mut invalid = defaults.clone();
+            invalid.niutrans.app_id = app_id;
+            invalid.niutrans.apikey = apikey;
+            assert!(matches!(invalid.validate(), Err(PreferencesError::InvalidNiuTrans)));
         }
     }
 

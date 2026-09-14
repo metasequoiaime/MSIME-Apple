@@ -94,6 +94,7 @@ pub enum ImportIssue {
     EmptyKey,
     KeyTooLong,
     KeyAlphabet,
+    Pinyin,
     EmptyValue,
     ValueTooLong,
     QuickPhraseTooLong,

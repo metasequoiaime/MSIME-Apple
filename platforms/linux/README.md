@@ -92,6 +92,8 @@ Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主�
 
 IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本通过系统 ICU 的 `Simplified-Traditional` 转换器转换为繁体；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。这个开关只覆盖当前 IBus 会话，偏好文件中的 `traditional_chinese_output` 作为新会话默认值。
 
+`Ctrl+Shift+F` 使用同一简繁输出路径：配置了共享偏好目录时通过 revision 保存 `traditional_chinese_output`，保存成功后更新当前会话；没有可写偏好目录时保留会话级切换。持久化写入进行中不会吞掉该快捷键，避免重复操作覆盖较新的 revision。
+
 当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
 `Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 预览服务进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。
@@ -236,7 +238,7 @@ Microsoft 双拼：当当前方案使用 Microsoft 键位且光标所在分音�
 
 Unicode 输入：进入 Unicode 本地模式后，`Shift++` 作为 Engine 的 `+` 输入继续组成 `U+` 前缀，不会被候选标点或减号/等号翻页路径拦截。
 
-成对标点：启用成对标点后，`(`、`[` 和 `<` 的中文开标点会由宿主追加对应闭标点，`{` 追加 ASCII `}`，并向编辑器转发一次左移以把光标留在标点中间；`<` 的嵌套层级仍由 Engine 决定。候选活动时先完成高亮候选再补成对标点；候选导航绑定优先于成对标点。
+成对标点：启用成对标点后，`(`、`[` 和 `<` 的中文开标点会由宿主追加对应闭标点，`{` 追加 ASCII `}`，并向编辑器转发一次左移以把光标留在标点中间；`<` 的嵌套层级仍由 Engine 决定。候选活动时先完成高亮候选再补成对标点；候选导航绑定优先于成对标点。宿主按焦点右侧的 surrounding text 校验闭标点，使用有界配对栈避免重复输入；带 Ctrl、Alt、Super、Meta、Hyper 或 Mod5 的组合不触发跳过，Shift 仍可作为 `)`、`}`、`>` 和引号的物理按键修饰键，且被拒绝的组合不会破坏配对栈。
 
 AI 联想请求可携带 `ai_context`：当前焦点会话最近经共享提交路径上屏的文本，最多 1024 个 UTF-8 字节，按字符边界截断。分段选词和整句候选各追加本次提交，不重复追加已提交前缀；使用最终简繁/全角转换后的文本。仅启用 AI 联想且查询符合条件时发送，私密字段不记录，失焦、reset 和会话关闭时清空；不落盘、不写日志。provider 应将该字段仅用于 AI 联想上下文。
 
@@ -300,7 +302,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
 
 `asr.provider` 设为 `doubao` 时，语音服务使用相同录音和控制入口流式上传，无需先录完整段音频。运行服务的 Python 环境须安装 `websockets==15.0.1`；依赖清单随包安装至 `share/msime-client/requirements-voice.txt`，缺少依赖时启动返回通用配置错误，不会录音后才失败。批量识别仍只依赖 Python 标准库。同步 WebSocket 客户端参数参考其[官方文档](https://websockets.readthedocs.io/en/15.0.1/reference/sync/client.html)。
 
-Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`resource_id` 默认 `volc.seedasr.sauc.duration`。新控制台单 API Key 放入 `token`，旧控制台额外配置 `app_key` 并把 Access Token 放入 `token`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
+Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`doubao_auth_mode` 可设为 `api_key`（新版控制台，发送单个 `X-Api-Key`）或 `legacy`（旧版控制台，发送 `X-Api-App-Key` 与 `X-Api-Access-Key`）。新版 API Key 放入 `token`；旧版还必须配置 `app_key`，并把 Access Token 放入 `token`。省略或填写未知模式时，服务按是否存在 `app_key` 推断，以兼容旧配置；显式 `api_key` 会忽略残留的 `app_key`。`resource_id` 默认 `volc.seedasr.sauc.duration`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
 
 实现沿用 Windows 固定提交 `b21a1671` 的二进制协议：16kHz、16-bit、单声道 PCM，每 200ms 一帧，gzip 压缩，递增序列号，结束帧使用负序列号。`doubao_enable_itn`、`doubao_enable_punc`、`doubao_enable_ddc` 和 `doubao_boosting_table_id` 进入首帧选项。录音中的变更转写以 partial 事件返回；宿主继续根据 `stream_inline_preedit` 决定是否更新预编辑。松开或达到录音上限后发送结束帧，最多等待 30 秒获取最终结果，再进行可选润色。服务错误、超时和取消不会把中间结果冒充最终结果上屏。
 
@@ -379,6 +381,8 @@ Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和
 
 候选配色没有明确文字色时，会根据实际背景的相对亮度选择对比度更高的黑色或白色，避免系统主题与 IBus 面板主题不一致时出现深底深字或浅底浅字。有效的用户文字色和外部皮肤文字色仍优先。
 
+Tauri 设置页按 HostCapabilities 分开暴露候选行颜色与原生卡片装饰：Linux IBus 显示候选强调色和选中行颜色，字体、字号、悬停色和边框色仍隐藏，因为 lookup table 没有对应能力。这样共享设置不会把 Linux 能消费的 RGB 颜色误判为不可用，也不会展示保存后无效的装饰选项。
+
 运行配置通过父目录事件监听重载，连续写入合并为 100ms 后的一次读取，并每 5 秒进行低频回退读取，覆盖原子替换、删除重建、父目录替换及目录外符号链接目标更新。每次最多读取 16 KiB；相同内容不重复解析，无效中间内容保留上一次配置，后续有效保存会继续生效。
 
 Linux 桌面未显式设置 `MSIME_CLIENT_STATE_DIR` 时，优先使用 runtime-options 的 `preferences_directory` 作为共享状态目录，保持 IBus、独立采集和桌面历史一致。面板列出历史时重新读取文件；桌面自动采集、手动同步和复制记录均通过共享偏好锁复查开关后写入，避免关闭历史后因旧检查结果继续记录。
@@ -403,7 +407,7 @@ Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、Pipe
 
 ### 语音服务独立配置
 
-私有语音配置继续要求 `asr` 默认对象，并允许 `polish` 默认对象；可以增加 `asr_profiles`、`polish_profiles` 对象，以服务名作为键，值采用对应默认对象的字段（`endpoint`、`token`、`model`，豆包另有 `app_key`、`resource_id`）。值内的 `provider` 可以省略；填写时必须与键一致。一个角色内每个服务只配置一次，默认对象的服务不应再次出现在 profiles 中。ASR 支持 doubao/openai/siliconflow/groq，润色支持 openai/siliconflow/groq/deepseek。所有配置均沿用私有文件权限、大小、HTTPS/WSS 地址与凭据校验。
+私有语音配置继续要求 `asr` 默认对象，并允许 `polish` 默认对象；可以增加 `asr_profiles`、`polish_profiles` 对象，以服务名作为键，值采用对应默认对象的字段（`endpoint`、`token`、`model`，豆包另有 `app_key`、`doubao_auth_mode`、`resource_id`）。值内的 `provider` 可以省略；填写时必须与键一致。一个角色内每个服务只配置一次，默认对象的服务不应再次出现在 profiles 中。ASR 支持 doubao/openai/siliconflow/groq，润色支持 openai/siliconflow/groq/deepseek。所有配置均沿用私有文件权限、大小、HTTPS/WSS 地址与凭据校验。
 
 设置页选择已配置的服务后，下一次录音在对应角色的配置中选取独立 endpoint、token 和模型，无需重启 provider，也不会把凭据传到输入法或 UI。Linux 切换服务时清空旧模型约束及识别服务专属热词表标识，空模型使用对应私有配置的模型；没有配置所选识别服务时请求失败，不改用其他服务。润色服务未配置时保留原转写。profiles 中配置豆包时也会在启动时检查其网络库依赖。新增或编辑私有配置从下一次录音开始加载，无需重启服务。
 
@@ -601,7 +605,7 @@ X11 面板选择显示器及水平居中时以编辑器的物理中心为锚点�
 
 屏幕键盘快捷键 Ctrl+Shift+Super+K 和 Ctrl+Shift+Alt 的重启、退出、清缓存快捷键在一次按住期间只执行一次。宿主按物理键码持续吞掉重复按下及对应松开事件，即使先松开修饰键也不会泄漏该字母；无物理键码的合成事件使用统一大小写的键值。焦点离开、会话关闭或 IBus reset 时清除记录。启动失败时保留原有透传行为。
 
-IBus“桌面工具”菜单提供持久化工具栏开关，对应 Windows 托盘中的悬浮工具栏开关。关闭后隐藏原生工具栏菜单，桌面工具入口仍可重新开启。后台线程从共享 PreferencesStore 读取最新快照，只修改 floating_toolbar.enabled，并按 revision 比较保存；成功后更新当前菜单，其他会话和桌面设置沿用偏好热重载。保存期间禁止重复提交，版本冲突或存储失败不乐观切换显示状态。未配置绝对 preferences_directory 时开关禁用。
+IBus“桌面工具”菜单提供持久化工具栏开关，对应 Windows 托盘中的悬浮工具栏开关。关闭后隐藏原生工具栏菜单，桌面工具入口仍可重新开启。后台线程从共享 PreferencesStore 读取最新快照，只修改 floating_toolbar.enabled，并按 revision 比较保存；成功后更新当前菜单，其他会话和桌面设置沿用偏好热重载。保存期间禁止重复提交，版本冲突或存储失败不乐观切换显示状态。未配置绝对 preferences_directory 时开关禁用。Linux 不创建脱离输入上下文的悬浮窗口，因此 Windows 工具栏拖动位置没有可迁移的坐标状态；菜单位置由 IBus 面板和桌面环境管理，不伪造或持久化位置。
 
 IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_directory 时写入共享 PreferencesStore，重启和切换输入上下文后保留，并通过已有热重载同步到桌面设置。后台保存只修改对应字段，采用 revision 比较，成功前不改变当前开关；保存失败保留原状态。与工具栏开关共用单个待保存操作，避免重复提交。未配置偏好目录的直接预览仍保留会话内临时开关行为。
 
@@ -610,6 +614,8 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 候选主题（跟随系统、浅色、深色）、候选排列方向和预编辑显示菜单接入共享偏好保存。配置绝对 preferences_directory 时，后台按版本比较写入单个字段，成功后通过已有偏好热重载更新显示，不为外观修改主动提交当前组合或重建输入会话。保存期间禁用选项，忽略单选取消通知；失败不改变当前设置。无偏好目录的预览保留原有会话级行为。
 
 候选皮肤菜单使用统一的 CandidateSkin 单选动作分派内置和已加载的外部皮肤，按 ID 去重，并在点击时复查皮肤仍在可用目录。当前配置已不可用的皮肤只作禁用提示。配置共享偏好目录时，选择通过后台 revision 比较保存，成功后热重载显示；失败保持原皮肤。保存期间禁用选择，取消选中通知不触发切换。无存储目录的预览继续使用原有会话级切换。
+
+Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。固定候选在高亮时仍优先使用 accent。
 
 候选数量（1–9）、候选学习开关、词频调节模式、触发次数和线性调整步长菜单在配置共享偏好目录时持久化保存，后台只修改对应字段并保留其他调频参数。成功后由共享运行时接收偏好更新，组合中的应用时机和候选排序仍归 Engine，不主动完成组合。单选取消通知及保存期间的重复点击被忽略，页大小动作仅接受一个 1–9 数字，触发次数和线性步长仅接受 1–10；失败保留原设置。未配置存储目录的预览保留会话级覆盖，切换这些选项会先结束当前组合再重建 Engine 会话。私密输入和受限字段禁用候选学习开关。
 
@@ -627,7 +633,7 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 
 全拼九键菜单在配置共享偏好目录时保存既有 touch_keyboard_layout：开启为 nine_key，关闭为 twenty_six_key，与共享设置使用相同字段。后台按版本比较保存，成功后通过 Host API 既有布局更新路径应用，组合期间由共享运行时管理切换时机。保存失败保留原状态，保存期间禁止重复操作；无偏好目录的预览保留原会话级九键切换。
 
-本地输入模式菜单的 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日文开关在配置共享偏好目录时持久化到各自 local_modes 字段。后台只保存所选开关，保留其他模式，通过共享运行时更新，组合处理仍归 Engine。保存失败保留原状态，保存期间禁止重复提交；无偏好目录的预览保留会话级行为。
+本地输入模式菜单的 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日文开关在配置共享偏好目录时持久化到各自 local_modes 字段。后台只保存所选开关，保留其他模式，通过共享运行时更新，组合处理仍归 Engine。保存失败保留原状态，保存期间禁止重复提交；无偏好目录的预览保留会话级行为。临时日文（R 模式）在全拼或双拼、空组合时由 Shift+R 触发，显示的 R 仅是前缀；罗马字候选上屏或 Enter 原始提交后恢复原中文方案，退格可取消空前缀，关闭该开关时 Shift+R 留给应用。
 
 数字键选词与以词定字菜单在配置共享偏好目录时分别保存 number_row_selection 和 word_character.enabled。以词定字保留既有按键选择，并由共享偏好校验处理与翻页键的冲突；冲突或写入失败不改变当前开关。保存成功后通过既有宿主偏好热重载更新按键分派，九键模式下数字选词开关仍禁用。无存储目录的预览保留会话级行为。
 
@@ -658,3 +664,5 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 候选布局、每页候选数和词频调节的子菜单项现在与父菜单共享焦点、会话、输入启用和保存中状态；失焦或保存进行中时统一禁用，避免无效选择。
 
 Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：只有 `DEFINITELY_NOT_SENT` 允许宿主执行本地 fallback；`DELIVERY_AMBIGUOUS` 必须等待 lease 恢复，不能重复注入按键。IBus focus-in 在 Engine 会话建立后安装 lease，focus-out 只撤销精确匹配的当前 lease。
+
+字典导入沿用 Windows 固定提交 `6e03f577` 的全拼规则：普通字典和个人字典的 Pinyin 词条在 Host API 中调用固定 Engine 的全拼切分，并按词条汉字数解决无分隔拼音歧义，例如两字词 `西安` 的 `xian` 规范化为 `xi'an`。无效音节、非法 apostrophe 或无法匹配词长的行会被跳过并报告；Wubi、快捷短语和英文导入不经过该规范化。规范化只发生在带 Engine 选项的实际导入请求中，Linux IBus 不复制输入算法。

@@ -215,6 +215,7 @@ export type Preferences = {
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
+  niutrans?: { enabled: boolean; app_id: string; apikey: string };
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
@@ -301,6 +302,7 @@ export type VoiceInputPreferences = {
   capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa";
   capture_device?: string;
   asr_provider?: string;
+  doubao_auth_mode?: "api_key" | "legacy";
   asr_endpoint?: string;
   asr_token?: string;
   asr_tokens?: Record<string, string>;
@@ -350,9 +352,10 @@ export function aiCredentialOrigin(endpoint: string): string | null {
     return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
   } catch { return null; }
 }
+
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
-// Matches TencentTmtPreferences::default() in client-core.
-const defaultTencentTmt = { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" };
+const defaultTencentTranslation = { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" };
+const defaultNiuTrans = { enabled: false, app_id: "", apikey: "" };
 export type ExternalSkinCatalog = { scanned: boolean; directory?: string; revision?: number; packages: Array<{ id: string; title: string; description?: string; valid?: boolean }> ; issues?: string[] };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences; candidate_skin_catalog?: ExternalSkinCatalog };
 export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
@@ -1187,6 +1190,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     if (draft) setDraft({ ...draft, voice_input: { ...voiceInput, ...patch } });
   };
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
+  const tencentTranslation = draft?.tencent_tmt ?? defaultTencentTranslation;
+  const niutrans = draft?.niutrans ?? defaultNiuTrans;
+  const translationProvider = niutrans.enabled ? "niutrans" : customTranslation.enabled ? "custom" : tencentTranslation.enabled ? "tencent" : "none";
+  const setTranslationProvider = (provider: "none" | "custom" | "tencent" | "niutrans") => {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      custom_translation: { ...customTranslation, enabled: provider === "custom" },
+      tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
+      niutrans: { ...niutrans, enabled: provider === "niutrans" },
+    });
+  };
   const tencentTmt = draft?.tencent_tmt ?? defaultTencentTmt;
   // Which prompt slot the 润色方案 select is on, and the text that slot means.
   // A preset resolves to its shipped prompt; a custom slot to whatever the user
@@ -1603,6 +1618,18 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
+        <div className="section" role="group" aria-label="候选翻译服务">
+          <label className="section-header"><span className="section-title">翻译服务</span><select aria-label="候选翻译服务" disabled={!candidateTranslations} value={translationProvider} onChange={event => setTranslationProvider(event.target.value as "none" | "custom" | "tencent" | "niutrans")}>
+            <option value="none">关闭</option><option value="tencent">腾讯云机器翻译</option><option value="niutrans">小牛翻译（NiuTrans）</option><option value="custom">自定义 DeepLX 兼容服务</option>
+          </select></label>
+        </div>
+        <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
+          <label className="section-header"><span className="section-title">小牛翻译（NiuTrans）<small>使用 App ID 和 API Key 为候选词提供逐条翻译</small></span><input aria-label="小牛翻译（NiuTrans）" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={niutrans.enabled} onChange={event => setTranslationProvider(event.target.checked ? "niutrans" : "none")} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">App ID</span><input aria-label="NiuTrans App ID" value={niutrans.app_id} disabled={!candidateTranslations || !niutrans.enabled} onChange={event => setDraft({ ...draft, niutrans: { ...niutrans, app_id: event.target.value } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">API Key</span><SecretInput label="NiuTrans API Key" value={niutrans.apikey} disabled={!candidateTranslations || !niutrans.enabled} onChange={value => setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })} /></label>
+        </div>
         <div className="section" role="group" aria-label="在线翻译服务">
           {linuxPlatform ? <>
             <div className="section-title">在线翻译服务<small>由用户管理的 Linux provider 服务负责网络请求和凭据</small></div>
@@ -1709,6 +1736,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             {(draft.navigation ?? defaultNavigation).comma_period && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>, / .</kbd></div>}
             {(draft.navigation ?? defaultNavigation).tab && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Shift+Tab / Tab</kbd></div>}
             {(draft.navigation ?? defaultNavigation).page_up_down && <div className="shortcut-row"><span>向前 / 向后翻页</span><kbd>Page Up / Page Down</kbd></div>}
+            {(draft.navigation ?? defaultNavigation).mouse_wheel && <div className="shortcut-row"><span>候选窗口翻页</span><kbd>鼠标滚轮</kbd></div>}
             {(draft.navigation ?? defaultNavigation).arrows && <div className="shortcut-row"><span>移动候选项</span><kbd>↑ / ↓</kbd></div>}
             <div className="shortcut-row"><span>移动到当前候选页首 / 尾</span><kbd>Home / End</kbd></div>
             <div className="shortcut-row"><span>编辑输入串</span><kbd>← / → / Backspace</kbd></div>
@@ -1825,6 +1853,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         {androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option></select></label></div>}
+        {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>新版控制台使用单 API Key；旧版使用 App ID 和 Access Token</small></span><select aria-label="豆包鉴权方式" value={voiceInput.doubao_auth_mode ?? "api_key"} onChange={event => updateVoice({ doubao_auth_mode: event.target.value === "legacy" ? "legacy" : "api_key" })}><option value="api_key">新版控制台 API Key</option><option value="legacy">旧版控制台 App ID</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label></div>
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>}
         {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>{linuxPlatform ? "provider 服务必须与此模式匹配" : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}</small></span><select aria-label="豆包鉴权方式" value={doubaoAuthMode} onChange={event => updateVoice({ doubao_auth_mode: event.target.value })}><option value="api_key">新版 API Key</option><option value="legacy">旧版 App ID + Access Token</option></select></label></div>}

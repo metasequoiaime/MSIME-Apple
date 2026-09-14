@@ -72,3 +72,16 @@ test("the API key can be revealed to check a pasted value", async () => {
   expect((screen.getByLabelText("自定义翻译 API Key") as HTMLInputElement).type).toBe("text");
   expect(screen.getByRole("button", { name: "隐藏自定义翻译 API Key" }).getAttribute("aria-pressed")).toBe("true");
 });
+
+test("NiuTrans provider is mutually exclusive and exposes synthetic credential fields", async () => {
+  await mount();
+  fireEvent.click(screen.getByRole("checkbox", { name: "小牛翻译（NiuTrans）" }));
+  expect((screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).checked).toBe(false);
+  const appId = screen.getByLabelText("NiuTrans App ID") as HTMLInputElement;
+  const apiKey = screen.getByLabelText("NiuTrans API Key") as HTMLInputElement;
+  expect(appId.disabled).toBe(false);
+  fireEvent.change(appId, { target: { value: "synthetic-app" } });
+  fireEvent.change(apiKey, { target: { value: "synthetic-key" } });
+  expect(appId.value).toBe("synthetic-app");
+  expect(apiKey.value).toBe("synthetic-key");
+});
