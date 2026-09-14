@@ -383,6 +383,16 @@ target_compile_options(session-smoke-test PRIVATE -fobjc-arc -Wall -Wextra -Werr
 target_include_directories(session-smoke-test PRIVATE ../../shared/apple ../../crates/host-api/include)
 target_link_libraries(session-smoke-test PRIVATE apple-client "-framework Foundation")
 add_test(NAME session-smoke COMMAND session-smoke-test)
+
+add_executable(voice-session-test ../../shared/apple/tests/voice_session.mm)
+target_compile_options(voice-session-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-session-test PRIVATE apple-client)
+add_test(NAME voice-session COMMAND voice-session-test)
+
+add_executable(voice-session-delivery-test tests/VoiceSessionDeliveryTest.mm VoiceInputService.mm VoicePCMBuffer.mm)
+target_compile_options(voice-session-delivery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-session-delivery-test PRIVATE apple-client "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME voice-session-delivery COMMAND voice-session-delivery-test)
 add_executable(shortcut-test tests/ShortcutTest.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm)
 target_include_directories(shortcut-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
