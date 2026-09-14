@@ -1094,6 +1094,25 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session lost its dictionaries")
   }
 
+  // Nine-key is engine-session state, not one of the preferences the prepared options carry, so a
+  // session rebuilt after a dismissal starts back on the 26-key layout. The keyboard keeps sending
+  // the digits its layout produces and the engine, expecting letters, answers with nothing at all:
+  // no preedit, no candidates, no diagnostic.
+  func testNineKeySurvivesTheSessionBeingReleasedAndRebuilt() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToNineKey()
+    var snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "nine-key never reached the engine")
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    try bridge.resumeDictionarySession()
+    snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertFalse(snapshot.preedit.isEmpty, "the rebuilt session ignored the digits entirely")
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session forgot nine-key mode")
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

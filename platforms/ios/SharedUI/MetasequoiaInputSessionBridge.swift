@@ -121,6 +121,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
   private var suspended = false
+  // Nine-key lives on the session, not in the preferences the options carry, so a rebuilt session
+  // starts back on the 26-key layout unless it is told again.
+  private var nineKeyEnabled = false
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -295,8 +298,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     switchScheme("shuangpin", profile: profile)
   }
   func switchToNineKey() -> MetasequoiaInputSnapshot {
-    let result = updatePreferences { $0["scheme"] = "quanpin" } ? dispatch { msimeClientSetNineKeyMode(handle, true) } : diagnostic("九键模式切换失败")
-    return result
+    guard updatePreferences({ $0["scheme"] = "quanpin" }) else { return diagnostic("九键模式切换失败") }
+    nineKeyEnabled = true
+    return dispatch { msimeClientSetNineKeyMode(handle, true) }
   }
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
@@ -361,6 +365,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard suspended else { return }
     guard !options.isEmpty else { throw InputBridgeFailure.unavailable }
     handle = try Self.callCreateFocused(options)
+    if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
     suspended = false
   }
 
@@ -459,7 +464,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       prefs["scheme"] = scheme
       if let profile { prefs["shuangpin_profile"] = profile }
     }
-    return updated ? dispatch { msimeClientSetNineKeyMode(handle, false) } : diagnostic("输入方案切换失败")
+    guard updated else { return diagnostic("输入方案切换失败") }
+    nineKeyEnabled = false
+    return dispatch { msimeClientSetNineKeyMode(handle, false) }
   }
 
   private func command(_ value: UInt32) -> MetasequoiaInputSnapshot {
