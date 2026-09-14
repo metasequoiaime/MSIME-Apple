@@ -34,10 +34,10 @@
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。不能因配置字段存在就标记功能接通。 |
-| API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` 只有 `target_os = "linux"` 实现 | **明确缺口**：Windows 返回 `unavailable`。应迁入可注入传输的共享测试逻辑及 Windows 实际调用，不应为此冒充 TSF 客户端。 |
+| API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` → `client-core::credential_test` / `credential_asr` / `credential_doubao` / `credential_translation`；Windows、macOS 使用共享可注入传输，Linux 保留 provider socket | 有调用链；Windows 与 macOS 的聊天、ASR、豆包和翻译测试已接入共享 Tauri 命令，Linux provider 路径保持不变。仍需按提供方比较来源的错误分类和原生设置窗口行为。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary_access.rs` / `dictionary_import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
 | 语音热键、流式/批量 ASR、润色、声音/静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `main.cpp` → `VoiceHotkeyController` / `VoiceInputSession` → Engine 语音模块与 TSF；`VoiceSessionEpoch.h` | 原生有调用链；**Tauri 缺口**：`recognize_voice` 在 Windows 返回 `unavailable`，`stop_voice/cancel_voice` 仅操作本地会话。全提供方、取消及焦点行为仍需验证。 |
-| 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` 与共享 `capture_device/capture_backend`；目标 `VoiceInputConfig` 无对应字段 | **明确的目标内部断链**：列表/保存不等于选择生效；当前 Engine `AudioCapture::start` 只有 callback 参数。接入前统一枚举标识与实际后端，不能将不同 API 的索引混用。 |
+| 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices`；Linux `linux_audio_devices::list`、`voice_provider_options`、`msime-client-voice-provider` 的 `capture_backend` / `capture_device` 链路 | 有调用链；Linux 设置页枚举设备并保存稳定的后端/设备标识，桌面与 IBus 请求均传递配置，provider 按次构造采集命令。仍需比较来源支持范围并在目标发行版验证工具可用性，不能把当前源码证据当作原生设备验证。 |
 | 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
 | 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支 | 有调用链；核对布局、修饰键按下/释放、自动重复、焦点恢复及 DPI。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | 有入口；核对历史存储格式、去重/清理、开关同步及点击后目标窗口，不能以普通 SendInput 冒充 TSF 定向提交。 |
@@ -50,11 +50,11 @@
 
 ## 下一批实施顺序
 
-增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务验证；ASR 与三类翻译凭据测试仍待迁移。上表的明确缺口描述保留为固定目标提交时的状态。
+增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。ASR、豆包和三类翻译凭据测试也已迁入同一 Tauri 命令，并使用各自的共享校验与传输边界；合成请求测试和共享模块交叉检查不能替代 Windows 原生设置窗口或真实服务验证。上表的结论按当前目标代码更新，固定来源基线记录不变。
 
-1. **API 凭据测试真实接入**：来源已有独立设置任务队列；目标先复核可共享的提供方测试实现，补 Windows 路径和失败分类。测试只用合成凭据与本地模拟传输，不把真实凭据写入日志。
+1. **API 凭据测试逐提供方对照**：共享 Tauri 命令已覆盖 Windows/macOS 的聊天、ASR、豆包和翻译测试；继续核对来源错误分类、超时与原生设置窗口行为。测试只用合成凭据与本地模拟传输，不把真实凭据写入日志。
 2. **Tauri 语音运行链**：明确控制器与输入目标是两个身份。OS 对端认证、有限消息/队列/关闭时限、request ID 与代际、事件与最终结果都必须连起来。Tauri 面板收结果后提交和原生直接提交只能有一个最终提交所有者，防止双重上屏。
-3. **字段级配置与设备选择**：从来源 `ime_config.h` / `ime_config.cpp`、设置模块逐字段映射到共享偏好，再确认每个字段的原生消费者；设备选择单独验证稳定 ID 和实际采集。
+3. **字段级配置与设备选择**：从来源 `ime_config.h` / `ime_config.cpp`、设置模块逐字段映射到共享偏好，再确认每个字段的原生消费者；Linux 设备选择链路已接通，继续在目标发行版验证稳定 ID 和实际采集。
 4. **输入与面板产品行为**：按上表方案、在线候选、翻译、词库、面板、外观、服务/安装分组补差异与本地回归，每组及时合并。不因缺少一种验证环境而停止可执行的实现工作，也不声称未执行的原生验证通过。
 
 ## 语音传输必须保留的边界
