@@ -1,10 +1,12 @@
-use msime_client_core::account::{AccountChallenge, AccountProfile, AccountUser};
+use msime_client_core::account::{
+    AccountChallenge, AccountChatModels, AccountProfile, AccountUser,
+};
 use serde::Serialize;
 
 #[cfg(target_os = "ios")]
 use msime_client_core::account::{
-    AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
-    SavedAccountSession,
+    AccountChatMessage, AccountError, AccountSessionStorage, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
 };
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
@@ -86,6 +88,38 @@ impl From<AccountProfile> for ProfileResponse {
             providers,
         }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelResponse {
+    id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelsResponse {
+    data: Vec<ChatModelResponse>,
+    default_model: String,
+}
+
+impl From<AccountChatModels> for ChatModelsResponse {
+    fn from(models: AccountChatModels) -> Self {
+        Self {
+            data: models
+                .data
+                .into_iter()
+                .map(|model| ChatModelResponse { id: model.id })
+                .collect(),
+            default_model: models.default_model,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatResponse {
+    content: String,
 }
 
 #[cfg(target_os = "ios")]
@@ -222,6 +256,29 @@ pub async fn account_profile(
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
+pub async fn account_chat_models(
+    state: State<'_, AccountState>,
+) -> Result<ChatModelsResponse, super::CommandError> {
+    call(state, |session| session.chat_models().map(Into::into)).await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_chat(
+    state: State<'_, AccountState>,
+    messages: Vec<AccountChatMessage>,
+    model: String,
+) -> Result<ChatResponse, super::CommandError> {
+    call(state, move |session| {
+        session
+            .chat(&messages, &model)
+            .map(|content| ChatResponse { content })
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
 pub async fn account_rename(
     state: State<'_, AccountState>,
     display_name: String,
@@ -255,9 +312,13 @@ pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super:
 
 #[cfg(test)]
 mod tests {
-    use super::{providers_response, ChallengeResponse, ProfileResponse, StatusResponse};
+    use super::{
+        providers_response, ChallengeResponse, ChatModelsResponse, ChatResponse, ProfileResponse,
+        StatusResponse,
+    };
     use msime_client_core::account::{
-        AccountChallenge, AccountProfile, AccountProfileIdentity, AccountUser,
+        AccountChallenge, AccountChatModel, AccountChatModels, AccountProfile,
+        AccountProfileIdentity, AccountUser,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -323,6 +384,28 @@ mod tests {
         assert_eq!(
             serde_json::to_value(profile).unwrap()["providers"],
             json!(["email", "phone"])
+        );
+    }
+
+    #[test]
+    fn chat_responses_match_the_shared_webview_contract() {
+        let models = ChatModelsResponse::from(AccountChatModels {
+            data: vec![AccountChatModel {
+                id: "synthetic-model".into(),
+            }],
+            default_model: "synthetic-model".into(),
+        });
+        assert_eq!(
+            serde_json::to_value(models).unwrap(),
+            json!({"data":[{"id":"synthetic-model"}],"defaultModel":"synthetic-model"})
+        );
+
+        let response = ChatResponse {
+            content: "synthetic-response".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(response).unwrap(),
+            json!({"content":"synthetic-response"})
         );
     }
 }

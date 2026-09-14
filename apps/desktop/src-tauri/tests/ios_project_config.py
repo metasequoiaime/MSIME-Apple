@@ -142,6 +142,8 @@ class IOSProjectConfigTests(unittest.TestCase):
             "account_request_code",
             "account_login",
             "account_profile",
+            "account_chat_models",
+            "account_chat",
             "account_rename",
             "account_logout",
             "account_delete",
@@ -151,7 +153,9 @@ class IOSProjectConfigTests(unittest.TestCase):
             self.assertIn(f"pub async fn {command}", account)
         self.assertIn("BackendAccountSession::new", account)
         self.assertIn("IosAccountStorage(platform)", account)
-        self.assertIn('host.platform === "ios" ? { appIcon, account: basicAccount,', desktop_entry)
+        self.assertIn('host.platform === "ios" ? { appIcon, account: basicAccount, chat: accountChat,', desktop_entry)
+        self.assertIn('invoke("account_chat_models")', desktop_entry)
+        self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', desktop_entry)
 
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()

@@ -4527,6 +4527,10 @@ pub fn run() {
             #[cfg(target_os = "ios")]
             ios_account::account_profile,
             #[cfg(target_os = "ios")]
+            ios_account::account_chat_models,
+            #[cfg(target_os = "ios")]
+            ios_account::account_chat,
+            #[cfg(target_os = "ios")]
             ios_account::account_rename,
             #[cfg(target_os = "ios")]
             ios_account::account_logout,

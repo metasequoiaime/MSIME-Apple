@@ -574,7 +574,7 @@ export interface SettingsClient {
   account?: AccountClient;
   /** Mobile hosts expose platform-native launcher or alternate icon selection. */
   appIcon?: AppIconClient;
-  /** Android account commands expose the authenticated EveryAPI chat surface. */
+  /** Mobile account commands expose the authenticated EveryAPI chat surface. */
   chat?: ChatClient;
   /** Android performs user-configured AI service requests in its native host. */
   aiAssistant?: AiAssistantClient;
