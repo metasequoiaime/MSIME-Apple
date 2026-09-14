@@ -73,7 +73,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     tabs.spacing = 4
     tabScroll.showsHorizontalScrollIndicator = false
     tabScroll.alwaysBounceHorizontal = false
-    disableEdgeEffects(tabScroll)
+    tabScroll.disableEdgeEffects()
     for (index, tab) in availableTabs.enumerated() {
       let button = UIButton(type: .system)
       button.configuration = Self.tabConfiguration(title: tab.title)
@@ -95,7 +95,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     grid.backgroundColor = .clear
     grid.accessibilityIdentifier = "emojiGrid"
     grid.register(KeyboardEmojiCell.self, forCellWithReuseIdentifier: KeyboardEmojiCell.reuseIdentifier)
-    disableEdgeEffects(grid)
+    grid.disableEdgeEffects()
 
     tabScroll.addSubview(tabs)
     for child in [title, close, delete, tabScroll, status, grid] {
@@ -170,13 +170,6 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       return attributes
     }
     return configuration
-  }
-
-  private func disableEdgeEffects(_ scrollView: UIScrollView) {
-    if #available(iOS 26.0, *) {
-      scrollView.topEdgeEffect.isHidden = true
-      scrollView.bottomEdgeEffect.isHidden = true
-    }
   }
 
   private func selectTab(_ index: Int) {

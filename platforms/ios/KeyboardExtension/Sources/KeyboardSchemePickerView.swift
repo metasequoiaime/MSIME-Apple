@@ -34,10 +34,7 @@ final class KeyboardSchemePickerView: UIView {
     scroll.accessibilityIdentifier = "schemePickerScroll"
     scroll.alwaysBounceVertical = false
     scroll.delaysContentTouches = false
-    if #available(iOS 26.0, *) {
-      scroll.topEdgeEffect.isHidden = true
-      scroll.bottomEdgeEffect.isHidden = true
-    }
+    scroll.disableEdgeEffects()
     let panel = UIStackView()
     panel.axis = .vertical
     panel.spacing = 4

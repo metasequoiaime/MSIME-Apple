@@ -50,11 +50,13 @@ final class CandidateScrollView: UIScrollView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     delaysContentTouches = false
+    disableEdgeEffects()
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
     delaysContentTouches = false
+    disableEdgeEffects()
   }
 
   override func touchesShouldCancel(in view: UIView) -> Bool {
