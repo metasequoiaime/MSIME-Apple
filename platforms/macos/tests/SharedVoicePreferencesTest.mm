@@ -6,6 +6,7 @@ int main() {
         NSString *suite = [@"app.msime.test.voice." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         assert(MSIMEVoiceInputEnabled(defaults));
+        assert(MSIMEVoiceCueEnabled(defaults, YES) && MSIMEVoiceCueEnabled(defaults, NO));
         NSDictionary *voice = @{
             @"enabled": @NO, @"hotkey_rctrl_ralt": @YES,
             @"language": @"en-US", @"asr_provider": @"openai",
@@ -49,6 +50,18 @@ int main() {
         MSIMEApplySharedVoicePreferences(@{@"enabled": @YES, @"hotkey_rctrl_ralt": @NO}, defaults);
         assert(MSIMEVoiceInputEnabled(defaults));
         assert(![defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);
+        for (NSNumber *master in @[@NO, @YES]) {
+            for (NSNumber *start in @[@NO, @YES]) {
+                for (NSNumber *end in @[@NO, @YES]) {
+                    MSIMEApplySharedVoicePreferences(@{@"sound_enabled": master, @"start_sound": start, @"end_sound": end}, defaults);
+                    assert(MSIMEVoiceCueEnabled(defaults, YES) == (master.boolValue && start.boolValue));
+                    assert(MSIMEVoiceCueEnabled(defaults, NO) == (master.boolValue && end.boolValue));
+                }
+            }
+        }
+        MSIMEApplySharedVoicePreferences(@{@"start_sound": @NO, @"end_sound": @NO}, defaults);
+        MSIMEApplySharedVoicePreferences(@{@"start_sound": @"true", @"end_sound": @1}, defaults);
+        assert(!MSIMEVoiceCueEnabled(defaults, YES) && !MSIMEVoiceCueEnabled(defaults, NO));
         [defaults removePersistentDomainForName:suite];
     }
 }

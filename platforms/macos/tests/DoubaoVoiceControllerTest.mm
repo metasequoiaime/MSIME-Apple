@@ -1,4 +1,5 @@
 #import "../InputController.mm"
+#import "VoiceCueFixture.h"
 #include <cassert>
 
 @interface DoubaoRequestFixture : NSObject
@@ -121,12 +122,18 @@ int main() {
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
         assert(session);
         DoubaoControllerFixture *controller = [DoubaoControllerFixture alloc];
+        MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
+        [controller setValue:cues forKey:@"voiceCuePlayer"];
+        NSUserDefaults *cueDefaults = NSUserDefaults.standardUserDefaults;
+        NSDictionary *oldCueArguments = [cueDefaults volatileDomainForName:NSArgumentDomain];
+        [cueDefaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
         DoubaoCaptureFixture *capture = [DoubaoCaptureFixture new];
         DoubaoTextFixture *client = [DoubaoTextFixture new];
         [controller setValue:session forKey:@"session"];
         [controller setValue:capture forKey:@"voiceService"];
         [controller setValue:client forKey:@"activeClient"];
         assert(Start(controller, capture, session, YES));
+        assert(cues.starts == 1 && cues.stops == 0);
         DoubaoRequestFixture *request = controller.fixture;
         request.result(@"synthetic partial", NO, nil);
         assert([client.marked isEqual:@"synthetic partial"] && client.commits.count == 0);
@@ -137,6 +144,7 @@ int main() {
         assert(!request.cancellations);
         request.result(@"synthetic final", YES, nil);
         assert(client.commits.count == 1 && [client.commits[0] isEqual:@"synthetic final"] && !capture.active);
+        assert(cues.starts == 1 && cues.stops == 1);
         request.result(@"duplicate", YES, nil);
         assert(client.commits.count == 1);
         assert(Start(controller, capture, session, NO));
@@ -163,7 +171,9 @@ int main() {
             assert(client.commits.count == 1);
         }
         capture.failStart = YES;
+        const auto beforeFailure = cues.starts;
         assert(!Start(controller, capture, session, YES) && !capture.active);
+        assert(cues.starts == beforeFailure && cues.stops == beforeFailure);
         capture.failStart = NO;
         controller.failRequest = YES;
         assert(!Start(controller, capture, session, YES) && !capture.active);
@@ -176,11 +186,10 @@ int main() {
         // Exercise the actual toggle route without touching persistent defaults.
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO} forName:NSArgumentDomain];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
         DoubaoPresentationFixture *presentation = [DoubaoPresentationFixture new];
         [controller setValue:presentation forKey:@"voiceOverlay"];
         [controller setValue:presentation forKey:@"voiceAudioMuter"];
-        [controller setValue:presentation forKey:@"voiceCuePlayer"];
         assert([controller usesNativeDoubaoVoice] && ![controller usesNativeHTTPVoice]);
         assert([session setFocused:YES error:nil]);
         assert([session typeASCII:'U' shift:YES error:nil]);
@@ -216,5 +225,7 @@ int main() {
         [controller setValue:client forKey:@"activeClient"];
         assert([session closeWithError:nil]);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+        assert(cues.starts == cues.stops);
+        [cueDefaults setVolatileDomain:oldCueArguments forName:NSArgumentDomain];
     }
 }

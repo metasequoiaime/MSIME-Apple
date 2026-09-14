@@ -1,4 +1,5 @@
 #import "../InputController.mm"
+#import "VoiceCueFixture.h"
 #include <cassert>
 
 @interface LiveCaptureFixture : MSIMEVoiceInputService
@@ -6,6 +7,7 @@
 @property NSUInteger captureStops;
 @property NSUInteger transcriptionStops;
 @property BOOL needsMicrophonePermission;
+@property BOOL failCapture;
 @property(copy) void (^permission)(BOOL);
 @end
 @implementation LiveCaptureFixture
@@ -16,7 +18,7 @@
     (void)language; (void)error; self.transcript = handler; return YES;
 }
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
-    (void)handler; (void)device; (void)error; return YES;
+    (void)handler; (void)device; (void)error; return !self.failCapture;
 }
 - (void)stopMicrophoneCapture { ++self.captureStops; }
 - (void)stopTranscription { ++self.transcriptionStops; }
@@ -52,13 +54,16 @@
 @property(atomic) NSUInteger providerCancels;
 @property(atomic) BOOL providerStarted;
 @property(atomic, copy) MSIMEVoiceProviderUpdate providerUpdate;
+@property(atomic, copy) MSIMEVoiceProviderPhase providerPhase;
 @property dispatch_semaphore_t providerDone;
 @end
 @implementation LiveHostFixture
 - (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
-    (void)phase; (void)error;
+    (void)error;
     assert([socket isEqual:@"/tmp/synthetic-live.sock"] && [query[@"generation"] unsignedLongLongValue]);
-    self.providerUpdate = update; self.providerStarted = YES;
+    self.providerUpdate = update; self.providerPhase = phase;
+    phase(0); phase(0); // Duplicate recording notifications must not replay cues.
+    self.providerStarted = YES;
     assert(dispatch_semaphore_wait(self.providerDone, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
     return YES;
 }
@@ -84,12 +89,14 @@ int main(int argc, char **) {
         LiveCaptureFixture *capture = [LiveCaptureFixture new];
         LiveTextFixture *client = [LiveTextFixture new];
         LivePresentationFixture *presentation = [LivePresentationFixture new];
+        MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
         [controller setValue:session forKey:@"session"]; [controller setValue:client forKey:@"activeClient"];
         [controller setValue:capture forKey:@"voiceService"];
-        for (NSString *key in @[@"voiceOverlay", @"voiceAudioMuter", @"voiceCuePlayer"]) [controller setValue:presentation forKey:key];
+        for (NSString *key in @[@"voiceOverlay", @"voiceAudioMuter"]) [controller setValue:presentation forKey:key];
+        [controller setValue:cues forKey:@"voiceCuePlayer"];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
-        NSMutableDictionary *voiceArguments = [@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} mutableCopy];
+        NSMutableDictionary *voiceArguments = [@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"system", @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceStreamInlinePreedit": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES, @"MSIMEClientVoiceHotkeyHoldSpace": @YES} mutableCopy];
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         if (argc == 2) {
             session.providerDone = dispatch_semaphore_create(0);
@@ -100,19 +107,23 @@ int main(int argc, char **) {
             assert(session.providerStarted && !capture.transcript);
             session.providerUpdate(@"socket partial", NO);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+            assert(cues.starts == 1 && cues.stops == 0);
             assert([client.marked isEqual:@"socket partial"] && !client.commits.count);
             [controller finishVoiceInputForDisable];
             [controller finishVoiceInputForDisable];
+            session.providerPhase(1); session.providerPhase(2); session.providerPhase(0);
             session.providerUpdate(@"socket final", YES);
             while ((capture.active || !session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(!capture.active && session.providerStops == 1 && session.providerCancels == 1);
             assert(client.commits.count == 1 && [client.commits[0] isEqual:@"socket final"]);
+            assert(cues.starts == 1 && cues.stops == 1);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
         }
         [controller toggleVoiceInput:nil]; assert(capture.active);
+        assert(cues.starts == 1 && cues.stops == 0);
         void (^first)(NSString *, BOOL) = capture.transcript;
         first(@"synthetic partial", NO);
         assert(client.commits.count == 0 && [client.marked isEqual:@"synthetic partial"]);
@@ -122,6 +133,7 @@ int main(int argc, char **) {
         first(@"synthetic final", YES);
         assert(!capture.active && client.commits.count == 1 && [client.commits[0] isEqual:@"synthetic final"]);
         first(@"duplicate", YES); assert(client.commits.count == 1);
+        assert(cues.starts == 1 && cues.stops == 1);
         [controller toggleVoiceInput:nil];
         first(@"old callback", YES); assert(capture.active && client.commits.count == 1);
         capture.transcript(@"cancelled partial", NO);
@@ -221,6 +233,23 @@ int main(int argc, char **) {
         assert([controller handleEvent:key(61, rightControl | option, NSEventTypeFlagsChanged) client:client]);
         assert(capture.active);
         [controller cancelLiveVoiceInput];
+        const auto failureStarts = cues.starts, failureStops = cues.stops;
+        capture.failCapture = YES;
+        [controller toggleVoiceInput:nil];
+        assert(!capture.active && cues.starts == failureStarts && cues.stops == failureStops);
+        capture.failCapture = NO;
+        // Exercise all shared sound switches at the actual capture entry/exit.
+        for (NSNumber *master in @[@NO, @YES]) for (NSNumber *start in @[@NO, @YES]) for (NSNumber *end in @[@NO, @YES]) {
+            voiceArguments[@"MSIMEClientVoiceSoundEnabled"] = master;
+            voiceArguments[@"MSIMEClientVoiceStartSound"] = start;
+            voiceArguments[@"MSIMEClientVoiceEndSound"] = end;
+            [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+            const auto starts = cues.starts, stops = cues.stops;
+            [controller toggleVoiceInput:nil]; assert(capture.active);
+            [controller cancelLiveVoiceInput]; [controller cancelLiveVoiceInput];
+            assert(cues.starts == starts + (master.boolValue && start.boolValue));
+            assert(cues.stops == stops + (master.boolValue && end.boolValue));
+        }
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

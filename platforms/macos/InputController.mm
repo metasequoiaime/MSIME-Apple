@@ -205,6 +205,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceInputService *_voiceService;
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
+    BOOL _voiceCueRecording;
     MSIMEVoiceAudioMuter *_voiceAudioMuter;
     MSIMEHTTPVoiceRequest *_httpVoiceRequest;
     MSIMEClientSession *_httpVoiceSession;
@@ -953,6 +954,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return _doubaoVoiceRequest && _activeClient == _doubaoVoiceClient &&
         _session == _doubaoVoiceSession && _voiceGeneration == _doubaoVoiceGeneration && _voiceService.active;
 }
+- (void)voiceCaptureDidStart {
+    if (_voiceCueRecording) return;
+    _voiceCueRecording = YES;
+    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, YES)) [_voiceCuePlayer playStartCue];
+}
+- (void)voiceCaptureDidEnd {
+    if (!_voiceCueRecording) return;
+    _voiceCueRecording = NO;
+    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, NO)) [_voiceCuePlayer playStopCue];
+}
 - (void)cancelDoubaoVoiceInput {
     if (!_doubaoVoiceRequest) return;
     if (_doubaoVoiceMarked && [self ownsDoubaoVoiceFocus])
@@ -969,6 +980,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_voiceService cancelWithError:nil];
     [_voiceAudioMuter restore];
     [_voiceOverlay setListening:NO];
+    [self voiceCaptureDidEnd];
 }
 - (BOOL)startDoubaoVoiceInputWithOptions:(NSDictionary *)options {
     NSError *error = nil;
@@ -1027,6 +1039,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             else if (!controller->_doubaoVoiceProcessing) [controller->_voiceOverlay setInputLevel:level];
         });
     } deviceUID:device error:&error]) { [self cancelDoubaoVoiceInput]; return NO; }
+    [self voiceCaptureDidStart];
     return YES;
 }
 - (void)finishDoubaoVoiceInput {
@@ -1037,6 +1050,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSData *tail = [_voiceService finishPCMStreamingWithError:&error];
     [_voiceAudioMuter restore];
     [_voiceOverlay setListening:NO];
+    [self voiceCaptureDidEnd];
     if (!tail || error || (tail.length && ![_doubaoVoiceRequest appendPCM:tail error:&error]) ||
         ![_doubaoVoiceRequest finishWithError:&error]) [self cancelDoubaoVoiceInput];
 }
@@ -1053,6 +1067,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_voiceService cancelWithError:nil];
     [_voiceAudioMuter restore];
     [_voiceOverlay setListening:NO];
+    [self voiceCaptureDidEnd];
 }
 - (BOOL)startHTTPVoiceInputWithOptions:(NSDictionary *)options {
     NSError *error = nil;
@@ -1082,6 +1097,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEInputController *controller = weakSelf;
         if (controller && controller->_httpVoiceRequest == request) [controller cancelHTTPVoiceInput];
     } error:&error]) { [self cancelHTTPVoiceInput]; return NO; }
+    [self voiceCaptureDidStart];
     return YES;
 }
 - (void)finishHTTPVoiceInput {
@@ -1093,6 +1109,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSData *pcm = [_voiceService finishPCMRecordingWithError:&error];
     [_voiceAudioMuter restore];
     [_voiceOverlay setListening:NO];
+    [self voiceCaptureDidEnd];
     if (!pcm.length || error) { [self cancelHTTPVoiceInput]; return; }
     MSIMEClientSession *session = _httpVoiceSession;
     id client = _httpVoiceClient;
@@ -1120,6 +1137,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_liveVoiceMarked && [self ownsLiveVoiceToken:_liveVoiceToken])
         [(id<MSIMETextClient>)_liveVoiceClient setMarkedText:@"" selectionRange:NSMakeRange(0, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     MSIMEDeactivateVoice(_voiceService, _liveVoiceSession, _voiceAudioMuter, _voiceOverlay, _liveVoiceSocket, _liveVoiceGeneration);
+    [self voiceCaptureDidEnd];
     _liveVoiceToken = nil; _liveVoiceSession = nil; _liveVoiceClient = nil; _liveVoiceSocket = nil;
     _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
 }
@@ -1155,6 +1173,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (result) { _liveVoiceMarked = NO; [self apply:result]; }
     [self cancelLiveVoiceInput];
 }
+- (void)applyLiveVoicePhase:(NSUInteger)phase token:(id)token {
+    if (![self ownsLiveVoiceToken:token]) return;
+    if (phase == 0 && !_liveVoiceProcessing) [self voiceCaptureDidStart];
+    else if (phase == 1 || phase == 2) {
+        _liveVoiceProcessing = YES;
+        [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
+        [self voiceCaptureDidEnd];
+    }
+}
 - (void)finishLiveVoiceInput {
     if (!_liveVoiceToken) return;
     if (_liveVoiceProcessing) { [self cancelLiveVoiceInput]; return; }
@@ -1162,7 +1189,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // endAudio is sent by stopMicrophoneCapture; leave Speech alive for its final.
     [_voiceService stopMicrophoneCapture];
     [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
-    if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [_voiceCuePlayer playStopCue];
+    [self voiceCaptureDidEnd];
     if (_liveVoiceSocket.length) {
         NSString *socket = _liveVoiceSocket; MSIMEClientSession *session = _liveVoiceSession;
         uint64_t generation = _liveVoiceGeneration;
@@ -1210,7 +1237,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
-        if ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) [controller->_voiceCuePlayer playStartCue];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults; NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow", @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
@@ -1225,7 +1251,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [weakSelf applyLiveVoiceText:text final:final token:token];
                     });
-                } phase:^(NSUInteger phase) { (void)phase; } error:&providerError];
+                } phase:^(NSUInteger phase) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf applyLiveVoicePhase:phase token:token]; });
+                } error:&providerError];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     MSIMEInputController *live = weakSelf;
                     if (live && live->_liveVoiceToken == token) [live cancelLiveVoiceInput];
@@ -1249,7 +1277,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 MSIMEInputController *liveController = weakSelf;
                 if ([liveController ownsLiveVoiceToken:token]) [liveController->_voiceOverlay setInputLevel:level];
             });
-        } deviceUID:deviceUID error:&error]) { [controller cancelLiveVoiceInput]; }
+        } deviceUID:deviceUID error:&error]) { [controller cancelLiveVoiceInput]; return; }
+        [controller voiceCaptureDidStart];
     };
     // A permission sheet can outlive the physical hold. Require a fresh hold
     // after authorization instead of starting capture after the key was released.

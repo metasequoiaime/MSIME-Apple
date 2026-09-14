@@ -7,6 +7,13 @@ static inline BOOL MSIMEVoiceInputEnabled(NSUserDefaults *defaults) {
         [defaults boolForKey:@"MSIMEClientVoiceEnabled"];
 }
 
+static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
+    NSString *key = start ? @"MSIMEClientVoiceStartSound" : @"MSIMEClientVoiceEndSound";
+    return ([defaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil ||
+            [defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) &&
+           ([defaults objectForKey:key] == nil || [defaults boolForKey:key]);
+}
+
 // Adapt shared settings to the legacy native consumers. Missing or malformed
 // fields preserve local values; explicit false and empty strings clear them.
 // Reloading settings must not restart an active recording or emit save events.
@@ -36,6 +43,7 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
     }
     NSDictionary *booleans = @{
         @"enabled": @"Enabled",
+        @"start_sound": @"StartSound", @"end_sound": @"EndSound",
         @"sound_enabled": @"SoundEnabled", @"mute_system_audio": @"MuteSystemAudio",
         @"stream_inline_preedit": @"StreamInlinePreedit", @"polish_enabled": @"Polish",
         @"doubao_enable_itn": @"DoubaoEnableITN",

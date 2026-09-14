@@ -1,4 +1,5 @@
 #import "../InputController.mm"
+#import "VoiceCueFixture.h"
 #include <cassert>
 
 @interface HTTPRequestFixture : NSObject
@@ -54,6 +55,11 @@
 int main() {
     @autoreleasepool {
         HTTPControllerFixture *controller = [HTTPControllerFixture alloc];
+        MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
+        [controller setValue:cues forKey:@"voiceCuePlayer"];
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
         HTTPCaptureFixture *capture = [HTTPCaptureFixture new];
         HTTPHostFixture *session = [HTTPHostFixture new];
         NSObject *client = [NSObject new];
@@ -62,12 +68,14 @@ int main() {
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:@42 forKey:@"voiceGeneration"];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert(cues.starts == 1 && cues.stops == 0);
         [controller finishVoiceInputForDisable];
         [controller finishVoiceInputForDisable];
         assert(controller.requestFixture.submitted && !controller.requestFixture.cancellations);
         controller.requestFixture.completion(@"synthetic", nil);
         controller.requestFixture.completion = nil;
         assert(session.submissions == 1 && controller.applies == 1 && !capture.active);
+        assert(cues.starts == 1 && cues.stops == 1);
         // Exercise all controller identity checks with deliberately late results.
         for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
             assert([controller startHTTPVoiceInputWithOptions:@{}]);
@@ -89,7 +97,9 @@ int main() {
         assert(capture.active && controller.requestFixture.cancellations == 0);
         [controller cancelHTTPVoiceInput];
         capture.failStart = YES;
+        const auto beforeFailure = cues.starts;
         assert(![controller startHTTPVoiceInputWithOptions:@{}]);
+        assert(cues.starts == beforeFailure && cues.stops == beforeFailure);
         assert(controller.requestFixture.cancellations == 1);
         capture.failStart = NO;
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
@@ -100,5 +110,7 @@ int main() {
         oldFailure([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         assert(capture.active && controller.requestFixture.cancellations == 0);
         [controller cancelHTTPVoiceInput];
+        assert(cues.starts == cues.stops);
+        [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }
