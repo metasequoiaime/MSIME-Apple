@@ -1157,9 +1157,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     navigation.spacing = 2.0;
     navigation.translatesAutoresizingMaskIntoConstraints = NO;
     [navigation setCustomSpacing:30.0 afterView:brandRow];
-    // 顺序即下标:前面十二项是真正的设置页,和 _preferencePages 一一对应;语音输入排在最后,因为它
-    // 至今仍是「开另一个窗口」的动作,不占页面下标。帮助和反馈原来也在动作区(直接弹浏览器),现在
-    // 是页面,所以移到了页面区里。
+    // 下标即 _preferencePages 的下标,也是按钮的 tag。这里只排显示顺序,按 tag 定位的代码不受影响。
     NSArray<NSString *> *labels = @[
         @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号",
         @"帮助", @"反馈", @"语音输入"
@@ -1168,29 +1166,44 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
         @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic"
     ];
+    // 分组写成嵌套数组,而不是一串下标加一句注释解释它们为什么这样排 —— 上一版就是那样,于是外观和
+    // 皮肤隔着五项、帮助和反馈被悬浮工具栏劈开,谁也看不出原本想分组。组间多留一点间距,让分组在界面
+    // 上也看得见。五笔不在其中:它是「输入」页里的子页,靠页内按钮进出。
+    NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
+        @[ @0, @6, @7, @12 ], // 输入 · 辅助码 · 快捷键 · 语音输入
+        @[ @1, @2, @8 ],      // 外观 · 皮肤 · 悬浮工具栏
+        @[ @3, @9 ],          // 词库 · 账号
+        @[ @10, @11, @4 ],    // 帮助 · 反馈 · 关于与更新
+    ];
     NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
-    // Keep page indices stable; appearance leads the navigation to match the visual settings workflow.
-    // 账号领头。The sign-in lived three levels down under 关于与更新, where nothing about the name
-    // suggested that候选翻译 and everything else needing an account was gated behind it.
-    for (NSNumber *pageIndex in @[ @9, @1, @0, @6, @7, @3, @2, @10, @8, @11, @4, @12 ])
+    for (NSArray<NSNumber *> *group in navigationGroups)
     {
-        NSInteger index = pageIndex.integerValue;
-        NSButton *button = [[MetasequoiaSettingsNavigationButton alloc] initWithFrame:NSZeroRect];
-        button.title = labels[index];
-        button.target = self;
-        button.action = @selector(selectPreferencesPage:);
-        button.tag = index;
-        [button setButtonType:NSButtonTypePushOnPushOff];
-        button.bordered = NO;
-        button.alignment = NSTextAlignmentLeft;
-        button.imagePosition = NSImageLeft;
-        button.image = [NSImage imageWithSystemSymbolName:symbols[index] accessibilityDescription:nil];
-        button.font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium];
-        button.accessibilityLabel = labels[index];
-        [navigation addArrangedSubview:button];
-        [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
-        [button.heightAnchor constraintEqualToConstant:42.0].active = YES;
-        [buttons addObject:button];
+        NSButton *lastInGroup = nil;
+        for (NSNumber *pageIndex in group)
+        {
+            NSInteger index = pageIndex.integerValue;
+            NSButton *button = [[MetasequoiaSettingsNavigationButton alloc] initWithFrame:NSZeroRect];
+            button.title = labels[index];
+            button.target = self;
+            button.action = @selector(selectPreferencesPage:);
+            button.tag = index;
+            [button setButtonType:NSButtonTypePushOnPushOff];
+            button.bordered = NO;
+            button.alignment = NSTextAlignmentLeft;
+            button.imagePosition = NSImageLeft;
+            button.image = [NSImage imageWithSystemSymbolName:symbols[index] accessibilityDescription:nil];
+            button.font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium];
+            button.accessibilityLabel = labels[index];
+            [navigation addArrangedSubview:button];
+            [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
+            [button.heightAnchor constraintEqualToConstant:42.0].active = YES;
+            [buttons addObject:button];
+            lastInGroup = button;
+        }
+        if (lastInGroup != nil && group != navigationGroups.lastObject)
+        {
+            [navigation setCustomSpacing:16.0 afterView:lastInGroup];
+        }
     }
     _navigationButtons = buttons;
     [sidebar addSubview:navigation];
@@ -2047,7 +2060,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         [closeButton.centerYAnchor constraintEqualToAnchor:restoreButton.centerYAnchor],
         [closeButton.widthAnchor constraintGreaterThanOrEqualToConstant:80.0],
     ]];
-    [self showPreferencesPageAtIndex:1 navigationIndex:1];
+    // 开在侧栏第一项上。开在第二项(外观)而第一项是别的,看起来像是窗口没能恢复上次的位置。
+    [self showPreferencesPageAtIndex:0 navigationIndex:0];
     [self refreshUpdateControls];
     return self;
 }
