@@ -2744,9 +2744,10 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
     }
     #[cfg(not(unix))]
     {
-        // Cancellation is intentionally idempotent across platforms; the
-        // native Windows session consumes cancellation when present.
-        let _ = (app, request_id);
+        // Retire the matching host session even without a Unix provider.
+        // Native transport cancellation must be wired separately.
+        let sessions = app.state::<voice_sessions::VoiceSessions>();
+        let _ = sessions.cancel(request_id.as_deref());
         Ok(())
     }
 }
