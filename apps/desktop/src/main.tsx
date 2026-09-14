@@ -339,6 +339,10 @@ function DesktopSettings() {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
           } : {}),
+          ...(host.platform === "ios" ? {
+            testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
+              invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
+          } : {}),
         }
         : client;
       const mobileHosted = host?.platform === "android"

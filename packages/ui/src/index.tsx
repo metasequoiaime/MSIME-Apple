@@ -2108,7 +2108,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           {linuxPlatform && credentialTestControl("voice.polish", "测试语音润色配置", {
             polish_provider: voiceInput.polish_provider ?? "siliconflow", polish_model: voiceInput.polish_model ?? "",
           }, !(voiceInput.polish_text === true || voiceInput.polish_enabled === true))}
-          {(windowsPlatform || macosPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
+          {(windowsPlatform || macosPlatform || iosPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
             provider: voiceInput.polish_provider ?? "siliconflow",
             endpoint: voiceInput.polish_endpoint?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.endpoint || "",
             model: voiceInput.polish_model?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.model || "",
@@ -2135,7 +2135,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         {linuxPlatform ? <div className="section"><div className="section-title">Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small></div><p className="input-setting-description">凭据不保存在共享设置中；请在用户配置目录的 <code>ai-provider.json</code> 中配置，并使其中的 provider、接口地址和模型与上方设置一致。</p>{credentialTestControl("ai.assistant", "测试 AI 辅助配置", { provider: ai.provider, endpoint: ai.endpoint, model: ai.model }, !ai.enabled || !aiOrigin || !ai.model.trim())}</div> : <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>}
-        {(windowsPlatform || macosPlatform) && credentialTestControl("ai.assistant", "测试 AI 辅助配置", {
+        {(windowsPlatform || macosPlatform || iosPlatform) && credentialTestControl("ai.assistant", "测试 AI 辅助配置", {
           provider: ai.provider, endpoint: ai.endpoint, model: ai.model, token: aiToken,
         }, !ai.enabled || !aiOrigin || !ai.model.trim() || !aiToken.trim())}
         {!linuxPlatform && client.aiAssistant && <div className="section ai-service-tools">
