@@ -574,6 +574,9 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
     auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
+    auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
+        CandidateLayoutSettings{config.horizontal_candidates,
+                                config.candidate_show_preedit}.encode());
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -593,13 +596,15 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
          toolbar_enabled, dedicated_english, follow_cursor, voice_light, candidate_fonts,
-         toolbar_light, menu_light, mode_scope_global, tsf_config,
+         toolbar_light, menu_light, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           if (auto fonts = candidate_font_settings(preferences))
             candidate_fonts->publish(snapshot.revision(), std::move(*fonts));
+          if (auto layout = candidate_layout_settings(preferences))
+            candidate_layout->store(layout->encode(), std::memory_order_release);
           traditional_output->store(
               preferences.value("traditional_chinese_output", false),
               std::memory_order_release);
@@ -1163,6 +1168,8 @@ int wmain(int argc, wchar_t **argv) {
                                                              request->request));
       if (auto fonts = candidate_fonts->take())
         candidates.set_fonts(*fonts);
+      candidates.set_layout(CandidateLayoutSettings::decode(
+          candidate_layout->load(std::memory_order_acquire)));
       candidates.refresh();
       modes.refresh();
       // The settings page may have published a new value since the last pass.

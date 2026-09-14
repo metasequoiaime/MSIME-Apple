@@ -2,6 +2,7 @@
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
 #include "CandidateFontSettings.h"
+#include "CandidateLayoutSettings.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>
@@ -41,6 +42,7 @@ public:
   void refresh();
   // UI thread only. Invalid updates leave the previous display intact.
   bool set_fonts(const CandidateFontSettings &settings);
+  void set_layout(CandidateLayoutSettings settings);
   // Adopt resolved skin tokens. The next refresh repaints with them; the
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
@@ -64,6 +66,7 @@ public:
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void reposition();
+  void invalidate_geometry();
   CandidateBounds card_bounds(const CandidatePresentation &value,
                               const RECT &work, unsigned dpi);
   void paint();

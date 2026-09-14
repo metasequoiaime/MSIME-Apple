@@ -266,19 +266,30 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
     font_size_ = settings.size;
     preedit_font_size_ = settings.preedit_size;
     font_fallback_.Reset();
-    // New fonts change hit rectangles even with an unchanged Engine generation.
-    shown_.reset();
-    painted_.reset();
-    pressed_.reset();
-    hovered_.reset();
-    wheel_accumulator_ = 0;
-    tallest_ = 0;
-    if (window_)
-      InvalidateRect(window_, nullptr, FALSE);
+    invalidate_geometry();
     return true;
   } catch (...) {
     return false;
   }
+}
+void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
+  if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit)
+    return;
+  horizontal_ = settings.horizontal;
+  show_preedit_ = settings.show_preedit;
+  invalidate_geometry();
+}
+void CandidateWindow::invalidate_geometry() {
+  // Geometry can change without an Engine generation change. Never reuse old
+  // hit rectangles or a pressed row; keep the input lease and pinned anchor.
+  shown_.reset();
+  painted_.reset();
+  pressed_.reset();
+  hovered_.reset();
+  wheel_accumulator_ = 0;
+  tallest_ = 0;
+  if (window_)
+    InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::hide() {
   // The composition is over, so the next one starts its flip decision fresh.
