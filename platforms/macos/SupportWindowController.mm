@@ -2,11 +2,11 @@
 
 namespace {
 
-NSString *const kIssuesURL = @"https://github.com/metasequoiaime/MSIME-Windows/issues";
+NSString *const kIssuesURL = @"https://github.com/metasequoiaime/MSIME-Client/issues";
 NSString *const kTelegramURL = @"https://t.me/msimegroup";
 NSString *const kWebsiteURL = @"https://msime.app/";
-NSString *const kLicenseURL = @"https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE";
-NSString *const kPrivacyURL = @"https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
+NSString *const kLicenseURL = @"https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
+NSString *const kPrivacyURL = @"https://msime.app/privacy/";
 NSString *const kQQGroup = @"829919142";
 
 NSTextField *Heading(NSString *text) {

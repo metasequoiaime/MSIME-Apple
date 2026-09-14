@@ -574,6 +574,11 @@ add_executable(support-window-test tests/SupportWindowTest.mm SupportWindowContr
 target_compile_options(support-window-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(support-window-test PRIVATE "-framework AppKit")
 add_test(NAME support-window COMMAND support-window-test)
+add_test(
+  NAME support-window-links
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/support_window_links.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/SupportWindowController.mm")
 add_executable(input-source-registration-test tests/InputSourceRegistrationTests.mm InputSourceRegistration.mm)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework Carbon" "-framework Foundation")

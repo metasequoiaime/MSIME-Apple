@@ -1461,6 +1461,25 @@ test("Android help and about pages use mobile instructions and project links", a
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
 });
 
+test("macOS support pages use client project and privacy links", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  await screen.findByText("Metasequoia IME");
+  fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE"));
+  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+});
+
 test("about page validates a newer release before offering its URL", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
