@@ -55,6 +55,8 @@ try {
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
+    Write-Fixture 'windows/build32-release/Release/synthetic-runtime.dll' 'synthetic x86 dependency'
+    Write-Fixture 'windows/build64-release/Release/synthetic-runtime.dll' 'synthetic x64 dependency'
     Write-Fixture 'server/assets/tables/pinyin.txt' 'xing'
     Write-Fixture 'MetasequoiaImeDict/out/dictionary-manifest.json' '{"manifest_version":1}'
     $english = Join-Path $fixture 'MetasequoiaImeDict/out/english.db'
@@ -134,6 +136,10 @@ try {
     foreach ($arch in @('32', '64')) {
         $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
         $packagedHost = Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"
+        $expectedDependency = if ($arch -eq '32') { 'synthetic x86 dependency' } else { 'synthetic x64 dependency' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/synthetic-runtime.dll")) -ne $expectedDependency) {
+            throw 'Full package lost matching runtime dependency'
+        }
         if ([IO.File]::ReadAllText($packagedHost) -ne $expected) { throw 'TSF Host DLL architecture mapping mismatch' }
         $sourceHost = Join-Path $fixture "windows/build$arch-release/Release/msime_host_api.dll"
         Remove-Item -LiteralPath $sourceHost
@@ -168,6 +174,10 @@ try {
         $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/msime_host_api.dll")) -ne $expected) {
             throw 'Light package lost matching TSF Host DLL'
+        }
+        $expectedDependency = if ($arch -eq '32') { 'synthetic x86 dependency' } else { 'synthetic x64 dependency' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/synthetic-runtime.dll")) -ne $expectedDependency) {
+            throw 'Light package lost matching runtime dependency'
         }
     }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-prepare.exe'))) { throw 'Light package lost preparation tool' }

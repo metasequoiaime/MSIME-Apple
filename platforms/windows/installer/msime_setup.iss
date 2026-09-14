@@ -98,12 +98,14 @@ Source: "{#MySourceRoot}\LICENSE.txt"; \
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
 ; PDB 与对应 DLL 放在同一目录，调试器可按二进制的内嵌路径自动找到符号。
-; Install shared Host API before registering the TIP that imports it.
-Source: "{#MySourceRoot}\tsf_dll\32\msime_host_api.dll"; \
+; Install Host API and ordinary dependencies before registering the TIP.
+Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
+    Excludes: "MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"; \
     Flags: ignoreversion 32bit
 
-Source: "{#MySourceRoot}\tsf_dll\64\msime_host_api.dll"; \
+Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
+    Excludes: "MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
     Flags: ignoreversion
 

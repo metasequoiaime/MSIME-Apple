@@ -26,6 +26,8 @@ try {
     $x64 = Join-Path $fixture 'deps x64'
     $x86 = Join-Path $fixture 'deps x86'
     New-Item -ItemType Directory $x64, $x86 | Out-Null
+    Write-PEFixture (Join-Path $x64 'bin/synthetic-runtime.dll') x64 dll
+    Write-PEFixture (Join-Path $x86 'bin/synthetic-runtime.dll') x86 dll
     function global:Invoke-ClientCommandProbe {
         param([string]$Name, [object[]]$Values)
         $global:ClientBuildCalls.Add(@{ Name = $Name; Values = $Values; Prefix = $env:CMAKE_PREFIX_PATH })
@@ -39,6 +41,10 @@ try {
     $global:ClientBuildFailAt = 0
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
     $count = $global:ClientBuildCalls.Count
+    foreach ($arch in @('x86', 'x64')) {
+        & (Join-Path $PSScriptRoot '../Test-PortableExecutable.ps1') `
+            -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
+    }
     if ($count -ne 15) { throw "Unexpected build stage count: $count" }
     foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }

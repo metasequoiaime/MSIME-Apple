@@ -310,6 +310,12 @@ Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
+foreach ($pair in @(@($tsf32Release, $targetTsf32), @($tsf64Release, $targetTsf64))) {
+    # Build-Client collects architecture-checked release dependencies beside TIP.
+    Get-ChildItem -LiteralPath (Split-Path -Parent $pair[0]) -File -Filter '*.dll' |
+        Where-Object { $_.Name -notin @('MetasequoiaImeTsf.dll', 'msime_host_api.dll') } |
+        Copy-Item -Destination $pair[1] -Force
+}
 Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
 # rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime.db, so the
 # notice has to reach the user's disk rather than only exist in the source repository.

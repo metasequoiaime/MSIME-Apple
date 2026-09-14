@@ -75,6 +75,9 @@ try {
         (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.exe'))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
+        $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
+        & (Join-Path $PSScriptRoot 'Copy-RuntimeDependencies.ps1') `
+            -DependencyPrefix $prefix -Destination $bin -Architecture $arch
         foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
             & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
         }

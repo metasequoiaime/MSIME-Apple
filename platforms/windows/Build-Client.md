@@ -38,7 +38,21 @@ This is an architecture/type gate, not full image validation, signature checking
 import resolution or Windows runtime verification. Parser fixtures intentionally
 contain only synthetic headers; they are not executable images.
 
+The build also collects top-level release `bin/*.dll` from each explicitly
+provided dependency prefix. Every candidate passes the PE architecture/DLL gate
+before copying; same-named different output content causes failure rather than
+overwrite. Identical files are reused. Static prefixes may have no bin directory.
+Debug subdirectories and non-DLL files are not copied. Each TSF staging directory
+carries these ordinary dependencies without COM registration; the Server package
+already copies its output directory recursively.
+
+This collects all release DLLs from the supplied prefixes, not only imported
+ones. It is not recursive import analysis: Windows components, VC runtime
+redistribution and dynamically loaded modules outside those prefixes still need
+explicit provisioning and verification. Distribution must retain the licenses
+for supplied dependency packages; prefix collection is not a license audit.
+
 The legacy `installer/test.ps1` and `test-light.ps1` are not yet migrated to this
-entry and should not be used as Client build verification. Native dependency DLL
-collection, architecture-correct installer staging, legacy asset removal and
-full Windows build/installation verification remain unfinished.
+entry and should not be used as Client build verification. Legacy asset removal,
+full dependency closure and Windows build/installation verification remain
+unfinished.
