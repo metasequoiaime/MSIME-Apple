@@ -1044,6 +1044,35 @@ final class NineKeyKeyboardTests: XCTestCase {
   // Putting the keyboard away must hand the engine's dictionary access back: iOS terminates an
   // extension suspended while holding a lock in the App Group container and reports it as
   // 0xdead10cc. Resuming has to rebuild a session that still converts.
+  // The presentation cycle is what the device actually does: show, type, put away, show again.
+  // Releasing the dictionary access on dismissal must not leave the next presentation unable to
+  // convert, and a dropped keystroke would still have played its click.
+  func testKeyboardStillConvertsAfterBeingPutAwayAndShownAgain() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    for round in 0..<2 {
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      for letter in "nihao" {
+        let key = try XCTUnwrap(descendants(controller.view).first {
+          $0.accessibilityLabel == "字母 \(String(letter).uppercased())"
+        } as? UIButton)
+        key.sendActions(for: .primaryActionTriggered)
+      }
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "nihao",
+                     "round \(round): the keystrokes never reached the engine")
+      XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"),
+                    "round \(round): no Chinese candidate")
+      controller.viewWillDisappear(false)
+    }
+  }
+
   func testSuspendReleasesDictionaryAccessAndResumeStillConverts() throws {
     let bridge = MetasequoiaInputSessionBridge()
     var snapshot = bridge.cancel()
