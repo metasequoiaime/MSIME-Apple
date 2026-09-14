@@ -50,6 +50,8 @@ mod skin_directory;
 mod voice_output;
 #[cfg(any(unix, target_os = "windows"))]
 mod voice_sessions;
+#[cfg(windows)]
+mod windows_voice;
 use msime_host_api::system_fonts;
 
 #[tauri::command]
@@ -2500,7 +2502,7 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(serde::Serialize, Clone)]
 struct VoiceRecognitionUpdate {
     text: String,
@@ -2618,8 +2620,9 @@ async fn recognize_voice(
     runtime: tauri::State<'_, RuntimeOptionsState>,
     store: tauri::State<'_, Arc<PreferencesStore>>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
-    // Streaming updates are emitted by the unix provider path only.
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let _ = (&runtime, &store);
+    #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store);
     if request.request_id.is_empty()
         || request.request_id.len() > 64
@@ -2634,6 +2637,10 @@ async fn recognize_voice(
         return Err(HostActionError {
             code: "invalid_voice",
         });
+    }
+    #[cfg(windows)]
+    {
+        windows_voice::recognize(app, request).await
     }
     #[cfg(unix)]
     {
@@ -2735,7 +2742,7 @@ async fn recognize_voice(
             })?;
         Ok(VoiceRecognitionResult { text })
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (request, runtime);
         Err(HostActionError {
@@ -2784,8 +2791,8 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
     }
     #[cfg(not(unix))]
     {
-        // Retire the matching host session even without a Unix provider.
-        // Native transport cancellation must be wired separately.
+        // The Windows worker observes cancellation during I/O, drains it and
+        // closes its connection; the Server cancels only that review session.
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let _ = sessions.cancel(request_id.as_deref());
         Ok(())

@@ -5,12 +5,13 @@
 //! that owned the caret, injecting synthetic input into it, placing a panel on
 //! the work area and opening a directory in the shell.
 //!
-//! Nothing here reads input, credentials or user text; callers pass the text
-//! the panel already holds.
+//! Input wrappers receive panel-owned text. The voice controller reads bounded
+//! recognition results from the authenticated Server; it never logs them.
 
 #![cfg(windows)]
 
 pub mod ink;
+pub mod voice_controller;
 
 use std::path::Path;
 

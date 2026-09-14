@@ -1,7 +1,5 @@
-// Recording is begun and retired by the Unix-socket provider path. The Windows
-// build reaches this only to stop and cancel, so begin, active, finish and the
-// fields they fill are genuinely dead there - silencing it per platform rather
-// than crate-wide keeps a real dead-code warning visible instead of buried.
+// Shared request generations for Unix providers and the Windows controller.
+// Endpoint snapshots and active() remain Unix-specific in production builds.
 #![cfg_attr(not(unix), allow(dead_code))]
 
 use std::path::PathBuf;
@@ -14,6 +12,7 @@ pub(crate) struct VoiceSession {
     pub generation: u64,
     pub path: PathBuf,
     pub cancelled: Arc<AtomicBool>,
+    pub stopped: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -37,6 +36,7 @@ impl VoiceSessions {
             generation: state.generation,
             path,
             cancelled: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::new(AtomicBool::new(false)),
         };
         state.active = Some(session.clone());
         Some(session)
@@ -56,11 +56,13 @@ impl VoiceSessions {
     /// that retires the generation.
     pub fn stop(&self, request_id: &str) -> Option<VoiceSession> {
         let state = self.0.lock().ok()?;
-        state
+        let session = state
             .active
             .as_ref()
             .filter(|session| session.request_id == request_id)
-            .cloned()
+            .cloned()?;
+        session.stopped.store(true, Ordering::Release);
+        Some(session)
     }
 
     pub fn finish(&self, generation: u64) {
@@ -89,6 +91,25 @@ impl VoiceSessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_signal_is_bound_to_matching_session() {
+        let state = VoiceSessions::default();
+        let first = state
+            .begin("first".into(), "synthetic-pipe".into())
+            .unwrap();
+        assert!(state.stop("stale").is_none());
+        assert!(!first.stopped.load(Ordering::Acquire));
+        state.stop("first").unwrap();
+        assert!(first.stopped.load(Ordering::Acquire));
+        assert!(!first.cancelled.load(Ordering::Acquire));
+        state.cancel(Some("first")).unwrap();
+        let next = state.begin("next".into(), "synthetic-pipe".into()).unwrap();
+        state.stop("first");
+        state.finish(first.generation);
+        assert!(!next.stopped.load(Ordering::Acquire));
+        assert!(state.active("next").is_some());
+    }
 
     #[test]
     fn stopping_keeps_the_session_alive_for_the_final_result() {
@@ -149,7 +170,9 @@ mod tests {
     #[test]
     fn stop_keeps_generation_active_for_final_result() {
         let state = VoiceSessions::default();
-        let first = state.begin("first".into(), "/fixture/provider.sock".into()).unwrap();
+        let first = state
+            .begin("first".into(), "/fixture/provider.sock".into())
+            .unwrap();
         let stopped = state.stop("first").unwrap();
         assert_eq!(stopped.generation, first.generation);
         assert!(!stopped.cancelled.load(Ordering::Relaxed));

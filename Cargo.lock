@@ -2401,6 +2401,7 @@ dependencies = [
 name = "msime-host-windows"
 version = "0.1.0"
 dependencies = [
+ "msime-client-core",
  "windows",
  "windows-collections",
  "windows-numerics",

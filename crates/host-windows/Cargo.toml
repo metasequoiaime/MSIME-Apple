@@ -7,6 +7,7 @@ license.workspace = true
 # The desktop shell forbids unsafe code, so the few Win32 calls the shared
 # panels need live here behind safe wrappers.
 [target.'cfg(windows)'.dependencies]
+msime-client-core = { path = "../client-core" }
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_UI_Input_KeyboardAndMouse",
@@ -16,6 +17,11 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Threading",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
+  "Win32_System_Pipes",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_IO",
+  "Win32_Storage_FileSystem",
+  "Win32_Security",
 ] }
 # Windows Ink handwriting recognition is WinRT, which windows-sys does not
 # project; this is the same InkRecognizerContainer the reference panel uses.

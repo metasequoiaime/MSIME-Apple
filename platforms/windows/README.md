@@ -58,7 +58,9 @@ CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐�
 
 `VoiceControllerProtocol.h` 直接消费固定 Engine 的 `voice_controller.h` v2 布局，处理有界消息、UTF-8 和语言标识，不复制 opcode。`VoiceControllerConnection.h` 在专用连接上执行 Hello、OS 对端认证、请求顺序和有界读写，拒绝重放；它不接受客户端提供的 TSF 目标身份。`windows-voice-controller-protocol` 可在非 Windows 运行，`windows-voice-controller-connection` 使用真实 Windows Named Pipe。
 
-Server 主循环现已创建 `VoiceControllerListener`：专用 I/O 线程通过单槽 `VoiceControllerMailbox` 向控制线程派发，`VoiceControllerDispatch` 分配不可跨连接复用的会话 ID，保存并复核 Server 内部焦点租约。断线、焦点失效、派发超时使对应会话失效，旧队列任务不能启动新录音；关闭时先中止并等待 I/O，再在控制线程取消匹配结果。监听失败不影响原生输入。当前一个认证连接独占端点；Hello/写回复限时 2 秒，空闲读取 5 秒，等待控制线程回复 10 秒，因此控制端应小于 5 秒轮询一次。I/O 超时后会取消并排空操作，不承诺硬实时截止。`windows-voice-controller-dispatch` 为可移植的所有权/焦点/队列测试；`windows-voice-controller-listener` 在 Windows 通过真实管道和模拟录音后端检查 Hello→Start→Stop→Poll、断线清理与未派发请求的关闭。尚未接入共享 Rust/Tauri 控制端，不能据此宣称桌面面板已能录音。
+Server 主循环现已创建 `VoiceControllerListener`：专用 I/O 线程通过单槽 `VoiceControllerMailbox` 向控制线程派发，`VoiceControllerDispatch` 分配不可跨连接复用的会话 ID，保存并复核 Server 内部焦点租约。断线、焦点失效、派发超时使对应会话失效，旧队列任务不能启动新录音；关闭时先中止并等待 I/O，再在控制线程取消匹配结果。监听失败不影响原生输入。当前一个认证连接独占端点；Hello/写回复限时 2 秒，空闲读取 5 秒，等待控制线程回复 10 秒，因此控制端应小于 5 秒轮询一次。I/O 超时后会取消并排空操作，不承诺硬实时截止。`windows-voice-controller-dispatch` 为可移植的所有权/焦点/队列测试；`windows-voice-controller-listener` 在 Windows 通过真实管道和模拟录音后端检查 Hello→Start→Stop→Poll、断线清理与未派发请求的关闭。
+
+共享 `client-core::voice_controller` 注入消息传输，校验精确 v2 帧、请求/会话 ID、阶段顺序和有界 UTF-8 结果；Windows `host-windows::voice_controller` 使用消息管道与 overlapped I/O，校验并保留 Server 的进程句柄，核对同账户/同 Windows 会话。每次 I/O 限时 12 秒并在取消后排空，消息不自动重试。Tauri Windows `recognize_voice` 已接线到该控制端，每 100ms 轮询，复用现有 request_id、停止/取消标志、电平及 `voice-update` 事件；结果仅返回面板，不自动提交。原生 `Processing` 映射到面板的 `polishing` 阶段。真实 Windows 录音与整包端到端验证仍需执行，不能只凭跨目标编译宣称平台接入完成。
 
 依赖 CMake 3.25+、C++17、nlohmann-json 3.11+ 以及为运行平台构建的 msime-host-api。下面测试驱动真实共享 Rust/C++ 库；在 macOS/Linux 运行不等于 Windows 宿主验收：
 
