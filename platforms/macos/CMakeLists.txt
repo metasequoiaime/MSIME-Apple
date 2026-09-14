@@ -622,3 +622,8 @@ add_test(NAME voice-mute-recovery COMMAND voice-mute-recovery-test)
 
 target_sources(MSIMEClientInputMethod PRIVATE VoiceAudioMuter.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreAudio")
+
+add_executable(paired-punctuation-test tests/PairedPunctuationTest.cpp)
+target_compile_features(paired-punctuation-test PRIVATE cxx_std_17)
+target_compile_options(paired-punctuation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME paired-punctuation COMMAND paired-punctuation-test)
