@@ -8,6 +8,7 @@
     BOOL _failed;
     uint64_t _inputFrames;
     double _inputRate;
+    NSUInteger _drainedFrames;
 }
 - (BOOL)fail:(NSError **)error {
     _failed = YES;
@@ -90,6 +91,21 @@
         _failed = YES;
         _pcm = nil;
         _converter = nil;
+    }
+}
+- (NSData *)drainWithError:(NSError **)error {
+    @synchronized(self) {
+        if (_failed) { [self fail:error]; return nil; }
+        NSUInteger available = _pcm.length / sizeof(float);
+        if (!_finished && _inputRate > 0) {
+            NSUInteger captured = (NSUInteger)std::floor(_inputFrames * 16000.0 / _inputRate);
+            available = MIN(available, captured);
+        }
+        if (available <= _drainedFrames) return NSData.data;
+        NSData *result = [_pcm subdataWithRange:NSMakeRange(_drainedFrames * sizeof(float),
+            (available - _drainedFrames) * sizeof(float))];
+        _drainedFrames = available;
+        return result;
     }
 }
 @end

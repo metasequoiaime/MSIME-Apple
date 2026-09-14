@@ -2,7 +2,12 @@
 #import "VoicePCMBuffer.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
-@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; }
+#include <memory>
+#include <mutex>
+namespace {
+struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
+}
+@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; std::shared_ptr<PCMStreamAdmission> _pcmStreamLive; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return [SFSpeechRecognizer authorizationStatus]; }
@@ -31,9 +36,48 @@
             userInfo:@{NSLocalizedDescriptionKey: @"没有可提交的录音"}];
         return nil;
     }
+    [self stopPCMStreamDelivery];
     _pcmRecording = nil;
     [self stopMicrophoneCapture];
     return [recording finishWithError:error];
+}
+- (BOOL)startPCMStreaming:(MSIMEVoicePCMChunk)handler deviceUID:(NSString *)deviceUID error:(NSError **)error {
+    if (!handler || _pcmRecording || _audioEngine || _speechTask) {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:4
+            userInfo:@{NSLocalizedDescriptionKey:@"无法开始流式录音"}];
+        return NO;
+    }
+    MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
+    auto live = std::make_shared<PCMStreamAdmission>();
+    _pcmRecording = recording; _pcmStreamLive = live;
+    // Both recording and admission token belong to this tap, never its successor.
+    BOOL started = [self startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
+        std::lock_guard<std::mutex> lock(live->mutex);
+        if (!live->live) return;
+        NSError *failure = nil;
+        NSData *pcm = [recording append:buffer error:&failure] ? [recording drainWithError:&failure] : nil;
+        if (!pcm) {
+            live->live = false; handler(nil, failure);
+        } else if (pcm.length) handler(pcm, nil);
+    } deviceUID:deviceUID error:error];
+    if (!started) { [self stopPCMStreamDelivery]; [recording cancel]; _pcmRecording = nil; }
+    return started;
+}
+- (void)stopPCMStreamDelivery {
+    auto live = _pcmStreamLive;
+    if (!live) return;
+    {
+        // Wait for an in-flight drain + delivery before finalizing the converter.
+        // Release this lock before removing the tap or stopping AVAudioEngine.
+        std::lock_guard<std::mutex> lock(live->mutex);
+        live->live = false;
+    }
+    _pcmStreamLive.reset();
+}
+- (NSData *)finishPCMStreamingWithError:(NSError **)error {
+    MSIMEVoicePCMBuffer *recording = _pcmRecording;
+    if (![self finishPCMRecordingWithError:error]) return nil;
+    return [recording drainWithError:error];
 }
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)bufferHandler deviceUID:(NSString *)deviceUID error:(NSError **)error {
     if ([self microphoneAuthorizationStatus] != AVAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:1 userInfo:@{NSLocalizedDescriptionKey: @"麦克风权限未授权"}]; return NO; }
@@ -96,7 +140,7 @@
 }
 - (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; }
 - (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; _session = session; _active = YES; if (generation) *generation = [result[@"generation"] unsignedLongLongValue]; return YES; }
-- (BOOL)cancelWithError:(NSError **)error { [_pcmRecording cancel]; _pcmRecording = nil; if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
+- (BOOL)cancelWithError:(NSError **)error { [self stopPCMStreamDelivery]; [_pcmRecording cancel]; _pcmRecording = nil; if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion { MSIMEClientSession *session = _session; dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ NSError *error = nil; NSDictionary *result = [session applyVoiceText:text generation:generation error:&error]; dispatch_async(dispatch_get_main_queue(), ^{ completion(result, error); }); }); }
-- (void)dealloc { [_pcmRecording cancel]; [self stopMicrophoneCapture]; [self stopTranscription]; }
+- (void)dealloc { [self stopPCMStreamDelivery]; [_pcmRecording cancel]; [self stopMicrophoneCapture]; [self stopTranscription]; }
 @end
