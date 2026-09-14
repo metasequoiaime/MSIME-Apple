@@ -322,7 +322,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let result =
                     msime_engine_bridge::dictionary_edit(&options, None, Some(entry), &receipt);
                 if result.is_err() {
-                    rejected_lines.push(entry.line);
+                    rejected_lines.push(index + 1);
                     continue;
                 }
                 applied += 1;

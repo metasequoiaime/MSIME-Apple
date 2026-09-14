@@ -3,6 +3,17 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum CloudDictionaryRequest {
+    SnapshotPreview,
+    SnapshotExport,
+    SnapshotRestorePreview { text: String },
+    SnapshotRestore {
+        text: String,
+        expected_sha256: String,
+        revision: i64,
+    },
+    SnapshotEnqueue { token: String },
+    SnapshotStatus,
+    SnapshotCancel,
     List {
         kind: String,
         offset: usize,
@@ -107,6 +118,12 @@ pub struct CloudDictionaryValue {
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
+    let valid_token = |token: &str| {
+        (1..=96).contains(&token.len())
+            && token.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+            })
+    };
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let code_alphabet_ok = match kind {
             "quick" => code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
@@ -134,6 +151,35 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
     };
     match request {
+        CloudDictionaryRequest::SnapshotPreview
+        | CloudDictionaryRequest::SnapshotExport
+        | CloudDictionaryRequest::SnapshotStatus
+        | CloudDictionaryRequest::SnapshotCancel => Ok(()),
+        CloudDictionaryRequest::SnapshotRestorePreview { text } => {
+            if valid_snapshot_text(text) {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::SnapshotRestore {
+            text,
+            expected_sha256,
+            revision,
+        } => {
+            if valid_snapshot_text(text) && valid_sha256(expected_sha256) && *revision >= 0 {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
+        CloudDictionaryRequest::SnapshotEnqueue { token } => {
+            if valid_token(token) {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
         CloudDictionaryRequest::List {
             kind,
             offset,
@@ -353,6 +399,20 @@ fn valid_text(value: &str, maximum_bytes: usize) -> bool {
     value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
+fn valid_snapshot_text(value: &str) -> bool {
+    const MAX_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
+    !value.is_empty()
+        && value.len() <= MAX_SNAPSHOT_BYTES
+        && !value.contains('\0')
+        && value.chars().all(|character| {
+            !character.is_control() || matches!(character, '\n' | '\r' | '\t')
+        })
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn valid_candidate_query(
     text: &str,
     kind: &str,
@@ -378,6 +438,34 @@ mod tests {
 
     #[test]
     fn validates_dictionary_values_and_entry_identity() {
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotPreview).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotStatus).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotCancel).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotExport).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestorePreview {
+            text: "{\"type\":\"header\"}\n".into(),
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestore {
+            text: "{\"type\":\"header\"}\n".into(),
+            expected_sha256: "a".repeat(64),
+            revision: 0,
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestore {
+            text: "bad\u{0007}".into(),
+            expected_sha256: "a".repeat(64),
+            revision: 0,
+        })
+        .is_err());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotEnqueue {
+            token: "a-token".into(),
+        })
+        .is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotEnqueue {
+            token: "bad token".into(),
+        })
+        .is_err());
         assert!(validate_cloud_request(&CloudDictionaryRequest::Add {
             kind: "pinyin".into(),
             code: "ni".into(),

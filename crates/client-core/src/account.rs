@@ -7,7 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,6 +19,13 @@ const MAX_ACCOUNT_PREFERENCE_KEY_BYTES: usize = 128;
 const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
 const MAX_DICTIONARY_PAGE_ENTRIES: usize = 100;
 const MAX_DICTIONARY_EXPORT_BYTES: usize = 384 * 1024 * 1024;
+const MAX_DICTIONARY_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
+const MAX_CHAT_MODELS: usize = 33;
+const MAX_CHAT_MODEL_ID_BYTES: usize = 200;
+const MAX_CHAT_MESSAGES: usize = 16;
+const MAX_CHAT_MESSAGE_BYTES: usize = 16 * 1024;
+const MAX_CHAT_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -109,6 +117,23 @@ pub struct AccountCandidateQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatModel {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountChatModels {
+    pub data: Vec<AccountChatModel>,
+    pub default_model: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountPersonalCandidate {
     pub code: String,
     pub word: String,
@@ -172,6 +197,13 @@ pub struct AccountDictionaryChange {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryChangePage {
+    pub changes: Vec<AccountDictionaryChange>,
+    pub next: i64,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountDictionaryImportResult {
     pub imported: usize,
     pub revision: i64,
@@ -181,6 +213,12 @@ pub struct AccountDictionaryImportResult {
 pub struct AccountDictionaryExport {
     pub text: String,
     pub filename: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionarySnapshotRestore {
+    pub revision: i64,
+    pub reset: bool,
 }
 
 /// The deliberately small value set accepted by the account preferences API.
@@ -299,6 +337,19 @@ pub trait AccountApi: Send + Sync + 'static {
     fn rename(&self, display_name: &str, access_token: &str) -> Result<(), AccountError>;
     fn logout(&self, access_token: &str, all: bool) -> Result<(), AccountError>;
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError>;
+
+    fn chat_models(&self, _access_token: &str) -> Result<AccountChatModels, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn chat(
+        &self,
+        _messages: &[AccountChatMessage],
+        _model: &str,
+        _access_token: &str,
+    ) -> Result<String, AccountError> {
+        Err(AccountError::Unavailable)
+    }
 
     fn preference_schema(
         &self,
@@ -489,6 +540,36 @@ pub trait AccountApi: Send + Sync + 'static {
         _format: &str,
         _access_token: &str,
     ) -> Result<AccountDictionaryExport, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn dictionary_changes(
+        &self,
+        _after: i64,
+        _limit: usize,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn dictionary_snapshot(&self, _access_token: &str) -> Result<Vec<u8>, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn dictionary_snapshot_to_file(
+        &self,
+        _destination: &Path,
+        _access_token: &str,
+    ) -> Result<u64, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn restore_dictionary_snapshot(
+        &self,
+        _snapshot: &[u8],
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         Err(AccountError::Unavailable)
     }
 }
@@ -807,6 +888,155 @@ impl BackendAccountClient {
         )?;
         validate_dictionary_catalog_page(&page, kind)?;
         Ok(page)
+    }
+
+    pub fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        if after < 0 || !(1..=100).contains(&limit) {
+            return Err(AccountError::Invalid);
+        }
+        let page = self.json::<AccountDictionaryChangePage, ()>(
+            Method::GET,
+            &format!("/v1/users/me/dictionary/changes?after={after}&limit={limit}"),
+            Some(access_token),
+            None,
+        )?;
+        if page.changes.len() > limit {
+            return Err(AccountError::Unavailable);
+        }
+        let mut cursor = after;
+        for change in &page.changes {
+            if change.revision <= cursor {
+                return Err(AccountError::Unavailable);
+            }
+            if change.previous.as_ref().is_some_and(|entry| {
+                validate_dictionary_entry(entry, entry.kind).is_err()
+                    || entry.revision > change.revision
+            }) || change.replacement.as_ref().is_some_and(|entry| {
+                validate_dictionary_entry(entry, entry.kind).is_err()
+                    || entry.revision > change.revision
+            }) {
+                return Err(AccountError::Unavailable);
+            }
+            cursor = change.revision;
+        }
+        if page.next != cursor || (page.has_more && page.changes.is_empty()) {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(page)
+    }
+
+    pub fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
+        self.request_with_limit_timeout_accept(
+            Method::GET,
+            "/v1/users/me/dictionary/snapshot",
+            Some(access_token),
+            None,
+            MAX_DICTIONARY_SNAPSHOT_BYTES,
+            Duration::from_secs(120),
+            "application/x-ndjson",
+        )
+    }
+
+    pub fn dictionary_snapshot_to_file(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountError> {
+        if !destination.is_absolute() || !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let url = self
+            .origin
+            .join("/v1/users/me/dictionary/snapshot")
+            .map_err(|_| AccountError::Invalid)?;
+        let mut response = self
+            .client
+            .get(url)
+            .header(reqwest::header::ACCEPT, "application/x-ndjson")
+            .bearer_auth(access_token)
+            .timeout(Duration::from_secs(120))
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        if !response.status().is_success() {
+            return Err(AccountError::from_status(response.status()));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_DICTIONARY_SNAPSHOT_BYTES as u64)
+        {
+            return Err(AccountError::Unavailable);
+        }
+        let parent = destination.parent().ok_or(AccountError::Invalid)?;
+        if !parent.is_absolute() {
+            return Err(AccountError::Invalid);
+        }
+        let mut temporary = tempfile::Builder::new()
+            .prefix("msime-snapshot-")
+            .tempfile_in(parent)
+            .map_err(|_| AccountError::Unavailable)?;
+        let bytes = std::io::copy(
+            &mut response
+                .by_ref()
+                .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
+            temporary.as_file_mut(),
+        )
+            .map_err(|_| AccountError::Unavailable)?;
+        if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
+            return Err(AccountError::Unavailable);
+        }
+        temporary
+            .as_file_mut()
+            .flush()
+            .and_then(|_| temporary.as_file().sync_all())
+            .map_err(|_| AccountError::Unavailable)?;
+        temporary
+            .persist(destination)
+            .map_err(|_| AccountError::Unavailable)?;
+        Ok(bytes)
+    }
+
+    pub fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        if revision < 0
+            || snapshot.is_empty()
+            || snapshot.len() > MAX_DICTIONARY_SNAPSHOT_BYTES
+            || snapshot.contains(&0)
+            || !valid_token(access_token)
+        {
+            return Err(AccountError::Invalid);
+        }
+        let url = self
+            .origin
+            .join(&format!(
+                "/v1/users/me/dictionary/snapshot?revision={revision}"
+            ))
+            .map_err(|_| AccountError::Invalid)?;
+        let response = self
+            .client
+            .put(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
+            .bearer_auth(access_token)
+            .timeout(Duration::from_secs(130))
+            .body(snapshot.to_vec())
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        let bytes = read_bounded_response(response, MAX_JSON_BYTES)?;
+        let result: AccountDictionarySnapshotRestore =
+            serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;
+        if !result.reset || result.revision <= revision {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(result)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1775,6 +2005,79 @@ impl AccountApi for BackendAccountClient {
         self.empty::<()>(Method::DELETE, "/v1/users/me", Some(access_token), None)
     }
 
+    fn chat_models(&self, access_token: &str) -> Result<AccountChatModels, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let models = self.json::<AccountChatModels, ()>(
+            Method::GET,
+            "/v1/models",
+            Some(access_token),
+            None,
+        )?;
+        validate_chat_models(&models)?;
+        Ok(models)
+    }
+
+    fn chat(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+    ) -> Result<String, AccountError> {
+        if !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        validate_chat_request(messages, model)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            messages: &'a [AccountChatMessage],
+            model: &'a str,
+            max_tokens: u16,
+            stream: bool,
+        }
+        #[derive(Deserialize)]
+        struct Response {
+            choices: Vec<Choice>,
+        }
+        #[derive(Deserialize)]
+        struct Choice {
+            message: AccountChatMessage,
+        }
+        let body = Body {
+            messages,
+            model,
+            max_tokens: 2048,
+            stream: false,
+        };
+        let body_bytes = serde_json::to_vec(&body).map_err(|_| AccountError::Invalid)?;
+        if body_bytes.len() > MAX_CHAT_REQUEST_BYTES {
+            return Err(AccountError::Invalid);
+        }
+        let response = self.json_with_limit_timeout::<Response, _>(
+            Method::POST,
+            "/v1/chat/completions",
+            Some(access_token),
+            Some(&body),
+            MAX_CHAT_RESPONSE_BYTES,
+            Duration::from_secs(125),
+        )?;
+        let reply = response
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message)
+            .ok_or(AccountError::Unavailable)?;
+        if reply.role != "assistant"
+            || reply.content.trim().is_empty()
+            || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
+            || reply.content.chars().any(char::is_control)
+        {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(reply.content)
+    }
+
     fn preference_schema(
         &self,
         access_token: &str,
@@ -2002,6 +2305,36 @@ impl AccountApi for BackendAccountClient {
     ) -> Result<AccountDictionaryExport, AccountError> {
         self.export_dictionary(kind, format, access_token)
     }
+
+    fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+        access_token: &str,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        self.dictionary_changes(after, limit, access_token)
+    }
+
+    fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
+        self.dictionary_snapshot(access_token)
+    }
+
+    fn dictionary_snapshot_to_file(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountError> {
+        self.dictionary_snapshot_to_file(destination, access_token)
+    }
+
+    fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        self.restore_dictionary_snapshot(snapshot, revision, access_token)
+    }
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {
@@ -2140,6 +2473,51 @@ fn validate_display_name(value: &str) -> Result<(), AccountError> {
         || value.trim() != value
         || value.chars().count() > 64
         || value.chars().any(char::is_control)
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_chat_models(value: &AccountChatModels) -> Result<(), AccountError> {
+    if value.data.is_empty()
+        || value.data.len() > MAX_CHAT_MODELS
+        || value.default_model.is_empty()
+        || value.default_model.len() > MAX_CHAT_MODEL_ID_BYTES
+        || !value
+            .data
+            .iter()
+            .any(|model| model.id == value.default_model)
+        || value.data.iter().any(|model| {
+            model.id.is_empty()
+                || model.id.len() > MAX_CHAT_MODEL_ID_BYTES
+                || model.id.chars().any(char::is_control)
+        })
+        || value
+            .data
+            .iter()
+            .map(|model| &model.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != value.data.len()
+    {
+        return Err(AccountError::Unavailable);
+    }
+    Ok(())
+}
+
+fn validate_chat_request(messages: &[AccountChatMessage], model: &str) -> Result<(), AccountError> {
+    if model.is_empty()
+        || model.len() > MAX_CHAT_MODEL_ID_BYTES
+        || model.chars().any(char::is_control)
+        || messages.is_empty()
+        || messages.len() > MAX_CHAT_MESSAGES
+        || messages.iter().any(|message| {
+            !matches!(message.role.as_str(), "user" | "assistant" | "system")
+                || message.content.is_empty()
+                || message.content.len() > MAX_CHAT_MESSAGE_BYTES
+                || message.content.chars().any(char::is_control)
+        })
     {
         return Err(AccountError::Invalid);
     }
@@ -2473,6 +2851,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.forget()
     }
 
+    pub fn chat_models(&self) -> Result<AccountChatModels, AccountError> {
+        self.authenticated(|api, token| api.chat_models(token))
+    }
+
+    pub fn chat(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+    ) -> Result<String, AccountError> {
+        self.authenticated(|api, token| api.chat(messages, model, token))
+    }
+
     fn authenticated<T, F>(&self, operation: F) -> Result<T, AccountError>
     where
         F: Fn(&A, &str) -> Result<T, AccountError>,
@@ -2545,6 +2935,30 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated(|api, token| {
             api.dictionary_catalog(kind, code, offset, scheme, profile, token)
         })
+    }
+
+    pub fn dictionary_changes(
+        &self,
+        after: i64,
+        limit: usize,
+    ) -> Result<AccountDictionaryChangePage, AccountError> {
+        self.authenticated(|api, token| api.dictionary_changes(after, limit, token))
+    }
+
+    pub fn dictionary_snapshot(&self) -> Result<Vec<u8>, AccountError> {
+        self.authenticated(|api, token| api.dictionary_snapshot(token))
+    }
+
+    pub fn dictionary_snapshot_to_file(&self, destination: &Path) -> Result<u64, AccountError> {
+        self.authenticated(|api, token| api.dictionary_snapshot_to_file(destination, token))
+    }
+
+    pub fn restore_dictionary_snapshot(
+        &self,
+        snapshot: &[u8],
+        revision: i64,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        self.authenticated(|api, token| api.restore_dictionary_snapshot(snapshot, revision, token))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2815,6 +3229,51 @@ mod tests {
             items: too_many,
         })
         .is_err());
+    }
+
+    #[test]
+    fn validates_chat_catalog_and_request_boundaries() {
+        let models = AccountChatModels {
+            data: vec![
+                AccountChatModel {
+                    id: "fixture-chat".into(),
+                },
+                AccountChatModel {
+                    id: "fixture-fast".into(),
+                },
+            ],
+            default_model: "fixture-chat".into(),
+        };
+        assert!(validate_chat_models(&models).is_ok());
+
+        let messages = vec![AccountChatMessage {
+            role: "user".into(),
+            content: "fixture message".into(),
+        }];
+        assert!(validate_chat_request(&messages, "fixture-chat").is_ok());
+        assert!(validate_chat_request(&messages, "").is_err());
+        assert!(validate_chat_request(
+            &[AccountChatMessage {
+                role: "tool".into(),
+                content: "x".into(),
+            }],
+            "fixture-chat",
+        )
+        .is_err());
+        assert!(validate_chat_request(
+            &[AccountChatMessage {
+                role: "user".into(),
+                content: "\n".into(),
+            }],
+            "fixture-chat",
+        )
+        .is_err());
+
+        let mut duplicate = models.clone();
+        duplicate.data.push(AccountChatModel {
+            id: "fixture-chat".into(),
+        });
+        assert!(validate_chat_models(&duplicate).is_err());
     }
 
     #[test]
@@ -3291,6 +3750,39 @@ mod tests {
     }
 
     #[test]
+    fn restores_dictionary_snapshot_only_after_a_new_cloud_revision() {
+        let body = serde_json::json!({ "revision": 8, "reset": true }).to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let result = client
+            .restore_dictionary_snapshot(b"{\"type\":\"header\"}\n", 7, &token(b'a'))
+            .unwrap();
+        assert_eq!(
+            result,
+            AccountDictionarySnapshotRestore {
+                revision: 8,
+                reset: true
+            }
+        );
+
+        let body = serde_json::json!({ "revision": 8, "reset": false }).to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        assert_eq!(
+            client.restore_dictionary_snapshot(b"snapshot", 7, &token(b'a')),
+            Err(AccountError::Unavailable)
+        );
+    }
+
+    #[test]
     fn account_dictionary_transport_maps_flattened_responses() {
         let id = "0123456789abcdef".repeat(4);
         let page_body = serde_json::json!({
@@ -3414,6 +3906,80 @@ mod tests {
             )
             .unwrap();
         assert_eq!(change.revision, 43);
+
+        let changes_body = serde_json::json!({
+            "changes": [{
+                "revision": 44,
+                "previous": null,
+                "replacement": null
+            }],
+            "next": 44,
+            "has_more": false
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            changes_body.len(),
+            changes_body
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let changes = client.dictionary_changes(43, 1, &token(b'a')).unwrap();
+        assert_eq!(changes.next, 44);
+        assert!(!changes.has_more);
+
+        let snapshot = b"{\"type\":\"header\"}\n".to_vec();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-ndjson\r\n\r\n",
+            snapshot.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(snapshot)
+        .collect();
+        let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+        assert_eq!(
+            client.dictionary_snapshot(&token(b'a')).unwrap(),
+            b"{\"type\":\"header\"}\n"
+        );
+
+        let snapshot = b"streamed snapshot\n".to_vec();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-ndjson\r\n\r\n",
+            snapshot.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(snapshot.clone())
+        .collect();
+        let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("snapshot.ndjson");
+        let size = client
+            .dictionary_snapshot_to_file(&destination, &token(b'a'))
+            .unwrap();
+        assert_eq!(size, snapshot.len() as u64);
+        assert_eq!(std::fs::read(destination).unwrap(), snapshot);
+
+        let invalid_changes = serde_json::json!({
+            "changes": [{"revision": 44, "previous": null, "replacement": null}],
+            "next": 43,
+            "has_more": false
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+            invalid_changes.len(),
+            invalid_changes
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        assert_eq!(
+            client.dictionary_changes(43, 1, &token(b'a')),
+            Err(AccountError::Unavailable)
+        );
+        assert_eq!(
+            client.dictionary_changes(-1, 1, &token(b'a')),
+            Err(AccountError::Invalid)
+        );
     }
 
     #[test]
