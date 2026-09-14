@@ -540,9 +540,35 @@ static NSDictionary *decode(char *response, NSError **error) {
     }
     return result;
 }
-- (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
+- (NSDictionary *)startVoiceWithError:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    id generation = decodeValue(msime_client_voice_start(_handle), error);
+    if (!generation) return nil;
+    if (![generation isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)generation) == CFBooleanGetTypeID() ||
+        [generation unsignedLongLongValue] == 0) {
+        setError(error, @"语音代次响应格式错误");
+        return nil;
+    }
+    return @{@"generation": generation};
+}
 - (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
-- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding]; if (!data || data.length > 65536) { setError(error, @"语音文本无效"); return nil; } return decode(msime_client_voice_apply(_handle, generation, static_cast<const uint8_t *>(data.bytes), data.length), error); }
+- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data || data.length > 65536) { setError(error, @"语音文本无效"); return nil; }
+    // Snapshot before consuming the final-only token, so a view failure cannot
+    // silently discard an accepted commit. Voice does not mutate Engine state.
+    NSDictionary *view = [self viewWithError:error];
+    if (!view) return nil;
+    id value = decodeValue(msime_client_voice_apply(_handle, generation, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    if (!value || value == NSNull.null) return nil;
+    if (![value isKindOfClass:NSString.class]) {
+        setError(error, @"语音文本响应格式错误");
+        return nil;
+    }
+    return @{@"commit": value, @"view": view};
+}
 - (BOOL)closeWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return NO;
     NSDictionary *result = decode(msime_client_destroy(_handle), error);

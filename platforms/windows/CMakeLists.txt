@@ -358,7 +358,7 @@ if(WIN32)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
                  DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp
-                 VoiceHotkey.cpp MaintenanceHotkey.cpp)
+                 VoiceHotkey.cpp MaintenanceHotkey.cpp VoiceControlMessage.cpp)
   add_subdirectory(../../shared/voice shared-voice)
   target_include_directories(msime-windows-server PRIVATE
                              ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
