@@ -51,6 +51,7 @@
 #import "TranslationCache.h"
 #include "WubiCommitPolicy.h"
 #include "PairedPunctuation.h"
+#include "PairedPunctuation.h"
 
 static BOOL MSIMEScriptConversionApplies(id value) {
     if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
@@ -2045,6 +2046,21 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
         [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
         return YES;
+    }
+    // NSTextInputClient has no caret setter; replacing the known following
+    // closing mark atomically advances the caret without duplicating text.
+    if (_appearance.pairedPunctuation && event.characters.length == 1 &&
+        !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
+        NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);
+        NSString *typed = event.characters;
+        if (following.length == 1 && [following isEqualToString:typed] &&
+            msime::mac::paired_closing_should_skip(_pairedPunctuation, typed.UTF8String, following.UTF8String, YES,
+                                                    event.modifierFlags, NSEventModifierFlagControl,
+                                                    NSEventModifierFlagOption, NSEventModifierFlagCommand)) {
+            NSRange selected = [(id<MSIMETextClient>)sender selectedRange];
+            [(id<MSIMETextClient>)sender insertText:typed replacementRange:NSMakeRange(selected.location, 1)];
+            return YES;
+        }
     }
     switch (event.keyCode) {
         case 48: return NO;
