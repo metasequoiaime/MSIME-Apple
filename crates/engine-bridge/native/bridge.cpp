@@ -5,7 +5,12 @@
 #define MSIME_HAS_HANDWRITING_CANDIDATES 0
 #endif
 #include "bridge.h"
+#ifndef MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+#define MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE 1
+#endif
+#if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
 #include <msime/voice/audio_capture.h>
+#endif
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
 #include <user_dictionary/user_dictionary_journal.h>
@@ -37,6 +42,10 @@ namespace msime {
 
 rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     rust::Vec<float> samples;
+#if !MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
+    (void)milliseconds;
+    return samples;
+#else
     if (milliseconds == 0 || milliseconds > 60000) return samples;
     metasequoia::voice::AudioCapture capture;
     std::mutex mutex;
@@ -60,6 +69,7 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     failed = capture.callback_failed();
     if (failed) samples.clear();
     return samples;
+#endif
 }
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
