@@ -726,6 +726,7 @@ int wmain(int argc, wchar_t **argv) {
     // An external package may ask for a wider card than the font implies; the
     // artwork is drawn against that width.
     double skin_min_width = 0.0;
+    msime::windows::CandidateSkinDecoration skin_decoration;
     if (!config.skin_directory.empty() && !config.skin_id.empty() &&
         !msime::windows::candidate_builtin_skin(config.skin_id)) {
       try {
@@ -736,9 +737,12 @@ int wmain(int argc, wchar_t **argv) {
             msime_client_string_free);
         if (owned) {
           const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
-          if (!catalog.is_discarded() && catalog.value("ok", false))
+          if (!catalog.is_discarded() && catalog.value("ok", false)) {
             skin_min_width = msime::windows::candidate_skin_min_width(
                 catalog.at("value"), config.skin_id);
+            skin_decoration = msime::windows::candidate_skin_decoration(
+                catalog.at("value"), config.skin_id, config.skin_directory);
+          }
         }
       } catch (const std::exception &) {
         skin_min_width = 0.0;
@@ -767,6 +771,8 @@ int wmain(int argc, wchar_t **argv) {
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
     candidates.set_skin_min_width(skin_min_width);
+    candidates.set_skin_decoration(skin_decoration.image, skin_decoration.top_dip,
+                                   skin_decoration.width_dip);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     modes.set_palette(resolved_palette);

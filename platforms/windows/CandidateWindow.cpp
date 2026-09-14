@@ -371,8 +371,15 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const auto card = candidate_card_size(input);
   const auto width =
       (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
-  const auto height =
-      (std::min)(static_cast<int64_t>(card.height * scale + 0.5), available_height);
+  // The window has to be tall enough to hold the mascot as well, or the
+  // artwork would be clipped by the window it overhangs.
+  const int64_t decoration = decoration_image_.empty()
+                                 ? 0
+                                 : static_cast<int64_t>(decoration_top_ * scale + 0.5);
+  decoration_offset_ = static_cast<float>(decoration);
+  const auto height = (std::min)(
+      static_cast<int64_t>(card.height * scale + 0.5) + decoration,
+      available_height);
   // A vertical list grows as the user keeps typing. Deciding the flip from the
   // tallest it has been this composition keeps it on one side of the caret
   // instead of jumping below-to-above mid-word; tallest_ is cleared in hide().
@@ -456,16 +463,39 @@ void CandidateWindow::paint() {
   // stay transparent rather than showing a square window edge.
   target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
   const D2D1_ROUNDED_RECT card{
-      {inset, inset, size.width - inset, size.height - inset},
+      {inset, decoration_offset_ + inset, size.width - inset,
+       size.height - inset},
       palette_.radius, palette_.radius};
   target->FillRoundedRectangle(card, brush(palette_.surface));
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
+  // The mascot, drawn last so it sits over the card's top edge - that overlap
+  // is the whole point of the decoration.
+  if (!decoration_image_.empty() && decoration_offset_ > 0.0f) {
+    D2D1_SIZE_F natural{};
+    if (auto *bitmap = device_.GetBitmapFromFile(decoration_image_, &natural)) {
+      const float drawn_width = static_cast<float>(decoration_width_);
+      // Keep the image's own aspect ratio: a package gives a width, not a box,
+      // so deriving the height is what stops the artwork being squashed.
+      const float drawn_height =
+          natural.width > 0.0f ? drawn_width * (natural.height / natural.width)
+                               : decoration_offset_;
+      // Right-aligned above the card, as the settings preview places it.
+      const float right = size.width - static_cast<float>(metrics.pad_x);
+      const float left = (std::max)(0.0f, right - drawn_width);
+      const float bottom = decoration_offset_ + static_cast<float>(metrics.pad_y);
+      const float top = (std::max)(0.0f, bottom - drawn_height);
+      target->DrawBitmap(bitmap, D2D1_RECT_F{left, top, right, bottom}, 1.0f,
+                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+  }
   if (show_preedit_) {
-    const D2D1_RECT_F rect{static_cast<float>(metrics.pad_x),
-                           static_cast<float>(metrics.pad_y),
-                           size.width - static_cast<float>(metrics.pad_x / 2.0),
-                           static_cast<float>(metrics.pad_y + metrics.preedit_row)};
+    const D2D1_RECT_F rect{
+        static_cast<float>(metrics.pad_x),
+        decoration_offset_ + static_cast<float>(metrics.pad_y),
+        size.width - static_cast<float>(metrics.pad_x / 2.0),
+        decoration_offset_ +
+            static_cast<float>(metrics.pad_y + metrics.preedit_row)};
     const auto text = wide(value->preedit);
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
@@ -497,9 +527,13 @@ void CandidateWindow::paint() {
   for (size_t i = 0; i < count; ++i) {
     const auto row = candidate_row_bounds(i, count, size.width, metrics,
                                           horizontal_);
+    // Rows are laid out in card coordinates; the decoration strip sits above
+    // the card, so every row moves down with it. Without this the rows would
+    // be drawn over the artwork and the hit test below would disagree.
     const D2D1_RECT_F rect{
-        static_cast<float>(row.left), static_cast<float>(row.top),
-        static_cast<float>(row.right), static_cast<float>(row.bottom)};
+        static_cast<float>(row.left), decoration_offset_ + static_cast<float>(row.top),
+        static_cast<float>(row.right),
+        decoration_offset_ + static_cast<float>(row.bottom)};
     if (value->candidates[i].highlighted || hovered_ == i) {
       const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
                                         palette_.item_radius};
@@ -573,8 +607,14 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
   const double scale = painted_dpi_ ? painted_dpi_ / 96.0 : 1.0;
+  // Undo the decoration shift before testing: the rows were drawn that far
+  // down, so a click has to be measured from the card, not the window.
+  const double card_y = y - static_cast<double>(decoration_offset_);
+  if (card_y < 0.0)
+    return std::nullopt; // Inside the artwork, which is not clickable.
   const auto row = candidate_card_hit(
-      x / scale, y / scale, bounds.right / scale, bounds.bottom / scale,
+      x / scale, card_y / scale, bounds.right / scale,
+      (bounds.bottom - static_cast<double>(decoration_offset_)) / scale,
       painted_->candidates.size(),
       candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_),
       horizontal_);

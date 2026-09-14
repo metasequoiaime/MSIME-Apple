@@ -43,6 +43,12 @@ public:
   void set_palette(CandidatePalette palette);
   // Minimum card width asked for by the active skin package, in DIPs.
   void set_skin_min_width(double value) { skin_min_width_ = value; }
+  // The mascot a package draws above the card. Empty image means none.
+  void set_skin_decoration(std::wstring image, double top_dip, double width_dip) {
+    decoration_image_ = std::move(image);
+    decoration_top_ = top_dip;
+    decoration_width_ = width_dip;
+  }
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
@@ -88,6 +94,14 @@ private:
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
+  // Decoration artwork: absolute path, how far it rises above the card, and
+  // its drawn width. The height follows the image's own aspect ratio.
+  std::wstring decoration_image_;
+  double decoration_top_ = 0.0;
+  double decoration_width_ = 0.0;
+  // Pixels reserved above the card for the artwork, computed when the card is
+  // sized and reused when it is painted so the two cannot disagree.
+  float decoration_offset_ = 0.0f;
   // Owner-drawn menu labels, kept alive for the duration of the popup: the
   // draw messages carry pointers into this list.
   std::vector<std::unique_ptr<MenuRowLabel>> menu_labels_;
