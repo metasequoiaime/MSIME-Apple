@@ -1073,7 +1073,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing)
                 [controller->_voiceOverlay setInputLevel:level];
         });
-    } deviceUID:device error:&error]) { [self cancelHTTPVoiceInput]; return NO; }
+    } deviceUID:device failure:^(NSError *failure) {
+        (void)failure;
+        MSIMEInputController *controller = weakSelf;
+        if (controller && controller->_httpVoiceRequest == request) [controller cancelHTTPVoiceInput];
+    } error:&error]) { [self cancelHTTPVoiceInput]; return NO; }
     return YES;
 }
 - (void)finishHTTPVoiceInput {

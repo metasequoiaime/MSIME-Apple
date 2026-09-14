@@ -15,6 +15,9 @@ typedef void (^MSIMEVoicePCMChunk)(NSData * _Nullable pcm, NSError * _Nullable e
 // Main-thread lifecycle; raw buffers are converted on the capture callback.
 // Finish stops capture and returns one immutable recording; cancel discards it.
 - (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString * _Nullable)deviceUID error:(NSError **)error;
+// Conversion failure cancels capture and delivers failure once on main, only
+// while this recording still owns the service. No audio is included in errors.
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString * _Nullable)deviceUID failure:(void (^ _Nullable)(NSError *))failure error:(NSError **)error;
 - (NSData * _Nullable)finishPCMRecordingWithError:(NSError **)error;
 // Main-thread lifecycle. Handler runs on the capture callback, must return
 // promptly and must not stop/destroy capture; dispatch host cancellation to main.

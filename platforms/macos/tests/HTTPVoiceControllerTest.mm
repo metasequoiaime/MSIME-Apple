@@ -18,13 +18,14 @@
 @property(getter=isActive) BOOL active;
 @property BOOL failStart;
 @property NSUInteger cancellations;
-- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error;
+@property(copy) void (^failure)(NSError *);
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device failure:(void (^)(NSError *))failure error:(NSError **)error;
 - (NSData *)finishPCMRecordingWithError:(NSError **)error;
 - (BOOL)cancelWithError:(NSError **)error;
 @end
 @implementation HTTPCaptureFixture
-- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
-    (void)handler; (void)device; (void)error; self.active = !self.failStart; return self.active;
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device failure:(void (^)(NSError *))failure error:(NSError **)error {
+    (void)handler; (void)device; (void)error; self.failure = failure; self.active = !self.failStart; return self.active;
 }
 - (NSData *)finishPCMRecordingWithError:(NSError **)error { (void)error; return [NSMutableData dataWithLength:640]; }
 - (BOOL)cancelWithError:(NSError **)error { (void)error; self.active = NO; ++self.cancellations; return YES; }
@@ -89,5 +90,14 @@ int main() {
         capture.failStart = YES;
         assert(![controller startHTTPVoiceInputWithOptions:@{}]);
         assert(controller.requestFixture.cancellations == 1);
+        capture.failStart = NO;
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        void (^oldFailure)(NSError *) = capture.failure;
+        oldFailure([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
+        assert(!capture.active && controller.requestFixture.cancellations == 1 && !controller.requestFixture.submitted);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        oldFailure([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
+        assert(capture.active && controller.requestFixture.cancellations == 0);
+        [controller cancelHTTPVoiceInput];
     }
 }

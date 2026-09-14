@@ -1,5 +1,12 @@
 #import "../VoiceInputService.h"
 #include <cassert>
+#include <limits>
+
+static void Drain() {
+    __block BOOL done = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{ done = YES; });
+    while (!done) [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+}
 
 @interface SyntheticCapture : MSIMEVoiceInputService
 @property(copy) MSIMEVoiceAudioBuffer capture;
@@ -49,5 +56,26 @@ int main() {
         service.failStart = NO;
         assert([service startPCMRecording:observe deviceUID:nil error:nil]);
         assert([service finishPCMRecordingWithError:nil].length == 0);
+        __block NSUInteger failures = 0;
+        void (^failure)(NSError *) = ^(NSError *error) { assert(NSThread.isMainThread && error); ++failures; };
+        assert([service startPCMRecording:observe deviceUID:nil failure:failure error:nil]);
+        buffer.floatChannelData[0][0] = std::numeric_limits<float>::quiet_NaN();
+        old = service.capture;
+        NSUInteger stopped = service.stops;
+        old(buffer); old(buffer);
+        assert(failures == 0 && service.stops == stopped);
+        Drain();
+        assert(failures == 1 && service.stops == stopped + 1 && ![service finishPCMRecordingWithError:nil]);
+        assert([service startPCMRecording:observe deviceUID:nil failure:failure error:nil]);
+        service.capture(buffer); // Queue an error, then replace the recording.
+        assert([service cancelWithError:nil]);
+        assert([service startPCMRecording:observe deviceUID:nil failure:failure error:nil]);
+        stopped = service.stops;
+        Drain();
+        assert(failures == 1 && service.stops == stopped);
+        buffer.floatChannelData[0][0] = 0.125f;
+        for (NSUInteger i = 0; i < 601; ++i) service.capture(buffer);
+        Drain();
+        assert(failures == 2 && service.stops == stopped + 1);
     }
 }

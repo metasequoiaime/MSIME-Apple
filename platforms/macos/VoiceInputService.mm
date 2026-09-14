@@ -4,6 +4,7 @@
 #import <CoreAudio/CoreAudio.h>
 #include <memory>
 #include <mutex>
+#include <atomic>
 namespace {
 struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 }
@@ -14,6 +15,9 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 - (void)requestSpeechPermission:(void (^)(BOOL))completion { [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) { dispatch_async(dispatch_get_main_queue(), ^{ completion(status == SFSpeechRecognizerAuthorizationStatusAuthorized); }); }]; }
 - (BOOL)isActive { return _active; }
 - (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)deviceUID error:(NSError **)error {
+    return [self startPCMRecording:handler deviceUID:deviceUID failure:nil error:error];
+}
+- (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)deviceUID failure:(void (^)(NSError *))failure error:(NSError **)error {
     if (_pcmRecording || _audioEngine || _speechTask) {
         if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:4
             userInfo:@{NSLocalizedDescriptionKey: @"录音已在进行中"}];
@@ -21,10 +25,22 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     }
     MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
     _pcmRecording = recording;
+    __weak MSIMEVoiceInputService *weakSelf = self;
+    auto failed = std::make_shared<std::atomic_bool>(false);
     // Capture this recording, not the mutable service slot: a late callback
     // after stop/cancel must never append to a successor recording.
     BOOL started = [self startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
-        if ([recording append:buffer error:nil]) handler(buffer);
+        NSError *conversionError = nil;
+        if ([recording append:buffer error:&conversionError]) handler(buffer);
+        else if (!failed->exchange(true)) {
+            // Never stop AVAudioEngine from inside its capture callback.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                MSIMEVoiceInputService *service = weakSelf;
+                if (!service || service->_pcmRecording != recording) return;
+                [service cancelWithError:nil];
+                if (failure) failure(conversionError);
+            });
+        }
     } deviceUID:deviceUID error:error];
     if (!started) { [recording cancel]; _pcmRecording = nil; }
     return started;
