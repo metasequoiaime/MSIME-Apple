@@ -130,9 +130,20 @@ static_assert(std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                   const wchar_t *>);
 static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                    uint64_t, uint64_t, const wchar_t *>);
-static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
-                                   VoiceSessionEpoch &&, uint64_t,
-                                   const wchar_t *>);
+// The epoch must arrive as the live object, never a temporary. That used to be
+// asserted through is_invocable with an rvalue argument, but MSVC answers true
+// there even though the call itself does not compile - a temporary cannot bind
+// to a non-const lvalue reference. Assert the signature instead: it is the
+// signature that carries the guarantee, and unlike the trait it reads the same
+// on every compiler.
+template <typename Signature> struct epoch_parameter;
+template <typename Result, typename First, typename Second, typename... Rest>
+struct epoch_parameter<Result(First, Second, Rest...)> {
+  using type = Second;
+};
+static_assert(
+    std::is_same_v<epoch_parameter<decltype(show_voice_failure)>::type,
+                   VoiceSessionEpoch &>);
 } // namespace
 
 VoiceInputSession::VoiceInputSession(WaveOverlay &overlay,
