@@ -1954,6 +1954,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let display = chineseOutput(candidate)
     var configuration = UIButton.Configuration.plain()
     configuration.title = display
+    // Candidate chips live in a horizontal scroll view. Keep each title on a
+    // single line and let the row scroll to wider candidates instead of
+    // compressing a chip into a second line.
+    configuration.titleLineBreakMode = .byTruncatingTail
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
@@ -1969,6 +1973,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self.playInputClick()
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
+    button.titleLabel?.numberOfLines = 1
+    button.setContentCompressionResistancePriority(.required, for: .horizontal)
     button.accessibilityLabel = "候选词 \(number)：\(display)"
     button.accessibilityIdentifier = "candidate-\(number)"
     if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
