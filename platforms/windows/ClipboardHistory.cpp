@@ -54,7 +54,7 @@ private:
 };
 std::vector<std::string> read_store(const std::filesystem::path &path) {
   std::ifstream input(path); if (!input) return {};
-  try { const auto value = nlohmann::json::parse(input); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) if (item.is_string() && result.size() < ClipboardHistory::max_items) result.push_back(normalize_clipboard_text(item.get<std::string>())); result.erase(std::remove(result.begin(), result.end(), ""), result.end()); return result; } catch (...) { return {}; }
+  try { const auto value = nlohmann::json::parse(input); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
   std::error_code error;
