@@ -231,6 +231,9 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
 void CandidateWindow::hide() {
   // The composition is over, so the next one starts its flip decision fresh.
   tallest_ = 0;
+  // And its position fresh: "keep the first position" lasts until the card
+  // disappears, so the next appearance anchors at the caret again.
+  anchor_.reset();
   shown_.reset();
   painted_.reset();
   pressed_.reset();
@@ -255,7 +258,7 @@ void CandidateWindow::refresh() {
   }
 }
 void CandidateWindow::reposition() {
-  const auto value = reader_();
+  auto value = reader_();
   if (!value || !value->visible) {
     hide();
     return;
@@ -269,6 +272,21 @@ void CandidateWindow::reposition() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
+  // 候选窗口跟随光标. With following off the card stays where it first
+  // appeared: the caret still moves as the user types, but the anchor this
+  // layout uses does not. Everything downstream - the monitor it lands on, the
+  // flip decision, the cached-frame comparison below - reads the anchored
+  // copy, so a caret move alone no longer even wakes the window.
+  auto anchored = *value;
+  if (!follow_cursor_) {
+    if (anchor_) {
+      anchored.x = anchor_->x;
+      anchored.y = anchor_->y;
+    } else {
+      anchor_ = POINT{value->x, value->y};
+    }
+  }
+  value = anchored;
   if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&
       shown_->session == value->session &&
       shown_->generation == value->generation && shown_->x == value->x &&

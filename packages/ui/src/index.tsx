@@ -182,6 +182,7 @@ export interface HostCapabilities {
   candidate_font_controls: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
+  candidate_follow_cursor: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -249,6 +250,7 @@ export type Preferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
+  candidate_follow_cursor?: boolean;
   candidate_number_color?: string | null;
   candidate_accent_color?: string | null;
   candidate_selected_color?: string | null;
@@ -773,6 +775,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
+  const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   const showVoiceCaptureDevices = !androidPlatform && (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   const showDesktopMaintenanceShortcuts = !host || (host.platform !== "android" && host.platform !== "ios");
   const platformReleasesPageUrl = linuxPlatform || androidPlatform ? linuxReleasesPageUrl : releasesPageUrl;
@@ -1431,6 +1434,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
         </div></div></div>
+        {showCandidateFollowCursor && <div className="section"><label className="section-header"><span className="section-title">候选窗口跟随光标<small>关闭后保持首次出现的位置，直到候选窗口消失。</small></span><input aria-label="候选窗口跟随光标" className="toggle" type="checkbox" checked={draft.candidate_follow_cursor ?? true} onChange={event => setDraft({ ...draft, candidate_follow_cursor: event.target.checked })} /></label></div>}
         {!showCandidateRowColors && <div className="section"><small>当前宿主的候选面板不支持强调或选中行颜色。</small></div>}
         {!showCandidateSelectionAppearance && <div className="section"><small>当前宿主的候选面板不支持悬停或边框颜色。</small></div>}
         {showCandidateRowColors && <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">

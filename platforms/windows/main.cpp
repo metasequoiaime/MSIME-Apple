@@ -566,6 +566,10 @@ int wmain(int argc, wchar_t **argv) {
     auto dedicated_english = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("default_ime_mode", std::string("chinese")) == "english");
+    // 候选窗口跟随光标, likewise published rather than read once.
+    auto follow_cursor = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("candidate_follow_cursor", true));
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -584,8 +588,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, dedicated_english, voice_light, toolbar_light,
-         menu_light, mode_scope_global, tsf_config,
+         toolbar_enabled, dedicated_english, follow_cursor, voice_light,
+         toolbar_light, menu_light, mode_scope_global, tsf_config,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -647,6 +651,9 @@ int wmain(int argc, wchar_t **argv) {
           dedicated_english->store(
               preferences.value("default_ime_mode", std::string("chinese")) ==
                   "english",
+              std::memory_order_release);
+          follow_cursor->store(
+              preferences.value("candidate_follow_cursor", true),
               std::memory_order_release);
           publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
@@ -853,6 +860,7 @@ int wmain(int argc, wchar_t **argv) {
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
     candidates.set_skin_min_width(skin_min_width);
+    candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
     candidates.set_skin_decoration(skin_decoration.image, skin_decoration.top_dip,
                                    skin_decoration.width_dip);
     ModeWindow modes([&] { return server.mode_view(); },
@@ -1170,6 +1178,8 @@ int wmain(int argc, wchar_t **argv) {
                                     decision.push_chinese ? WorkerMode::Chinese
                                                           : WorkerMode::English);
       }
+      candidates.set_follow_cursor(
+          follow_cursor->load(std::memory_order_acquire));
       // The language button shows 'A' while Caps Lock is on, 日 in Japanese
       // mode and an underlined "En" in the Engine's own English mode, so it
       // has to follow all three. Showing 中 with Caps Lock on tells the user

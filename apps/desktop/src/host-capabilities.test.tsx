@@ -30,6 +30,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_font_controls: true,
     candidate_row_colors: true,
     candidate_selection_appearance: true,
+    candidate_follow_cursor: true,
     ...overrides,
   };
 }
@@ -167,4 +168,14 @@ test("Windows candidate appearance keeps native controls", async () => {
   expect(screen.getByLabelText("候选字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
+  // Windows places its own card, so pinning it is a real choice there.
+  expect(screen.getByLabelText("候选窗口跟随光标")).toBeTruthy();
+});
+
+test("a host that does not place its own card hides the follow-cursor choice", async () => {
+  // IBus owns the candidate list's placement, so offering the toggle would be
+  // a setting the host cannot honour.
+  mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
 });

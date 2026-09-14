@@ -114,6 +114,11 @@ pub struct HostCapabilities {
     pub candidate_row_colors: bool,
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
+    /// The host places its own candidate window and can therefore pin it where
+    /// it first appeared. A host whose desktop owns the placement - IBus draws
+    /// and positions the candidate list itself - cannot honour the choice, so
+    /// it does not offer it.
+    pub candidate_follow_cursor: bool,
 }
 
 impl HostCapabilities {
@@ -188,6 +193,7 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos
             ),
+            candidate_follow_cursor: platform == HostPlatform::Windows,
         }
     }
 }
@@ -562,6 +568,8 @@ mod tests {
         assert!(!linux.candidate_font_controls);
         assert!(linux.candidate_row_colors);
         assert!(!linux.candidate_selection_appearance);
+        // IBus owns the candidate list's placement, so the host cannot pin it.
+        assert!(!linux.candidate_follow_cursor);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(windows.restart_input_method);
@@ -580,6 +588,8 @@ mod tests {
         assert!(windows.candidate_font_controls);
         assert!(windows.candidate_row_colors);
         assert!(windows.candidate_selection_appearance);
+        // Windows positions its own card, so pinning it is a real choice there.
+        assert!(windows.candidate_follow_cursor);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
         assert!(
             macos.floating_toolbar

@@ -43,6 +43,11 @@ public:
   void set_palette(CandidatePalette palette);
   // Minimum card width asked for by the active skin package, in DIPs.
   void set_skin_min_width(double value) { skin_min_width_ = value; }
+  // 候选窗口跟随光标. With this off the card keeps the position it first
+  // appeared at until it disappears, rather than tracking the caret through a
+  // word. A change takes effect at the next appearance, since the pinned
+  // anchor is only forgotten when the card hides.
+  void set_follow_cursor(bool enabled) { follow_cursor_ = enabled; }
   // The mascot a package draws above the card. Empty image means none.
   void set_skin_decoration(std::wstring image, double top_dip, double width_dip) {
     decoration_image_ = std::move(image);
@@ -94,6 +99,9 @@ private:
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
+  bool follow_cursor_ = true;
+  // Where this appearance first anchored; cleared in hide().
+  std::optional<POINT> anchor_;
   // Decoration artwork: absolute path, how far it rises above the card, and
   // its drawn width. The height follows the image's own aspect ratio.
   std::wstring decoration_image_;
