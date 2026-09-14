@@ -1,0 +1,50 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
+import { CloudCandidatesPanel, CloudDictionaryCatalogPanel } from "@msime/ui";
+
+afterEach(cleanup);
+
+test("catalog discards entries and editing state when the account request fails", async () => {
+  const request = vi.fn().mockResolvedValue({ catalog_entries: [{ kind: "pinyin", code: "he", word: "合成", weight: 1 }], offset: 0, has_more: true, revision: 1, normalized: "he" });
+  render(<CloudDictionaryCatalogPanel client={{ close: async () => {}, request }} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "完整目录编码" }), { target: { value: "he" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
+  expect(await screen.findByText("合成")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  request.mockRejectedValue(new Error("unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
+  await waitFor(() => expect(screen.queryByText("合成")).toBeNull());
+  expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+});
+
+test("candidate lookup failure removes old candidates and fixed positions", async () => {
+  const request = vi.fn().mockImplementation(async ({ operation }) => operation === "candidates"
+    ? { candidates: [{ code: "he", word: "合成", weight: 1 }], context: "pinyin:he", revision: 1 }
+    : { positions: [{ context: "pinyin:he", code: "he", word: "合成", position: 1 }] });
+  render(<CloudCandidatesPanel client={{ close: async () => {}, request }} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), { target: { value: "he" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
+  expect(await screen.findByRole("button", { name: "取消固定" })).toBeTruthy();
+  request.mockRejectedValue(new Error("unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "调频" })).toBeNull());
+  expect(screen.queryByRole("button", { name: "取消固定" })).toBeNull();
+});
+
+test("desktop dictionary subpages reuse the session client and return without closing its window", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockResolvedValue({ entries: [], has_more: false, offset: 0 });
+  render(<DesktopCloudDictionary client={{ close, request }} />);
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "list" })));
+  fireEvent.click(screen.getByRole("button", { name: "完整目录" }));
+  expect(screen.getByText("完整云词库目录")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "云端候选排序" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "云端候选排序" }));
+  expect(screen.getByText("仅在点击查询时发送编码；修改只保存到当前账号")).toBeTruthy();
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  expect(close).toHaveBeenCalledTimes(1);
+});

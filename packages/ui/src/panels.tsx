@@ -1377,7 +1377,14 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   }
 
   async function load(current: number, nextOffset: number, query: { code: string; scheme: string; profile: string }) {
-    const result = await client.request({ operation: "catalog", kind, code: query.code, offset: nextOffset, scheme: query.scheme, profile: query.profile });
+    let result;
+    try { result = await client.request({ operation: "catalog", kind, code: query.code, offset: nextOffset, scheme: query.scheme, profile: query.profile }); }
+    catch (error) {
+      if (current === requestRevision.current) {
+        setEntries([]); setForm(null); setConfirmed(null); setHasMore(false); setOffset(0); setRevision(0); setNormalized("");
+      }
+      throw error;
+    }
     if (current !== requestRevision.current) return;
     setEntries(cloudDictionaryCatalogEntries(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
@@ -1503,7 +1510,14 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   async function load(current: number, nextQuery: { text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number }) {
-    const result = await client.request({ operation: "candidates", ...nextQuery });
+    let result;
+    try { result = await client.request({ operation: "candidates", ...nextQuery }); }
+    catch (error) {
+      if (current === requestRevision.current) {
+        setCandidates([]); setPositions([]); setQuery(null); setContext(""); setRevision(0);
+      }
+      throw error;
+    }
     if (current !== requestRevision.current) return;
     const nextCandidates = Array.isArray(result.candidates)
       ? result.candidates.filter(candidate => candidate && typeof candidate.code === "string" && typeof candidate.word === "string")

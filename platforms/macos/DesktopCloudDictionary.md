@@ -15,6 +15,18 @@ Windows TSV). Updates/deletes preserve the supplied positive revision; a backend
 desktop contract and native provider validate requests before network mutation.
 List failure clears stale shared-panel entries and editing state.
 
+The same authenticated webview also hosts the complete catalog and candidate
+ranking subpages. Catalog requests preserve scheme/profile, normalization, paging
+and revision zero for unmodified base entries. Edits send explicit null for
+deletion. Candidate requests preserve canonical pinyin separately from display
+codes; mutations use that canonical identity. All five ranking modes, selection
+counters, removal, fixed positions 1–5 and unfixing use the native account API.
+Position operations do not require a dictionary-kind field. Validation rejects
+boolean-as-integer values and malformed replacement/position payloads before I/O.
+Failed catalog/candidate lookups clear their stale entries, editing targets and
+ranking context; a failed secondary fixed-position read does not discard a
+successfully received candidate page.
+
 The authenticated RPC implementation is shared with cloud clipboard transport,
 but the launch environment and permitted webview label remain separate. Only
 `cloud-dictionary-panel` may use this native dictionary session. Explicit provider
@@ -55,9 +67,8 @@ Configure CMake with `MSIME_CLOUD_DICTIONARY_PROBE` pointing to the Cargo exampl
 build `desktop-cloud-dictionary-interop-test`, `desktop-dictionary-provider-test-build`
 and `desktop-account-cancellation-test`, then run the matching CTest entries.
 
-Catalog editing, candidate ranking/fixed positions, complete snapshot workflows,
-and standalone shared-settings account integration remain subsequent increments;
-this RPC does not advertise those operations as implemented. Builds and synthetic
+Complete snapshot workflows and standalone shared-settings account integration
+remain subsequent increments. Builds and synthetic
 tests do not establish live-cloud or installed input-method behavior.
 
 Windows default branch pin revalidated for this increment: `develop` at

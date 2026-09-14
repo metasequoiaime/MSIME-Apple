@@ -5,6 +5,39 @@ import Foundation
   var failure: Int?
   var lastRevision: Int64 = 0
   var lastExport: URL?
+  var lastCode = ""
+  var lastPosition: Int?
+  var lastReplacement: BackendAccountClient.DictionaryValue?
+  var lastMode: BackendAccountClient.RankingMode?
+  var invalidPage = false
+  func dictionaryCatalog(_ kind: BackendAccountClient.DictionaryKind, code: String, offset: Int, scheme: String, profile: String, token: String) async throws -> BackendAccountClient.DictionaryCatalog {
+    try tick(); assert(scheme == "shuangpin" && profile == "xiaohe")
+    return .init(entries: [.init(kind:kind, code:"he'cheng", word:"合成", weight:100)], offset:invalidPage ? offset + 1 : offset, has_more:offset == 0, revision:0, normalized:"he'cheng")
+  }
+  func editCatalog(_ entry: BackendAccountClient.CatalogEntry, revision: Int64, replacement: BackendAccountClient.DictionaryValue?, token: String) async throws -> BackendAccountClient.DictionaryChange {
+    try tick(); lastCode = entry.code; lastRevision = revision; lastReplacement = replacement
+    return .init(revision:1, previous:nil, replacement:nil)
+  }
+  func personalCandidates(_ query: BackendAccountClient.CandidateQuery, token: String) async throws -> BackendAccountClient.PersonalCandidates {
+    try tick(); assert(query.text == "heig" && query.scheme == "shuangpin")
+    return .init(candidates:[.init(code:"heig", word:"合成", weight:100, canonical_pinyin:"he'cheng")], context:"pinyin:he'cheng", revision:0)
+  }
+  func rankCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, mode: BackendAccountClient.RankingMode, step: Int, trigger: Int, forceTop: Bool, token: String) async throws -> BackendAccountClient.RankingResult {
+    try tick(); lastCode = candidate.mutationCode; lastRevision = revision; lastMode = mode
+    assert(step == 3 && trigger == 2 && forceTop)
+    return .init(revision:1, changed:true, selection:.init(count:2))
+  }
+  func removeCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryChange {
+    try tick(); lastCode = candidate.mutationCode; lastRevision = revision
+    return .init(revision:2, previous:nil, replacement:nil)
+  }
+  func fixedPositions(context: String, offset: Int, token: String) async throws -> BackendAccountClient.FixedPositions {
+    try tick(); return .init(positions:[.init(context:context, code:"he'cheng", word:"合成", position:5)], offset:offset, has_more:false)
+  }
+  func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryRevision {
+    try tick(); lastCode = code; lastRevision = revision; lastPosition = position
+    return .init(revision:3)
+  }
   func tick() throws { calls += 1; if let failure { throw BackendAccountClient.Failure(status: failure) } }
   func dictionary(_ kind: BackendAccountClient.DictionaryKind, search: String, offset: Int, token: String) async throws -> BackendAccountClient.DictionaryPage {
     try tick()
@@ -38,6 +71,7 @@ import Foundation
   @MainActor static func main() async throws {
     let api = SyntheticDictionaryAPI()
     var provider: BackendCloudDictionaryProvider? = .init(client: api, credentials: { "synthetic-token" })
+    try await advanced(provider!, api)
     for kind in ["pinyin", "wubi", "quick", "english"] {
       let page = try await provider!.execute(["operation":"list", "kind":kind, "offset":100, "search":"合成"])
       assert(page["offset"] as? Int == 100 && page["has_more"] as? Bool == false)
@@ -93,5 +127,69 @@ import Foundation
     let count = api.calls
     do { _ = try await missing.execute(["operation":"add","kind":"pinyin","code":"he","word":"合","weight":1]); assertionFailure("signed-out write") } catch { }
     assert(api.calls == count)
+  }
+
+  @MainActor static func advanced(_ provider: BackendCloudDictionaryProvider, _ api: SyntheticDictionaryAPI) async throws {
+    let catalog: [String:Any] = ["operation":"catalog", "kind":"pinyin", "code":"heig", "offset":100, "scheme":"shuangpin", "profile":"xiaohe"]
+    let page = try await provider.execute(catalog as NSDictionary)
+    assert(page["revision"] as? Int64 == 0 && page["normalized"] as? String == "he'cheng")
+    assert((page["catalog_entries"] as! [[String:Any]])[0]["id"] == nil)
+    for kind in ["pinyin", "wubi", "quick", "english"] {
+      var request = catalog; request["kind"] = kind
+      let response = try await provider.execute(request as NSDictionary)
+      assert((response["catalog_entries"] as! [[String:Any]])[0]["kind"] as? String == kind)
+    }
+    api.invalidPage = true
+    do { _ = try await provider.execute(catalog as NSDictionary); assertionFailure("incorrect catalog page accepted") } catch { }
+    api.invalidPage = false
+    var edit: [String:Any] = ["operation":"edit_catalog", "kind":"pinyin", "code":"he'cheng", "word":"合成", "revision":0, "replacement":NSNull()]
+    _ = try await provider.execute(edit as NSDictionary)
+    assert(api.lastRevision == 0 && api.lastReplacement == nil && api.lastCode == "he'cheng")
+    edit["replacement"] = ["code":"he'cheng", "word":"合成词", "weight":101]
+    _ = try await provider.execute(edit as NSDictionary)
+    assert(api.lastReplacement?.word == "合成词")
+    var query: [String:Any] = ["operation":"candidates", "kind":"jianpin", "text":"heig", "scheme":"shuangpin", "profile":"xiaohe", "limit":100]
+    let candidates = try await provider.execute(query as NSDictionary)
+    assert((candidates["candidates"] as! [[String:Any]])[0]["canonical_pinyin"] as? String == "he'cheng")
+    for kind in ["pinyin", "jianpin", "wubi", "quick", "english"] {
+      var request = query; request["kind"] = kind
+      _ = try await provider.execute(request as NSDictionary)
+    }
+    query.merge(["operation":"rank", "code":"he'cheng", "word":"合成", "revision":0, "linear_step":3, "trigger_count":2, "force_top":true]) { _, new in new }
+    for mode in BackendAccountClient.RankingMode.allCases {
+      query["mode"] = mode.rawValue
+      let ranked = try await provider.execute(query as NSDictionary)
+      assert(ranked["selection_count"] as? Int64 == 2 && api.lastMode == mode && api.lastCode == "he'cheng" && api.lastRevision == 0)
+    }
+    let positions = try await provider.execute(["operation":"fixed_positions", "context":"pinyin:he'cheng", "offset":100])
+    assert((positions["positions"] as! [[String:Any]])[0]["position"] as? Int64 == 5)
+    var fixed: [String:Any] = ["operation":"set_fixed_position", "context":"pinyin:he'cheng", "code":"he'cheng", "word":"合成", "position":5, "revision":1]
+    _ = try await provider.execute(fixed as NSDictionary); assert(api.lastPosition == 5)
+    fixed["position"] = NSNull()
+    _ = try await provider.execute(fixed as NSDictionary); assert(api.lastPosition == nil)
+    var removed = query; removed["operation"] = "remove_candidate"
+    _ = try await provider.execute(removed as NSDictionary); assert(api.lastCode == "he'cheng")
+    let count = api.calls
+    for (original, key, value): ([String:Any], String, Any) in [
+      (query,"force_top",1), (query,"linear_step",true), (query,"trigger_count",11),
+      (query,"revision",-1), (query,"mode","unknown"), (query,"kind","quick"),
+      (query,"limit",101), (query,"text","bad\0"), (query,"scheme","unknown"), (query,"profile","unknown"), (fixed,"position",0),
+      (fixed,"position",6), (fixed,"position",true), (fixed,"revision",0.5),
+      (catalog,"offset",-1), (edit,"replacement","bad")
+    ] {
+      var invalid = original; invalid[key] = value
+      do { _ = try await provider.execute(invalid as NSDictionary); assertionFailure("invalid advanced action accepted") } catch { }
+    }
+    assert(api.calls == count)
+    api.failure = 409
+    let conflict: NSDictionary = await withCheckedContinuation { continuation in
+      _ = provider.request(query as NSDictionary) { continuation.resume(returning:$0) }
+    }
+    assert(conflict["error"] as? String == "conflict"); api.failure = nil
+    var checks = 0
+    let changed = BackendCloudDictionaryProvider(client:api, credentials: {
+      checks += 1; if checks > 1 { throw CancellationError() }; return "synthetic-token"
+    })
+    do { _ = try await changed.execute(catalog as NSDictionary); assertionFailure("stale catalog exposed") } catch { }
   }
 }

@@ -10,6 +10,7 @@ import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
 import { DesktopKeyboard } from "./desktop-keyboard";
+import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
@@ -394,7 +395,7 @@ const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.key
   : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
   : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
-  : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
+  : panel === "cloud-dictionary" ? <DesktopCloudDictionary client={panelClients.cloudDictionary} />
   : panel === "clipboard" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} initialPage="clipboard" />}</DesktopPanelTheme>
   : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} />}</DesktopPanelTheme>
   : <DesktopSettings />;
