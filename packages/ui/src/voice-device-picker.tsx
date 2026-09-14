@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export type VoiceCaptureDevice = { backend: "pulse" | "pipewire" | "alsa"; id: string; label: string };
+export type VoiceCaptureDevice = { backend: "pulse" | "pipewire" | "alsa" | "windows"; id: string; label: string };
 export type VoiceDeviceReader = () => Promise<VoiceCaptureDevice[]>;
 
 export function VoiceDevicePicker({ read, backend, device, choose }: {

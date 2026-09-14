@@ -154,7 +154,11 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
             msime_engine_bridge::capture_device_names()
                 .into_iter()
                 .enumerate()
-                .map(|(index, name)| serde_json::json!({ "id": index.to_string(), "name": name }))
+                .map(|(index, name)| serde_json::json!({
+                    "backend": "windows",
+                    "id": index.to_string(),
+                    "label": name
+                }))
                 .collect::<Vec<_>>(),
         )
         .map_err(|_| CommandError { code: "audio_devices" });
