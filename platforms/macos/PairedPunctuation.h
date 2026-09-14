@@ -54,4 +54,16 @@ inline bool paired_closing_modifiers_allowed(unsigned long long flags,
   return (flags & (control | option | command)) == 0;
 }
 
+inline bool paired_closing_should_skip(PairedPunctuationTracker &tracker,
+                                       std::string_view closing,
+                                       std::string_view following,
+                                       bool followingKnown,
+                                       unsigned long long flags,
+                                       unsigned long long control,
+                                       unsigned long long option,
+                                       unsigned long long command) {
+  return tracker.consume(closing, following, followingKnown,
+                         paired_closing_modifiers_allowed(flags, control, option, command));
+}
+
 }  // namespace msime::mac
