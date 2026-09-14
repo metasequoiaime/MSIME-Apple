@@ -24,6 +24,8 @@ mod record;
 const BUFFER_LIMIT: usize = 65536;
 const HANDLE_LIMIT: usize = 8;
 const ACTIVATION_RECEIPT_NAME: &str = ".msime-snapshot-activation";
+// The guard's own file, which stays put while everything around it is swapped.
+const DICTIONARY_ACCESS_LOCK_NAME: &str = ".msime-dictionary-access.lock";
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static PREPARED: OnceLock<Mutex<HashMap<u64, Prepared>>> = OnceLock::new();
 fn registry() -> &'static Mutex<HashMap<u64, Prepared>> {
@@ -251,28 +253,37 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         (&active.cache, &staged.cache),
         (&active.dictionaries, &staged.dictionaries),
     ];
-    let mut moved = Vec::new();
-    let rollback = |moved: &[(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)]| {
-        for (old, saved, replacement) in moved.iter().rev() {
-            let _ = std::fs::rename(old, replacement);
-            let _ = std::fs::rename(saved, old);
+    // Swap each root's contents rather than the root itself.
+    //
+    // Renaming the roots cannot work on Windows: the maintenance guard holds
+    // an open handle on a lock file inside them, and Windows refuses to rename
+    // a directory containing any open handle - share mode does not help. So
+    // activation has never succeeded there. Moving the entries leaves the lock
+    // files exactly where they are, which is also what they are documented to
+    // require: they are stable coordination objects, and renaming a root moved
+    // one out from under every other process using it.
+    let roots: Vec<&Path> = pairs
+        .iter()
+        .map(|(current, _)| Path::new(current.as_str()))
+        .collect();
+    let staged_roots: Vec<&Path> = pairs
+        .iter()
+        .map(|(_, replacement)| Path::new(replacement.as_str()))
+        .collect();
+    let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    let rollback = |moved: &[(std::path::PathBuf, std::path::PathBuf)]| {
+        for (from, to) in moved.iter().rev() {
+            let _ = std::fs::rename(to, from);
         }
     };
-    for (current, replacement) in pairs {
-        let current = Path::new(current);
-        let replacement = Path::new(replacement);
-        // Engine's production layout stores dictionaries under user_data. A
-        // matching subtree is already swapped with its parent; moving it again
-        // would fail because the staged subtree no longer exists.
-        if pairs.iter().any(|(parent, staged_parent)| {
-            let parent = Path::new(parent);
-            current != parent
-                && current.strip_prefix(parent).ok().is_some_and(|relative| {
-                    replacement.strip_prefix(staged_parent).ok() == Some(relative)
-                })
-        }) {
-            continue;
-        }
+    // An entry that leads to another root nested below this one is left alone:
+    // that root does its own swap, and it holds its own lock file.
+    let leads_to_nested_root = |root: &Path, entry: &Path, all: &[&Path]| {
+        all.iter().any(|other| *other != root && other.starts_with(entry))
+    };
+    for (index, (current, replacement)) in pairs.iter().enumerate() {
+        let current = Path::new(current.as_str());
+        let replacement = Path::new(replacement.as_str());
         let backup = current.with_file_name(format!(
             "{}{}",
             current
@@ -281,18 +292,73 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
                 .unwrap_or("state"),
             suffix
         ));
-        if std::fs::rename(current, &backup).is_err() {
+        if std::fs::create_dir_all(&backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
         }
-        if std::fs::rename(replacement, current).is_err() {
-            let _ = std::fs::rename(&backup, current);
-            rollback(&moved);
-            return Err("snapshot activation failed");
+        // Out with the old.
+        let listing = match std::fs::read_dir(current) {
+            Ok(listing) => listing,
+            Err(_) => {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            }
+        };
+        for entry in listing {
+            let Ok(entry) = entry else {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            };
+            let path = entry.path();
+            if entry.file_name() == DICTIONARY_ACCESS_LOCK_NAME
+                || leads_to_nested_root(roots[index], &path, &roots)
+            {
+                continue;
+            }
+            let destination = backup.join(entry.file_name());
+            if std::fs::rename(&path, &destination).is_err() {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            }
+            moved.push((path, destination));
         }
-        moved.push((current.to_path_buf(), backup, replacement.to_path_buf()));
+        // In with the new.
+        let listing = match std::fs::read_dir(replacement) {
+            Ok(listing) => listing,
+            Err(_) => {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            }
+        };
+        for entry in listing {
+            let Ok(entry) = entry else {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            };
+            let path = entry.path();
+            if entry.file_name() == DICTIONARY_ACCESS_LOCK_NAME
+                || leads_to_nested_root(staged_roots[index], &path, &staged_roots)
+            {
+                continue;
+            }
+            let destination = current.join(entry.file_name());
+            if std::fs::rename(&path, &destination).is_err() {
+                rollback(&moved);
+                return Err("snapshot activation failed");
+            }
+            moved.push((path, destination));
+        }
     }
-    for (_, backup, _) in moved {
+    for (current, _) in pairs {
+        let current = Path::new(current.as_str());
+        let backup = current.with_file_name(format!(
+            "{}{}",
+            current
+                .file_name()
+                .and_then(|x| x.to_str())
+                .unwrap_or("state"),
+            suffix
+        ));
         let _ = std::fs::remove_dir_all(backup);
     }
     entries.remove(&handle);

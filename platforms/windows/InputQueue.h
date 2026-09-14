@@ -24,6 +24,11 @@ public:
   FocusRoute dispatch(const PipeTicket &ticket,
                       const FanyImeNamedpipeData &packet);
   bool confirmed(const FocusLease &lease);
+  // The DLL's Aux-pipe fallback: deactivate a client it names by id and focus
+  // token, having failed to write the deactivate on the Main pipe. True means
+  // that client is not focused under that token - which is what the DLL is
+  // waiting to hear, and is already so when it never was.
+  bool deactivate_terminal(uint64_t client, uint64_t token);
   FocusRoute failed(const FocusLease &lease);
   std::optional<PendingReply>
   key(const FocusLease &lease, const FanyImeNamedpipeData &packet,

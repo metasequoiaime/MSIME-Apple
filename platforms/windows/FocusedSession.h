@@ -59,6 +59,11 @@ public:
   std::optional<nlohmann::json> update_preferences(const FocusLease &lease,
                                                    const std::string &snapshot);
   bool cancel(const FocusLease &lease);
+  // Deactivate at the DLL's request, which names a focus token rather than a
+  // lease it has no way to construct. True also when this client is already
+  // not focused on that token: the state the caller asked for holds either
+  // way, and it is the state - not the act - that is being reported.
+  bool cancel_focus_token(uint64_t token);
   // Explicit host composition termination, preserving the active focus lease.
   bool cancel_composition(const FocusLease &lease);
   bool set_input_enabled(const FocusLease &lease, bool enabled);

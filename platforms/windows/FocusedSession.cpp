@@ -250,6 +250,16 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   lease_.reset();
   return true;
 }
+bool FocusedSession::cancel_focus_token(uint64_t token) {
+  check_thread();
+  if (!token)
+    return false;
+  // Not focused, or focused under a later token: the session the DLL named is
+  // already gone, so there is nothing left to tear down.
+  if (!lease_ || lease_->token != token)
+    return true;
+  return cancel(*lease_);
+}
 std::optional<nlohmann::json>
 FocusedSession::apply_cloud_response(const FocusLease &lease,
                                      const std::string &query,

@@ -65,6 +65,17 @@ FocusedSession *InputState::session(const PipeTicket &ticket) {
              ? found->second.session.get()
              : nullptr;
 }
+bool InputState::deactivate_terminal(uint64_t client, uint64_t token) {
+  check_thread();
+  if (!client || !token)
+    return false;
+  auto found = clients_.find(client);
+  // An unregistered client cannot be focused, so the state the DLL asked for
+  // already holds. Saying so is not the same as claiming a teardown happened.
+  if (found == clients_.end() || !found->second.session)
+    return true;
+  return found->second.session->cancel_focus_token(token);
+}
 void InputState::cleanup(const FocusRoute &route) {
   if (route.cleanup)
     if (auto *owner = session(route.cleanup->transport))

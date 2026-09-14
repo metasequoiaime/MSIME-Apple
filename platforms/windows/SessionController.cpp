@@ -397,6 +397,25 @@ bool SessionController::send_tsf_config(const FocusLease &lease,
   }
   return sent;
 }
+bool SessionController::deactivate_terminal(uint64_t client, uint64_t token) {
+  if (!client || !token || stopping_.load())
+    return false;
+  auto result = std::make_shared<std::atomic<bool>>(false);
+  auto submitted = input_.submit([client, token, result](InputState &state) {
+    result->store(state.deactivate_terminal(client, token));
+  });
+  // A full or stopped queue is not a deactivation. Answering anyway would tell
+  // the DLL a teardown happened when the request never even ran.
+  if (!submitted)
+    return false;
+  // The DLL polls for at most 150 ms. Waiting the whole budget would leave no
+  // room to write the reply, so this settles well inside it and reports
+  // failure rather than answering late.
+  if (submitted->wait_for(std::chrono::milliseconds(100)) !=
+      std::future_status::ready)
+    return false;
+  return submitted->get() == InputTaskStatus::Completed && result->load();
+}
 ModeRequestResult SessionController::request_mode(const FocusLease &lease,
                                                   WorkerMode mode) {
   if (input_.on_worker_thread() || active_controller == this)

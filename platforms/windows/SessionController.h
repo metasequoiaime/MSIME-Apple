@@ -73,6 +73,11 @@ public:
   VoiceCompositionResult send_voice_composition(
       const FocusLease &lease, uint32_t message, std::wstring_view text,
       wchar_t generation);
+  // The Aux pipe's TerminalDeactivation fallback. Called on the Aux listener
+  // thread, never from an input or window callback. Returns true only once the
+  // named client really is not focused under that token, because the DLL
+  // writes its "OK" on the strength of this answer.
+  bool deactivate_terminal(uint64_t client, uint64_t token);
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())
