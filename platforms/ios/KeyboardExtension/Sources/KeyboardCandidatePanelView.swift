@@ -7,15 +7,18 @@ import UIKit
 // the word not being in the dictionary. This shows the whole list at once instead.
 final class KeyboardCandidatePanelView: UIView {
   private let candidates: [String]
+  private var annotations: [String]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
-  init(candidates: [String], preedit: String, display: @escaping (String) -> String,
+  init(candidates: [String], preedit: String, annotations: [String] = [],
+       display: @escaping (String) -> String,
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
+    self.annotations = annotations
     self.display = display
     self.onSelect = onSelect
     super.init(frame: .zero)
@@ -80,6 +83,12 @@ final class KeyboardCandidatePanelView: UIView {
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+  func updateAnnotations(_ annotations: [String]) {
+    self.annotations = annotations
+    guard laidOutWidth > 0 else { return }
+    rebuildRows(within: laidOutWidth)
+  }
+
   // Rows are packed against a known width, so they are built here rather than in init.
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -121,8 +130,19 @@ final class KeyboardCandidatePanelView: UIView {
 
   private func makeChip(candidate: String, number: Int) -> UIButton {
     let text = display(candidate)
+    let annotation = annotations.indices.contains(number - 1) ? annotations[number - 1] : ""
     var configuration = UIButton.Configuration.plain()
     configuration.title = text
+    if !annotation.isEmpty {
+      configuration.attributedTitle = AttributedString(
+        text, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .body),
+        ])) + AttributedString(
+          "  " + annotation, attributes: AttributeContainer([
+            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+    }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
@@ -135,7 +155,9 @@ final class KeyboardCandidatePanelView: UIView {
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
-    chip.accessibilityLabel = "候选词 \(number)：\(text)"
+    chip.accessibilityLabel = annotation.isEmpty
+      ? "候选词 \(number)：\(text)"
+      : "候选词 \(number)：\(text)，英文释义：\(annotation)"
     return chip
   }
 }

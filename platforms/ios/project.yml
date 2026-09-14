@@ -7,6 +7,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+    PRODUCT_NAME: "$(TARGET_NAME)"
 schemes:
   MSIMEDoubaoTransportTests:
     build:
@@ -28,6 +31,8 @@ targets:
           - Package.swift
       - path: ../../shared/backend-ui
       - path: SharedUI
+      - path: ../../target/ios/EngineResources/dictionary-manifest.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
@@ -50,6 +55,20 @@ targets:
   MSIMEKeyboardExtension:
     type: app-extension
     platform: iOS
+    info:
+      path: KeyboardExtension/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: 水杉输入法
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionAttributes:
+            IsASCIICapable: true
+            PrefersRightToLeft: false
+            PrimaryLanguage: zh-Hans
+            RequestsOpenAccess: true
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).KeyboardViewController"
     sources:
       - path: KeyboardExtension/Sources
         excludes:
@@ -59,12 +78,13 @@ targets:
       - path: ../../shared/backend/BackendSnapshotClient.swift
       - path: App/Services/KeyboardAIService.swift
       - path: KeyboardExtension/Sources/KeyboardServiceFallback.swift
+      - path: ../../target/ios/EngineResources
+        buildPhase: resources
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lmsime_host_api"

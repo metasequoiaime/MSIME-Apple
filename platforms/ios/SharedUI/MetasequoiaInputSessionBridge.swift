@@ -32,6 +32,18 @@ private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> Un
 private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_view")
 private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_all_candidates")
+private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_candidate_gloss_request")
+private func msimeClientCandidateGlossRequest(
+  _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
+  _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
+) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_apply_translations")
+private func msimeClientApplyTranslations(
+  _ session: UInt64, _ generation: UInt64,
+  _ translations: UnsafePointer<MSIMEByte>?, _ translationsLength: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_dictionary")
 private func msimeClientDictionary(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_version")
@@ -135,6 +147,43 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           let generation = identity["generation"] as? NSNumber,
           let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
     return dispatch { msimeClientSelect(handle, generation.uint64Value, globalIndex.uintValue) }
+  }
+
+  func allCandidates() throws -> [String: Any] {
+    try Self.callHandle(msimeClientAllCandidates, handle)
+  }
+
+  func candidateGlossResources() -> String? {
+    options["resources"] as? String
+  }
+
+  static func candidateGlosses(request: Data, resources: String) throws -> [String: Any] {
+    let resourceData = Data(resources.utf8)
+    guard NSString(string: resources).isAbsolutePath, resourceData.count <= 4096 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return try request.withUnsafeBytes { requestBytes in
+      try resourceData.withUnsafeBytes { resourceBytes in
+        let value = try decode(msimeClientCandidateGlossRequest(
+          requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
+          resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
+        guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+        return dictionary
+      }
+    }
+  }
+
+  func applyTranslations(generation: UInt64, translations: Data) throws -> [String: Any] {
+    try translations.withUnsafeBytes { bytes in
+      let value = try Self.decode(msimeClientApplyTranslations(
+        handle, generation, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(translations.count)))
+      guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+      return dictionary
+    }
+  }
+
+  func snapshot(from value: [String: Any]) throws -> MetasequoiaInputSnapshot {
+    try Self.snapshot(value)
   }
 
   func chooseNineKeySpelling(at index: UInt) -> MetasequoiaInputSnapshot {
@@ -379,7 +428,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
       ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let root = group.appendingPathComponent("MSIME", isDirectory: true)
-    let resources = Bundle.main.resourceURL?.appendingPathComponent("resources", isDirectory: true)
+    let resources = Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
       ?? root.appendingPathComponent("resources", isDirectory: true)
     let user = root.appendingPathComponent("user", isDirectory: true)
     let cache = root.appendingPathComponent("cache", isDirectory: true)

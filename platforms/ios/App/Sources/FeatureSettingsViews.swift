@@ -68,6 +68,8 @@ struct SkinSettingsView: View {
 struct DictionarySettingsView: View {
   @AppStorage(DictionaryLearningPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var learningEnabled = false
+  @AppStorage(CandidateGlossPreference.key, store: CandidateGlossPreference.defaults)
+  private var candidateGlossEnabled = false
   @AppStorage(FrequencyAdjustmentPreference.modeKey, store: KeyboardFeedbackPreference.defaults)
   private var frequencyMode = FrequencyAdjustmentMode.promote.rawValue
   @AppStorage(FrequencyAdjustmentPreference.triggerCountKey, store: KeyboardFeedbackPreference.defaults)
@@ -102,10 +104,12 @@ struct DictionarySettingsView: View {
         }
         .accessibilityIdentifier("frequencyAdjustmentLinearStepPicker")
         .disabled(!learningEnabled || frequencyMode != FrequencyAdjustmentMode.linear.rawValue)
+        Toggle("显示英文释义", isOn: $candidateGlossEnabled)
+          .accessibilityIdentifier("candidateGlossToggle")
       } header: {
         Text("输入习惯")
       } footer: {
-        Text("开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
+        Text("开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。英文释义来自随键盘打包的离线词库，不联网。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
       }
       Section {
         NavigationLink(destination: PersonalDictionaryView()) {

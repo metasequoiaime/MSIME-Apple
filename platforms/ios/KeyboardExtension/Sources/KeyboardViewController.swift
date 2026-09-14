@@ -25,6 +25,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     worker.applied = { [weak self] in self?.synchronizePersonalDictionary(force: true) }
     return worker
   }()
+  private let candidateGlossQueue = DispatchQueue(
+    label: "app.msime.ios.candidate-gloss", qos: .utility)
+  private var candidateGlossEpoch: UInt64 = 0
+  private var candidateGlossRequestedGeneration: UInt64?
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private let replyModel = ReplyKeyboardModel()
@@ -97,6 +101,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
+  private var visibleCandidateGlosses: [String] = []
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -213,6 +218,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
+    renderCandidateStrip()
+    scheduleCandidateGlosses()
     applyKeyboardSkin()
     synchronizeReplyKeyboard()
   }
@@ -253,6 +262,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     replyModel.setText("")
     handwriting.deactivate()
     snapshotWorker.stop()
+    candidateGlossEpoch &+= 1
+    candidateGlossRequestedGeneration = nil
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -1484,6 +1495,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     let panel = KeyboardCandidatePanelView(
       candidates: visibleCandidates, preedit: visiblePreedit,
+      annotations: visibleCandidateGlosses,
       display: { [weak self] in self?.chineseOutput($0) ?? $0 },
       onSelect: { [weak self] index in
         guard let self else { return }
@@ -1886,8 +1898,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     hasComposition = !snapshot.preedit.isEmpty
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates)
+    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
+                         candidateGlosses: snapshot.candidateGlosses)
+    candidatePanel?.updateAnnotations(snapshot.candidateGlosses)
     updateSpellingStrip()
+    scheduleCandidateGlosses()
   }
 
   // A diagnostic means the key was handled but something behind it failed, so input keeps working
@@ -1911,9 +1926,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticDismissTimer = timer
   }
 
-  private func updateCandidateStrip(preedit: String, candidates: [String]) {
+  private func updateCandidateStrip(preedit: String, candidates: [String],
+                                    candidateGlosses: [String] = []) {
+    if visibleCandidates != candidates {
+      candidateGlossRequestedGeneration = nil
+    }
     visiblePreedit = preedit
     visibleCandidates = candidates
+    visibleCandidateGlosses = candidateGlosses
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -1948,12 +1968,91 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
+  private func candidateAnnotation(at index: Int) -> String {
+    guard CandidateGlossPreference.enabled,
+          visibleCandidateGlosses.indices.contains(index) else { return "" }
+    return visibleCandidateGlosses[index]
+  }
+
+  /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
+  /// the keyboard thread, then resolve it off-thread and apply only if the same composition is
+  /// still visible. A failed or missing dictionary is intentionally silent.
+  private func scheduleCandidateGlosses() {
+    guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
+          !session.isInLocalMode, !visibleCandidates.isEmpty,
+          let resources = session.candidateGlossResources(), !resources.isEmpty else {
+      let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty
+      if candidateGlossRequestedGeneration != nil || hadVisibleGlosses {
+        candidateGlossEpoch &+= 1
+        candidateGlossRequestedGeneration = nil
+        visibleCandidateGlosses = []
+        if hadVisibleGlosses { renderCandidateStrip() }
+      }
+      candidatePanel?.updateAnnotations([])
+      return
+    }
+    do {
+      let allCandidates = try session.allCandidates()
+      guard let value = allCandidates["generation"] as? NSNumber else { return }
+      let generation = value.uint64Value
+      if candidateGlossRequestedGeneration == generation { return }
+      guard let candidates = allCandidates["candidates"] as? [[String: Any]] else { return }
+      let request = try CandidateGlossModel.request(generation: generation, candidates: candidates)
+      candidateGlossRequestedGeneration = generation
+      let targetEpoch = candidateGlossEpoch
+      let targetResources = resources
+      let queue = candidateGlossQueue
+      queue.async {
+        do {
+          let response = try MetasequoiaInputSessionBridge.candidateGlosses(
+            request: request, resources: targetResources)
+          let decoded = try CandidateGlossModel.decode(response)
+          guard decoded.generation == generation else { return }
+          DispatchQueue.main.async { [weak self] in
+            guard let self, self.candidateGlossEpoch == targetEpoch,
+                  CandidateGlossPreference.enabled,
+                  self.candidateGlossRequestedGeneration == generation else { return }
+            do {
+              let applied = try self.session.applyTranslations(
+                generation: generation, translations: decoded.translations)
+              guard applied["applied"] as? Bool == true else { return }
+              let snapshot = try self.session.snapshot(from: applied)
+              self.render(snapshot)
+              if let complete = try? self.session.allCandidates(),
+                 let candidates = complete["candidates"] as? [[String: Any]] {
+                self.candidatePanel?.updateAnnotations(
+                  candidates.map { $0["translation"] as? String ?? "" })
+              }
+            } catch {
+              // Optional display metadata must never interrupt input.
+            }
+          }
+        } catch {
+          // Optional display metadata must never interrupt input.
+        }
+      }
+    } catch {
+      // Optional display metadata must never interrupt input.
+    }
+  }
+
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
   // the index is the engine position the chip selects. The expand panel already showed bare text.
   private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
     let display = chineseOutput(candidate)
+    let annotation = candidateAnnotation(at: index)
     var configuration = UIButton.Configuration.plain()
     configuration.title = display
+    if !annotation.isEmpty {
+      configuration.attributedTitle = AttributedString(
+        display, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .body),
+        ])) + AttributedString(
+          "  " + annotation, attributes: AttributeContainer([
+            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+    }
     // Candidate chips live in a horizontal scroll view. Keep each title on a
     // single line and let the row scroll to wider candidates instead of
     // compressing a chip into a second line.
@@ -1975,7 +2074,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       })
     button.titleLabel?.numberOfLines = 1
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
-    button.accessibilityLabel = "候选词 \(number)：\(display)"
+    button.accessibilityLabel = annotation.isEmpty
+      ? "候选词 \(number)：\(display)"
+      : "候选词 \(number)：\(display)，英文释义：\(annotation)"
     button.accessibilityIdentifier = "candidate-\(number)"
     if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
       let revision = candidateRevision
