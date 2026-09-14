@@ -18,6 +18,7 @@
 #include "SystemAudioMuter.h"
 #include "ClipboardHistory.h"
 #include "AuxListener.h"
+#include "DiagnosticListener.h"
 #include "ServerLaunch.h"
 #include "TrayMenuDispatch.h"
 #include "MaintenanceHotkey.h"
@@ -910,6 +911,25 @@ int wmain(int argc, wchar_t **argv) {
     // teardown happened that did not. The 150 ms wait it then takes is the
     // lesser problem, and the listener now has the hook ready for when the
     // registry grows that operation.
+    // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
+    // it; nothing ever listened, so enabling diagnostic logging produced
+    // nothing at all. Session-less like the Aux endpoint, because a TIP that
+    // is failing to compose is exactly the one whose diagnostics matter.
+    DWORD diagnostic_error = ERROR_SUCCESS;
+    auto diagnostics = DiagnosticListener::create(
+        FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE,
+        [](const DiagnosticBatch &batch) {
+          std::cerr << "TSF diagnostics pid=" << batch.source_process_id
+                    << " records=" << batch.record_count;
+          // A gap in the log is worth saying out loud rather than leaving the
+          // reader to wonder why the sequence jumps.
+          if (batch.dropped_count)
+            std::cerr << " dropped=" << batch.dropped_count;
+          std::cerr << "\n" << batch.payload << "\n";
+        },
+        diagnostic_error);
+    if (!diagnostics)
+      std::cerr << "TSF diagnostics unavailable; continuing without them\n";
     if (!aux)
       std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
     // The four shortcuts the shared settings page documents. They must work
