@@ -66,6 +66,13 @@ export interface AccountClient {
   appIcon?: AppIconClient;
 }
 
+export type AccountCommunityDestination =
+  | "published-skins"
+  | "published-dictionary"
+  | "saved-dictionary"
+  | "published-reply"
+  | "saved-reply";
+
 type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
 
@@ -242,9 +249,11 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, onOpenPublishedSkins }: {
+export function AccountPage({ client, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
   client: AccountClient;
   onOpenPublishedSkins?: () => void;
+  onOpenLocalDesigns?: () => void;
+  onOpenCommunity?: (destination: AccountCommunityDestination) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -391,6 +400,10 @@ export function AccountPage({ client, onOpenPublishedSkins }: {
     setNotice("昵称已更新。");
   });
 
+  const openPublishedSkins = onOpenCommunity
+    ? () => onOpenCommunity("published-skins")
+    : onOpenPublishedSkins;
+
   if (loading) return <div className="account-page"><p role="status">正在读取账号状态…</p></div>;
 
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
@@ -408,6 +421,10 @@ export function AccountPage({ client, onOpenPublishedSkins }: {
       </div>
     </section>
     {client.appIcon && <AppIconSettingsCard client={client.appIcon} />}
+    {onOpenLocalDesigns && <section className="section account-community-actions">
+      <div><h2>我的设计</h2><p>保存在本机的键盘皮肤，不会因登录账号而上传。</p></div>
+      <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>打开设计器</button>
+    </section>}
     {user ? <>
       <section className="section account-profile">
         <div>
@@ -448,9 +465,15 @@ export function AccountPage({ client, onOpenPublishedSkins }: {
         </div>}
       </section>
       {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
-      {onOpenPublishedSkins && <section className="section account-community-actions">
-        <div><h2>我的创作</h2><p>查看和管理你已经公开发布的键盘皮肤。</p></div>
-        <button type="button" className="secondary" disabled={busy} onClick={onOpenPublishedSkins}>我发布的皮肤</button>
+      {(openPublishedSkins || onOpenCommunity) && <section className="section account-community-actions">
+        <div><h2>我的社区作品</h2><p>管理你公开发布或收藏的社区作品。</p></div>
+        {openPublishedSkins && <button type="button" className="secondary" disabled={busy} onClick={openPublishedSkins}>我发布的皮肤</button>}
+        {onOpenCommunity && <>
+          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("published-dictionary")}>我发布的词库</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("published-reply")}>我发布的回复</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-dictionary")}>收藏的词库</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-reply")}>收藏的回复</button>
+        </>}
       </section>}
     </> : <section className="section account-login">
       <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>

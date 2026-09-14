@@ -255,6 +255,8 @@ pub struct CandidateSnapshot {
     pub session: u64,
     pub generation: u64,
     pub preedit: String,
+    /// Engine-owned kana reading for Japanese; empty for other schemes.
+    pub reading: String,
     pub candidates: Vec<Candidate>,
 }
 
@@ -285,6 +287,8 @@ pub struct View {
     pub generation: u64,
     pub focused: bool,
     pub preedit: String,
+    /// Engine-owned kana reading for Japanese; empty for other schemes.
+    pub reading: String,
     pub editing_text: String,
     /// Byte offset in Engine's ASCII editing_text, not an OS UTF-16 offset.
     pub caret_position: usize,
@@ -1426,6 +1430,7 @@ impl<E: InputEngine> Runtime<E> {
             generation: self.generation,
             focused: self.focused,
             preedit: self.cached.preedit.clone(),
+            reading: self.cached.reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
             page,
@@ -1449,6 +1454,7 @@ impl<E: InputEngine> Runtime<E> {
             session: self.session,
             generation: self.generation,
             preedit: self.cached.preedit.clone(),
+            reading: self.cached.reading.clone(),
             candidates: self
                 .cached
                 .candidates
@@ -1610,6 +1616,7 @@ impl<E: InputEngine> Runtime<E> {
                 local_mode: "unknown".into(),
                 dedicated_english: false,
                 preedit: String::new(),
+                reading: String::new(),
                 editing_text: String::new(),
                 caret_position: 0,
                 candidates: Vec::new(),
@@ -1622,6 +1629,7 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
+            && self.cached.reading == previous.reading
             && self.cached.dedicated_english == previous.dedicated_english
             && self.cached.candidates == previous.candidates
             && self.cached.candidate_codes == previous.candidate_codes
@@ -1952,6 +1960,7 @@ mod tests {
                 local_mode: self.local_mode.clone(),
                 dedicated_english: self.dedicated_english,
                 preedit: self.text.clone(),
+                reading: String::new(),
                 editing_text: self.text.clone(),
                 caret_position: self.text.len(),
                 candidates: if self.text.is_empty() {
@@ -2052,8 +2061,10 @@ mod tests {
         let snapshot = runtime.all_candidates();
         assert_eq!(snapshot.candidates[0].code, "ab");
         assert_eq!(snapshot.candidates[1].code, "ac");
+        assert!(snapshot.reading.is_empty());
         let serialized = serde_json::to_value(snapshot).unwrap();
         assert_eq!(serialized["candidates"][1]["code"], "ac");
+        assert_eq!(serialized["reading"], "");
     }
 
     #[test]

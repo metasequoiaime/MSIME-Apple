@@ -24,7 +24,7 @@ async function openVoice(platform: string) {
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   // The token fields are hidden on Linux, where credentials belong to the
   // provider service, so wait on a control both platforms render.
-  return await screen.findByLabelText("识别服务");
+  return await screen.findByLabelText(platform === "android" ? "识别语言" : "识别服务");
 }
 
 test("a pasted recognition token can be revealed to check it", async () => {
@@ -70,4 +70,18 @@ test("Linux keeps the wording that is accurate there", async () => {
   expect(screen.getByText(/IBus 属性/)).toBeTruthy();
   expect(screen.queryByText("语音快捷键")).toBeNull();
   expect(screen.queryByText("录音行为")).toBeNull();
+});
+
+test("Android uses the system recognizer and hides desktop voice controls", async () => {
+  await openVoice("android");
+  expect(screen.getByText("Android 系统语音")).toBeTruthy();
+  expect(screen.getByText("从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。")).toBeTruthy();
+  expect(screen.getByLabelText("识别语言")).toBeTruthy();
+  expect(screen.queryByLabelText("识别服务")).toBeNull();
+  expect(screen.queryByLabelText("识别 API Token")).toBeNull();
+  expect(screen.queryByLabelText("结果提交策略")).toBeNull();
+  expect(screen.queryByText("录音行为")).toBeNull();
+  expect(screen.queryByText("文本润色 provider")).toBeNull();
+  expect(screen.queryByText("语音快捷键")).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
 });
