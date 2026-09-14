@@ -108,6 +108,7 @@ fn main() {
     let mut bridge = cxx_build::bridge("src/lib.rs");
     bridge
         .file("native/bridge.cpp")
+        .include("../../vendor/MSIME-Engine/voice/include")
         .include("native")
         .include(&engine)
         .include(engine.join("include"));
