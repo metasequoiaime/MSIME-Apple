@@ -161,7 +161,7 @@ impl HostCapabilities {
             // activation, so the toggles take effect there too.
             mode_switch_shortcuts: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows
+                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
             panel_shortcuts: matches!(
@@ -614,6 +614,7 @@ mod tests {
         // Typing statistics were previously gated on a user-agent match.
         assert!(android.typing_statistics);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).typing_statistics);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).mode_switch_shortcuts);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).voice_capture_devices);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).typing_statistics);
         assert!(linux.fuzzy_pinyin);

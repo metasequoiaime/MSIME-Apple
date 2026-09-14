@@ -2564,10 +2564,10 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
     }
     #[cfg(not(unix))]
     {
+        // Windows capture is owned by the native session/Server boundary.
+        // Keep stop idempotent while that bridge is not active in this build.
         let _ = (app, request_id);
-        Err(HostActionError {
-            code: "unavailable",
-        })
+        Ok(())
     }
 }
 
@@ -2588,10 +2588,10 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
     }
     #[cfg(not(unix))]
     {
+        // Cancellation is intentionally idempotent across platforms; the
+        // native Windows session consumes cancellation when present.
         let _ = (app, request_id);
-        Err(HostActionError {
-            code: "unavailable",
-        })
+        Ok(())
     }
 }
 
