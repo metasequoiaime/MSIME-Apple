@@ -789,6 +789,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
 }
 - (void)showCloudClipboard:(id)sender {
+    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=cloud-clipboard"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
         [self showAccount:sender];
     }
