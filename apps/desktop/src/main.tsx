@@ -293,6 +293,10 @@ function DesktopSettings() {
           ...(host.platform === "ios" ? { appIcon,
             touchKeyboardSchemes: true,
             customTouchKeyboardSkins: true,
+            customSkinLibrary: {
+              load: () => invoke("load_custom_skin_library"),
+              mutate: action => invoke("mutate_custom_skin_library", { action }),
+            },
             openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
             home: {
               openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),

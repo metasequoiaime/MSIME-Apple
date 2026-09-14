@@ -4050,6 +4050,14 @@ fn ios_host_options_document(
     }
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_custom_skin_library_root(state_root: &std::path::Path) -> PathBuf {
+    state_root
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| state_root.to_path_buf())
+}
+
 #[cfg(target_os = "ios")]
 #[tauri::command]
 async fn open_system_keyboard_settings(
@@ -4191,7 +4199,14 @@ pub fn run() {
                 KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
             #[cfg(target_os = "android")]
             let _ = keyboard_skin_trials.restore_pending();
-            app.manage(CustomSkinLibraryStore::new(&directory));
+            // The iOS keyboard extension stores named designs in the App Group
+            // root, while the Rust preferences live below App Group/MSIME.
+            // Point both hosts at the same bounded library file.
+            #[cfg(target_os = "ios")]
+            let custom_skin_directory = ios_custom_skin_library_root(&directory);
+            #[cfg(not(target_os = "ios"))]
+            let custom_skin_directory = directory.clone();
+            app.manage(CustomSkinLibraryStore::new(custom_skin_directory));
             #[cfg(target_os = "android")]
             app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
                 app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
@@ -4596,6 +4611,17 @@ mod tests {
         .expect("first-run options");
         assert_eq!(document["resources"], "/fixture/resources");
         assert_eq!(document["state_root"], "/fixture/shared-state");
+    }
+
+    #[test]
+    fn ios_named_skin_library_shares_the_apple_app_group_root() {
+        let root =
+            super::ios_custom_skin_library_root(std::path::Path::new("/fixture/app-group/MSIME"));
+        assert_eq!(root, std::path::Path::new("/fixture/app-group"));
+        assert_eq!(
+            msime_client_core::custom_skin_library::CustomSkinLibraryStore::new(root).path(),
+            std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
+        );
     }
 
     #[test]
