@@ -13,6 +13,7 @@
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "DesktopSettingsLauncher.h"
+#import "DesktopInputSession.h"
 #import "SharedVoicePreferences.h"
 #import "VoiceProviderOptions.h"
 #import "VoiceTextCommit.h"
@@ -242,6 +243,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     uint64_t _voiceGeneration;
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
+    MSIMEDesktopInputSession *_desktopInputSession;
+    MSIMEPanelTextCompletion _desktopEmojiCompletion;
+    double _desktopEmojiDeadline;
     NSDictionary *_view;
     NSObject *_candidateMenuToken;
     NSPanel *_panel;
@@ -872,16 +876,27 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
         ![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
     if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
+    [_desktopInputSession stop];
+    _desktopInputSession = nil;
+    if (_desktopEmojiCompletion) { _desktopEmojiCompletion(NO); _desktopEmojiCompletion = nil; }
     const uint64_t token = _emojiReturn.capture(_activeClient);
     __weak MSIMEInputController *weakSelf = self;
     BOOL (^selection)(NSString *) = ^BOOL(NSString *text) {
         MSIMEInputController *controller = weakSelf;
         if (!controller || application.terminated ||
             !controller->_emojiReturn.queue(text, token, NSProcessInfo.processInfo.systemUptime)) return NO;
+        if (controller->_desktopEmojiCompletion)
+            controller->_emojiReturn.deadline = std::min(controller->_emojiReturn.deadline, controller->_desktopEmojiDeadline);
         // The Swift bridge closes its window before this activation is executed.
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_emojiReturn.generation != token || !current->_emojiReturn.pending) return;
+            if (current->_desktopEmojiCompletion &&
+                (![current->_desktopInputSession isAuthorizedPeerAlive] ||
+                 NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != application.processIdentifier)) {
+                if (current->_emojiReturn.fail(token)) [current reportEmojiDeliveryFailure];
+                return;
+            }
             if (NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == application.processIdentifier &&
                 current->_activeClient && current->_activeClient == current->_emojiReturn.target) {
                 [current commitPendingEmojiForClient:current->_activeClient];
@@ -897,8 +912,30 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         });
         return YES;
     };
-    MSIMEOpenDesktopRoute(@"emoji", NSWorkspace.sharedWorkspace, ^{ [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:)
-                 withObject:options withObject:selection]; });
+    MSIMEDesktopInputSession *inputSession = [[MSIMEDesktopInputSession alloc]
+        initWithTargetPID:application.processIdentifier launchTime:application.launchDate.timeIntervalSince1970
+        handler:^(NSString *text, double deadline, MSIMEPanelTextCompletion completion) {
+            MSIMEInputController *controller = weakSelf;
+            if (!controller || controller->_emojiReturn.generation != token || controller->_desktopEmojiCompletion) {
+                completion(NO); return;
+            }
+            controller->_desktopEmojiCompletion = completion;
+            controller->_desktopEmojiDeadline = deadline;
+            if (!selection(text)) {
+                controller->_desktopEmojiCompletion = nil;
+                completion(NO);
+            }
+        }];
+    _desktopInputSession = inputSession;
+    dispatch_block_t fallback = ^{
+        [inputSession stop];
+        [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:) withObject:options withObject:selection];
+    };
+    if (!inputSession) { fallback(); return; }
+    MSIMEOpenDesktopRouteWithContext(@"emoji", MSIMERuntimeOptionsPath(), inputSession.launchEnvironment,
+        NSWorkspace.sharedWorkspace, ^(NSRunningApplication *peer) {
+            [inputSession authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];
+        }, fallback);
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
@@ -962,7 +999,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
         [provider.lowercaseString isEqual:@"doubao"];
 }
-- (void)dealloc { [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; [_livePolishRequest cancel]; }
+- (void)dealloc { [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; [_livePolishRequest cancel]; }
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
@@ -1547,12 +1584,32 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)commitPendingEmojiForClient:(id)client {
     const BOOL hadPending = _emojiReturn.pending != nil;
+    if (hadPending && _desktopEmojiCompletion && ![_desktopInputSession isAuthorizedPeerAlive]) {
+        _emojiReturn.discard(_emojiReturn.generation);
+        [self reportEmojiDeliveryFailure];
+        return;
+    }
     NSString *toolText = _emojiReturn.take(client, NSProcessInfo.processInfo.systemUptime);
-    if (toolText) [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
+    if (toolText) {
+        BOOL committed = NO;
+        @try { [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)]; committed = YES; }
+        @catch (NSException *) { /* Never log input or client exception details. */ }
+        if (_desktopEmojiCompletion) {
+            MSIMEPanelTextCompletion completion = _desktopEmojiCompletion;
+            _desktopEmojiCompletion = nil;
+            completion(committed);
+        } else if (!committed) [self reportEmojiDeliveryFailure];
+    }
     else if (hadPending) [self reportEmojiDeliveryFailure];
 }
 
 - (void)reportEmojiDeliveryFailure {
+    if (_desktopEmojiCompletion) {
+        MSIMEPanelTextCompletion completion = _desktopEmojiCompletion;
+        _desktopEmojiCompletion = nil;
+        completion(NO);
+        return;
+    }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(showEmojiDeliveryFailure)])

@@ -10,6 +10,8 @@ mod android_account;
 mod macos_launch;
 #[cfg(any(target_os = "macos", test))]
 mod macos_keyboard;
+#[cfg(target_os = "macos")]
+mod macos_panel_session;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 mod desktop_preferences_monitor;
 
@@ -2862,11 +2864,12 @@ async fn submit_handwriting_candidate(
 #[tauri::command]
 async fn send_text(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     typing_statistics: tauri::State<'_, TypingStatisticsState>,
     text: String,
 ) -> Result<(), HostActionError> {
-    let _ = &app;
+    let _ = (&app, &window, &state);
     let _ = &typing_statistics;
     #[cfg(target_os = "linux")]
     return send_panel_text(
@@ -2879,7 +2882,9 @@ async fn send_text(
     .await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit(app, window, text).await;
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (app, state, text);
         Err(HostActionError {
@@ -3443,6 +3448,12 @@ fn close_panel(
         let _ = cancel_voice(app.clone(), None);
     }
     #[cfg(target_os = "macos")]
+    if label == "emoji-panel" {
+        let window = app.get_webview_window(&label)
+            .ok_or(HostActionError { code: "unavailable" })?;
+        return macos_panel_session::close(&app, window);
+    }
+    #[cfg(target_os = "macos")]
     if label == "keyboard-panel" {
         let window = app.get_webview_window(&label)
             .ok_or(HostActionError { code: "unavailable" })?;
@@ -3949,6 +3960,10 @@ pub fn run() {
             &mut context.config_mut().app.windows,
             requested_surface_route(),
         );
+        macos_panel_session::prepare_windows(
+            &mut context.config_mut().app.windows,
+            requested_surface_route(),
+        );
         context
     };
     let builder = tauri::Builder::default();
@@ -3971,6 +3986,8 @@ pub fn run() {
     let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.manage(macos_panel_session::PanelState::from_environment()?);
             #[cfg(target_os = "macos")]
             let macos_launch = macos_launch::resolve(
                 &app.path().app_data_dir()?,
@@ -4162,11 +4179,12 @@ pub fn run() {
                 document: Arc::new(Mutex::new(host_document)),
             });
             #[cfg(target_os = "macos")]
-            if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route()) {
+            if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
+                .or_else(|| macos_panel_session::startup_panel(requested_surface_route())) {
                 open_panel_window(
                     app.handle(), surface.label, surface.query, surface.title,
                     f64::from(surface.width), f64::from(surface.height), None,
-                ).map_err(|_| "Cannot open requested keyboard panel".to_string())?;
+                ).map_err(|_| "Cannot open requested native panel".to_string())?;
             }
             // Both desktop hosts launch this shell with the panel their menu
             // named; the IBus property menu and the Windows tray menu are the
@@ -4358,10 +4376,11 @@ pub fn run() {
             }
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. })
-                && macos_keyboard::startup_panel(requested_surface_route()).is_some()
+                && (macos_keyboard::startup_panel(requested_surface_route()).is_some()
+                    || macos_panel_session::startup_panel(requested_surface_route()).is_some())
                 && !_app.webview_windows().values().any(|window| window.is_visible().unwrap_or(true))
             {
-                // A keyboard-only launcher does not leave an invisible settings
+                // A panel-only launcher does not leave an invisible settings
                 // process behind. Other visible panels keep the process alive.
                 _app.exit(0);
             }

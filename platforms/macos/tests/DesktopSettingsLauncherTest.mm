@@ -81,5 +81,22 @@ int main() {
         assert(fallbacks == 3);
         MSIMEOpenDesktopRoute(@"settings:appearance", workspace, fallback);
         assert(workspace.configuration.activates);
+        __block BOOL authorized = NO;
+        MSIMEOpenDesktopRouteWithContext(@"emoji", options,
+            @{@"MSIME_CLIENT_PANEL_SESSION":@"synthetic-session", @"MSIME_CLIENT_HOST_OPTIONS":@"ignored"},
+            workspace, ^(NSRunningApplication *application) {
+                assert(NSThread.isMainThread);
+                assert(application.processIdentifier == NSRunningApplication.currentApplication.processIdentifier);
+                authorized = YES;
+            }, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=emoji"]]);
+        assert(workspace.configuration.activates && workspace.configuration.createsNewApplicationInstance);
+        assert([workspace.configuration.environment[@"MSIME_CLIENT_PANEL_SESSION"] isEqual:@"synthetic-session"]);
+        assert([workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:options]);
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+        while (!authorized && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        assert(authorized && fallbacks == 3);
     }
 }

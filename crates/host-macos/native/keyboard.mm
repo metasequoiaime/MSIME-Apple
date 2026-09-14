@@ -74,3 +74,21 @@ extern "C" bool msime_macos_restore_launch_target(int pid, double launched) {
         return msime::RestoreLaunchFocus(host, pid, launched);
     }
 }
+
+extern "C" bool msime_macos_activate_panel_target(int pid, double launched) {
+    @autoreleasepool {
+        SystemKeyboardHost host;
+        if (!host.mainThread() || pid <= 0 || pid == host.ownProcess() || host.launchTime(pid) != launched) return false;
+        const pid_t foreground = host.foreground();
+        if (foreground == pid) return true;
+        // Do not steal focus after the user has selected a third application.
+        if (foreground != host.ownProcess()) return false;
+        NSRunningApplication *target = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+        if (!target || target.terminated) return false;
+        if (@available(macOS 14.0, *)) {
+            [NSApp yieldActivationToApplication:target];
+            return [target activateFromApplication:NSRunningApplication.currentApplication options:0];
+        }
+        return [target activateWithOptions:0];
+    }
+}

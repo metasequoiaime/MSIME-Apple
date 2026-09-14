@@ -1,5 +1,7 @@
 //! macOS platform operations for shared clients; no desktop or Engine dependency.
 use msime_client_core::panels::KeyboardInputRequest;
+#[cfg(target_os = "macos")]
+pub mod panel_session;
 
 /// Keeps WebKit detached while a desktop adapter changes a window's class.
 /// Main-thread-only; dropping restores the view and its window observations.

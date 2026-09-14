@@ -5,8 +5,9 @@
 
 enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI };
 
-static inline void MSIMEOpenDesktopRouteWithOptions(NSString *route, NSString *optionsPath,
-                                                   NSWorkspace *workspace, dispatch_block_t fallback) {
+static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *optionsPath,
+    NSDictionary<NSString *, NSString *> *environment, NSWorkspace *workspace,
+    void (^launched)(NSRunningApplication *), dispatch_block_t fallback) {
     if (optionsPath && !optionsPath.isAbsolutePath) { fallback(); return; }
     NSURL *url = [workspace URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
     if (!url) { fallback(); return; }
@@ -16,13 +17,22 @@ static inline void MSIMEOpenDesktopRouteWithOptions(NSString *route, NSString *o
     // native nonactivating NSPanel. Settings pages still activate normally.
     configuration.activates = ![route isEqualToString:@"keyboard"];
     // LaunchServices does not reliably inherit the input method's environment.
-    // Pass only the selected file path, never its credentials or input state.
-    if (optionsPath) configuration.environment = @{@"MSIME_CLIENT_HOST_OPTIONS":optionsPath};
+    // Pass the selected file path and optional native session identity, never
+    // file contents, credentials, or text being composed.
+    NSMutableDictionary *launchEnvironment = [NSMutableDictionary dictionaryWithDictionary:environment ?: @{}];
+    if (optionsPath) launchEnvironment[@"MSIME_CLIENT_HOST_OPTIONS"] = optionsPath;
+    if (launchEnvironment.count) configuration.environment = launchEnvironment;
     configuration.createsNewApplicationInstance = YES;
     [workspace openApplicationAtURL:url configuration:configuration
                  completionHandler:^(NSRunningApplication *application, NSError *error) {
         if (error || !application) dispatch_async(dispatch_get_main_queue(), fallback);
+        else if (launched) dispatch_async(dispatch_get_main_queue(), ^{ launched(application); });
     }];
+}
+
+static inline void MSIMEOpenDesktopRouteWithOptions(NSString *route, NSString *optionsPath,
+                                                   NSWorkspace *workspace, dispatch_block_t fallback) {
+    MSIMEOpenDesktopRouteWithContext(route, optionsPath, nil, workspace, nil, fallback);
 }
 
 static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace,
