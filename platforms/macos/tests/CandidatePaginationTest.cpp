@@ -20,4 +20,6 @@ int main() {
     require(IsJapaneseMinusEqualInput(3, false, '-') && IsJapaneseMinusEqualInput(3, false, '='), "direct Japanese scheme punctuation");
     require(IsJapaneseMinusEqualInput(0, true, '-') && IsJapaneseMinusEqualInput(0, true, '='), "temporary Japanese punctuation");
     require(!IsJapaneseMinusEqualInput(0, false, '-') && !IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
+    require(PhysicalCandidateDigitSlot(18) == 0 && PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
+    require(PhysicalCandidateDigitSlot(29) == -1 && PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
 }

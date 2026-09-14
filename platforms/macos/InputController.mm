@@ -1997,6 +1997,26 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         else if (error) NSBeep();
         return YES; // Never finish composition or leak a reserved deletion chord.
     }
+    // Candidate numbers follow the physical ANSI number row, matching the
+    // Windows TSF path even when the active keyboard layout emits different
+    // characters.  Let nine-key mode and modified chords reach the Engine.
+    if (_panel.isVisible && !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                                     NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
+        ![_view[@"nine_key"] boolValue]) {
+        const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+        NSArray *candidates = _view[@"candidates"];
+        if (slot >= 0 && [candidates isKindOfClass:NSArray.class] && (NSUInteger)slot < candidates.count) {
+            NSDictionary *candidate = candidates[(NSUInteger)slot];
+            NSDictionary *identifier = [candidate isKindOfClass:NSDictionary.class] ? candidate[@"id"] : nil;
+            if (MSIMECurrentCandidateIdentity(identifier, _view)) {
+                NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
+                                                               index:[identifier[@"index"] unsignedIntegerValue]
+                                                               error:nil];
+                if (selected) [self apply:selected];
+                return YES;
+            }
+        }
+    }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
