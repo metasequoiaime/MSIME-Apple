@@ -123,3 +123,44 @@ assert windows_mouse_wheel == shared_mouse_wheel, (
 )
 
 print(f"Windows mouse-wheel paging matches the shared default: {shared_mouse_wheel}")
+
+fuzzy_rule_enum = re.search(
+    r"pub enum FuzzyPinyinRule\s*\{(.*?)\n\}", core_source, re.DOTALL
+)
+assert fuzzy_rule_enum, "FuzzyPinyinRule identifiers were not found"
+shared_fuzzy_rule_ids = re.findall(
+    r'#\[serde\(rename = "([^"]+)"\)\]', fuzzy_rule_enum.group(1)
+)
+assert shared_fuzzy_rule_ids, "FuzzyPinyinRule has no serialized identifiers"
+
+fuzzy_preferences_default = re.search(
+    r"#\[derive\([^)]*Default[^)]*\)\]\s*"
+    r"#\[serde\(deny_unknown_fields\)\]\s*"
+    r"pub struct FuzzyPinyinPreferences\s*\{(.*?)\}",
+    core_source,
+    re.DOTALL,
+)
+assert fuzzy_preferences_default, "FuzzyPinyinPreferences derived default was not found"
+fuzzy_fields = fuzzy_preferences_default.group(1)
+assert re.search(r"pub enabled:\s*bool", fuzzy_fields)
+assert re.search(r"pub rules:\s*BTreeSet<FuzzyPinyinRule>", fuzzy_fields)
+assert re.search(r"pub seeded:\s*bool", fuzzy_fields)
+
+windows_input = windows_defaults["input"]
+assert windows_input["fuzzy_pinyin"] is False, "Windows fuzzy-pinyin default must be disabled"
+assert windows_input["fuzzy_seeded"] is False, "Windows fuzzy-pinyin seed marker must be false"
+windows_fuzzy_rules = {
+    key.removeprefix("fuzzy_").replace("_", "-"): value
+    for key, value in windows_input.items()
+    if key.startswith("fuzzy_") and key not in {"fuzzy_pinyin", "fuzzy_seeded"}
+}
+assert set(windows_fuzzy_rules) == set(shared_fuzzy_rule_ids), (
+    "Windows fuzzy-pinyin rule keys do not match shared rule identifiers: "
+    f"{sorted(windows_fuzzy_rules)} != {sorted(shared_fuzzy_rule_ids)}"
+)
+assert not any(windows_fuzzy_rules.values()), "Windows fuzzy-pinyin rules must default to off"
+
+print(
+    "Windows fuzzy-pinyin factory keys match the shared disabled default: "
+    f"{len(shared_fuzzy_rule_ids)} rules"
+)
