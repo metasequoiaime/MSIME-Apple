@@ -1,5 +1,6 @@
 #include "VoiceControlMessage.h"
 
+#include <cerrno>
 #include <cwchar>
 
 namespace msime::windows {
@@ -8,9 +9,10 @@ constexpr std::wstring_view prefix = L"MSIME_VOICE|";
 bool number(std::wstring_view value, uint64_t &out) {
   if (value.empty()) return false;
   std::wstring copy(value);
+  errno = 0;
   wchar_t *end = nullptr;
   const auto parsed = std::wcstoull(copy.c_str(), &end, 10);
-  if (end != copy.c_str() + copy.size()) return false;
+  if (errno == ERANGE || end != copy.c_str() + copy.size()) return false;
   out = parsed;
   return true;
 }
