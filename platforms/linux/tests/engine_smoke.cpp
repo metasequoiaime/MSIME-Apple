@@ -41,6 +41,8 @@ struct Observation {
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool punctuation_enabled = false;
+  bool autocorrect_transposition = false;
+  bool autocorrect_neighbor = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -86,6 +88,13 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
       seen.punctuation_enabled =
+          ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (std::string(ibus_property_get_key(property)) ==
+        "AutocorrectTransposition")
+      seen.autocorrect_transposition =
+          ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (std::string(ibus_property_get_key(property)) == "AutocorrectNeighbor")
+      seen.autocorrect_neighbor =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
   };
   if (std::string(name) == "RegisterProperties") {
@@ -748,6 +757,24 @@ int main(int argc, char **argv) {
       return false;
     };
     invoke("Reset");
+    require(!seen.autocorrect_transposition && !seen.autocorrect_neighbor,
+            "Legacy autocorrect unexpectedly enabled granular menu defaults");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "AutocorrectTransposition",
+                         PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.at("quanpin")
+                  .at("autocorrect_transposition").get<bool>();
+            }) && seen.autocorrect_transposition && !seen.autocorrect_neighbor,
+            "Transposition correction was not independently enabled");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "AutocorrectTransposition",
+                         PROP_STATE_UNCHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return !preferences.at("quanpin")
+                  .at("autocorrect_transposition").get<bool>();
+            }) && !seen.autocorrect_transposition && !seen.autocorrect_neighbor,
+            "Transposition correction was not restored to the disabled default");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {

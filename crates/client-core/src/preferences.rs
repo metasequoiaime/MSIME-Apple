@@ -457,8 +457,9 @@ pub struct Preferences {
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
-    /// Legacy all-types switch retained for older snapshots. New callers should
-    /// use `quanpin.autocorrect_transposition` and `quanpin.autocorrect_neighbor`.
+    /// Legacy all-types switch retained so older snapshots still parse. It no
+    /// longer enables either correction type; callers use the two `quanpin`
+    /// fields, matching the fixed Windows baseline.
     pub autocorrect: bool,
     #[serde(default, skip_serializing_if = "QuanpinPreferences::is_empty")]
     pub quanpin: QuanpinPreferences,
@@ -1296,15 +1297,11 @@ impl Preferences {
     }
 
     pub fn quanpin_autocorrect_transposition(&self) -> bool {
-        self.quanpin
-            .autocorrect_transposition
-            .unwrap_or(self.autocorrect)
+        self.quanpin.autocorrect_transposition.unwrap_or(false)
     }
 
     pub fn quanpin_autocorrect_neighbor(&self) -> bool {
-        self.quanpin
-            .autocorrect_neighbor
-            .unwrap_or(self.autocorrect)
+        self.quanpin.autocorrect_neighbor.unwrap_or(false)
     }
 
     pub fn active_helpcode(&self) -> HelpcodePreferences {
@@ -2892,14 +2889,31 @@ mod tests {
             .remove("autocorrect");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), &bytes).unwrap();
-        assert!(store.load().unwrap().preferences.autocorrect);
+        let loaded = store.load().unwrap();
+        assert!(loaded.preferences.autocorrect);
+        assert!(!loaded.preferences.quanpin_autocorrect_transposition());
+        assert!(!loaded.preferences.quanpin_autocorrect_neighbor());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         let preferences = Preferences {
             autocorrect: false,
             ..Preferences::default()
         };
-        store.save(0, preferences).unwrap();
-        assert!(!store.load().unwrap().preferences.autocorrect);
+        let saved = store.save(0, preferences).unwrap();
+        assert!(!saved.preferences.autocorrect);
+        assert!(!saved.preferences.quanpin_autocorrect_transposition());
+        assert!(!saved.preferences.quanpin_autocorrect_neighbor());
+
+        let explicit = Preferences {
+            autocorrect: true,
+            quanpin: QuanpinPreferences {
+                autocorrect_transposition: Some(true),
+                autocorrect_neighbor: Some(false),
+            },
+            ..Preferences::default()
+        };
+        let saved = store.save(saved.revision, explicit).unwrap();
+        assert!(saved.preferences.quanpin_autocorrect_transposition());
+        assert!(!saved.preferences.quanpin_autocorrect_neighbor());
     }
 
     #[test]

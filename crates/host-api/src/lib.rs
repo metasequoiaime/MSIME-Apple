@@ -3900,27 +3900,30 @@ mod tests {
         read(msime_client_character(handle, b'U', true));
         let before = read(msime_client_view(handle))["value"].clone();
         let preferences = Preferences {
-            autocorrect: false,
+            quanpin: msime_client_core::preferences::QuanpinPreferences {
+                autocorrect_transposition: Some(true),
+                autocorrect_neighbor: Some(true),
+            },
             ..Preferences::default()
         };
         assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
         assert_eq!(read(msime_client_view(handle))["value"], before);
         SESSIONS.with(|sessions| {
-            assert!(sessions.borrow()[&handle].options.autocorrect_transposition);
-            assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
+            assert!(!sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(!sessions.borrow()[&handle].options.autocorrect_neighbor);
         });
         read(msime_client_command(handle, 3));
         SESSIONS.with(|sessions| {
-            assert!(!sessions.borrow()[&handle].options.autocorrect_transposition);
-            assert!(!sessions.borrow()[&handle].options.autocorrect_neighbor);
+            assert!(sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
         });
         assert_eq!(
             update(handle, 2, &Preferences::default())["value"]["deferred"],
             false
         );
         SESSIONS.with(|sessions| {
-            assert!(sessions.borrow()[&handle].options.autocorrect_transposition);
-            assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
+            assert!(!sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(!sessions.borrow()[&handle].options.autocorrect_neighbor);
         });
         read(msime_client_destroy(handle));
     }

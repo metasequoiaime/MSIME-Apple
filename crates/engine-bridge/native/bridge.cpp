@@ -515,8 +515,8 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     result.scheme = 0;
     result.shuangpin_profile = 0;
     result.learning = false;
-    result.autocorrect_transposition = true;
-    result.autocorrect_neighbor = true;
+    result.autocorrect_transposition = false;
+    result.autocorrect_neighbor = false;
     result.fuzzy_pinyin_rules = 0;
     result.helpcode = true;
     result.show_helpcode = true;

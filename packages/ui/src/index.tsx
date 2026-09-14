@@ -1190,8 +1190,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   };
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const quanpinAutocorrect = {
-    autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
-    autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? draft?.autocorrect ?? true,
+    autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
+    autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,
   };
   const clipboardHistory = draft?.clipboard_history ?? false;
   function toggleClipboardHistory(enabled: boolean) {

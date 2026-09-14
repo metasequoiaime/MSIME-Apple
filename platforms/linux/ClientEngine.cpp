@@ -2097,11 +2097,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto quanpin_preferences = configured.at("preferences").value(
       "quanpin", Json::object());
   const bool autocorrect_transposition = s.autocorrect_transposition_override.value_or(
-      quanpin_preferences.value("autocorrect_transposition",
-          configured.at("preferences").value("autocorrect", true)));
+      quanpin_preferences.value("autocorrect_transposition", false));
   const bool autocorrect_neighbor = s.autocorrect_neighbor_override.value_or(
-      quanpin_preferences.value("autocorrect_neighbor",
-          configured.at("preferences").value("autocorrect", true)));
+      quanpin_preferences.value("autocorrect_neighbor", false));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
   const bool nine_key = active_scheme == "quanpin" && s.view.is_object() &&
@@ -4443,7 +4441,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const bool transposition = std::string(name) == "AutocorrectTransposition";
       const auto key = transposition ? "autocorrect_transposition" : "autocorrect_neighbor";
       const auto current = configured.at("preferences").value("quanpin", Json::object())
-          .value(key, configured.at("preferences").value("autocorrect", true));
+          .value(key, false);
       auto &setting_override = transposition ? s.autocorrect_transposition_override
                                              : s.autocorrect_neighbor_override;
       if (menu_save_pending || setting_override.value_or(current) == enabled)

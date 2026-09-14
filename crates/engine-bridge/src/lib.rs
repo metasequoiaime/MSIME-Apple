@@ -821,6 +821,25 @@ mod tests {
             local_temporary_japanese: true,
         }
     }
+
+    #[test]
+    fn prepared_options_disable_quanpin_autocorrect_by_default() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        std::fs::create_dir_all(&resources).unwrap();
+        for name in ["msime.db", "english.db"] {
+            rusqlite::Connection::open(resources.join(name)).unwrap();
+        }
+        let prepared = super::prepare_options(
+            resources.to_str().unwrap(),
+            root.path().join("user").to_str().unwrap(),
+            root.path().join("cache").to_str().unwrap(),
+            "synthetic-defaults",
+        )
+        .unwrap();
+        assert!(!prepared.autocorrect_transposition);
+        assert!(!prepared.autocorrect_neighbor);
+    }
     #[test]
     fn dictionary_revision_uses_real_journal_and_rejects_corruption() {
         let dir = tempfile::tempdir().unwrap();

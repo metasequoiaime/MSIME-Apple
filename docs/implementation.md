@@ -564,7 +564,7 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 ### Windows 功能复刻：全拼纠错设置
 
-在 MSIME-Client 共享设置接入全拼纠错分类开关 `quanpin.autocorrect_transposition` 与 `quanpin.autocorrect_neighbor`，并保留旧 `autocorrect` 快照兼容。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 组合为 Engine 的纠错位掩码；活动组合结束前不应用变更。Linux IBus 与 React 设置页分别提供两个可保存的开关。
+在 MSIME-Client 共享设置接入全拼纠错分类开关 `quanpin.autocorrect_transposition` 与 `quanpin.autocorrect_neighbor`，并保留旧 `autocorrect` 字段的读取兼容。按固定 Windows 基线，旧字段不再启用任何纠错类型，新字段缺失时两项均默认关闭。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 组合为 Engine 的纠错位掩码；活动组合结束前不应用变更。Linux IBus 与 React 设置页分别提供两个可保存的开关。
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
 

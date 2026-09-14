@@ -383,6 +383,7 @@ static void TestIndependentAssistancePreferences() {
     [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
+    assert(!prefs.autocorrectTransposition && !prefs.autocorrectNeighbor);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:
         (@{@"schema": @"ziranma", @"show_in_candidate_window": @NO})]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:
