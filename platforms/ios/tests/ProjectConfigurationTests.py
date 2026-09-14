@@ -128,6 +128,14 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(uikit, [], "UIKit scroll views must call disableEdgeEffects()")
         self.assertEqual(swiftui, [], "SwiftUI scroll views must call disablingScrollEdgeEffects()")
 
+    def test_about_and_download_links_use_the_shared_client_repository(self):
+        source = (IOS_ROOT / "App/Sources/AboutAndDownloadViews.swift").read_text()
+        self.assertEqual(source.count('"MSIME-Client"'), 1)
+        self.assertNotIn("MSIME-Apple", source)
+        self.assertNotIn("MSIME-Windows", source)
+        self.assertNotIn("MSIME-Linux", source)
+        self.assertEqual(source.count("https://github.com/metasequoiaime/MSIME-Client"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
