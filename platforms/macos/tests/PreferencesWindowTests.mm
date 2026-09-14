@@ -152,6 +152,18 @@ int main()
         MetasequoiaSetInputBehavior(@"pageBrackets", 1);
         require(!MetasequoiaCandidateKeyOptions(0).edgeSelection && MetasequoiaCandidateKeyOptions(0).brackets,
                 "Enabling bracket paging must disable edge selection.");
+        // 第二条释义的语言:-1 关闭,0..5 是语言表的下标。偏好和桥接两边用同一个钳位读它,越界要落回关闭
+        // 而不是落回英语 —— 不然一个坏值会让所有人无声地多出一行日文。
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:MetasequoiaInputBehaviorKey];
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == -1,
+                "A fresh install must have the second gloss switched off.");
+        MetasequoiaSetInputBehavior(@"translationSecondaryLanguage", 1);
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == 1,
+                "The chosen second language did not round-trip.");
+        MetasequoiaSetInputBehavior(@"translationSecondaryLanguage", 99);
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == -1,
+                "An out-of-range second language must fall back to off, not to the first language.");
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:MetasequoiaInputBehaviorKey];
         MetasequoiaSetInputBehavior(@"englishMinimumPrefix", 99);
         require(MetasequoiaInputInteger(@"englishMinimumPrefix", 2, 1, 10) == 2,
                 "Invalid English prefix must use the safe default.");
