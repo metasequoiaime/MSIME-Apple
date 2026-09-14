@@ -14,6 +14,7 @@
 #import "PreferencesWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "DesktopInputSession.h"
+#import "DesktopCloudClipboard.h"
 #import "SharedVoicePreferences.h"
 #import "VoiceProviderOptions.h"
 #import "VoiceTextCommit.h"
@@ -855,7 +856,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
 }
 - (void)showCloudClipboard:(id)sender {
-    MSIMEOpenDesktopRoute(@"cloud-clipboard", NSWorkspace.sharedWorkspace, ^{
+    MSIMEOpenDesktopCloudClipboard(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{
         if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [self showAccount:sender];
     });
 }

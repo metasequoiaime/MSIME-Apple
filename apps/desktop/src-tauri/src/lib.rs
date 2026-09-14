@@ -12,6 +12,8 @@ mod macos_launch;
 mod macos_keyboard;
 #[cfg(target_os = "macos")]
 mod macos_panel_session;
+#[cfg(target_os = "macos")]
+mod macos_cloud_clipboard;
 #[cfg(any(target_os = "macos", test))]
 mod macos_handwriting;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
@@ -959,9 +961,12 @@ async fn dictionary_request(
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn cloud_clipboard_request(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     options: tauri::State<'_, DictionaryHostOptions>,
     action: Value,
 ) -> Result<Value, CommandError> {
+    let _ = (&app, &window);
     msime_host_api::cloud_clipboard::validate_request(&action)
         .map_err(|_| CommandError { code: "invalid" })?;
     let options = options.inner().clone();
@@ -973,12 +978,18 @@ async fn cloud_clipboard_request(
                 .get("cloud_clipboard_provider_socket")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            let path = configured
+            let configured = configured
                 .or_else(|| {
                     std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
                         .and_then(|value| value.into_string().ok())
-                })
-                .map(PathBuf::from)
+                });
+            #[cfg(target_os = "macos")]
+            if configured.is_none() {
+                if let Some(result) = app.state::<macos_cloud_clipboard::CloudState>().request(window.label(), &action) {
+                    return result;
+                }
+            }
+            let path = configured.map(PathBuf::from)
                 .or_else(|| discover_session_provider("cloud-clipboard.sock"))
                 .filter(|path| path.is_absolute())
                 .ok_or(CommandError {
@@ -1014,6 +1025,11 @@ async fn cloud_clipboard_request(
         code: "invalid_cloud_clipboard",
     })?;
     android_account::cloud_clipboard_request(state, action).await
+}
+
+#[tauri::command]
+fn cloud_clipboard_can_send_text() -> bool {
+    cfg!(any(target_os = "linux", target_os = "windows"))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -3998,6 +4014,10 @@ pub fn run() {
             &mut context.config_mut().app.windows,
             requested_surface_route(),
         );
+        macos_cloud_clipboard::prepare_windows(
+            &mut context.config_mut().app.windows,
+            requested_surface_route(),
+        );
         context
     };
     let builder = tauri::Builder::default();
@@ -4022,6 +4042,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.manage(macos_panel_session::PanelState::from_environment()?);
+            #[cfg(target_os = "macos")]
+            app.manage(macos_cloud_clipboard::CloudState::from_environment()?);
             #[cfg(target_os = "macos")]
             let macos_launch = macos_launch::resolve(
                 &app.path().app_data_dir()?,
@@ -4221,7 +4243,8 @@ pub fn run() {
             });
             #[cfg(target_os = "macos")]
             if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
-                .or_else(|| macos_panel_session::startup_panel(requested_surface_route())) {
+                .or_else(|| macos_panel_session::startup_panel(requested_surface_route()))
+                .or_else(|| macos_cloud_clipboard::startup_panel(requested_surface_route())) {
                 open_panel_window(
                     app.handle(), surface.label, surface.query, surface.title,
                     f64::from(surface.width), f64::from(surface.height), None,
@@ -4316,6 +4339,7 @@ pub fn run() {
             close_panel,
             dictionary_request,
             cloud_clipboard_request,
+            cloud_clipboard_can_send_text,
             cloud_dictionary_request,
             load_emoji_catalog,
             restart_input_method,
@@ -4420,7 +4444,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. })
                 && (macos_keyboard::startup_panel(requested_surface_route()).is_some()
-                    || macos_panel_session::startup_panel(requested_surface_route()).is_some())
+                    || macos_panel_session::startup_panel(requested_surface_route()).is_some()
+                    || macos_cloud_clipboard::startup_panel(requested_surface_route()).is_some())
                 && !_app.webview_windows().values().any(|window| window.is_visible().unwrap_or(true))
             {
                 // A panel-only launcher does not leave an invisible settings

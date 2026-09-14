@@ -16,6 +16,14 @@ endif()
 add_subdirectory(../../shared/voice shared-voice)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)
+add_executable(desktop-cloud-clipboard-interop-test tests/DesktopCloudClipboardInteropTest.mm DesktopCloudClipboard.mm)
+target_compile_options(desktop-cloud-clipboard-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(desktop-cloud-clipboard-interop-test PRIVATE "-framework AppKit")
+set(MSIME_CLOUD_CLIPBOARD_PROBE "" CACHE FILEPATH "Optional Cargo cloud_clipboard_probe executable")
+if(MSIME_CLOUD_CLIPBOARD_PROBE)
+  add_test(NAME desktop-cloud-clipboard-interop COMMAND desktop-cloud-clipboard-interop-test "${MSIME_CLOUD_CLIPBOARD_PROBE}")
+  set_tests_properties(desktop-cloud-clipboard-interop PROPERTIES TIMEOUT 25)
+endif()
 add_executable(desktop-settings-launcher-test tests/DesktopSettingsLauncherTest.mm)
 target_compile_options(desktop-settings-launcher-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(desktop-settings-launcher-test PRIVATE "-framework AppKit")
@@ -46,6 +54,7 @@ add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm
 target_sources(MSIMEClientInputMethod PRIVATE AISettingsWindow.mm ScreenKeyboardPanel.mm CloudCandidateRequest.mm CustomTranslationBatch.mm VoicePCMBuffer.mm HTTPVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE DoubaoVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE DesktopInputSession.mm)
+target_sources(MSIMEClientInputMethod PRIVATE DesktopCloudClipboard.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
@@ -70,6 +79,19 @@ if(MSIME_OPTIONS_FILE)
   set_source_files_properties("${MSIME_OPTIONS_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 include(ClipboardTests.cmake)
+set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES
+  ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
+  ../../shared/backend/BackendClipboardClient.swift BackendCloudClipboardProvider.swift
+  tests/DesktopCloudClipboardProviderTest.swift)
+list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
+  DEPENDS ${MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES} VERBATIM)
+add_custom_target(desktop-cloud-provider-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test")
+add_test(NAME desktop-cloud-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test")
+set_tests_properties(desktop-cloud-provider PROPERTIES TIMEOUT 30)
 set(MSIME_EMOJI_WINDOW_CHROME_SOURCES BackendEmojiWindowController.swift tests/EmojiWindowChromeTest.swift)
 list(TRANSFORM MSIME_EMOJI_WINDOW_CHROME_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test"
@@ -433,6 +455,7 @@ target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE PreferencesWindowController.mm SupportWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoicePCMBuffer.mm VoiceWaveOverlay.mm VoiceCuePlayer.mm VoiceAudioMuter.mm VoiceSettings.mm VoiceProviderSettings.mm CloudCandidateRequest.mm CustomTranslationBatch.mm)
 target_sources(shortcut-test PRIVATE HTTPVoiceRequest.mm DoubaoVoiceRequest.mm DesktopInputSession.mm)
+target_sources(shortcut-test PRIVATE DesktopCloudClipboard.mm)
 target_link_libraries(shortcut-test PRIVATE msime-voice-providers)
 target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")

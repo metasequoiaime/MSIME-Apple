@@ -137,7 +137,7 @@ impl PanelSession {
     }
 }
 
-fn peer_matches(stream: &UnixStream, expected: i32) -> bool {
+pub(crate) fn peer_matches(stream: &UnixStream, expected: i32) -> bool {
     unsafe extern "C" {
         fn getuid() -> u32;
         fn getpeereid(fd: i32, uid: *mut u32, gid: *mut u32) -> i32;

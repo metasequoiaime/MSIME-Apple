@@ -20,6 +20,9 @@ int main(int argc, const char *argv[]) {
         assert(account && [account respondsToSelector:@selector(shared)]);
         assert([account instancesRespondToSelector:@selector(showAccount)]);
         assert([account instancesRespondToSelector:@selector(showCloudClipboard)]);
+        Class clipboard = NSClassFromString(@"MSIMEBackendCloudClipboardProvider");
+        assert(clipboard && [clipboard respondsToSelector:NSSelectorFromString(@"prepareWithCompletion:")]);
+        assert([clipboard instancesRespondToSelector:NSSelectorFromString(@"request:completion:")]);
         // Objective-C classes remain registered; retain the library for process lifetime.
     }
     return 0;

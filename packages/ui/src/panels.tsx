@@ -52,6 +52,7 @@ export type CloudClipboardAction =
   | { operation: "set_enabled"; enabled: boolean };
 export type CloudClipboardItem = { id: string; text: string };
 export interface CloudClipboardPanelClient extends PanelClient {
+  canSendText?(): Promise<boolean>;
   copyText?(text: string): Promise<void>;
   request(action: CloudClipboardAction): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
 }
@@ -936,6 +937,9 @@ function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
 }
 
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
+  const [inputAvailable, setInputAvailable] = useState(Boolean(client.sendText && !client.canSendText));
+  const [confirmDisable, setConfirmDisable] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<CloudClipboardItem[]>([]);
   const [draft, setDraft] = useState("");
@@ -963,9 +967,15 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   async function load(revision: number, nextSearch: string) {
-    const result = await client.request({ operation: "list", search: nextSearch });
+    let result;
+    try { result = await client.request({ operation: "list", search: nextSearch }); }
+    catch (error) {
+      if (revision === refreshRevision.current) { setItems([]); setLoaded(false); setConfirmDisable(false); }
+      throw error;
+    }
     if (revision !== refreshRevision.current) return;
     setItems(cloudClipboardItems(result));
+    setLoaded(true);
     if (typeof result.enabled === "boolean") setEnabled(result.enabled);
     setNotice("云剪贴板已刷新");
   }
@@ -978,6 +988,11 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     let active = true;
     busyRef.current = false;
     setItems([]);
+    setLoaded(false);
+    setInputAvailable(Boolean(client.sendText && !client.canSendText));
+    if (client.canSendText) void client.canSendText().then(available => {
+      if (active) setInputAvailable(available && Boolean(client.sendText));
+    }).catch(() => { if (active) setInputAvailable(false); });
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
       if (active) setNotice("未能记录前台输入窗口");
     });
@@ -1006,18 +1021,22 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     }, "删除失败");
   }
 
-  function toggle() {
+  function toggle(confirmed = false) {
+    if (enabled && !confirmed) { setConfirmDisable(true); return; }
+    setConfirmDisable(false);
     const next = !enabled;
     return run(async revision => {
       const result = await client.request({ operation: "set_enabled", enabled: next });
       if (revision !== refreshRevision.current) return;
       const effective = typeof result.enabled === "boolean" ? result.enabled : next;
       setEnabled(effective);
+      if (!effective) setItems([]);
       setNotice(effective ? "云剪贴板已开启" : "云剪贴板已关闭");
     }, "更新云剪贴板设置失败");
   }
 
   function choose(item: CloudClipboardItem, copyOnly = false) {
+    copyOnly = copyOnly || !inputAvailable;
     const send = copyOnly ? client.copyText : client.sendText;
     if (!send) { setNotice("当前宿主未提供此操作"); return; }
     return run(async revision => {
@@ -1030,7 +1049,8 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     <header className="native-panel-header"><span>水杉云剪贴板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="cloud-clipboard-body">
       <p className="cloud-clipboard-description">只上传你明确选择的文本，不自动读取本地剪贴板。</p>
-      <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy} /></label>
+      <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy || !loaded} /></label>
+      {confirmDisable && <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true"><p>关闭云剪贴板会删除云端历史，是否继续？</p><button type="button" disabled={busy} onClick={() => void toggle(true)}>确认关闭并删除历史</button><button type="button" onClick={() => setConfirmDisable(false)}>取消</button></div>}
       <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
       <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
       <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button>{client.copyText && <button type="button" disabled={busy} aria-label="复制此条云端记录" onClick={() => void choose(item, true)}>复制</button>}<button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>

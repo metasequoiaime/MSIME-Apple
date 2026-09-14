@@ -157,6 +157,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     copyText: text => invoke("copy_text", { text }),
   },
   cloudClipboard: {
+    canSendText: () => invoke<boolean>("cloud_clipboard_can_send_text"),
     close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     sendText: text => invoke("send_text", { text }),

@@ -1539,6 +1539,42 @@ test("cloud clipboard panel lists, uploads, deletes and submits entries", async 
   panel.unmount();
 });
 
+test("cloud clipboard copy-only capability never submits to an unsupported host", async () => {
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const sendText = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockResolvedValue({ enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] });
+  render(<CloudClipboardPanel client={{ close: vi.fn(), request, copyText, sendText, canSendText: async () => false }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Synthetic clipboard" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith("Synthetic clipboard"));
+  expect(sendText).not.toHaveBeenCalled();
+});
+
+test("cloud clipboard confirms destructive disable and clears history", async () => {
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => action.operation === "list"
+    ? { enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] } : { enabled: false });
+  render(<CloudClipboardPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("Synthetic clipboard");
+  fireEvent.click(screen.getByRole("checkbox"));
+  expect(screen.getByRole("alertdialog")).toBeDefined();
+  expect(request).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(request).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "确认关闭并删除历史" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "set_enabled", enabled: false }));
+  await waitFor(() => expect(screen.queryByText("Synthetic clipboard")).toBeNull());
+});
+
+test("cloud clipboard discards stale history after provider access fails", async () => {
+  const request = vi.fn().mockResolvedValueOnce({ enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] }).mockRejectedValue(new Error("unavailable"));
+  render(<CloudClipboardPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("Synthetic clipboard");
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => expect(screen.queryByText("Synthetic clipboard")).toBeNull());
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+});
+
 test("cloud dictionary panel supports paging and CRUD actions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {
