@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version; match the Cargo build")
 project(MSIMEClientMacOS LANGUAGES CXX OBJCXX)
+add_subdirectory(../../shared/voice shared-voice)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)
 add_executable(desktop-settings-launcher-test tests/DesktopSettingsLauncherTest.mm)
@@ -36,7 +37,7 @@ add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
 target_include_directories(MSIMEClientInputMethod PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
-target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
+target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"

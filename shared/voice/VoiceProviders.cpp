@@ -1,4 +1,5 @@
 #include "VoiceProviders.h"
+// Shared implementation; the historical namespace is retained for ABI compatibility.
 
 #include <msime/voice/provider_protocol.h>
 #include <msime/voice/stt_service.h>

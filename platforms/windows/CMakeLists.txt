@@ -358,12 +358,13 @@ if(WIN32)
   target_sources(msime-windows-server PRIVATE FloatingToolbarWindow.cpp ShellLauncher.cpp
                  WaveOverlay.cpp WaveOverlayUtils.cpp VoiceInputSession.cpp
                  DoubaoAsrClient.cpp CuePlayer.cpp SystemAudioMuter.cpp
-                 VoiceHotkey.cpp VoiceProviders.cpp MaintenanceHotkey.cpp)
+                 VoiceHotkey.cpp MaintenanceHotkey.cpp)
+  add_subdirectory(../../shared/voice shared-voice)
   target_include_directories(msime-windows-server PRIVATE
                              ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe
                          msimeui user32 gdi32 d2d1 dwrite dwmapi shell32
-                         MetasequoiaIme::VoiceCapture MetasequoiaIme::Voice
+                         MetasequoiaIme::VoiceCapture MetasequoiaIme::Voice msime-voice-providers
                          CURL::libcurl winhttp ole32 uuid ZLIB::ZLIB)
   add_executable(windows-clipboard-text tests/clipboard_text.cpp)
   target_include_directories(windows-clipboard-text PRIVATE .)
