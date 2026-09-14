@@ -1480,6 +1480,19 @@ test("Android help and about pages use mobile instructions and project links", a
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
 });
 
+test("Linux about page exposes the shared privacy policy", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    host: { platform: "linux" } as HostCapabilities,
+  }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  await screen.findByText("Metasequoia IME");
+  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+});
+
 test("iOS help opens keyboard settings and feedback builds a visible report", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
