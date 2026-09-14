@@ -38,3 +38,6 @@ msime-host-windows = { path = "../../../crates/host-windows" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

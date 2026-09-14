@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
-test("Windows chat tests use the edited configuration and origin-bound token", async () => {
+test.each(["windows", "macos"])("%s chat tests use the edited configuration and origin-bound token", async platform => {
   const snapshot: Snapshot = { format_version: 1, revision: 1, preferences: {
     scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
     learning: true, chinese_punctuation: true,
@@ -16,7 +16,7 @@ test("Windows chat tests use the edited configuration and origin-bound token", a
   } };
   const probe = vi.fn().mockResolvedValue({ ok: true, message: "fixture complete" });
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(),
-    testApiCredential: probe, host: { platform: "windows" } as never }} />);
+    testApiCredential: probe, host: { platform } as never }} />);
   await screen.findByRole("button", { name: "保存设置" });
   expect(probe).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));

@@ -692,7 +692,7 @@ async fn test_api_credential(
             code: "unavailable",
         })?;
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
@@ -733,7 +733,7 @@ async fn test_api_credential(
             message: result.message,
         })
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (runtime, service, config);
         Err(CommandError {
@@ -4239,6 +4239,9 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("client application failed");
 }
+
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {

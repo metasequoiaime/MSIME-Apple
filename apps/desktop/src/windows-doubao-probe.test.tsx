@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ASR_PROVIDER_DEFAULTS, SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
-test.each(["api_key", "legacy"] as const)("Windows Doubao %s tests current edited credentials", async authMode => {
+test.each((["api_key", "legacy"] as const).flatMap(authMode =>
+  ["windows", "macos"].map(platform => ({ platform, authMode }))))
+("$platform Doubao $authMode tests current edited credentials", async ({ platform, authMode }) => {
   const snapshot: Snapshot = { format_version: 1, revision: 1, preferences: {
     scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
     learning: true, chinese_punctuation: true,
@@ -14,7 +16,7 @@ test.each(["api_key", "legacy"] as const)("Windows Doubao %s tests current edite
   } };
   const probe = vi.fn().mockResolvedValue({ ok: true, message: "fixture complete" });
   render(<SettingsPage initialPage="voice" client={{ load: async () => snapshot,
-    save: vi.fn(), testApiCredential: probe, host: { platform: "windows" } as never }} />);
+    save: vi.fn(), testApiCredential: probe, host: { platform } as never }} />);
   const button = await screen.findByRole("button", { name: "测试豆包识别配置" });
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(probe).not.toHaveBeenCalled();
