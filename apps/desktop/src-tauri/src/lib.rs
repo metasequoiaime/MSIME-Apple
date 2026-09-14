@@ -46,7 +46,7 @@ use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 mod voice_output;
 #[cfg(unix)]
 mod voice_sessions;
@@ -1742,29 +1742,27 @@ fn send_panel_voice_text(
     text: &str,
     commit_mode: &str,
 ) -> Result<(), HostActionError> {
-    if text.is_empty()
-        || text.len() > 4096
-        || text.chars().any(|character| {
-            character.is_control() && !matches!(character, '\n' | '\r' | '\t')
-        })
-    {
-        return Err(HostActionError {
-            code: "invalid_text",
-        });
-    }
-    let multiline = text.chars().any(|character| matches!(character, '\n' | '\r' | '\t'));
-    if commit_mode == "ctrl_v" || multiline {
-        if write_linux_clipboard(text) {
+    voice_output::submit(text, commit_mode, |mode, text| match mode {
+        // An independent Tauri panel has no IBus input context. Both input
+        // modes therefore use the remembered Linux editor target, while the
+        // in-engine voice entry continues to commit through IBus directly.
+        voice_output::OutputMode::Tsf | voice_output::OutputMode::SendInput => {
+            send_panel_text_to_target(app, target, text).is_ok()
+        }
+        voice_output::OutputMode::Clipboard => {
+            if !write_linux_clipboard(text) {
+                return false;
+            }
             std::thread::sleep(std::time::Duration::from_millis(30));
-            return send_panel_ctrl_v(app, target);
+            send_panel_ctrl_v(app, target).is_ok()
         }
-        // Do not turn literal newlines/tabs into Return/Tab key actions when
-        // clipboard transfer fails; leave the transcript available to retry.
-        if multiline {
-            return Err(HostActionError { code: "unavailable" });
-        }
-    }
-    send_panel_text_to_target(app, target, text)
+    })
+    .map_err(|error| HostActionError {
+        code: match error {
+            voice_output::OutputError::InvalidText => "invalid_text",
+            voice_output::OutputError::Unavailable => "unavailable",
+        },
+    })
 }
 
 // Windows panels are ordinary Tauri windows that never activate, so the host
