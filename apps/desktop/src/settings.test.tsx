@@ -477,6 +477,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("english");
   fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
   fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });

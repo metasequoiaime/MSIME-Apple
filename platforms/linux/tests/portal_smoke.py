@@ -48,6 +48,8 @@ subscription = connection.signal_subscribe(service, interface, "CommitText", pat
                                            Gio.DBusSignalFlags.NONE, signal)
 call(path, interface, "SetCapabilities", GLib.Variant("(u)", (int(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.LOOKUP_TABLE),)))
 call(path, interface, "FocusIn")
+call(path, interface, "PropertyActivate",
+     GLib.Variant("(su)", ("InputMode", int(IBus.PropState.CHECKED))))
 for character in "nihao ":
     assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
 wait(lambda: commits == ["你好"])

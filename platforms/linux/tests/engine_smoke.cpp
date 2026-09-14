@@ -220,6 +220,7 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_number_color"] = "#abcdef";
     options["preferences"]["candidate_selected_color"] = "#fedcba";
     options["preferences"]["candidate_page_size"] = 2;
+    options["preferences"]["default_ime_mode"] = "chinese";
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
         {"revision", 0},
@@ -330,7 +331,7 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       auto initial = options;
-      initial["preferences"]["default_ime_mode"] = "english";
+      initial["preferences"].erase("default_ime_mode");
       initial["preferences"]["ime_mode_scope"] = scope;
       initial["preferences"]["keybindings"]["switch_language_shift"] = false;
       initial.erase("preferences_directory");
@@ -340,7 +341,7 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_registered && !seen.input_enabled && !key('n') &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Default English did not start in passthrough mode");
+              "Missing default mode did not use Windows English passthrough");
       invoke("FocusOut");
       invoke("FocusIn");
       require(seen.mode_sensitive && !seen.input_enabled && !seen.smart_punctuation_sensitive,
