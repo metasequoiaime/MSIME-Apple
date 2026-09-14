@@ -45,6 +45,16 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
     DWORD_PTR candidateLen = keystrokeBufLen;
     CStringRange candidateString(keyStrokebuffer);
     const std::wstring &pendingCommitCandidate = prefetchedText;
+    // A host session owns the composition, and _HandleCompositionInput returns
+    // before AddVirtualKey for those profiles, so the legacy keystroke buffer
+    // stays empty while the user is composing. Gating the Server's reply on
+    // that buffer skipped the read entirely and fell through to
+    // _HandleCompleteCommitFirst, which commits whatever the composition holds
+    // - the raw reading - instead of the candidate the Server had already
+    // selected. _HandleCandidateFinalizeForVKReturn already asks the host
+    // first; this path has to as well.
+    const auto *hostEngine = _pCompositionProcessorEngine->GetHostEngineAdapter();
+    const bool hostOwnsComposition = hostEngine && hostEngine->valid();
 
     // _pCandidateListUIPresenter would be null in uwp/metro apps
     if (nullptr == _pCandidateListUIPresenter)
@@ -52,7 +62,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
         // goto NoPresenter;
     }
 
-    if (candidateLen)
+    if (candidateLen || (hostOwnsComposition && _IsComposing()))
     {
         if (!pendingCommitCandidate.empty())
         {
