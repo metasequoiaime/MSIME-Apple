@@ -1,9 +1,19 @@
 #include "PipeIo.h"
+#include "../../vendor/MSIME-Engine/contracts/voice_controller.h"
 #include <utility>
 
 namespace msime::windows {
 namespace {
-constexpr DWORD MaxFrameBytes = 16 * 1024;
+// Large enough for every frame this transport is required to carry. The TSF
+// endpoints exchange a few hundred bytes, but a voice controller reply carries
+// MaxTextBytes of recognised text behind its header, and the previous 16 KiB
+// bound was below that. read_message() validates the caller's buffer size, not
+// the message that arrives, so the voice client's only legal read - the one
+// sized for the reply it is promised - was rejected outright with
+// ERROR_INVALID_PARAMETER, and no reply could ever be read.
+constexpr DWORD MaxFrameBytes =
+    static_cast<DWORD>(sizeof(FanyImeVoiceController::Reply) +
+                       FanyImeVoiceController::MaxTextBytes);
 IoStatus error_status(DWORD error) {
   switch (error) {
   case ERROR_BROKEN_PIPE:
