@@ -21,6 +21,7 @@
 #include "ServerLaunch.h"
 #include "TrayMenuDispatch.h"
 #include "MaintenanceHotkey.h"
+#include "ModeAuthority.h"
 #include "ipc_negotiation.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <fstream>
@@ -449,6 +450,11 @@ int wmain(int argc, wchar_t **argv) {
     // The tray and candidate context menus. Windows draws its own menus, so
     // this override only ever mattered here, and it was the one surface theme
     // the client did not have.
+    // Cross-application CN/EN authority, when the user asked for one state to
+    // follow them between applications.
+    auto mode_scope_global = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("ime_mode_scope", std::string("app")) == "global");
     auto menu_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("menu_theme", std::string("follow"));
@@ -500,7 +506,8 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, voice_light, toolbar_light, menu_light, tsf_config,
+         toolbar_enabled, voice_light, toolbar_light, menu_light,
+         mode_scope_global, tsf_config,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -510,6 +517,10 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          mode_scope_global->store(
+              preferences.value("ime_mode_scope", std::string("app")) ==
+                  "global",
+              std::memory_order_release);
           {
             const auto theme =
                 preferences.value("menu_theme", std::string("follow"));
@@ -855,6 +866,15 @@ int wmain(int argc, wchar_t **argv) {
     tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
+    ModeAuthorityState mode_authority;
+    // Seeded from the configured default, and marked as seeded so the first
+    // client does not silently become the authority. 默认输入状态 is documented
+    // as the state a new focus session starts in, so pushing it to the first
+    // client is the behaviour that option promises.
+    mode_authority.chinese =
+        prepared.at("value").at("preferences")
+            .value("default_ime_mode", std::string("chinese")) != "english";
+    mode_authority.seeded = true;
     std::atomic<bool> caps_lock{(GetKeyState(VK_CAPITAL) & 1) != 0};
     std::atomic<bool> caps_lock_dirty{true};
     // Starts true: the Server is launched by the TIP, so the IME is active by
@@ -993,6 +1013,22 @@ int wmain(int argc, wchar_t **argv) {
           if (server.send_tsf_config(view->lease, pending))
             tsf_config_dirty->store(false, std::memory_order_release);
         }
+      }
+      // One CN/EN state follows the user between applications when the scope
+      // is global. Each TSF client keeps its own mode, so a newly focused one
+      // reports whatever it holds and the Server pushes its own back.
+      {
+        const auto view = server.mode_view();
+        const auto decision = mode_authority_step(
+            mode_authority, mode_scope_global->load(std::memory_order_acquire),
+            view.has_value() && view->chinese.has_value(),
+            view ? view->lease.token : 0,
+            view && view->chinese ? *view->chinese : true);
+        mode_authority = decision.next;
+        if (decision.push && view)
+          (void)server.request_mode(view->lease,
+                                    decision.push_chinese ? WorkerMode::Chinese
+                                                          : WorkerMode::English);
       }
       if (caps_lock_dirty.load(std::memory_order_acquire)) {
         if (const auto view = server.mode_view())
