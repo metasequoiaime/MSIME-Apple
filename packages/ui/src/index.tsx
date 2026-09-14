@@ -296,6 +296,9 @@ export type AiAssistantClient = {
   fetchModels(configuration: { endpoint: string; token: string }): Promise<string[]>;
   test(configuration: { endpoint: string; model: string; prompt: string; token: string; text: string }): Promise<string>;
 };
+export type ApiCredentialTestService = "translation.tencent" | "translation.niutrans" |
+  "translation.custom" | "voice.asr" | "voice.polish" | "ai.assistant";
+export type ApiCredentialTestResult = { ok: boolean; message: string };
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
@@ -563,6 +566,8 @@ export interface SettingsClient {
   chat?: ChatClient;
   /** Android performs user-configured AI service requests in its native host. */
   aiAssistant?: AiAssistantClient;
+  /** Native hosts test credentials without exposing private provider secrets to the webview. */
+  testApiCredential?: (service: ApiCredentialTestService, config: Record<string, unknown>) => Promise<ApiCredentialTestResult>;
   /** Android community commands expose bounded public skin metadata and designs. */
   communitySkins?: CommunitySkinClient;
   /** Android community commands expose dictionaries and reply templates. */
@@ -807,6 +812,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [aiTestStatus, setAiTestStatus] = useState("");
   const [aiTestBusy, setAiTestBusy] = useState(false);
   const aiRequestGeneration = useRef(0);
+  const [credentialTests, setCredentialTests] = useState<Partial<Record<ApiCredentialTestService, {
+    signature: string; busy: boolean; ok?: boolean; message: string;
+  }>>>({});
+  const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -1200,6 +1209,38 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
     });
+  };
+  const runCredentialTest = async (service: ApiCredentialTestService, config: Record<string, unknown>) => {
+    if (!client.testApiCredential) return;
+    const signature = JSON.stringify(config);
+    const generation = (credentialTestGeneration.current[service] ?? 0) + 1;
+    credentialTestGeneration.current[service] = generation;
+    setCredentialTests(current => ({ ...current, [service]: { signature, busy: true, message: "" } }));
+    try {
+      const result = await client.testApiCredential(service, config);
+      if (credentialTestGeneration.current[service] !== generation) return;
+      setCredentialTests(current => ({ ...current, [service]: { signature, busy: false, ...result } }));
+    } catch {
+      if (credentialTestGeneration.current[service] !== generation) return;
+      setCredentialTests(current => ({ ...current, [service]: {
+        signature, busy: false, ok: false, message: "无法连接 provider，请确认服务已启动。",
+      } }));
+    }
+  };
+  const credentialTestControl = (
+    service: ApiCredentialTestService,
+    label: string,
+    config: Record<string, unknown>,
+    disabled = false,
+  ) => {
+    if (!client.testApiCredential) return null;
+    const signature = JSON.stringify(config);
+    const state = credentialTests[service];
+    const visible = state?.signature === signature;
+    return <div className="service-action-row"><div>
+      <button type="button" className="secondary" aria-label={label} disabled={disabled || (visible && state.busy)} onClick={() => void runCredentialTest(service, config)}>{visible && state.busy ? "测试中…" : "测试配置"}</button>
+      {visible && state.message && <span role={state.ok ? "status" : "alert"}>{state.message}</span>}
+    </div></div>;
   };
   // Which prompt slot the 润色方案 select is on, and the text that slot means.
   // A preset resolves to its shipped prompt; a custom slot to whatever the user
@@ -1627,11 +1668,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">App ID</span><input aria-label="NiuTrans App ID" value={niutrans.app_id} disabled={!candidateTranslations || !niutrans.enabled} onChange={event => setDraft({ ...draft, niutrans: { ...niutrans, app_id: event.target.value } })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">API Key</span><SecretInput label="NiuTrans API Key" value={niutrans.apikey} disabled={!candidateTranslations || !niutrans.enabled} onChange={value => setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })} /></label>
+          {niutrans.enabled && credentialTestControl("translation.niutrans", "测试 NiuTrans 配置", { app_id: niutrans.app_id, apikey: niutrans.apikey }, !candidateTranslations || !niutrans.app_id.trim() || !niutrans.apikey.trim())}
         </div>
         <div className="section" role="group" aria-label="在线翻译服务">
           {linuxPlatform ? <>
             <div className="section-title">在线翻译服务<small>由用户管理的 Linux provider 服务负责网络请求和凭据</small></div>
             <p className="input-setting-description">候选翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code> 读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。</p>
+            {translationProvider === "tencent" && credentialTestControl("translation.tencent", "测试腾讯云翻译配置", {}, !candidateTranslations)}
           </> : <>
             <label className="section-header"><span className="section-title">在线翻译服务<small>候选翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据</small></span><input aria-label="腾讯云机器翻译" className="toggle" type="checkbox" disabled={!candidateTranslations} checked={tencentTranslation.enabled} onChange={event => setDraft({ ...draft, tencent_tmt: { ...tencentTranslation, enabled: event.target.checked } })} /></label>
             <div className="input-option-divider" />
@@ -1651,6 +1694,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           {candidateTranslations && customTranslation.enabled && translationEndpointIssue(customTranslation.endpoint) && <p className="settings-warning" role="status">{translationEndpointIssue(customTranslation.endpoint)}</p>}
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">API Key</span><SecretInput label="自定义翻译 API Key" value={customTranslation.api_key} disabled={!candidateTranslations || !customTranslation.enabled} onChange={value => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: value } })} /></label>
+          {customTranslation.enabled && credentialTestControl("translation.custom", "测试自定义翻译配置", { endpoint: customTranslation.endpoint, api_key: customTranslation.api_key }, !candidateTranslations || Boolean(translationEndpointIssue(customTranslation.endpoint)))}
         </div>
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
@@ -1860,6 +1904,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <div className="section"><label className="section-header"><span className="section-title">{voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy" ? "Doubao API Key" : "识别 API Token"}<small>仅保存在本机设置中</small></span><SecretInput label={voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy" ? "Doubao API Key" : "识别 API Token"} value={voiceInput.asr_token ?? ""} onChange={value => updateVoice({ asr_token: value })} /></label></div>
         </>}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">Doubao 资源 ID<small>仅由 Doubao provider 使用</small></span><input aria-label="Doubao 资源 ID" value={voiceInput.asr_resource_id ?? ""} onChange={event => updateVoice({ asr_resource_id: event.target.value })} /></label></div>}
+        {linuxPlatform && credentialTestControl("voice.asr", "测试语音识别配置", {
+          asr_provider: voiceInput.asr_provider ?? "doubao", asr_model: voiceInput.asr_model ?? "",
+          asr_resource_id: voiceInput.asr_resource_id ?? "", doubao_auth_mode: doubaoAuthMode,
+          doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
+          doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
+          doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+        })}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>由当前桌面宿主决定如何把识别结果交给前台窗口</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
@@ -1893,6 +1944,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">润色方案</span><select aria-label="润色方案" value={polishSlot} onChange={event => updateVoice({ polish_prompt_id: event.target.value, polish_prompt: polishPromptFor(event.target.value, voiceInput) })}>{POLISH_PRESET_IDS.map(id => <option key={id} value={id}>{POLISH_PRESET_NAMES[id]}</option>)}<option value="custom_1">自定义一</option><option value="custom_2">自定义二</option><option value="custom_3">自定义三</option></select></label>
           <label className="section-header polish-prompt-row"><span className="section-title">润色提示词<small>{isPolishCustomSlot(polishSlot) ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}</small></span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value, ...(polishSlotField(polishSlot) ? { [polishSlotField(polishSlot) as string]: event.target.value } : {}) })} /></label>
           <button type="button" className="secondary" disabled={(voiceInput.polish_prompt ?? "") === polishPromptFor(polishSlot, voiceInput)} onClick={() => updateVoice({ polish_prompt: polishPromptFor(polishSlot, voiceInput) })}>恢复默认</button>
+          {linuxPlatform && credentialTestControl("voice.polish", "测试语音润色配置", {
+            polish_provider: voiceInput.polish_provider ?? "siliconflow", polish_model: voiceInput.polish_model ?? "",
+          }, !(voiceInput.polish_text === true || voiceInput.polish_enabled === true))}
         </div>}
         {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}<small>{linuxPlatform ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入" : "输入法运行时全局生效，用于开始和结束语音录音"}</small></div>
           {([[
@@ -1913,7 +1967,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">服务提供商</span><select aria-label="AI 服务提供商" value={ai.provider} onChange={event => updateAi({ provider: event.target.value })}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">SiliconFlow</option><option value="groq">Groq</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
-        {linuxPlatform ? <div className="section"><div className="section-title">Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small></div><p className="input-setting-description">凭据不保存在共享设置中；请在用户配置目录的 <code>ai-provider.json</code> 中配置，并使其中的 provider、接口地址和模型与上方设置一致。</p></div> : <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>}
+        {linuxPlatform ? <div className="section"><div className="section-title">Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small></div><p className="input-setting-description">凭据不保存在共享设置中；请在用户配置目录的 <code>ai-provider.json</code> 中配置，并使其中的 provider、接口地址和模型与上方设置一致。</p>{credentialTestControl("ai.assistant", "测试 AI 辅助配置", { provider: ai.provider, endpoint: ai.endpoint, model: ai.model }, !ai.enabled || !aiOrigin || !ai.model.trim())}</div> : <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>}
         {!linuxPlatform && client.aiAssistant && <div className="section ai-service-tools">
           <div className="section-header"><span className="section-title">服务模型<small>从当前服务的模型目录读取；服务不支持时可继续手动填写模型。</small></span><button type="button" className="secondary" disabled={aiModelsBusy || !aiOrigin} onClick={() => void fetchAiModels()}>{aiModelsBusy ? "获取中…" : "获取模型列表"}</button></div>
           {aiModels && aiModels.length > 0 && <label className="section-header"><span className="section-title">已获取模型</span><select aria-label="已获取的 AI 模型" value={aiModels.includes(ai.model) ? ai.model : ""} onChange={event => { if (event.target.value) updateAi({ model: event.target.value }); }}><option value="">选择模型…</option>{aiModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>}

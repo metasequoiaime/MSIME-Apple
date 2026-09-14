@@ -469,3 +469,21 @@ The synthetic browser host supplies a fixture catalog and exercises visible
 search/selection along with all appearance regressions. This delivers the UI
 interface and search control only: production native font enumeration is not
 connected yet and must be implemented separately, with no native acceptance claim.
+
+The shared settings page now adapts pinned Windows credential testing from
+`529060a` at upstream `4e5c96248e868ca5beca3f9cdc0c513a354b9cb0` through an
+optional host interface. Linux exposes tests for Tencent, NiuTrans and custom
+translation, AI assistance, voice ASR and voice polishing. Unlike the Windows
+settings process, the Linux WebView and Tauri shell do not own private AI,
+Tencent or voice secrets: the shell routes a bounded `credential_test` request
+to the existing user-owned provider socket, which reloads its owner-only file,
+binds the selected provider/model/endpoint to that private credential and
+returns only a fixed bounded status. NiuTrans and custom translation reuse the
+credential fields already present in their normal provider query contract.
+
+React tests cover service/config routing, transport failures, stale-result
+discard and the absence of private Linux tokens from requests. Rust tests cover
+socket selection plus request/response bounds, and synthetic Python tests cover
+private-profile matching and failure redaction without network access. This is
+a Linux provider integration; native service calls and credential acceptance
+have not been exercised, and other platform hosts still need their own adapter.

@@ -425,6 +425,60 @@ def translations(query, server):
     return [{"text": text, "translation": found[text]} for text in dict.fromkeys(texts) if found.get(text)]
 
 
+def ai_credential_test(config, path):
+    if not path or not isinstance(config, dict):
+        return False
+    private = load_ai_config(path)
+    provider = config.get("provider")
+    if not isinstance(provider, str):
+        return False
+    selected = private if private.get("provider") == provider else private.get("profiles", {}).get(provider)
+    if (not isinstance(selected, dict) or
+            any(config.get(key) != selected.get(key) for key in ("provider", "endpoint", "model"))):
+        return False
+    body = {"model": selected["model"], "stream": False, "max_tokens": 1,
+            "messages": [{"role": "user", "content": "Reply OK"}]}
+    if provider == "deepseek":
+        body["thinking"] = {"type": "disabled"}
+    elif provider == "siliconflow":
+        body["enable_thinking"] = False
+    result = fetch(selected["endpoint"], 7.0, body, selected["token"])
+    return isinstance(result, dict) and isinstance(result.get("choices"), list)
+
+
+def credential_test(query, server):
+    service = query.get("service")
+    config = query.get("config")
+    if service not in ("translation.tencent", "translation.niutrans",
+                       "translation.custom", "ai.assistant") or not isinstance(config, dict):
+        return {"ok": False, "message": "不支持此配置测试。"}
+    try:
+        if service == "translation.tencent":
+            private = load_tencent_config(server.tencent_config_path) if server.tencent_config_path else None
+            ok = bool(private and tencent_translation(private, ["hello"], "en", "zh", 7.0)[0])
+        elif service == "translation.niutrans":
+            ok = bool(niutrans_translation(config, "hello", "en", "zh", 7.0))
+        elif service == "translation.custom":
+            endpoint = config.get("endpoint")
+            token = config.get("api_key", "")
+            if (not isinstance(endpoint, str) or not isinstance(token, str) or
+                    len(endpoint) > 2048 or len(token) > 4096):
+                ok = False
+            else:
+                endpoint = endpoint.strip(" \t\r\n")
+                url = urllib.parse.urlsplit(endpoint)
+                normalized = {"endpoint": endpoint, "api_key": token.strip(" \t\r\n")}
+                ok = bool(url.scheme in ("http", "https") and url.hostname and
+                          not url.username and not url.password and
+                          custom_translation(normalized, "hello", "en", "zh", 7.0))
+        else:
+            ok = ai_credential_test(config, server.ai_config_path)
+    except Exception:
+        ok = False
+    return {"ok": ok, "message": "连接成功，当前配置有效。" if ok else
+            "测试失败，请检查 provider 私有配置、当前选项和网络。"}
+
+
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         self.request.settimeout(8)
@@ -438,6 +492,10 @@ class Handler(socketserver.StreamRequestHandler):
             request = json.loads(line)
             query = request["query"]
             if request.get("version") != 1 or not isinstance(query, dict):
+                return
+            if request.get("kind") == "credential_test":
+                self.wfile.write(json.dumps(credential_test(query, self.server),
+                                            ensure_ascii=False).encode() + b"\n")
                 return
             if request.get("kind") == "translation":
                 rows = translations(query, self.server)

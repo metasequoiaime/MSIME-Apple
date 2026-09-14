@@ -8,6 +8,7 @@ python3 platforms/linux/tests/niutrans_credential_normalization.py
 python3 platforms/linux/tests/tencent_credential_normalization.py
 python3 platforms/linux/tests/custom_translation_config.py
 python3 platforms/linux/tests/doubao_auth_mode.py
+python3 platforms/linux/tests/credential_test_contract.py
 python3 platforms/linux/tests/clipboard_capture_destination.py
 python3 platforms/linux/tests/clipboard_watch_lifecycle.py
 cargo build -p msime-host-api --locked

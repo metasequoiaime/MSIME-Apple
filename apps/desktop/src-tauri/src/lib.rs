@@ -602,6 +602,93 @@ async fn save_preferences(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn configured_provider_socket(
+    document: &Value,
+    key: &str,
+    environment: &str,
+    discovered: &str,
+) -> Option<PathBuf> {
+    document
+        .get(key)
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os(environment)
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+        })
+        .or_else(|| discover_session_provider(discovered))
+}
+
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn credential_provider_socket(document: &Value, service: &str) -> Option<PathBuf> {
+    if service.starts_with("voice.") {
+        return resolve_voice_provider_socket(document);
+    }
+    if service.starts_with("translation.") {
+        return configured_provider_socket(
+            document,
+            "translation_provider_socket",
+            "MSIME_TRANSLATION_PROVIDER_SOCKET",
+            "translation.sock",
+        )
+        .or_else(|| {
+            configured_provider_socket(
+                document,
+                "online_provider_socket",
+                "MSIME_ONLINE_PROVIDER_SOCKET",
+                "online.sock",
+            )
+        });
+    }
+    (service == "ai.assistant").then(|| {
+        configured_provider_socket(
+            document,
+            "online_provider_socket",
+            "MSIME_ONLINE_PROVIDER_SOCKET",
+            "online.sock",
+        )
+    })?
+}
+
+#[tauri::command]
+async fn test_api_credential(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    service: String,
+    config: Value,
+) -> Result<msime_input_runtime::CredentialTestResult, CommandError> {
+    #[cfg(target_os = "linux")]
+    {
+        let runtime = runtime.inner().clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let document = runtime.snapshot().map_err(|_| CommandError {
+                code: "unavailable",
+            })?;
+            let path = credential_provider_socket(&document, &service).ok_or(CommandError {
+                code: "unavailable",
+            })?;
+            UnixSocketProvider::new(path)
+                .test_credential(&service, &config)
+                .ok_or(CommandError {
+                    code: "unavailable",
+                })
+        })
+        .await
+        .map_err(|_| CommandError {
+            code: "unavailable",
+        })?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (runtime, service, config);
+        Err(CommandError {
+            code: "unavailable",
+        })
+    }
+}
+
 #[tauri::command]
 async fn load_custom_skin_library(
     store: tauri::State<'_, CustomSkinLibraryStore>,
@@ -3883,6 +3970,7 @@ pub fn run() {
             read_skin_font,
             read_skin_toolbar_stylesheet,
             open_skin_directory,
+            test_api_credential,
             save_preferences,
             list_clipboard_history,
             clear_clipboard_history,
@@ -4056,6 +4144,29 @@ mod tests {
         assert!(result.is_ok());
         let options = result.ok().expect("voice options should be valid");
         assert!(options.get("doubao_auth_mode").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credential_tests_route_to_the_configured_provider_without_credentials() {
+        let document = serde_json::json!({
+            "online_provider_socket": "/fixture/online.sock",
+            "translation_provider_socket": "/fixture/translation.sock",
+            "voice_provider_socket": "/fixture/voice.sock",
+        });
+        assert_eq!(
+            super::credential_provider_socket(&document, "ai.assistant"),
+            Some(std::path::PathBuf::from("/fixture/online.sock"))
+        );
+        assert_eq!(
+            super::credential_provider_socket(&document, "translation.niutrans"),
+            Some(std::path::PathBuf::from("/fixture/translation.sock"))
+        );
+        assert_eq!(
+            super::credential_provider_socket(&document, "voice.polish"),
+            Some(std::path::PathBuf::from("/fixture/voice.sock"))
+        );
+        assert!(super::credential_provider_socket(&document, "unknown").is_none());
     }
 
     #[test]

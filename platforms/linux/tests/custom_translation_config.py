@@ -65,6 +65,17 @@ class CustomTranslationConfig(unittest.TestCase):
             with client.makefile("rb") as reader:
                 return json.loads(reader.readline(131073))["translations"]
 
+    def credential_test(self, endpoint, token):
+        query = {"service": "translation.custom",
+                 "config": {"endpoint": endpoint, "api_key": token}}
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(8)
+            client.connect(str(self.address))
+            client.sendall(json.dumps({"version": 1, "kind": "credential_test",
+                                       "query": query}).encode() + b"\n")
+            with client.makefile("rb") as reader:
+                return json.loads(reader.readline(4097))
+
     def test_normalized_requests_and_cache_identity(self):
         expected = [{"text": "测试", "translation": "synthetic ZH"},
                     {"text": "synthetic", "translation": "synthetic EN"}]
@@ -83,6 +94,12 @@ class CustomTranslationConfig(unittest.TestCase):
     def test_whitespace_only_key_omits_authorization(self):
         self.assertEqual(len(self.request(self.endpoint, " \t\r\n")), 2)
         self.assertTrue(all(authorization is None for _, authorization, _ in self.calls))
+
+    def test_credential_test_uses_the_same_bounded_provider_path(self):
+        self.assertEqual(self.credential_test(self.endpoint, "synthetic-local-key"),
+                         {"ok": True, "message": "连接成功，当前配置有效。"})
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][1], "Bearer synthetic-local-key")
 
     def test_unsupported_endpoint_does_not_send_http(self):
         for endpoint in ("file:///synthetic", "ftp://127.0.0.1/translate", " "):

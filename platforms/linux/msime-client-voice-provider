@@ -195,7 +195,7 @@ def http_request_worker():
             return 1
         request = json.loads(header)
         timeout = request.get("timeout")
-        if type(timeout) not in (int, float) or timeout not in (3, 60):
+        if type(timeout) not in (int, float) or timeout not in (3, 15, 60):
             return 1
         # Bound the worker even if its parent exits before it can cancel us.
         # SIGALRM's default action also interrupts blocked native DNS/TLS work.
@@ -883,11 +883,24 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             request = json.loads(line)
             query = request["query"]
+            if request.get("version") != 1 or not isinstance(query, dict):
+                return
+            kind = request.get("kind")
+            if kind == "credential_test":
+                voice_slot = self.server.voice_slots.acquire(blocking=False)
+                if not voice_slot:
+                    self.wfile.write(json.dumps({"ok": False, "message": "语音服务正忙，请稍后重试。"},
+                                                ensure_ascii=False).encode() + b"\n")
+                    self.wfile.flush()
+                    return
+                self.wfile.write(json.dumps(credential_test(query, self.server),
+                                            ensure_ascii=False).encode() + b"\n")
+                self.wfile.flush()
+                return
             generation = query["generation"]
-            if request.get("version") != 1 or type(generation) is not int or not 0 <= generation < 2**64:
+            if type(generation) is not int or not 0 <= generation < 2**64:
                 return
             key = (pid, generation)
-            kind = request.get("kind")
             if kind in ("voice_stop", "voice_cancel"):
                 with self.server.lock:
                     current = self.server.sessions.get(key)
@@ -1018,6 +1031,64 @@ class Handler(socketserver.StreamRequestHandler):
                 finally:
                     if voice_slot:
                         self.server.voice_slots.release()
+
+
+def batch_asr_credential_test(config):
+    body, content_type = multipart(b"\0" * RATE * 2, config, "auto")
+    return isinstance(bounded_post(config, body, content_type, 15), dict)
+
+
+def doubao_credential_test(config, options):
+    from msime_voice_doubao import DoubaoStream
+    cancelled = threading.Event()
+    stream = DoubaoStream(config, options, cancelled)
+    try:
+        stream.feed(b"\0" * RATE * 2)
+        stream.finish(lambda: None)
+        return True
+    finally:
+        stream.close()
+
+
+def polish_credential_test(config):
+    body = {"model": config["model"], "stream": False, "max_tokens": 1,
+            "messages": [{"role": "user", "content": "Reply OK"}]}
+    if config["provider"] == "siliconflow":
+        body["enable_thinking"] = False
+    elif config["provider"] == "deepseek":
+        body["thinking"] = {"type": "disabled"}
+    result = polish_request(config, body)
+    return (isinstance(result, dict) and isinstance(result.get("choices"), list) and
+            bool(result["choices"]))
+
+
+def credential_test(query, server):
+    service = query.get("service")
+    options = query.get("config")
+    if service not in ("voice.asr", "voice.polish") or not isinstance(options, dict):
+        return {"ok": False, "message": "不支持此配置测试。"}
+    if (len(json.dumps(options, ensure_ascii=False).encode("utf-8")) > 12288 or
+            any(not isinstance(value, (bool, str)) for value in options.values())):
+        return {"ok": False, "message": "当前语音选项无效。"}
+    try:
+        config = load_config(server.config_path)
+        name = "asr" if service == "voice.asr" else "polish"
+        selected = select_profile(config, options, name)
+        if selected is None:
+            ok = False
+        elif service == "voice.polish":
+            ok = polish_credential_test(selected)
+        elif selected["provider"] == "doubao":
+            if options.get("asr_resource_id") and options["asr_resource_id"] != selected["resource_id"]:
+                ok = False
+            else:
+                ok = doubao_credential_test(selected, options)
+        else:
+            ok = batch_asr_credential_test(selected)
+    except Exception:
+        ok = False
+    return {"ok": ok, "message": "连接成功，当前配置有效。" if ok else
+            "测试失败，请检查 provider 私有配置、当前选项和网络。"}
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):

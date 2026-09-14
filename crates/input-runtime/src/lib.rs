@@ -409,6 +409,15 @@ pub struct TranslationResult {
     pub translation: String,
 }
 
+/// Result returned by a user-owned provider after it tests one configured
+/// service. The provider keeps private credentials in its own process; hosts
+/// receive only this bounded status.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CredentialTestResult {
+    pub ok: bool,
+    pub message: String,
+}
+
 /// A bounded stroke payload sent by a Linux handwriting panel to its
 /// user-owned recognizer service. Coordinates are normalized panel pixels;
 /// the recognizer decides how to map them to a platform model.
@@ -753,6 +762,44 @@ impl UnixSocketProvider {
             return None;
         }
         Some(reply.translations)
+    }
+
+    /// Ask a user-owned Linux provider to verify one service configuration.
+    /// Private provider credentials never cross this socket boundary.
+    pub fn test_credential(&self, service: &str, config: &Value) -> Option<CredentialTestResult> {
+        if !matches!(
+            service,
+            "translation.tencent"
+                | "translation.niutrans"
+                | "translation.custom"
+                | "voice.asr"
+                | "voice.polish"
+                | "ai.assistant"
+        ) || !config.is_object()
+        {
+            return None;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "credential_test",
+            "query": { "service": service, "config": config },
+        })
+        .to_string();
+        if request.len() > 16_384 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let line = exchange_panel_request(
+            &mut stream,
+            &request,
+            4096,
+            std::time::Duration::from_secs(45),
+        )?;
+        let result = serde_json::from_str::<CredentialTestResult>(&line).ok()?;
+        (!result.message.is_empty()
+            && result.message.len() <= 1024
+            && !result.message.chars().any(char::is_control))
+        .then_some(result)
     }
 
     /// Ask the user-owned handwriting recognizer for up to twelve candidates.
@@ -1948,6 +1995,49 @@ mod tests {
             .unwrap();
         assert_eq!(response["next"], 0);
         server.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credential_test_provider_keeps_request_and_response_bounded() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("online.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut reader, &mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["version"], 1);
+            assert_eq!(request["kind"], "credential_test");
+            assert_eq!(request["query"]["service"], "ai.assistant");
+            assert_eq!(request["query"]["config"]["provider"], "deepseek");
+            let mut stream = stream;
+            std::io::Write::write_all(
+                &mut stream,
+                br#"{"ok":true,"message":"configuration accepted"}"#,
+            )
+            .unwrap();
+            std::io::Write::write_all(&mut stream, b"\n").unwrap();
+        });
+        let response = UnixSocketProvider::new(socket)
+            .test_credential("ai.assistant", &json!({"provider":"deepseek"}))
+            .unwrap();
+        assert!(response.ok);
+        assert_eq!(response.message, "configuration accepted");
+        server.join().unwrap();
+
+        assert!(
+            UnixSocketProvider::new(directory.path().join("missing.sock"))
+                .test_credential("unknown", &json!({}))
+                .is_none()
+        );
+        assert!(
+            UnixSocketProvider::new(directory.path().join("missing.sock"))
+                .test_credential("voice.asr", &json!({"value":"x".repeat(16_384)}))
+                .is_none()
+        );
     }
     impl InputEngine for Fixture {
         fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
