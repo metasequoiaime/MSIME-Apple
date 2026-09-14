@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01211E996FAA51B70B35CF65 /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */; };
 		017408FAD6E3103260CCC68E /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75CDB4AA80F047BC3CB495BC /* SpaceCursorMovement.swift */; };
 		046EF21243FA6570C8799B8A /* ChineseOutputPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369A836EF7B8678D29C117C9 /* ChineseOutputPreference.swift */; };
 		0676B436C94F3737D77FD799 /* CloudDictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87647C067B04F0B9B69549EE /* CloudDictionaryView.swift */; };
@@ -82,6 +83,7 @@
 		60A696EC94BDC35569B58F48 /* KeyboardLayoutPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9078017B6D8610A7A0815A08 /* KeyboardLayoutPickerView.swift */; };
 		611F9FCDFE1BADABDD38DEA4 /* KeyboardInputContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346B18127F916031CA9DD345 /* KeyboardInputContext.swift */; };
 		62353B6BDA78C2DAA8536C3F /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02C3DA25B1B3847584C32AD /* SkinKeySurfaceView.swift */; };
+		651120925007785ACDCFC7FC /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */; };
 		679FCC1B56D07ABB9695AE49 /* BackendDictionaryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07270126A360310CD4996040 /* BackendDictionaryClient.swift */; };
 		68B99A87A0872CA7CD3189AB /* KeyboardClipboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405231C669C8592559936223 /* KeyboardClipboardView.swift */; };
 		69111402FEE0704DF040664D /* BackendCommunityResourceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AB976148BAFBE864784CDE /* BackendCommunityResourceClient.swift */; };
@@ -198,6 +200,7 @@
 		ED683D3E310967B0A638462F /* TypingStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B04E4A79002A8A56A936792C /* TypingStatistics.swift */; };
 		F245FB5405AAC2F4D5D6B0BE /* TypingStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B04E4A79002A8A56A936792C /* TypingStatistics.swift */; };
 		F39C4C355602ADF6E1E0E613 /* dictionary-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = A7E0465A8663EC08DC52BD43 /* dictionary-manifest.json */; };
+		F4E1F057554BF7472FA1BFB9 /* WubiCodeHintPreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56AECFE5DA71C416D3DD658 /* WubiCodeHintPreferenceTests.swift */; };
 		F60F76E4C0B2FBB3F5B781B4 /* TypingStatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95150DA7416CD0FB18010EF7 /* TypingStatisticsView.swift */; };
 		FC3F83F87206AE7B1FB6BEA0 /* SkinCommunityAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E37556D6C4084412899E637 /* SkinCommunityAPI.swift */; };
 		FC49BFC68FD27616B7AC01F7 /* DictionarySnapshotQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851468039723294AC3AE2E64 /* DictionarySnapshotQueue.swift */; };
@@ -270,6 +273,7 @@
 		197361DEE845463DCC8EFEA3 /* AppServicesBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServicesBridge.swift; sourceTree = "<group>"; };
 		1BF080C8B03E53908E30E67F /* AISkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinGenerationView.swift; sourceTree = "<group>"; };
 		1E6213A5E239E6DB0CDBB621 /* ClipboardHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryStore.swift; sourceTree = "<group>"; };
+		1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeHintPreference.swift; sourceTree = "<group>"; };
 		1F8E14360B2157423D4C0A77 /* JapaneseNineKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JapaneseNineKeyTests.swift; sourceTree = "<group>"; };
 		20F291ADA3DFDCBD13CCEB46 /* CommunityGalleryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityGalleryStyle.swift; sourceTree = "<group>"; };
 		2124A61DEC4B5955FC6964EF /* AppIconSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconSettingsView.swift; sourceTree = "<group>"; };
@@ -393,6 +397,7 @@
 		D24B6BD479D46DF694F1F3F2 /* FuzzyPinyinSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyPinyinSettingsView.swift; sourceTree = "<group>"; };
 		D3BFFBE22E609D3DEDB7252A /* DoubaoWebSocketTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoWebSocketTransport.swift; sourceTree = "<group>"; };
 		D53E992D401B9CCB2F90DB91 /* BackendCommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendCommunityResourcesView.swift; sourceTree = "<group>"; };
+		D56AECFE5DA71C416D3DD658 /* WubiCodeHintPreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeHintPreferenceTests.swift; sourceTree = "<group>"; };
 		D798E42EEF7923CB9168F350 /* CloudDictionaryTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryTransferTests.swift; sourceTree = "<group>"; };
 		D85DA37367688484F56FA2B6 /* CommunitySkinTrialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunitySkinTrialView.swift; sourceTree = "<group>"; };
 		D94B9549658B62211E010E2D /* KeyboardFeedbackPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardFeedbackPreference.swift; sourceTree = "<group>"; };
@@ -629,6 +634,7 @@
 				D197F54033A92A6D9BF639F7 /* PersonalDictionaryStoreTests.swift */,
 				76208A542366F33EB8EED532 /* TypingStatisticsTests.swift */,
 				9899780DCB0AAEFB241DB69C /* VoiceTextHandoffTests.swift */,
+				D56AECFE5DA71C416D3DD658 /* WubiCodeHintPreferenceTests.swift */,
 				EC44B8D0E9924B5E24A78DEF /* tools */,
 			);
 			path = tests;
@@ -710,6 +716,7 @@
 				C02C3DA25B1B3847584C32AD /* SkinKeySurfaceView.swift */,
 				B04E4A79002A8A56A936792C /* TypingStatistics.swift */,
 				853A3E39B7FAA2FB23E09425 /* VoiceTextHandoffStore.swift */,
+				1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */,
 				88269AAE8A6FF330662D4941 /* WubiMixedPinyinPreference.swift */,
 			);
 			path = SharedUI;
@@ -1008,6 +1015,7 @@
 				8F29CB09379C30967677FE27 /* VoiceTextHandoffStore.swift in Sources */,
 				8806761FFFAA712DA7C08BA4 /* WAVPCMExtractor.swift in Sources */,
 				7AE65BA7EA10484F42032064 /* WelcomeFlowView.swift in Sources */,
+				651120925007785ACDCFC7FC /* WubiCodeHintPreference.swift in Sources */,
 				4618DD65C7463B71C431F9AE /* WubiMixedPinyinPreference.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1070,6 +1078,7 @@
 				017408FAD6E3103260CCC68E /* SpaceCursorMovement.swift in Sources */,
 				F245FB5405AAC2F4D5D6B0BE /* TypingStatistics.swift in Sources */,
 				EB94AA13299EC8B0B72E9B36 /* VoiceTextHandoffStore.swift in Sources */,
+				01211E996FAA51B70B35CF65 /* WubiCodeHintPreference.swift in Sources */,
 				C6BB63B799D8661BB8085B9F /* WubiMixedPinyinPreference.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1121,6 +1130,7 @@
 				90D04B205299140B7382FA17 /* VoiceTextHandoffTests.swift in Sources */,
 				D6547A02989C952EEB04AF61 /* VoiceTextHandoffTests.swift in Sources */,
 				E32C453F78684E9557EEDF8A /* WAVPCMExtractorTests.swift in Sources */,
+				F4E1F057554BF7472FA1BFB9 /* WubiCodeHintPreferenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

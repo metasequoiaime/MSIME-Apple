@@ -101,7 +101,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
+  private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
+  private var visibleCandidatesAnsweredByPinyinFallback = false
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -1495,7 +1497,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     let panel = KeyboardCandidatePanelView(
       candidates: visibleCandidates, preedit: visiblePreedit,
-      annotations: visibleCandidateGlosses,
+      annotations: visibleCandidates.indices.map { candidateAnnotation(at: $0) },
       display: { [weak self] in self?.chineseOutput($0) ?? $0 },
       onSelect: { [weak self] index in
         guard let self else { return }
@@ -1899,8 +1901,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
-                         candidateGlosses: snapshot.candidateGlosses)
-    candidatePanel?.updateAnnotations(snapshot.candidateGlosses)
+                         candidateCodes: snapshot.candidateCodes,
+                         candidateGlosses: snapshot.candidateGlosses,
+                         answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
+    candidatePanel?.updateAnnotations(
+      visibleCandidates.indices.map { candidateAnnotation(at: $0) })
     updateSpellingStrip()
     scheduleCandidateGlosses()
   }
@@ -1927,13 +1932,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
-                                    candidateGlosses: [String] = []) {
+                                    candidateCodes: [String] = [], candidateGlosses: [String] = [],
+                                    answeredByPinyinFallback: Bool = false) {
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
     }
     visiblePreedit = preedit
     visibleCandidates = candidates
+    visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
+    visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -1968,10 +1976,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
-  private func candidateAnnotation(at index: Int) -> String {
+  private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
+    let hint = wubiCodeHint(at: index)
+    if !hint.isEmpty {
+      return KeyboardCandidateAnnotation(
+        text: hint, accessibilityDescription: "还需输入 \(hint)")
+    }
     guard CandidateGlossPreference.enabled,
-          visibleCandidateGlosses.indices.contains(index) else { return "" }
-    return visibleCandidateGlosses[index]
+          visibleCandidateGlosses.indices.contains(index),
+          !visibleCandidateGlosses[index].isEmpty else { return .none }
+    let gloss = visibleCandidateGlosses[index]
+    return KeyboardCandidateAnnotation(
+      text: gloss, accessibilityDescription: "英文释义：\(gloss)")
+  }
+
+  private func wubiCodeHint(at index: Int) -> String {
+    guard inputScheme == .wubi, !session.isInLocalMode, WubiCodeHintPreference.isEnabled,
+          visibleCandidateCodes.indices.contains(index) else { return "" }
+    return WubiCodeHintPreference.hint(
+      code: visibleCandidateCodes[index], typed: visiblePreedit,
+      answeredByPinyinFallback: visibleCandidatesAnsweredByPinyinFallback)
   }
 
   /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
@@ -1988,7 +2012,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         visibleCandidateGlosses = []
         if hadVisibleGlosses { renderCandidateStrip() }
       }
-      candidatePanel?.updateAnnotations([])
+      candidatePanel?.updateAnnotations(
+        visibleCandidates.indices.map { candidateAnnotation(at: $0) })
       return
     }
     do {
@@ -2002,31 +2027,29 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let targetEpoch = candidateGlossEpoch
       let targetResources = resources
       let queue = candidateGlossQueue
+      let applyOnMain: (UInt64, Data) -> Void = { [weak self] responseGeneration, translations in
+        DispatchQueue.main.async { [weak self] in
+          guard let self, self.candidateGlossEpoch == targetEpoch,
+                CandidateGlossPreference.enabled,
+                self.candidateGlossRequestedGeneration == responseGeneration else { return }
+          do {
+            let applied = try self.session.applyTranslations(
+              generation: responseGeneration, translations: translations)
+            guard applied["applied"] as? Bool == true else { return }
+            let snapshot = try self.session.snapshot(from: applied)
+            self.render(snapshot)
+          } catch {
+            // Optional display metadata must never interrupt input.
+          }
+        }
+      }
       queue.async {
         do {
           let response = try MetasequoiaInputSessionBridge.candidateGlosses(
             request: request, resources: targetResources)
           let decoded = try CandidateGlossModel.decode(response)
           guard decoded.generation == generation else { return }
-          DispatchQueue.main.async { [weak self] in
-            guard let self, self.candidateGlossEpoch == targetEpoch,
-                  CandidateGlossPreference.enabled,
-                  self.candidateGlossRequestedGeneration == generation else { return }
-            do {
-              let applied = try self.session.applyTranslations(
-                generation: generation, translations: decoded.translations)
-              guard applied["applied"] as? Bool == true else { return }
-              let snapshot = try self.session.snapshot(from: applied)
-              self.render(snapshot)
-              if let complete = try? self.session.allCandidates(),
-                 let candidates = complete["candidates"] as? [[String: Any]] {
-                self.candidatePanel?.updateAnnotations(
-                  candidates.map { $0["translation"] as? String ?? "" })
-              }
-            } catch {
-              // Optional display metadata must never interrupt input.
-            }
-          }
+          applyOnMain(decoded.generation, decoded.translations)
         } catch {
           // Optional display metadata must never interrupt input.
         }
@@ -2043,12 +2066,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let annotation = candidateAnnotation(at: index)
     var configuration = UIButton.Configuration.plain()
     configuration.title = display
-    if !annotation.isEmpty {
+    if !annotation.text.isEmpty {
       configuration.attributedTitle = AttributedString(
         display, attributes: AttributeContainer([
           .font: UIFont.preferredFont(forTextStyle: .body),
         ])) + AttributedString(
-          "  " + annotation, attributes: AttributeContainer([
+          "  " + annotation.text, attributes: AttributeContainer([
             .font: UIFont.preferredFont(forTextStyle: .caption1),
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
@@ -2074,9 +2097,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       })
     button.titleLabel?.numberOfLines = 1
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
-    button.accessibilityLabel = annotation.isEmpty
+    button.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(display)"
-      : "候选词 \(number)：\(display)，英文释义：\(annotation)"
+      : "候选词 \(number)：\(display)，\(annotation.accessibilityDescription)"
     button.accessibilityIdentifier = "candidate-\(number)"
     if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
       let revision = candidateRevision

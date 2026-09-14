@@ -66,10 +66,12 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
+  let answeredByPinyinFallback: Bool
   let diagnosticText: String?
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
+       answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil) {
     self.isHandled = isHandled
     self.commitText = commitText
@@ -77,6 +79,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
+    self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
   }
 }
@@ -456,8 +459,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },
-      candidateCodes: rows.compactMap { $0["code"] as? String },
+      candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
+      answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String)
   }
 
