@@ -791,3 +791,9 @@ iOS 升级兼容会在共享输入会话创建前检查固定 Apple 来源遗留
 ### iOS 真机手写识别构建链
 
 依据 Apple 固定提交补齐此前被生产扩展排除的 ML Kit 手写链。真机 target 编译真实 `HandwritingInputView` 与扩展后台下载共享容器适配，锁定 ML Kit Digital Ink 8.0.0；Apple Silicon 模拟器继续选择无 SDK fallback，避免把 device-only arm64 framework 错链为 simulator slice。模型下载与识别仍属于 iOS 平台能力，候选确认通过既有键盘插入路径，Engine 和共享组合状态不接管笔迹算法。
+
+### iOS 共享 Tauri 设置宿主
+
+新增 Tauri 2 iOS 工程和平台配置，复用 Android/桌面的 React 设置页面与同一 Rust command 入口。iOS 原生 main 只通过系统 App Group API取得 `group.app.msime.ios/MSIME`，以环境边界交给 Rust；首次没有 `runtime-options.json` 时构造只含 bundle 资源与共享状态根的受控 HostOptions，已有文件完整解析，损坏文件拒绝启动资源命令而不覆盖。平台配置使用 `com.metasequoiaime.client` 和 iOS 16，生成工程静态链接共享 mobile entry、系统 SQLite，并把固定词库作为 `EngineResources` 嵌入 App。
+
+此切片不把 Tauri 宿主冒充已完成替换：键盘扩展、ML Kit CocoaPods 和现有 Swift 原生服务仍在 `platforms/ios/MSIMEClient.xcodeproj`。下一步需要把 extension 嵌入 Tauri App 并逐项把可共享页面/业务移出 SwiftUI，平台权限和输入扩展生命周期继续保留原生。

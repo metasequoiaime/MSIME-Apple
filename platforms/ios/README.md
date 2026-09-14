@@ -2,6 +2,8 @@
 
 `MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。语音录制由 App 的 Swift `AVAudioEngine` 宿主管理，键盘扩展不直接使用桌面音频采集桥接。
 
+共享 Tauri/React 设置宿主已生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 16 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。当前切片先证明共享 WebView/Rust App 可独立构建，后续再把键盘扩展嵌入该宿主并迁移剩余 iOS 原生服务；在嵌入完成前，既有 `MSIMEClient.xcodeproj` 仍是键盘扩展的构建入口。
+
 键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
 
 表情浏览器以远端默认分支固定来源 `MSIME-Apple@7de60fb5c5590f33e7f515db7e595a1d7e848ad1` 为交互基线，在空闲候选工具栏和“更多”面板提供入口，按 Unicode 固定顺序显示最近、笑脸、人物、动物、食物、旅行、活动、物品、符号和旗帜，每行八项，支持删除和返回。为适配共享客户端架构，iOS 不复制 Apple 扩展内的 SQLite 读取器，而是在串行后台队列通过共享 C ABI 分页读取已验证 `others.db`；每页、游标、文本和注释均有边界校验，过期分类结果不会覆盖当前页。选择后通过正常 `UITextDocumentProxy` 路径插入并记录最多 24 项的去重最近使用；打开面板前先由 Engine 完成已有组合，不保存或记录编辑器上下文。

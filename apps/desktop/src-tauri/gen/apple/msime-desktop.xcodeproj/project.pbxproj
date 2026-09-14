@@ -1,0 +1,369 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		33251526B6BF199B84B14C40 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F6935FCF57FF23C85F9C04CF /* WebKit.framework */; };
+		3D1FD5CE891160599081F0EC /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 886EFCAFA7824378D928EB21 /* QuartzCore.framework */; };
+		4FAC40E211ED99DF301D8073 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 83D7EB9817337303E11FC455 /* main.mm */; };
+		5010DE48905012DBC4B9CC90 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2CDB8EB4D8B4CFBFD1A5FD7 /* MetalKit.framework */; };
+		540751A5AE7A5A276BF000A4 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5323472FB1A81C162C61661C /* CoreGraphics.framework */; };
+		71DC88F6D04A89453E1CBC1A /* assets in Resources */ = {isa = PBXBuildFile; fileRef = CA7532A3A45BCCE17C7C2A01 /* assets */; };
+		CAFEAD76DD5FE67C20ADFBA4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 98611478FD4AF2B810CEC8C2 /* LaunchScreen.storyboard */; };
+		D8414DAF30187A98DCD0CDC7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */; };
+		DEFA3775B4DD82A438844A74 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 3054D48DA9010FE1BE436F54 /* libapp.a */; };
+		E6070EF4FA88B25EED0E08FC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93976EEAF73A5D2020DC06F8 /* Security.framework */; };
+		F14E6368DF8E74AF784A5AB0 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3043141481E53F3542239F79 /* Metal.framework */; };
+		F660AA35500C0AA23B797598 /* EngineResources in Resources */ = {isa = PBXBuildFile; fileRef = E07F242557DABCAD24CC0987 /* EngineResources */; };
+		FEACCA9E30177E2A5EFA3462 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7EC55977A1AAC2C7B01F7B93 /* UIKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		17C03264F0C582643B58A2C2 /* linux_clipboard.rs */ = {isa = PBXFileReference; path = linux_clipboard.rs; sourceTree = "<group>"; };
+		209C132A3CDF9FEB916818DD /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		280C23BE630D5635085C6A45 /* linux_process.rs */ = {isa = PBXFileReference; path = linux_process.rs; sourceTree = "<group>"; };
+		3043141481E53F3542239F79 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		3054D48DA9010FE1BE436F54 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		5323472FB1A81C162C61661C /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		6F4E1C744D526593059AD1E5 /* voice_output.rs */ = {isa = PBXFileReference; path = voice_output.rs; sourceTree = "<group>"; };
+		778074614E72224B88C45B87 /* msime-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "msime-desktop_iOS.entitlements"; sourceTree = "<group>"; };
+		7EC55977A1AAC2C7B01F7B93 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		837CC9EB921241712BD0D9E0 /* update_body.rs */ = {isa = PBXFileReference; path = update_body.rs; sourceTree = "<group>"; };
+		83D7EB9817337303E11FC455 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		886EFCAFA7824378D928EB21 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		93976EEAF73A5D2020DC06F8 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		9826C688993E64C06CCE21BC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		98611478FD4AF2B810CEC8C2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		B05E15E8C89E199776CF4C9C /* linux_audio_devices.rs */ = {isa = PBXFileReference; path = linux_audio_devices.rs; sourceTree = "<group>"; };
+		CA7532A3A45BCCE17C7C2A01 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		D2CDB8EB4D8B4CFBFD1A5FD7 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		D42705D5108177EBE509E723 /* android_account.rs */ = {isa = PBXFileReference; path = android_account.rs; sourceTree = "<group>"; };
+		D6456325E386EA110B38E6B0 /* skin_directory.rs */ = {isa = PBXFileReference; path = skin_directory.rs; sourceTree = "<group>"; };
+		E07F242557DABCAD24CC0987 /* EngineResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EngineResources; path = ../../../../../target/ios/EngineResources; sourceTree = SOURCE_ROOT; };
+		EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F6935FCF57FF23C85F9C04CF /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		F6B707FBF06F0C1F6C6B3086 /* voice_sessions.rs */ = {isa = PBXFileReference; path = voice_sessions.rs; sourceTree = "<group>"; };
+		F743BD901E4A652D8D4F8AAF /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		FD48652509E6979202445A45 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		FFCF05DD58451641A637E3A9 /* msime-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "msime-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7BCEDA277A9D5B8A675559BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DEFA3775B4DD82A438844A74 /* libapp.a in Frameworks */,
+				540751A5AE7A5A276BF000A4 /* CoreGraphics.framework in Frameworks */,
+				F14E6368DF8E74AF784A5AB0 /* Metal.framework in Frameworks */,
+				5010DE48905012DBC4B9CC90 /* MetalKit.framework in Frameworks */,
+				3D1FD5CE891160599081F0EC /* QuartzCore.framework in Frameworks */,
+				E6070EF4FA88B25EED0E08FC /* Security.framework in Frameworks */,
+				FEACCA9E30177E2A5EFA3462 /* UIKit.framework in Frameworks */,
+				33251526B6BF199B84B14C40 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		226FE8251C507F5556561A6C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5323472FB1A81C162C61661C /* CoreGraphics.framework */,
+				3054D48DA9010FE1BE436F54 /* libapp.a */,
+				3043141481E53F3542239F79 /* Metal.framework */,
+				D2CDB8EB4D8B4CFBFD1A5FD7 /* MetalKit.framework */,
+				886EFCAFA7824378D928EB21 /* QuartzCore.framework */,
+				93976EEAF73A5D2020DC06F8 /* Security.framework */,
+				7EC55977A1AAC2C7B01F7B93 /* UIKit.framework */,
+				F6935FCF57FF23C85F9C04CF /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		484A9C33ABA6A7B45D889FD1 /* msime-desktop */ = {
+			isa = PBXGroup;
+			children = (
+				83D7EB9817337303E11FC455 /* main.mm */,
+				79CAB83BD19CBFD83EF9015E /* bindings */,
+			);
+			path = "msime-desktop";
+			sourceTree = "<group>";
+		};
+		515B1FC72613BF551F9CFEE6 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				D42705D5108177EBE509E723 /* android_account.rs */,
+				FD48652509E6979202445A45 /* lib.rs */,
+				B05E15E8C89E199776CF4C9C /* linux_audio_devices.rs */,
+				17C03264F0C582643B58A2C2 /* linux_clipboard.rs */,
+				280C23BE630D5635085C6A45 /* linux_process.rs */,
+				209C132A3CDF9FEB916818DD /* main.rs */,
+				D6456325E386EA110B38E6B0 /* skin_directory.rs */,
+				837CC9EB921241712BD0D9E0 /* update_body.rs */,
+				6F4E1C744D526593059AD1E5 /* voice_output.rs */,
+				F6B707FBF06F0C1F6C6B3086 /* voice_sessions.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		65ADC03620438C3F76D5D67C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FFCF05DD58451641A637E3A9 /* msime-desktop_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		79CAB83BD19CBFD83EF9015E /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				F743BD901E4A652D8D4F8AAF /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		9B88193B2692CC7C40407BF6 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		C74789C22B082D8ED74781B2 = {
+			isa = PBXGroup;
+			children = (
+				CA7532A3A45BCCE17C7C2A01 /* assets */,
+				EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */,
+				E07F242557DABCAD24CC0987 /* EngineResources */,
+				98611478FD4AF2B810CEC8C2 /* LaunchScreen.storyboard */,
+				9B88193B2692CC7C40407BF6 /* Externals */,
+				FCD4497C060AA3A61476FEA7 /* msime-desktop_iOS */,
+				D6D38D6B66E402F0C879F976 /* Sources */,
+				515B1FC72613BF551F9CFEE6 /* src */,
+				226FE8251C507F5556561A6C /* Frameworks */,
+				65ADC03620438C3F76D5D67C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D6D38D6B66E402F0C879F976 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				484A9C33ABA6A7B45D889FD1 /* msime-desktop */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		FCD4497C060AA3A61476FEA7 /* msime-desktop_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				9826C688993E64C06CCE21BC /* Info.plist */,
+				778074614E72224B88C45B87 /* msime-desktop_iOS.entitlements */,
+			);
+			path = "msime-desktop_iOS";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B316B4982DA8CC6ABA92648F /* msime-desktop_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3C9B7D88B86F19E772BA6EC8 /* Build configuration list for PBXNativeTarget "msime-desktop_iOS" */;
+			buildPhases = (
+				057C80074FB787C99FC333FB /* Build Rust Code */,
+				F710565E0B8EE4AAF1059459 /* Sources */,
+				9EB7CE36A3F861F25964B5F9 /* Resources */,
+				7BCEDA277A9D5B8A675559BA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "msime-desktop_iOS";
+			packageProductDependencies = (
+			);
+			productName = "msime-desktop_iOS";
+			productReference = FFCF05DD58451641A637E3A9 /* msime-desktop_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		05FD7D7C1CB4A512D3E5B702 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 98A2BA4275F0AFD0416A4882 /* Build configuration list for PBXProject "msime-desktop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = C74789C22B082D8ED74781B2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 65ADC03620438C3F76D5D67C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B316B4982DA8CC6ABA92648F /* msime-desktop_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9EB7CE36A3F861F25964B5F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8414DAF30187A98DCD0CDC7 /* Assets.xcassets in Resources */,
+				F660AA35500C0AA23B797598 /* EngineResources in Resources */,
+				CAFEAD76DD5FE67C20ADFBA4 /* LaunchScreen.storyboard in Resources */,
+				71DC88F6D04A89453E1CBC1A /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		057C80074FB787C99FC333FB /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F710565E0B8EE4AAF1059459 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4FAC40E211ED99DF301D8073 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		09A3F4BAB2700BCB47D42CC0 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+			};
+			name = debug;
+		};
+		101EF13D00BA350A03D2BBF5 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = "msime-desktop_iOS/msime-desktop_iOS.entitlements";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "msime-desktop_iOS/Info.plist";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
+				PRODUCT_NAME = "水杉输入法";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		A3861B2A1C510BD155AF98AE /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+			};
+			name = release;
+		};
+		B9F1D979B164D27623BC5E2D /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = "msime-desktop_iOS/msime-desktop_iOS.entitlements";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "msime-desktop_iOS/Info.plist";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
+				PRODUCT_NAME = "水杉输入法";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3C9B7D88B86F19E772BA6EC8 /* Build configuration list for PBXNativeTarget "msime-desktop_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9F1D979B164D27623BC5E2D /* debug */,
+				101EF13D00BA350A03D2BBF5 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		98A2BA4275F0AFD0416A4882 /* Build configuration list for PBXProject "msime-desktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09A3F4BAB2700BCB47D42CC0 /* debug */,
+				A3861B2A1C510BD155AF98AE /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 05FD7D7C1CB4A512D3E5B702 /* Project object */;
+}
