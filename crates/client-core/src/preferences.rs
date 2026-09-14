@@ -1252,10 +1252,9 @@ impl Default for HelpcodePreferences {
     }
 }
 
-/// Recognition providers a host can actually reach. The Linux voice provider
-/// builds the same set, and the Engine's Windows voice configuration defaults
-/// into it; a value outside this list is rejected by every backend.
-pub const ASR_PROVIDERS: [&str; 4] = ["doubao", "siliconflow", "openai", "groq"];
+/// Persisted recognition provider identifiers. Hosts expose only the providers
+/// they implement: `system` is the macOS Speech adapter, not a cloud profile.
+pub const ASR_PROVIDERS: [&str; 5] = ["doubao", "siliconflow", "openai", "groq", "system"];
 /// Polishing additionally supports DeepSeek, which offers no recognition.
 pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
 
@@ -1855,6 +1854,22 @@ mod tests {
         assert!(ASR_PROVIDERS.contains(&defaults.voice_input.asr_provider.as_str()));
         assert!(POLISH_PROVIDERS.contains(&defaults.voice_input.polish_provider.as_str()));
         assert!(defaults.validate().is_ok());
+    }
+
+    #[test]
+    fn system_voice_provider_round_trips_without_cloud_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "system".into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_model.clear();
+        preferences.voice_input.asr_token.clear();
+        let saved = store.save(0, preferences.clone()).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded, saved);
+        assert_eq!(loaded.preferences, preferences);
+        assert_eq!(loaded.preferences.voice_input.asr_provider, "system");
     }
 
     #[test]

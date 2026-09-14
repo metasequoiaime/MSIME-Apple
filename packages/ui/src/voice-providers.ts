@@ -10,6 +10,7 @@
 export type ProviderDefaults = { endpoint: string; model: string };
 
 export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
+  system: { endpoint: "", model: "" },
   doubao: { endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", model: "" },
   openai: { endpoint: "https://api.openai.com/v1/audio/transcriptions", model: "whisper-1" },
   siliconflow: { endpoint: "https://api.siliconflow.cn/v1/audio/transcriptions", model: "FunAudioLLM/SenseVoiceSmall" },
@@ -72,6 +73,10 @@ export function asrProviderUpdate(
     asr_token: swapped.token,
     asr_tokens: swapped.tokens,
   };
+  if (provider === "system") {
+    update.asr_token = "";
+    delete update.asr_tokens.system;
+  }
   if (!defaults) return update;
   const endpoint = fillIfDefault(current.asr_endpoint, defaults.endpoint, known(ASR_PROVIDER_DEFAULTS, "endpoint"));
   if (endpoint !== undefined) update.asr_endpoint = endpoint;

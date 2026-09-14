@@ -9,6 +9,24 @@ import {
 
 const doubaoEndpoint = ASR_PROVIDER_DEFAULTS.doubao.endpoint;
 
+test("system recognition clears the active cloud credential and restores it on return", () => {
+  const system = asrProviderUpdate("system", {
+    asr_provider: "openai", asr_endpoint: ASR_PROVIDER_DEFAULTS.openai.endpoint,
+    asr_model: "whisper-1", asr_token: "synthetic-openai", asr_tokens: { system: "unused-synthetic" },
+  });
+  expect(system.asr_endpoint).toBe("");
+  expect(system.asr_model).toBe("");
+  expect(system.asr_token).toBe("");
+  expect(system.asr_tokens).toEqual({ openai: "synthetic-openai" });
+  const restored = asrProviderUpdate("openai", system);
+  expect(restored.asr_token).toBe("synthetic-openai");
+  expect(restored.asr_endpoint).toBe(ASR_PROVIDER_DEFAULTS.openai.endpoint);
+  expect(restored.asr_model).toBe("whisper-1");
+  const custom = asrProviderUpdate("system", { asr_endpoint: "https://example.invalid/custom", asr_model: "synthetic-model" });
+  expect(custom.asr_endpoint).toBeUndefined();
+  expect(custom.asr_model).toBeUndefined();
+});
+
 test("picking a non-Doubao provider rewrites the shipped Doubao endpoint", () => {
   // The defect: asr_endpoint defaults to Doubao's websocket URL, and the
   // Windows host routes any websocket endpoint to DoubaoAsrClient. Leaving it
