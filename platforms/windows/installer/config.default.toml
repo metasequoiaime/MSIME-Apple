@@ -60,6 +60,17 @@ enabled = true
 secret_id = "<YOUR_TENCENT_SECRET_ID>"
 secret_key = "<YOUR_TENCENT_SECRET_KEY>"
 region = "ap-guangzhou"
+# 候选词翻译/背单词目标语种：en / fr / ja / es / ru / de / ko
+target_language = "en"
+
+#
+# 自定义 DeepLX 兼容翻译服务。endpoint 必须填写完整的 POST 接口地址。
+# api_key 留空时不发送 Authorization 请求头。
+#
+[custom_translation]
+enabled = false
+endpoint = ""
+api_key = ""
 
 #
 # 小牛翻译（NiuTrans）候选词翻译（启用后优先于腾讯云和自定义服务）

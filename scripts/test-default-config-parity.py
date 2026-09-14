@@ -62,3 +62,48 @@ assert windows_fallback_fonts == shared_fallback_fonts, (
 )
 
 print(f"Windows fallback fonts match the shared defaults: {shared_fallback_fonts}")
+
+translation_target_default = re.search(
+    r"pub enum TranslationTargetLanguage\s*\{.*?#\[default\]\s*([A-Za-z0-9_]+)",
+    core_source,
+    re.DOTALL,
+)
+assert translation_target_default, "translation target language default was not found"
+
+shared_translation_target = translation_target_default.group(1).lower()
+windows_translation_target = windows_defaults["tencent_tmt"]["target_language"]
+assert windows_translation_target == shared_translation_target, (
+    "Windows target_language does not match TranslationTargetLanguage::default(): "
+    f"{windows_translation_target} != {shared_translation_target}"
+)
+
+custom_translation_default = re.search(
+    r"#\[derive\([^)]*Default[^)]*\)\]\s*"
+    r"pub struct CustomTranslationPreferences\s*\{(.*?)\}",
+    core_source,
+    re.DOTALL,
+)
+assert custom_translation_default, "CustomTranslationPreferences derived default was not found"
+
+custom_fields = re.findall(
+    r"pub\s+([A-Za-z0-9_]+):\s*(bool|String),", custom_translation_default.group(1)
+)
+all_custom_fields = re.findall(
+    r"pub\s+[A-Za-z0-9_]+\s*:", custom_translation_default.group(1)
+)
+assert len(custom_fields) == len(all_custom_fields), (
+    "CustomTranslationPreferences has a field whose derived default is not supported"
+)
+shared_custom_translation = {
+    name: False if field_type == "bool" else "" for name, field_type in custom_fields
+}
+windows_custom_translation = windows_defaults["custom_translation"]
+assert windows_custom_translation == shared_custom_translation, (
+    "Windows custom_translation does not match CustomTranslationPreferences::default(): "
+    f"{windows_custom_translation} != {shared_custom_translation}"
+)
+
+print(
+    "Windows translation target and custom provider match the shared defaults: "
+    f"{shared_translation_target}, {shared_custom_translation}"
+)
