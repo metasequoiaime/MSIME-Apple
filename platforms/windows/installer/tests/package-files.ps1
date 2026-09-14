@@ -11,7 +11,8 @@ try {
     New-Item -ItemType Directory -Force -Path $installer | Out-Null
     Copy-Item (Join-Path $PSScriptRoot '../Prepare-PackageFiles.ps1') $installer
     Copy-Item (Join-Path $PSScriptRoot '../msime_setup.iss') $installer
-    Copy-Item (Join-Path $PSScriptRoot '../default_config') $installer -Recurse
+    Copy-Item (Join-Path $PSScriptRoot '../config.default.toml') $installer
+    Copy-Item (Join-Path $PSScriptRoot '../assets') $installer -Recurse
     foreach ($file in @(
         'server/build-release/bin/Release/MetasequoiaImeServer.exe',
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
@@ -27,6 +28,9 @@ try {
         'windows/build64-release/Release/MetasequoiaImeTsf.pdb',
         'THIRD_PARTY_NOTICES.txt',
         'LICENSE',
+        'vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model',
+        'vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt',
+        'vendor/MSIME-Engine/handwriting/provenance.json',
         'server/assets/config/config.toml',
         'server/src/resource/MetasequoiaIME.ico',
         'vendor/MetasequoiaImeEngine/helpcode/helpcodes/helpcode.txt',
@@ -51,6 +55,9 @@ try {
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'server_exe/MetasequoiaImeServer.pdb',
                          'server_exe/MetasequoiaImeDictionaryReplay.pdb',
+                         'server_exe/handwriting/handwriting-zh_CN.model',
+                         'server_exe/handwriting/HandwritingModel-LICENSE.txt',
+                         'server_exe/handwriting/provenance.json',
                          'app_data/helpcodes/helpcode.txt', 'THIRD_PARTY_NOTICES.txt', 'LICENSE.txt')) {
         if (-not (Test-Path (Join-Path $installer $file))) { throw "Missing packaged file: $file" }
     }
@@ -72,6 +79,18 @@ try {
     [IO.File]::WriteAllText($database, 'preserved user data')
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
+    foreach ($name in @('handwriting-zh_CN.model', 'HandwritingModel-LICENSE.txt', 'provenance.json')) {
+        if (-not (Test-Path (Join-Path $installer "server_exe/handwriting/$name"))) {
+            throw "Light package lost handwriting resource: $name"
+        }
+    }
+    $notice = Join-Path $fixture 'vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt'
+    Remove-Item -LiteralPath $notice
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Missing handwriting license was accepted' }
+    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing license damaged previous staging' }
+    [IO.File]::WriteAllText($notice, 'fixture')
     if (-not (Test-Path (Join-Path $installer 'app_data/html/webview2/shared/runtime.js'))) { throw 'Light package lost shared contracts' }
     Remove-Item (Join-Path $fixture 'ui-html/webview2/shared') -Recurse -Force
     $rejected = $false

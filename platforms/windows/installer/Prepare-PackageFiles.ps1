@@ -140,6 +140,13 @@ if 'weight' not in names or pk != ['word', 'display']:
     Assert-PathExists -LiteralPath $othersDb -Description '杂项数据库 others.db'
 }
 
+$hasHandwritingModel = Test-Path -LiteralPath $handwritingModel -PathType Leaf
+if ($hasHandwritingModel) {
+    foreach ($notice in @($handwritingLicense, $handwritingProvenance)) {
+        Assert-PathExists -LiteralPath $notice -Description '手写模型随附声明'
+    }
+}
+
 $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
@@ -162,26 +169,6 @@ else {
     Copy-Item -LiteralPath $japaneseModelLicense -Destination (Join-Path $targetAppData 'MOZC_DICTIONARY_LICENSE.txt') -Force
     Copy-Item -LiteralPath $englishDb -Destination (Join-Path $targetAppData 'english.db') -Force
     Copy-Item -LiteralPath $othersDb -Destination (Join-Path $targetAppData 'others.db') -Force
-
-    # 手写识别模型。缺了它 Windows 上的手写板能收笔迹却永远识别失败，因为这是该平台
-    # 目前唯一的后端。模型是可选的：不存在时跳过并提示，而不是让整个打包失败。
-    if (Test-Path -LiteralPath $handwritingModel) {
-        $targetHandwriting = Join-Path $targetServer 'handwriting'
-        New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
-        Copy-Item -LiteralPath $handwritingModel -Destination (Join-Path $targetHandwriting 'handwriting-zh_CN.model') -Force
-        # 授权与来源声明必须与模型同行，否则分发的是一份没有出处的二进制。
-        foreach ($notice in @($handwritingLicense, $handwritingProvenance)) {
-            if (Test-Path -LiteralPath $notice) {
-                Copy-Item -LiteralPath $notice -Destination $targetHandwriting -Force
-            }
-            else {
-                throw "手写模型缺少随附声明：$notice"
-            }
-        }
-    }
-    else {
-        Write-Host "未找到手写模型，跳过：$handwritingModel"
-    }
 
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
     # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。
@@ -231,6 +218,18 @@ Copy-DirectoryContents -Source (Join-Path $webviewRoot 'settings\ime-settings\di
 # 其他 PDB 保留在对应 EXE 旁边，方便安装后直接进行崩溃分析。
 Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
+# Both package modes replace Server output. Copy model resources afterwards,
+# otherwise Reset-Directory silently removes them from an otherwise valid package.
+if ($hasHandwritingModel) {
+    $targetHandwriting = Join-Path $targetServer 'handwriting'
+    New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
+    Copy-Item -LiteralPath $handwritingModel -Destination $targetHandwriting -Force
+    foreach ($notice in @($handwritingLicense, $handwritingProvenance)) {
+        Copy-Item -LiteralPath $notice -Destination $targetHandwriting -Force
+    }
+} else {
+    Write-Host "未找到手写模型，跳过：$handwritingModel"
+}
 Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter '*Tests.exe' |
     Remove-Item -Force
 Get-ChildItem -LiteralPath $targetServer -Recurse -File -Filter '*Tests.pdb' |
