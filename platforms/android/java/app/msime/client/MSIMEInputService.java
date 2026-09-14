@@ -365,6 +365,23 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
     }
 
+    /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
+    private void alignEngineSchemeWithSelection(
+            JSONObject preferences, KeyboardScheme engineScheme,
+            SchemeConfiguration configuration) throws JSONException {
+        if (preferences == null || !configuration.shared()
+                || configuration.selected() == KeyboardScheme.THOUGHTFUL_REPLY
+                || configuration.selected() == engineScheme) return;
+        KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
+            engineScheme, configuration.selected(),
+            preferences.optString("last_chinese_scheme", preferences.optString("scheme", "quanpin")),
+            preferences.optString("shuangpin_profile", "xiaohe"));
+        preferences.put("scheme", mapping.scheme());
+        preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
+        preferences.put("shuangpin_profile", mapping.shuangpinProfile());
+        preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
+    }
+
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
         if (!envelope.getBoolean("ok")) throw new JSONException("Shared runtime rejected operation");
@@ -482,6 +499,7 @@ public final class MSIMEInputService extends InputMethodService {
                     preferences == null ? "twenty_six_key"
                         : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
                 SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
+                alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
                 enabledSchemes = schemeConfiguration.enabled();
                 selectedScheme = schemeConfiguration.selected();
                 sharedSchemePreferences = schemeConfiguration.shared();
