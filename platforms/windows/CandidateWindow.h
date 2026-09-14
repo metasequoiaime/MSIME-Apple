@@ -1,6 +1,7 @@
 #pragma once
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
+#include "CandidateFontSettings.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>
@@ -38,6 +39,8 @@ public:
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
   void refresh();
+  // UI thread only. Invalid updates leave the previous display intact.
+  bool set_fonts(const CandidateFontSettings &settings);
   // Adopt resolved skin tokens. The next refresh repaints with them; the
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
@@ -93,6 +96,7 @@ private:
   msimeui::DeviceResources device_;
   CandidatePalette palette_;
   std::wstring font_family_;
+  std::optional<CandidateFontSettings> font_settings_;
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;

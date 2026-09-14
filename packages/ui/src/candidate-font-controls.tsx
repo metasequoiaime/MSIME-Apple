@@ -11,7 +11,7 @@ export function CandidateFontControls({ value, onChange, readFonts, windows = fa
     onChange({ candidate_fallback_fonts: next });
   };
   return <>
-    {windows && <div className="section"><div className="section-header"><span className="section-title">候选窗英文字体<small>优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。保存后重启输入法生效。</small></span>
+    {windows && <div className="section"><div className="section-header"><span className="section-title">候选窗英文字体<small>优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。保存后自动应用。</small></span>
       <FontFamilyInput label="候选窗英文字体" value={value.candidate_english_font ?? defaultCandidateEnglishFont} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_english_font: font })} />
     </div></div>}
     <div className="section">{!windows && <div className="section-header"><span className="section-title">候选窗主字体</span>

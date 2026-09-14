@@ -237,6 +237,49 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
+bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
+  if (!settings.valid())
+    return false;
+  if (font_settings_ && *font_settings_ == settings)
+    return true;
+  try {
+    // Resolve all names before replacing any live display state.
+    auto primary = wide(settings.family);
+    std::vector<std::wstring> fallback;
+    for (const auto &name : settings.fallback)
+      fallback.push_back(wide(name));
+    if (!installed_font(primary)) {
+      for (const auto &name : fallback) {
+        if (installed_font(name)) {
+          primary = name;
+          break;
+        }
+      }
+    }
+    primary = native_font_alias(primary);
+    for (auto &name : fallback)
+      name = native_font_alias(name);
+    auto remembered = settings;
+    font_family_.swap(primary);
+    fallback_families_.swap(fallback);
+    font_settings_ = std::move(remembered);
+    font_size_ = settings.size;
+    preedit_font_size_ = settings.preedit_size;
+    font_fallback_.Reset();
+    // New fonts change hit rectangles even with an unchanged Engine generation.
+    shown_.reset();
+    painted_.reset();
+    pressed_.reset();
+    hovered_.reset();
+    wheel_accumulator_ = 0;
+    tallest_ = 0;
+    if (window_)
+      InvalidateRect(window_, nullptr, FALSE);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 void CandidateWindow::hide() {
   // The composition is over, so the next one starts its flip decision fresh.
   tallest_ = 0;

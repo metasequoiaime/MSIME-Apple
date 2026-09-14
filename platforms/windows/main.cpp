@@ -573,6 +573,7 @@ int wmain(int argc, wchar_t **argv) {
     auto follow_cursor = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
+    auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -591,12 +592,14 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, dedicated_english, follow_cursor, voice_light,
+         toolbar_enabled, dedicated_english, follow_cursor, voice_light, candidate_fonts,
          toolbar_light, menu_light, mode_scope_global, tsf_config,
          tsf_config_mutex,
          tsf_config_dirty](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
+          if (auto fonts = candidate_font_settings(preferences))
+            candidate_fonts->publish(snapshot.revision(), std::move(*fonts));
           traditional_output->store(
               preferences.value("traditional_chinese_output", false),
               std::memory_order_release);
@@ -1158,6 +1161,8 @@ int wmain(int argc, wchar_t **argv) {
       if (auto request = voice_controller_mailbox.take())
         request->complete(voice_controller_dispatch.dispatch(request->channel,
                                                              request->request));
+      if (auto fonts = candidate_fonts->take())
+        candidates.set_fonts(*fonts);
       candidates.refresh();
       modes.refresh();
       // The settings page may have published a new value since the last pass.
