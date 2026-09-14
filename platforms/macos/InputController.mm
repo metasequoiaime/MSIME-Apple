@@ -883,7 +883,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
-- (void)showVoiceSettings:(id)sender { (void)sender; [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate]; }
+- (void)showVoiceSettings:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=voice"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate]; }
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
     if (!_session) [self prepareSession];
