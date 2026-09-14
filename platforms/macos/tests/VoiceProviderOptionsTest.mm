@@ -8,6 +8,15 @@ int main() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         NSDictionary *base = @{@"generation": @42, @"language": @"en-us", @"asr_provider": @"doubao"};
         NSDictionary *query = MSIMEVoiceProviderOptions(base, defaults);
+        assert([query[@"commit_mode"] isEqual:@"tsf"]);
+        for (NSString *mode in @[@"tsf", @"sendinput", @"ctrl_v"]) {
+            MSIMEApplySharedVoicePreferences(@{@"commit_mode": mode}, defaults);
+            assert([MSIMEVoiceProviderOptions(base, defaults)[@"commit_mode"] isEqual:mode]);
+        }
+        for (id invalid in @[@"unknown", @42, @[]]) {
+            [defaults setObject:invalid forKey:@"MSIMEClientVoiceCommitMode"];
+            assert([MSIMEVoiceProviderOptions(base, defaults)[@"commit_mode"] isEqual:@"tsf"]);
+        }
         assert([query[@"polish_text"] isEqual:@NO]);
         assert(!query[@"doubao_auth_mode"]);
         assert([query[@"doubao_enable_itn"] isEqual:@YES]);

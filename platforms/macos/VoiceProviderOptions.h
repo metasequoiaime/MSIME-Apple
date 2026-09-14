@@ -5,6 +5,9 @@
 // authentication mode here: older configurations rely on provider-side inference.
 static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUserDefaults *defaults) {
     NSMutableDictionary *result = [query mutableCopy];
+    id commitMode = [defaults objectForKey:@"MSIMEClientVoiceCommitMode"];
+    result[@"commit_mode"] = [commitMode isKindOfClass:NSString.class] &&
+        [@[@"tsf", @"sendinput", @"ctrl_v"] containsObject:commitMode] ? commitMode : @"tsf";
     id mode = [defaults objectForKey:@"MSIMEClientVoiceDoubaoAuthMode"];
     if ([mode isKindOfClass:NSString.class] && [@[@"api_key", @"legacy"] containsObject:mode])
         result[@"doubao_auth_mode"] = mode;

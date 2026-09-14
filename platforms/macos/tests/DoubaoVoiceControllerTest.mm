@@ -103,8 +103,13 @@
 @property BOOL failRequest;
 @property BOOL usePolishFixture;
 @property DoubaoPolishFixture *polishFixture;
+@property NSUInteger externalCommits;
 @end
 @implementation DoubaoControllerFixture
+- (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
+    ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
+}
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!self.usePolishFixture) return [super makeDoubaoPolishRequest:options];
     self.polishFixture = [DoubaoPolishFixture new]; return (id)self.polishFixture;
@@ -283,6 +288,18 @@ int main() {
             assert(!capture.active && !controller.polishFixture.submissions && client.commits.count == beforeShort);
         }
         capture.capturedSeconds = 0.25;
+        controller.usePolishFixture = NO;
+        for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+            uint64_t generation = 0;
+            assert([capture startWithSession:session generation:&generation error:nil]);
+            [controller setValue:@(generation) forKey:@"voiceGeneration"];
+            const NSUInteger imk = client.commits.count, external = controller.externalCommits;
+            assert(([controller startDoubaoVoiceInputWithOptions:@{@"stream": @YES, @"commit_mode": mode}]));
+            assert(![[controller valueForKey:@"doubaoVoiceInline"] boolValue]);
+            controller.fixture.result(@"synthetic routed", YES, nil);
+            controller.fixture.result(@"synthetic routed", YES, nil);
+            assert(client.commits.count == imk && controller.externalCommits == external + 1);
+        }
         assert([session closeWithError:nil]);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
         assert(cues.starts == cues.stops);

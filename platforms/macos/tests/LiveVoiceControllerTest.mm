@@ -84,8 +84,13 @@
 @property BOOL usePolishFixture;
 @property LivePolishFixture *polishFixture;
 @property(copy) NSDictionary *polishOptions;
+@property NSUInteger externalCommits;
 @end
 @implementation LiveControllerFixture
+- (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
+    ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
+}
 - (void)ensureAppearance {}
 - (void)apply:(NSDictionary *)transition { MSIMEApplyTransition(transition, [self valueForKey:@"activeClient"]); }
 - (MSIMEHTTPVoiceRequest *)makeLiveVoicePolishRequest:(NSDictionary *)options {
@@ -584,6 +589,22 @@ int main(int argc, char **) {
         }
         capture.capturedSeconds = 0.25;
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
+        controller.usePolishFixture = NO;
+        for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+            uint64_t routeGeneration = 0;
+            assert([capture startWithSession:session generation:&routeGeneration error:nil]);
+            [controller setValue:@(routeGeneration) forKey:@"voiceGeneration"];
+            const NSUInteger imk = client.commits.count, external = controller.externalCommits;
+            id routeToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES, @"commit_mode": mode} socket:nil];
+            assert(routeToken && ![[controller valueForKey:@"liveVoiceInline"] boolValue]);
+            [controller applyLiveVoiceText:@"synthetic routed" final:YES token:routeToken];
+            [controller applyLiveVoiceText:@"synthetic routed" final:YES token:routeToken];
+            assert(client.commits.count == imk && controller.externalCommits == external + 1);
+        }
+        CGEventRef injected = CGEventCreateKeyboardEvent(nullptr, 0, true);
+        CGEventSetIntegerValueField(injected, kCGEventSourceUserData, MSIMEVoiceCommitEventTag);
+        assert(![controller handleEvent:[NSEvent eventWithCGEvent:injected] client:client]);
+        CFRelease(injected);
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
 }

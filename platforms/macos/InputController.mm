@@ -15,6 +15,7 @@
 #import "DesktopSettingsLauncher.h"
 #import "SharedVoicePreferences.h"
 #import "VoiceProviderOptions.h"
+#import "VoiceTextCommit.h"
 #import "VoiceDeactivation.h"
 #import "HTTPVoiceRequest.h"
 #import "VoiceHoldShortcut.h"
@@ -214,6 +215,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id _httpVoiceClient;
     uint64_t _httpVoiceGeneration;
     BOOL _httpVoiceProcessing;
+    MSIMEVoiceCommitRoute _httpVoiceCommit;
+    MSIMEVoiceCommitRoute _doubaoVoiceCommit;
+    MSIMEVoiceCommitRoute _liveVoiceCommit;
     MSIMEDoubaoVoiceRequest *_doubaoVoiceRequest;
     MSIMEHTTPVoiceRequest *_doubaoPolishRequest;
     BOOL _doubaoFinalReceived;
@@ -955,7 +959,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if ([self ownsDoubaoVoiceFocus]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
-        if (result) { _doubaoVoiceMarked = NO; [self apply:result]; }
+        if (result) { _doubaoVoiceMarked = NO; [self applyVoiceResult:result route:_doubaoVoiceCommit]; }
     }
     [self cancelDoubaoVoiceInput];
 }
@@ -1021,7 +1025,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _doubaoVoiceGeneration = _voiceGeneration;
     _doubaoVoiceProcessing = NO;
     _doubaoVoiceMarked = NO;
-    _doubaoVoiceInline = [options[@"stream"] boolValue];
+    _doubaoVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
+    _doubaoVoiceInline = [options[@"stream"] boolValue] && [_doubaoVoiceCommit.mode isEqual:@"tsf"];
     [self bindVoiceOverlayActions];
     __weak MSIMEInputController *weakSelf = self;
     __weak MSIMEDoubaoVoiceRequest *weakRequest = request;
@@ -1121,6 +1126,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _httpVoiceRequest = request;
     _httpVoiceSession = _session;
     _httpVoiceClient = _activeClient;
+    _httpVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
     _httpVoiceGeneration = _voiceGeneration;
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
@@ -1181,7 +1187,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             // Native host session methods are main-thread-only. Recheck the
             // departing focus identity before the runtime's own generation check.
             NSDictionary *result = [session applyVoiceText:text generation:generation error:nil];
-            if (result) [controller apply:result];
+            if (result) [controller applyVoiceResult:result route:controller->_httpVoiceCommit];
         }
         [controller cancelHTTPVoiceInput];
     } error:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider];
@@ -1222,7 +1228,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // settings at recording start through the shared native request adapter.
     _livePolishRequest = socket.length ? nil : [self makeLiveVoicePolishRequest:options];
     _liveVoiceFinalReceived = NO;
-    _liveVoiceInline = [options[@"stream"] boolValue]; _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
+    _liveVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
+    _liveVoiceInline = [options[@"stream"] boolValue] && [_liveVoiceCommit.mode isEqual:@"tsf"];
+    _liveVoiceMarked = NO; _liveVoiceProcessing = NO;
     [self bindVoiceOverlayActions];
     id token = _liveVoiceToken;
     __weak MSIMEInputController *weakSelf = self;
@@ -1259,7 +1267,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if ([self ownsLiveVoiceToken:token]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
-        if (result) { _liveVoiceMarked = NO; [self apply:result]; }
+        if (result) { _liveVoiceMarked = NO; [self applyVoiceResult:result route:_liveVoiceCommit]; }
     }
     [self cancelLiveVoiceInput];
 }
@@ -1768,6 +1776,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
+    CGEventRef nativeEvent = event.CGEvent;
+    if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
     if (!sender) { _voicePermissionToken = nil; [_voiceOverlay dismissFailure]; _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
     [self ensureAppearance];
@@ -1971,6 +1981,25 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)commitComposition:(id)sender {
     if (sender != _activeClient || !_session) return;
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+}
+
+- (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    return route.deliver(text);
+}
+
+- (void)applyVoiceResult:(NSDictionary *)transition route:(const MSIMEVoiceCommitRoute &)route {
+    NSString *text = transition[@"commit"];
+    if ([route.mode isEqual:@"tsf"] || ![text isKindOfClass:NSString.class] || !text.length) {
+        [self apply:transition]; return;
+    }
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]))
+        text = MSIMEChineseOutputString(text, YES);
+    if ([self postVoiceText:text route:route] == MSIMEVoiceCommitOutcome::unavailable) {
+        [self apply:transition]; return;
+    }
+    NSMutableDictionary *remaining = [transition mutableCopy];
+    [remaining removeObjectForKey:@"commit"];
+    [self apply:remaining];
 }
 
 - (void)apply:(NSDictionary *)transition {

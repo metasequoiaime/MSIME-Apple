@@ -40,12 +40,12 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
   expect(screen.queryByRole("textbox", { name: "识别模型" })).toBeNull();
   expect(screen.queryByLabelText("识别 API Token")).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Doubao 资源 ID" })).toBeNull();
-  expect(screen.queryByRole("combobox", { name: "结果提交策略" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "结果提交策略" }), { target: { value: "ctrl_v" } });
   expect(screen.getByRole("checkbox", { name: "启用文本润色" })).toBeTruthy();
   expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe("zh-CN");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await vi.waitFor(() => expect(save).toHaveBeenCalled());
-  expect(save.mock.calls[0][1].voice_input).toMatchObject({ asr_provider: "system", asr_token: "", asr_endpoint: "", asr_model: "", asr_tokens: { openai: "synthetic-only" } });
+  expect(save.mock.calls[0][1].voice_input).toMatchObject({ asr_provider: "system", commit_mode: "ctrl_v", asr_token: "", asr_endpoint: "", asr_model: "", asr_tokens: { openai: "synthetic-only" } });
 });
 
 test("a stored system provider is preserved on macOS and marked unavailable elsewhere", async () => {

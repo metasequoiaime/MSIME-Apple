@@ -43,18 +43,26 @@
 @implementation HTTPHostFixture
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
-    ++self.submissions; return @{};
+    ++self.submissions; return @{@"commit": text};
 }
 @end
 @interface HTTPControllerFixture : MSIMEInputController
 @property HTTPRequestFixture *requestFixture;
 @property NSUInteger applies;
+@property NSUInteger imkCommits;
+@property NSUInteger externalCommits;
+@property MSIMEVoiceCommitOutcome commitOutcome;
+@property(copy) NSString *commitMode;
 @end
 @implementation HTTPControllerFixture
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new]; return (id)self.requestFixture;
 }
-- (void)apply:(NSDictionary *)result { (void)result; ++self.applies; }
+- (void)apply:(NSDictionary *)result { if (result[@"commit"]) ++self.imkCommits; ++self.applies; }
+- (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    assert([text isEqual:@"synthetic"]); self.commitMode = route.mode;
+    ++self.externalCommits; return self.commitOutcome;
+}
 @end
 
 @interface HTTPOverlayFixture : NSObject
@@ -220,6 +228,20 @@ int main() {
         [controller finishHTTPVoiceInput]; assert(controller.requestFixture.submitted);
         controller.requestFixture.completion(@"synthetic", nil);
         assert(session.submissions == beforeShort + 1 && cues.starts == cues.stops);
+        for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+            for (auto outcome : {MSIMEVoiceCommitOutcome::posted, MSIMEVoiceCommitOutcome::unavailable, MSIMEVoiceCommitOutcome::stale}) {
+                controller.commitOutcome = outcome;
+                const NSUInteger external = controller.externalCommits, imk = controller.imkCommits;
+                NSMutableDictionary *options = [@{@"commit_mode": mode} mutableCopy];
+                assert([controller startHTTPVoiceInputWithOptions:options]);
+                options[@"commit_mode"] = @"tsf";
+                [controller finishHTTPVoiceInput];
+                controller.requestFixture.completion(@"synthetic", nil);
+                controller.requestFixture.completion(@"synthetic", nil);
+                assert(controller.externalCommits == external + 1 && [controller.commitMode isEqual:mode]);
+                assert(controller.imkCommits == imk + (outcome == MSIMEVoiceCommitOutcome::unavailable ? 1 : 0));
+            }
+        }
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

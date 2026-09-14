@@ -25,6 +25,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"asr_provider": @"ASRProvider", @"asr_endpoint": @"ASREndpoint",
         @"asr_model": @"ASRModel", @"asr_token": @"ASRToken",
         @"capture_device": @"CaptureDevice",
+        @"commit_mode": @"CommitMode",
         @"asr_app_key": @"DoubaoAppKey", @"asr_resource_id": @"DoubaoResourceID",
         @"doubao_auth_mode": @"DoubaoAuthMode",
         @"doubao_boosting_table_id": @"DoubaoBoostingTableID",
