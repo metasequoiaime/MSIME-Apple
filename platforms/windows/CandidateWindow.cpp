@@ -1,4 +1,5 @@
 #include "CandidateWindow.h"
+#include "CandidateFlyoutWindow.h"
 #include "CandidateWheel.h"
 #include "CursorResource.h"
 #include <algorithm>
@@ -102,34 +103,6 @@ struct Painting {
       : window(value), dc(BeginPaint(window, &state)) {}
   ~Painting() { EndPaint(window, &state); }
 };
-struct PopupMenu {
-  HMENU handle = nullptr;
-  ~PopupMenu() {
-    if (handle)
-      DestroyMenu(handle);
-  }
-  PopupMenu() = default;
-  explicit PopupMenu(HMENU value) : handle(value) {}
-  PopupMenu(const PopupMenu &) = delete;
-  PopupMenu &operator=(const PopupMenu &) = delete;
-  PopupMenu(PopupMenu &&other) noexcept : handle(other.handle) {
-    other.handle = nullptr;
-  }
-  PopupMenu &operator=(PopupMenu &&other) noexcept {
-    if (this != &other) {
-      if (handle)
-        DestroyMenu(handle);
-      handle = other.handle;
-      other.handle = nullptr;
-    }
-    return *this;
-  }
-};
-constexpr UINT menu_pin = 1;
-constexpr UINT menu_remove = 2;
-constexpr UINT menu_fix_first = 100;
-constexpr UINT menu_fix_last = menu_fix_first + 4;
-constexpr UINT menu_clear_fix = 105;
 // Build a real per-glyph fallback chain from the configured faces.
 //
 // PreviewConfig documents these as "supplementary faces tried in order when the
@@ -174,17 +147,6 @@ build_font_fallback(IDWriteFactory *factory,
 // colours reached it. Owner drawing keeps the platform's own keyboard handling
 // and dismissal - which a hand-rolled flyout would have to reimplement - while
 // painting the rows from the skin.
-void append_menu(HMENU menu, UINT flags, UINT_PTR command,
-                 const wchar_t *label) {
-  if (!AppendMenuW(menu, flags, command, label))
-    throw std::runtime_error("Candidate context menu unavailable");
-}
-// An owner-drawn row carries a pointer to its label instead of a string.
-void append_owner_menu(HMENU menu, UINT flags, UINT_PTR command,
-                       ULONG_PTR data) {
-  if (!AppendMenuW(menu, flags, command, reinterpret_cast<LPCWSTR>(data)))
-    throw std::runtime_error("Candidate context menu unavailable");
-}
 } // namespace
 CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  unsigned preedit_font_size,
@@ -646,53 +608,42 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
       ++i;
   }
 
-  // Labels outlive TrackPopupMenuEx: the owner-draw messages carry a pointer
-  // to them, so they cannot be temporaries.
-  menu_labels_.clear();
-  auto label = [this](std::wstring text) {
-    menu_labels_.push_back(std::make_unique<MenuRowLabel>(MenuRowLabel{std::move(text)}));
-    return reinterpret_cast<ULONG_PTR>(menu_labels_.back().get());
-  };
-  PopupMenu menu(CreatePopupMenu());
-  if (!menu.handle)
-    throw std::runtime_error("Candidate context menu unavailable");
-  append_owner_menu(menu.handle, MF_OWNERDRAW, menu_pin, label(L"置顶"));
-  PopupMenu fixed(CreatePopupMenu());
-  if (!fixed.handle)
-    throw std::runtime_error("Candidate context menu unavailable");
-  for (UINT position = 1; position <= 5; ++position)
-    append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_fix_first + position - 1,
-                      label(L"第 " + std::to_wstring(position) + L" 位"));
-  append_menu(fixed.handle, MF_SEPARATOR, 0, nullptr);
-  append_owner_menu(fixed.handle, MF_OWNERDRAW, menu_clear_fix,
-                    label(L"取消固定"));
-  append_owner_menu(menu.handle, MF_OWNERDRAW | MF_POPUP,
-                    reinterpret_cast<UINT_PTR>(fixed.handle),
-                    label(L"固定排位"));
-  fixed.handle = nullptr; // Ownership now belongs to the parent menu.
-  if (code_points != 1)
-    append_owner_menu(menu.handle, MF_OWNERDRAW, menu_remove, label(L"删除"));
-
+  // The flyout is not modal. TrackPopupMenuEx ran a nested message loop, and
+  // the Server's pump is a bounded PeekMessage batch that also applies
+  // preference changes, syncs Caps Lock and drives the toolbar - so for as
+  // long as the menu was open, none of that ran.
+  if (!flyout_) {
+    flyout_ = std::make_unique<CandidateFlyoutWindow>(
+        [this, click](const CandidateMenuChoice &choice) {
+          if (!click_)
+            return;
+          CandidateClick action = click;
+          switch (choice.command) {
+          case CandidateMenuCommand::PinToTop:
+            action.action = CandidateAction::Pin;
+            break;
+          case CandidateMenuCommand::Remove:
+            action.action = CandidateAction::Remove;
+            break;
+          case CandidateMenuCommand::FixAtPosition:
+            action.action = CandidateAction::FixPosition;
+            action.position = static_cast<uint8_t>(choice.position);
+            break;
+          case CandidateMenuCommand::ClearFixedPosition:
+            action.action = CandidateAction::ClearPosition;
+            break;
+          case CandidateMenuCommand::FixPosition:
+            // Opens the submenu; never itself a chosen command.
+            return;
+          }
+          click_(action);
+        });
+    flyout_->set_palette(palette_);
+  }
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
     throw std::runtime_error("Candidate context menu position unavailable");
-  const UINT command = TrackPopupMenuEx(
-      menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NOANIMATION,
-      screen.x, screen.y, window_, nullptr);
-  CandidateClick action = click;
-  if (command == menu_pin)
-    action.action = CandidateAction::Pin;
-  else if (command == menu_remove && code_points != 1)
-    action.action = CandidateAction::Remove;
-  else if (command >= menu_fix_first && command <= menu_fix_last) {
-    action.action = CandidateAction::FixPosition;
-    action.position = static_cast<uint8_t>(command - menu_fix_first + 1);
-  } else if (command == menu_clear_fix) {
-    action.action = CandidateAction::ClearPosition;
-  } else {
-    return;
-  }
-  click_(action);
+  flyout_->open(screen.x, screen.y, code_points);
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
@@ -708,49 +659,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
   if (self) {
     try {
       switch (message) {
-      case WM_MEASUREITEM: {
-      auto *measure = reinterpret_cast<MEASUREITEMSTRUCT *>(lparam);
-      if (!measure || measure->CtlType != ODT_MENU)
-        break;
-      const auto *row = reinterpret_cast<const MenuRowLabel *>(measure->itemData);
-      const int unit = MulDiv(1, static_cast<int>(GetDpiForWindow(window)), 96);
-      // Roughly a character per label glyph plus padding; the exact width only
-      // has to be generous enough that the text is not clipped.
-      measure->itemWidth = static_cast<UINT>(
-          (row ? row->text.size() : 4) * 16 * unit + 24 * unit);
-      measure->itemHeight = static_cast<UINT>(26 * unit);
-      return TRUE;
-    }
-    case WM_DRAWITEM: {
-      auto *draw = reinterpret_cast<DRAWITEMSTRUCT *>(lparam);
-      if (!draw || draw->CtlType != ODT_MENU || !self)
-        break;
-      const auto *row = reinterpret_cast<const MenuRowLabel *>(draw->itemData);
-      if (!row)
-        break;
-      const auto &palette = self->palette_;
-      auto colour = [](const CandidateColor &value) {
-        return RGB(static_cast<int>(value.r * 255.0f),
-                   static_cast<int>(value.g * 255.0f),
-                   static_cast<int>(value.b * 255.0f));
-      };
-      const bool hot = (draw->itemState & (ODS_SELECTED | ODS_HOTLIGHT)) != 0;
-      HBRUSH fill = CreateSolidBrush(
-          colour(hot ? palette.menu_hover : palette.menu_fill));
-      if (fill) {
-        FillRect(draw->hDC, &draw->rcItem, fill);
-        DeleteObject(fill);
-      }
-      SetBkMode(draw->hDC, TRANSPARENT);
-      SetTextColor(draw->hDC, colour(palette.menu_text));
-      RECT text = draw->rcItem;
-      text.left += MulDiv(12, static_cast<int>(GetDpiForWindow(window)), 96);
-      DrawTextW(draw->hDC, row->text.c_str(),
-                static_cast<int>(row->text.size()), &text,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
-      return TRUE;
-    }
-    case WM_MOUSEACTIVATE:
+      case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
       case WM_MOUSEWHEEL: {
         if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {

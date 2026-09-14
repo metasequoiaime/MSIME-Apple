@@ -1,6 +1,7 @@
 #import "FloatingToolbarPanel.h"
 #import "CandidateSkinAppearance.h"
 #import "SupportWindowController.h"
+#import "DesktopSettingsLauncher.h"
 
 #include <algorithm>
 #include <cmath>
@@ -566,19 +567,25 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)openHelp:(id)sender
 {
     (void)sender;
-    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp];
+    MSIMEOpenDesktopRoute(@"settings:help", NSWorkspace.sharedWorkspace, ^{
+        [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp];
+    });
 }
 
 - (void)openAbout:(id)sender
 {
     (void)sender;
-    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout];
+    MSIMEOpenDesktopRoute(@"settings:about", NSWorkspace.sharedWorkspace, ^{
+        [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout];
+    });
 }
 
 - (void)openFeedback:(id)sender
 {
     (void)sender;
-    [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback];
+    MSIMEOpenDesktopRoute(@"settings:feedback", NSWorkspace.sharedWorkspace, ^{
+        [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback];
+    });
 }
 
 - (void)dismissFloatingToolbar:(id)sender

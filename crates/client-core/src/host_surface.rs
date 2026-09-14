@@ -611,6 +611,7 @@ mod tests {
         // Typing statistics were previously gated on a user-agent match.
         assert!(android.typing_statistics);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).typing_statistics);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).typing_statistics);
         assert!(linux.fuzzy_pinyin);
         assert!(android.fuzzy_pinyin);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).fuzzy_pinyin);

@@ -798,17 +798,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)showCloudDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"cloud-dictionary", NSWorkspace.sharedWorkspace, ^{ [self showAccount:nil]; }); }
 - (void)showHandwriting:(id)sender {
     (void)sender;
-    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
-    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=handwriting"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
-    [shared performSelector:@selector(showHandwriting)];
+    MSIMEOpenDesktopRoute(@"handwriting", NSWorkspace.sharedWorkspace, ^{ [shared performSelector:@selector(showHandwriting)]; });
 }
 - (void)showEmoji:(id)sender {
     (void)sender;
-    NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
-    if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=emoji"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
@@ -841,8 +837,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         });
         return YES;
     };
-    [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:)
-                 withObject:options withObject:selection];
+    MSIMEOpenDesktopRoute(@"emoji", NSWorkspace.sharedWorkspace, ^{ [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:)
+                 withObject:options withObject:selection]; });
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
@@ -957,9 +953,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     start();
 }
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
-- (void)showHelp:(id)sender { (void)sender; [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp]; }
-- (void)showAbout:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=settings:about"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout]; }
-- (void)showFeedback:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=settings:feedback"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; } else [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback]; }
+- (void)showHelp:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:help", NSWorkspace.sharedWorkspace, ^{ [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp]; }); }
+- (void)showAbout:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:about", NSWorkspace.sharedWorkspace, ^{ [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout]; }); }
+- (void)showFeedback:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:feedback", NSWorkspace.sharedWorkspace, ^{ [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback]; }); }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
@@ -975,7 +971,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [[MSIMEPreferencesWindowController sharedController] showAndActivate];
     });
 }
-- (void)showDictionary:(id)sender { (void)sender; NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"]; if (url) { NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration new]; c.arguments = @[@"--route=settings:dictionary"]; [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:c completionHandler:nil]; return; } if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
+- (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }); }
 - (void)prepareDictionary:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
