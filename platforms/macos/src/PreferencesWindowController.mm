@@ -1751,7 +1751,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
     // top of a panel, for a view that is plain SwiftUI and hosts inline perfectly well.
     NSView *accountPaneView = MSIMEAccountPaneView();
-    [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:360.0].active = YES;
+    // 视图自己会撑开并滚动,这里只保证这一页不会矮到把身份卡和第一张卡片挤没。
+    [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:520.0].active = YES;
     NSView *accountPage =
         PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[ accountPaneView ]);
     accountPage.accessibilityLabel = @"账号设置页";
