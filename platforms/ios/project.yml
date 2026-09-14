@@ -2,11 +2,12 @@ name: MSIMEClient
 options:
   deploymentTarget:
     iOS: "16.0"
-  bundleIdPrefix: com.metasequoiaime
+  bundleIdPrefix: app.msime.ios
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: 5.0
+    DEVELOPMENT_TEAM: LXCL4Z68GU
     MARKETING_VERSION: 1.0.0
     CURRENT_PROJECT_VERSION: 1
     PRODUCT_NAME: "$(TARGET_NAME)"
@@ -40,6 +41,7 @@ targets:
         excludes:
           - Tests/**
           - Package.swift
+          - .build/**
       - path: ../../shared/backend-ui
       - path: SharedUI
       - path: ../../target/ios/EngineResources/dictionary-manifest.json
@@ -50,10 +52,11 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         PRODUCT_NAME: MSIMEClientApp
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
         OTHER_LDFLAGS:
           - "$(inherited)"
@@ -99,7 +102,7 @@ targets:
         type: folder
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
         CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h"
@@ -122,10 +125,11 @@ targets:
         type: folder
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard-test-host
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-test-host
         PRODUCT_NAME: MSIMEKeyboardTestHost
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
   MSIMEKeyboardTests:
@@ -145,16 +149,18 @@ targets:
         excludes:
           - Tests/**
           - Package.swift
+          - .build/**
       - path: KeyboardExtension/Sources
         excludes:
           - HandwritingInputView.swift
       - path: SharedUI
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard-tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-tests
         PRODUCT_NAME: MSIMEKeyboardTests
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
@@ -183,12 +189,14 @@ targets:
         excludes:
           - Tests/**
           - Package.swift
+          - .build/**
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.service-tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.service-tests
         PRODUCT_NAME: MSIMEServiceTests
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lmsime_host_api"
@@ -218,6 +226,7 @@ targets:
         excludes:
           - Tests/**
           - Package.swift
+          - .build/**
       - path: KeyboardExtension/Sources
         excludes:
           - HandwritingInputView.swift
@@ -225,10 +234,11 @@ targets:
       - path: SharedUI
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.shared-tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.shared-tests
         PRODUCT_NAME: MSIMESharedTests
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
@@ -249,7 +259,7 @@ targets:
       - path: App/Services/WAVPCMExtractor.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.transport
         PRODUCT_NAME: MSIMEDoubaoTransport
         ENABLE_TESTABILITY: YES
   MSIMEDoubaoTransportTests:
@@ -261,5 +271,5 @@ targets:
       - target: MSIMEDoubaoTransport
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.transport.tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.transport.tests
         PRODUCT_NAME: MSIMEDoubaoTransportTests

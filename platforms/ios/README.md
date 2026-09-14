@@ -20,7 +20,7 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 
 ## 开发构建
 
-先初始化固定的 Engine gitlink 与递归子模块，并准备包含 iOS 版 Boost 的依赖前缀：
+先初始化固定的 Engine gitlink 与递归子模块，并准备一个提供 Boost 的依赖前缀：
 
 ```sh
 git submodule update --init --recursive
@@ -40,6 +40,8 @@ platforms/ios/stage-resources.sh "$resource_dir"
 MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
   platforms/ios/build-native.sh simulator
 ```
+
+Engine 只用到 Boost 的头文件（`find_package(Boost REQUIRED)` 之后链接 `Boost::headers`），所以依赖前缀不需要为 iOS 交叉编译过的 Boost 二进制，任何提供完整头文件与 CMake 配置的前缀都可以，例如 Homebrew 的 `/opt/homebrew/Cellar/boost/<version>`。
 
 `device` 目标产出 `target/ios/device/libmsime_host_api.a`，`simulator` 目标产出 arm64 的 `target/ios/simulator/libmsime_host_api.a`。脚本会自动识别依赖前缀下唯一的版本化 `BoostConfig.cmake` 与 `boost_headers-config.cmake`；有多个版本时，分别用 `MSIME_BOOST_DIR` 和 `MSIME_BOOST_HEADERS_DIR` 指向对应配置目录。
 

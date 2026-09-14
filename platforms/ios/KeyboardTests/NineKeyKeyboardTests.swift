@@ -1041,6 +1041,25 @@ final class NineKeyKeyboardTests: XCTestCase {
     add(attachment)
   }
 
+  // Putting the keyboard away must hand the engine's dictionary access back: iOS terminates an
+  // extension suspended while holding a lock in the App Group container and reports it as
+  // 0xdead10cc. Resuming has to rebuild a session that still converts.
+  func testSuspendReleasesDictionaryAccessAndResumeStillConverts() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    var snapshot = bridge.cancel()
+    for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"))
+    XCTAssertFalse(bridge.suspendDictionarySession(), "an open composition still owns the session")
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    XCTAssertTrue(bridge.suspendDictionarySession(), "suspending twice is not an error")
+    try bridge.resumeDictionarySession()
+    snapshot = bridge.cancel()
+    for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertNil(snapshot.diagnosticText)
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session lost its dictionaries")
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

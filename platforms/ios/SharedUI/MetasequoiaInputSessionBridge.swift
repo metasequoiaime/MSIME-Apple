@@ -121,7 +121,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
   private var suspended = false
-  private var learningBeforeSuspension = true
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -136,6 +135,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                      bootstrap)
       var preferences = options["preferences"] as? [String: Any] ?? [:]
       preferences["candidate_page_size"] = 9
+      // The shared preference default is English, and iOS has no setting that overrides it: the
+      // 中/英 key switches modes instead. Without this the engine answers pinyin with English
+      // completions while the keyboard is showing Chinese mode. macOS compensates the same way.
+      preferences["default_ime_mode"] = "chinese"
       options["preferences"] = preferences
     } catch {
       initializationDiagnostic = "输入运行时准备失败。"
@@ -335,21 +338,29 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return Self.shuangpinHints[profile] ?? [:]
   }
 
+  // The engine keeps its dictionary access from creation until destroy, and those lock files sit in
+  // the App Group container. iOS terminates an extension that is suspended while holding a lock
+  // there, which it reports as 0xdead10cc, so putting the keyboard away has to hand the access back
+  // rather than only pause learning. Destroying also ends learning writes, which is what pausing
+  // was for.
   func suspendDictionarySession() -> Bool {
     guard !suspended else { return true }
     guard !hasComposition else { return false }
-    learningBeforeSuspension = (options["preferences"] as? [String: Any])?["learning"] as? Bool ?? true
-    guard setLearningEnabled(false) else { return false }
+    if handle != 0 {
+      guard (try? Self.decode(msimeClientDestroy(handle))) != nil else { return false }
+      handle = 0
+    }
     suspended = true
     return true
   }
 
+  // Recreated from the options prepared when this process started. Preparation streams every pinned
+  // resource through SHA-256, so repeating it for each presentation would cost far more than the
+  // session itself; the options stay valid for the life of the process.
   func resumeDictionarySession() throws {
-    guard handle != 0 else { throw InputBridgeFailure.unavailable }
     guard suspended else { return }
-    guard setLearningEnabled(learningBeforeSuspension) else {
-      throw InputBridgeFailure.response("词库会话恢复失败")
-    }
+    guard !options.isEmpty else { throw InputBridgeFailure.unavailable }
+    handle = try Self.callCreateFocused(options)
     suspended = false
   }
 
