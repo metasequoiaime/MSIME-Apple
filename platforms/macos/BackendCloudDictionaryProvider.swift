@@ -23,6 +23,10 @@ extension BackendAccountClient: DesktopCloudDictionaryAPI {}
 final class BackendCloudDictionaryProvider: NSObject {
   private let client: any DesktopCloudDictionaryAPI
   private let credentials: () async throws -> String
+  private lazy var snapshots: BackendDesktopSnapshots? = {
+    guard let client = client as? any DesktopSnapshotAPI else { return nil }
+    return BackendDesktopSnapshots(client: client, credentials: credentials)
+  }()
   private var exported: URL?
   init(client: any DesktopCloudDictionaryAPI, credentials: @escaping () async throws -> String) {
     self.client = client; self.credentials = credentials
@@ -140,6 +144,9 @@ final class BackendCloudDictionaryProvider: NSObject {
     return ["revision":value.revision, "previous":try value.previous.map(entry) as Any? ?? NSNull(), "replacement":try value.replacement.map(entry) as Any? ?? NSNull()]
   }
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
+    if let operation = request["operation"] as? String, operation.hasPrefix("snapshot_"), let snapshots {
+      return try await snapshots.execute(request)
+    }
     let action = try Action(request)
     let token = try await credentials()
     try Task.checkCancellation()

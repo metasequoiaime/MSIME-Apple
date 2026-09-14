@@ -65,7 +65,7 @@ export type CloudDictionaryAction =
   | { operation: "snapshot_preview" }
   | { operation: "snapshot_export" }
   | { operation: "snapshot_restore_preview"; text: string }
-  | { operation: "snapshot_restore"; text: string; expected_sha256: string; revision: number }
+  | { operation: "snapshot_restore"; text?: string; expected_sha256?: string; revision?: number; token?: string }
   | { operation: "snapshot_enqueue"; token: string }
   | { operation: "snapshot_status" }
   | { operation: "snapshot_cancel" }
@@ -88,10 +88,11 @@ export type CloudCandidate = { code: string; word: string; weight: number; canon
 export type CloudFixedPosition = { context: string; code: string; word: string; position: number };
 export type CloudDictionarySnapshotMetadata = { cloudRevision: number; sha256: string; bytes: number; records: number; entries: number; overlays: number; positions: number; selections: number };
 export type CloudDictionarySnapshotRequest = { id: string; cloudRevision: number; expectedLocalVersion?: string; fileSha256: string; status: "queued" | "preparing" | "applied" | "conflict" | "failed" | "cancelled" };
-export type CloudDictionaryResponse = { previewToken?: string; snapshot?: CloudDictionarySnapshotMetadata; expectedRevision?: number; localVersion?: string; request?: CloudDictionarySnapshotRequest; entries?: CloudDictionaryEntry[]; catalog_entries?: CloudDictionaryCatalogEntry[]; candidates?: CloudCandidate[]; positions?: CloudFixedPosition[]; has_more?: boolean; offset?: number; revision?: number; context?: string; normalized?: string; changed?: boolean; selection_count?: number; text?: string; content?: string; filename?: string };
+export type CloudDictionaryResponse = { saved?: boolean; previewToken?: string; snapshot?: CloudDictionarySnapshotMetadata; expectedRevision?: number; localVersion?: string; request?: CloudDictionarySnapshotRequest; entries?: CloudDictionaryEntry[]; catalog_entries?: CloudDictionaryCatalogEntry[]; candidates?: CloudCandidate[]; positions?: CloudFixedPosition[]; has_more?: boolean; offset?: number; revision?: number; context?: string; normalized?: string; changed?: boolean; selection_count?: number; text?: string; content?: string; filename?: string };
 export interface CloudDictionaryPanelClient extends PanelClient {
   request(action: CloudDictionaryAction): Promise<CloudDictionaryResponse>;
   snapshot?: boolean;
+  snapshotNative?: boolean;
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;
   openCandidates?(): Promise<void>;
@@ -1145,6 +1146,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setSnapshotBusy(true);
     try {
       const result = await client.request({ operation: "snapshot_export" });
+      if (client.snapshotNative && result.saved === true) { setNotice("完整云词库快照已保存"); return; }
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
       const anchor = document.createElement("a");
@@ -1159,6 +1161,18 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   async function chooseRestoreSnapshot(file: File) {
+    if (client.snapshotNative) {
+      setSnapshotBusy(true);
+      try {
+        const result = await client.request({ operation: "snapshot_restore_preview", text: "" });
+        if (result.previewToken && result.snapshot && typeof result.expectedRevision === "number") {
+          setRestorePreview({ text: result.previewToken, snapshot: result.snapshot, expectedRevision: result.expectedRevision });
+          setNotice("快照已校验，请确认后替换云端词库");
+        } else throw new Error("invalid native snapshot preview");
+      } catch { setNotice("无法校验快照，云端词库未改变"); }
+      finally { setSnapshotBusy(false); }
+      return;
+    }
     const maximumBytes = 512 * 1024 * 1024;
     if (file.size === 0 || file.size > maximumBytes) {
       setNotice("快照文件必须大于 0 且不超过 512 MiB");
@@ -1180,7 +1194,9 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     if (!prepared || !window.confirm("确认用此快照替换全部云端词库和排序记录？")) return;
     setSnapshotBusy(true);
     try {
-      const result = await client.request({ operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
+      const result = await client.request(client.snapshotNative
+        ? { operation: "snapshot_restore", token: prepared.text }
+        : { operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
       setRestorePreview(null);
       setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
     } catch { setNotice("恢复失败，可能是云端版本已变化；云端词库未改变"); }

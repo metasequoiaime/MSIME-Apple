@@ -95,7 +95,9 @@ include(ClipboardTests.cmake)
 set(MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES
   ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
   ../../shared/backend/BackendDictionaryClient.swift ../../shared/backend/BackendCandidateClient.swift
-  BackendCloudDictionaryProvider.swift tests/DesktopCloudDictionaryProviderTest.swift)
+  ../../shared/backend/BackendSnapshotClient.swift BackendCloudDictionaryProvider.swift
+  BackendLocalSnapshot.swift BackendFileTransfer.swift BackendDesktopSnapshots.swift
+  tests/DesktopCloudDictionaryProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library

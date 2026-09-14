@@ -183,7 +183,8 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
         await dictionary.importPersonal(text, `ui-cloud-download-${Date.now()}`);
       },
     } : {}),
-    snapshot: /\bAndroid\b/i.test(navigator.userAgent),
+    snapshot: /\bAndroid\b/i.test(navigator.userAgent) || /\bMacintosh\b/i.test(navigator.userAgent),
+    snapshotNative: /\bMacintosh\b/i.test(navigator.userAgent),
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[]; unavailable?: ("emoji" | "kaomoji" | "symbols")[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then(entries => entries.map(entry => entry.text)),
