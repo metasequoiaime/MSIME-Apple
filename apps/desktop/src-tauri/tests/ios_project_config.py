@@ -112,6 +112,23 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("target 'MSIMEKeyboardExtension'", podfile)
         self.assertIn("pod 'MLKitDigitalInkRecognition', '8.0.0'", podfile)
 
+    def test_mobile_platform_keeps_account_sessions_in_the_ios_keychain(self):
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        rust = (plugin / "src/lib.rs").read_text()
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+
+        self.assertIn('run_mobile_plugin::<AccountSessionResponse>("loadSession", ())', rust)
+        self.assertIn('run_mobile_plugin("saveSession", AccountSessionRequest { value })', rust)
+        self.assertIn('run_mobile_plugin("clearSession", ())', rust)
+        self.assertIn('kSecAttrService as String: "app.msime.backend.account"', swift)
+        self.assertIn('kSecAttrAccount as String: "https://api.msime.app"', swift)
+        self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", swift)
+        self.assertIn('kSecAttrService as String: "app.msime.ios.community"', swift)
+        self.assertIn("static let maximumPayloadBytes = 16 * 1024", swift)
+        self.assertIn("@objc public func loadSession", swift)
+        self.assertIn("@objc public func saveSession", swift)
+        self.assertIn("@objc public func clearSession", swift)
+
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("revision: a83e2b2f196e3fa9605cb21c7d3b82652205c279", project)
