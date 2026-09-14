@@ -9,12 +9,13 @@
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
 @property(nonatomic) NSRange selection;
+@property(nonatomic, strong) NSMutableArray<NSString *> *events;
 @property(nonatomic) NSRange documentSelection;
 @property(nonatomic, copy) NSString *following;
 @end
 @implementation FakeTextClient
-- (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); self.committed = text; }
-- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); self.marked = text; self.selection = selection; }
+- (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"commit"]; self.committed = text; }
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"marked"]; self.marked = text; self.selection = selection; }
 - (NSRange)selectedRange { return self.documentSelection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
     if (range.location != self.documentSelection.location || range.length != 1 || !self.following) return nil;
@@ -393,6 +394,7 @@ static void TestEnginePreedit(FakeTextClient *client) {
 int main() {
     @autoreleasepool {
         FakeTextClient *client = [FakeTextClient new];
+        client.events = [NSMutableArray array];
         TestEnginePreedit(client);
         TestEngineEdges(client);
         TestEngineMaintenance();
@@ -436,6 +438,7 @@ int main() {
         assert([client.marked isEqual:@"shi"] && client.selection.location == 3);
         MSIMEApplyTransition(@{@"commit": @"合成", @"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, client);
         assert([client.committed isEqual:@"合成"] && client.marked.length == 0 && client.selection.location == 0);
+        assert(client.events.count >= 2 && [client.events[client.events.count - 2] isEqual:@"commit"] && [client.events.lastObject isEqual:@"marked"]);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);
