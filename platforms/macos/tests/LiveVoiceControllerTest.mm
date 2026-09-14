@@ -7,13 +7,18 @@
 @property NSUInteger captureStops;
 @property NSUInteger transcriptionStops;
 @property BOOL needsMicrophonePermission;
+@property BOOL needsSpeechPermission;
+@property NSUInteger microphoneRequests;
+@property NSUInteger speechRequests;
+@property(copy) void (^speechPermission)(BOOL);
 @property BOOL failCapture;
 @property(copy) void (^permission)(BOOL);
 @end
 @implementation LiveCaptureFixture
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return self.needsMicrophonePermission ? AVAuthorizationStatusNotDetermined : AVAuthorizationStatusAuthorized; }
-- (void)requestMicrophonePermission:(void (^)(BOOL))completion { self.permission = completion; }
-- (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return SFSpeechRecognizerAuthorizationStatusAuthorized; }
+- (void)requestMicrophonePermission:(void (^)(BOOL))completion { ++self.microphoneRequests; self.permission = completion; }
+- (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return self.needsSpeechPermission ? SFSpeechRecognizerAuthorizationStatusNotDetermined : SFSpeechRecognizerAuthorizationStatusAuthorized; }
+- (void)requestSpeechPermission:(void (^)(BOOL))completion { ++self.speechRequests; self.speechPermission = completion; }
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error {
     (void)language; (void)error; self.transcript = handler; return YES;
 }
@@ -339,6 +344,79 @@ int main(int argc, char **) {
         [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
         capture.transcript(@"", YES);
         assert(!capture.active && !polish.submissions && client.commits.count == beforeStale);
+        controller.usePolishFixture = NO;
+        voiceArguments[@"MSIMEClientVoicePolishText"] = @NO;
+        voiceArguments[@"MSIMEClientVoicePolishToken"] = @"";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        capture.needsSpeechPermission = YES; capture.needsMicrophonePermission = YES;
+        [controller toggleVoiceInput:nil];
+        assert(capture.speechRequests == 1 && !capture.active);
+        void (^speechPermission)(BOOL) = capture.speechPermission;
+        capture.needsSpeechPermission = NO;
+        speechPermission(YES);
+        id microphoneToken = [controller valueForKey:@"voicePermissionToken"];
+        assert(microphoneToken && !capture.active);
+        speechPermission(YES);
+        assert([controller valueForKey:@"voicePermissionToken"] == microphoneToken);
+        void (^microphonePermission)(BOOL) = capture.permission;
+        capture.needsMicrophonePermission = NO;
+        microphonePermission(YES); assert(capture.active);
+        microphonePermission(YES); speechPermission(YES);
+        assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
+        [controller cancelLiveVoiceInput];
+        // A second user toggle cancels intent without issuing a second sheet.
+        capture.needsMicrophonePermission = YES;
+        [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
+        const auto requests = capture.microphoneRequests;
+        [controller toggleVoiceInput:nil];
+        assert(capture.microphoneRequests == requests && ![controller valueForKey:@"voicePermissionToken"]);
+        capture.needsMicrophonePermission = NO;
+        microphonePermission(YES); assert(!capture.active);
+        // Cancel, focus transitions and settings changes invalidate old intent.
+        for (NSUInteger cancellation = 0; cancellation < 4; ++cancellation) {
+            capture.needsMicrophonePermission = YES;
+            [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
+            if (cancellation == 0) assert([controller handleEvent:key(53, 0, NSEventTypeKeyDown) client:client]);
+            else if (cancellation == 1) [controller voiceProviderSettingsChanged:nil];
+            else if (cancellation == 2) {
+                LiveTextFixture *other = [LiveTextFixture new];
+                [controller handleEvent:key(62, NSEventModifierFlagControl, NSEventTypeFlagsChanged) client:other];
+                [controller handleEvent:key(62, 0, NSEventTypeFlagsChanged) client:client];
+            } else [controller handleEvent:key(62, 0, NSEventTypeFlagsChanged) client:nil];
+            capture.needsMicrophonePermission = NO;
+            microphonePermission(YES); assert(!capture.active);
+        }
+        for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration", @"voiceService"]) {
+            capture.needsMicrophonePermission = YES;
+            [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
+            id original = [controller valueForKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [NSObject new] forKey:field];
+            capture.needsMicrophonePermission = NO;
+            microphonePermission(YES);
+            [controller setValue:original forKey:field];
+            assert(!capture.active);
+        }
+        capture.needsMicrophonePermission = YES;
+        [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
+        id pending = [controller valueForKey:@"voicePermissionToken"];
+        [controller applySharedToolbarPreferences:@{@"voice_input": @{@"asr_provider": @"system"}}];
+        assert([controller valueForKey:@"voicePermissionToken"] == pending); // Unchanged reload.
+        microphonePermission(NO); assert(![controller valueForKey:@"voicePermissionToken"]);
+        [controller toggleVoiceInput:nil];
+        void (^newPermission)(BOOL) = capture.permission;
+        microphonePermission(YES); assert(!capture.active && [controller valueForKey:@"voicePermissionToken"]);
+        capture.needsMicrophonePermission = NO;
+        newPermission(YES); assert(capture.active);
+        [controller cancelLiveVoiceInput];
+        capture.needsMicrophonePermission = YES;
+        [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
+        id originalGeneration = [controller valueForKey:@"voiceGeneration"];
+        voiceArguments[@"MSIMEClientVoiceASRProvider"] = @"openai";
+        voiceArguments[@"MSIMEClientVoiceASRToken"] = @"";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        capture.needsMicrophonePermission = NO;
+        microphonePermission(YES);
+        assert(!capture.active && [[controller valueForKey:@"voiceGeneration"] isEqual:originalGeneration]);
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

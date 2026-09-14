@@ -22,7 +22,7 @@ int main() {
             @"polish_enabled": @YES, @"polish_text": @YES, @"hotkey_ctrl_f9": @NO,
             @"hotkey_hold_space_lock": @NO, @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
         };
-        MSIMEApplySharedVoicePreferences(voice, defaults);
+        assert(MSIMEApplySharedVoicePreferences(voice, defaults));
         assert(!MSIMEVoiceInputEnabled(defaults));
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"] isEqual:@"fixture-device"]);
@@ -35,10 +35,10 @@ int main() {
         assert(![defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]);
         NSDictionary *saved = [defaults persistentDomainForName:suite];
         assert(saved.count == voice.count);
-        MSIMEApplySharedVoicePreferences(voice, defaults);
-        MSIMEApplySharedVoicePreferences(nil, defaults);
-        MSIMEApplySharedVoicePreferences(NSNull.null, defaults);
-        MSIMEApplySharedVoicePreferences(@[], defaults);
+        assert(!MSIMEApplySharedVoicePreferences(voice, defaults));
+        assert(!MSIMEApplySharedVoicePreferences(nil, defaults));
+        assert(!MSIMEApplySharedVoicePreferences(NSNull.null, defaults));
+        assert(!MSIMEApplySharedVoicePreferences(@[], defaults));
         MSIMEApplySharedVoicePreferences(@{@"asr_token": NSNull.null, @"capture_device": @42,
                                            @"polish_enabled": @0, @"polish_text": @1, @"sound_enabled": @"true",
                                            @"enabled": @"true", @"hotkey_rctrl_ralt": @0}, defaults);

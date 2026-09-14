@@ -17,8 +17,9 @@ static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
 // Adapt shared settings to the legacy native consumers. Missing or malformed
 // fields preserve local values; explicit false and empty strings clear them.
 // Reloading settings must not restart an active recording or emit save events.
-static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *defaults) {
-    if (![voice isKindOfClass:NSDictionary.class]) return;
+static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *defaults) {
+    if (![voice isKindOfClass:NSDictionary.class]) return NO;
+    BOOL changed = NO;
     NSDictionary *strings = @{
         @"language": @"Language",
         @"asr_provider": @"ASRProvider", @"asr_endpoint": @"ASREndpoint",
@@ -38,7 +39,9 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         id value = voice[field];
         if ([value isKindOfClass:NSString.class]) {
             NSString *key = [@"MSIMEClientVoice" stringByAppendingString:strings[field]];
-            if (![[defaults objectForKey:key] isEqual:value]) [defaults setObject:value forKey:key];
+            if (![[defaults objectForKey:key] isEqual:value]) {
+                [defaults setObject:value forKey:key]; changed = YES;
+            }
         }
     }
     NSDictionary *booleans = @{
@@ -61,7 +64,10 @@ static inline void MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         if ([value isKindOfClass:NSNumber.class] &&
             CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID()) {
             NSString *key = [@"MSIMEClientVoice" stringByAppendingString:booleans[field]];
-            if (![[defaults objectForKey:key] isEqual:value]) [defaults setObject:value forKey:key];
+            if (![[defaults objectForKey:key] isEqual:value]) {
+                [defaults setObject:value forKey:key]; changed = YES;
+            }
         }
     }
+    return changed;
 }

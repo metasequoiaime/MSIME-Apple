@@ -232,6 +232,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _liveVoiceMarked;
     BOOL _liveVoiceProcessing;
     id _globalVoiceHotkeyMonitor;
+    id _voicePermissionToken;
     uint64_t _voiceGeneration;
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
@@ -651,7 +652,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     return _candidateAnchorValid ? _candidateAnchorCaret : reported;
 }
-- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
+- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _voicePermissionToken = nil; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
     _preferenceLoadState.reset();
     [self applySharedToolbarPreferences:notification.userInfo];
@@ -1233,6 +1234,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     });
 }
 - (void)finishVoiceInputForDisable {
+    _voicePermissionToken = nil;
     // Windows RefreshKeyboardHook stops capture on disable without discarding
     // its final result. Repeated preference loads must not act as a second stop.
     _voiceHoldShortcut.reset();
@@ -1240,8 +1242,31 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_doubaoVoiceRequest && !_doubaoVoiceProcessing) [self finishDoubaoVoiceInput];
     if (_liveVoiceToken && !_liveVoiceProcessing) [self finishLiveVoiceInput];
 }
+- (void)requestVoicePermissionForSpeech:(BOOL)speech resume:(BOOL)resume {
+    id token = [NSObject new], client = _activeClient;
+    MSIMEClientSession *session = _session;
+    __weak MSIMEVoiceInputService *service = _voiceService;
+    const uint64_t generation = _voiceGeneration;
+    NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
+    _voicePermissionToken = token;
+    __weak MSIMEInputController *weakSelf = self;
+    void (^completion)(BOOL) = ^(BOOL granted) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_voicePermissionToken != token) return;
+        // Consume before resuming: Speech may chain a microphone request, and
+        // duplicate callbacks must not consume that request or toggle capture.
+        controller->_voicePermissionToken = nil;
+        if (!granted || !resume || controller->_activeClient != client || controller->_session != session ||
+            controller->_voiceService != service || controller->_voiceGeneration != generation ||
+            ![provider isEqual:([NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"")]) return;
+        [controller toggleVoiceInput:nil];
+    };
+    if (speech) [_voiceService requestSpeechPermission:completion];
+    else [_voiceService requestMicrophonePermission:completion];
+}
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
+    if (_voicePermissionToken) { _voicePermissionToken = nil; return; }
     // All menu, toolbar, local/global shortcut and permission callbacks converge
     // here. Recheck after asynchronous permission delivery, before any capture.
     if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults)) {
@@ -1315,11 +1340,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     const BOOL resumeAfterPermission = !_voiceHoldStarting;
     if (![self usesNativeHTTPVoice] && ![self usesNativeDoubaoVoice] && ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
         _voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
-        [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted && resumeAfterPermission) [weakSelf toggleVoiceInput:nil]; }];
+        [self requestVoicePermissionForSpeech:YES resume:resumeAfterPermission];
         return;
     }
     if (_voiceService.microphoneAuthorizationStatus != AVAuthorizationStatusAuthorized) {
-        [_voiceService requestMicrophonePermission:^(BOOL granted) { if (granted && resumeAfterPermission) [weakSelf toggleVoiceInput:nil]; }];
+        [self requestVoicePermissionForSpeech:NO resume:resumeAfterPermission];
         return;
     }
     start();
@@ -1374,6 +1399,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
     if (_activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
     if (_activeClient && _activeClient != sender) [self cancelDoubaoVoiceInput];
@@ -1523,7 +1549,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
-    MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults);
+    if (MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults))
+        _voicePermissionToken = nil;
     if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults))
         [self finishVoiceInputForDisable];
     BOOL translationChanged = NO;
@@ -1584,6 +1611,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
     [self cancelLiveVoiceInput];
     [self cancelDoubaoVoiceInput];
@@ -1647,9 +1675,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
-    if (!sender) { _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
+    if (!sender) { _voicePermissionToken = nil; _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        _voicePermissionToken = nil;
         _voiceHoldShortcut.reset();
         [self cancelLiveVoiceInput];
         [self cancelDoubaoVoiceInput];
@@ -1666,6 +1695,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
     NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
+    if (_voicePermissionToken && event.type == NSEventTypeKeyDown && event.keyCode == 53) {
+        _voicePermissionToken = nil; _voiceHoldShortcut.reset(); _modifierTap.reset(); return YES;
+    }
     const BOOL voiceEnabled = MSIMEVoiceInputEnabled(voiceDefaults);
     if (!voiceEnabled) _voiceHoldShortcut.reset();
     const auto voiceShortcut = voiceEnabled ? _voiceHoldShortcut.observe(event, {
