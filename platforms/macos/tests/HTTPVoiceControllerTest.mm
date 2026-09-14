@@ -17,6 +17,7 @@
 - (void)cancel { ++self.cancellations; }
 @end
 @interface HTTPCaptureFixture : NSObject
+@property NSTimeInterval capturedSeconds;
 @property(getter=isActive) BOOL active;
 @property BOOL failStart;
 @property NSUInteger cancellations;
@@ -26,6 +27,7 @@
 - (BOOL)cancelWithError:(NSError **)error;
 @end
 @implementation HTTPCaptureFixture
+- (NSTimeInterval)recordedDuration { return self.capturedSeconds; }
 - (BOOL)startPCMRecording:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device failure:(void (^)(NSError *))failure error:(NSError **)error {
     (void)handler; (void)device; (void)error; self.failure = failure; self.active = !self.failStart; return self.active;
 }
@@ -79,6 +81,7 @@ int main() {
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
         [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
         HTTPCaptureFixture *capture = [HTTPCaptureFixture new];
+        capture.capturedSeconds = 0.25;
         HTTPHostFixture *session = [HTTPHostFixture new];
         NSObject *client = [NSObject new];
         [controller setValue:capture forKey:@"voiceService"];
@@ -185,6 +188,19 @@ int main() {
         overlay.actionHandler(YES);
         cancelled.completion(@"synthetic", nil); cancelled.completion = nil;
         assert(!capture.active && session.submissions == beforeConfirm + 1);
+        const NSUInteger beforeShort = session.submissions, beforeShortFailures = overlay.failures;
+        for (NSNumber *duration in @[@0, @0.2499375]) {
+            capture.capturedSeconds = duration.doubleValue;
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            overlay.actionHandler(NO);
+            assert(!capture.active && !controller.requestFixture.submitted && controller.requestFixture.cancellations == 1);
+            assert(session.submissions == beforeShort && overlay.failures == beforeShortFailures);
+        }
+        capture.capturedSeconds = 0.25;
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput]; assert(controller.requestFixture.submitted);
+        controller.requestFixture.completion(@"synthetic", nil);
+        assert(session.submissions == beforeShort + 1 && cues.starts == cues.stops);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

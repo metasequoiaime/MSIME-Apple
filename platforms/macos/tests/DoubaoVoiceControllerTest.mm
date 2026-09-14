@@ -26,11 +26,13 @@
 @end
 
 @interface DoubaoCaptureFixture : MSIMEVoiceInputService
+@property NSTimeInterval capturedSeconds;
 @property(copy) MSIMEVoicePCMChunk chunk;
 @property BOOL failStart;
 @property NSUInteger finishes;
 @end
 @implementation DoubaoCaptureFixture
+- (NSTimeInterval)recordedDuration { return self.capturedSeconds; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return AVAuthorizationStatusAuthorized; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { assert(false && "Doubao must not request Speech permission"); return SFSpeechRecognizerAuthorizationStatusDenied; }
 - (BOOL)startPCMStreaming:(MSIMEVoicePCMChunk)handler deviceUID:(NSString *)device error:(NSError **)error {
@@ -145,6 +147,7 @@ int main() {
         NSDictionary *oldCueArguments = [cueDefaults volatileDomainForName:NSArgumentDomain];
         [cueDefaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
         DoubaoCaptureFixture *capture = [DoubaoCaptureFixture new];
+        capture.capturedSeconds = 0.25;
         DoubaoTextFixture *client = [DoubaoTextFixture new];
         [controller setValue:session forKey:@"session"];
         [controller setValue:capture forKey:@"voiceService"];
@@ -257,6 +260,21 @@ int main() {
         controller.polishFixture.completion(@"wrong focus", nil);
         assert(client.commits.count == 3);
         [controller setValue:client forKey:@"activeClient"];
+        const NSUInteger beforeShort = client.commits.count, beforeShortFailures = presentation.failures;
+        for (NSNumber *duration in @[@0, @0.2499375]) {
+            capture.capturedSeconds = duration.doubleValue;
+            assert(Start(controller, capture, session, YES));
+            DoubaoRequestFixture *shortRequest = controller.fixture;
+            shortRequest.result(@"synthetic short partial", NO, nil);
+            [controller finishDoubaoVoiceInput];
+            shortRequest.result(@"synthetic late final", YES, nil);
+            assert(!capture.active && !shortRequest.finishes && shortRequest.cancellations == 1);
+            assert(!client.marked.length && client.commits.count == beforeShort && presentation.failures == beforeShortFailures);
+            assert(Start(controller, capture, session, NO));
+            controller.fixture.result(@"synthetic early final", YES, nil);
+            assert(!capture.active && !controller.polishFixture.submissions && client.commits.count == beforeShort);
+        }
+        capture.capturedSeconds = 0.25;
         assert([session closeWithError:nil]);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
         assert(cues.starts == cues.stops);

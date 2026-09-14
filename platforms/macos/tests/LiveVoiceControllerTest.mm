@@ -3,6 +3,7 @@
 #include <cassert>
 
 @interface LiveCaptureFixture : MSIMEVoiceInputService
+@property NSTimeInterval capturedSeconds;
 @property(copy) void (^transcript)(NSString *, BOOL);
 @property NSUInteger captureStops;
 @property NSUInteger transcriptionStops;
@@ -15,6 +16,7 @@
 @property(copy) void (^permission)(BOOL);
 @end
 @implementation LiveCaptureFixture
+- (NSTimeInterval)recordedDuration { return self.capturedSeconds; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return self.needsMicrophonePermission ? AVAuthorizationStatusNotDetermined : AVAuthorizationStatusAuthorized; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { ++self.microphoneRequests; self.permission = completion; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return self.needsSpeechPermission ? SFSpeechRecognizerAuthorizationStatusNotDetermined : SFSpeechRecognizerAuthorizationStatusAuthorized; }
@@ -124,6 +126,7 @@ int main(int argc, char **) {
         LiveHostFixture *session = [[LiveHostFixture alloc] initWithOptions:options error:nil]; assert(session);
         LiveControllerFixture *controller = [LiveControllerFixture alloc];
         LiveCaptureFixture *capture = [LiveCaptureFixture new];
+        capture.capturedSeconds = 0.25;
         LiveTextFixture *client = [LiveTextFixture new];
         LivePresentationFixture *presentation = [LivePresentationFixture new];
         MSIMEVoiceCueFixture *cues = [MSIMEVoiceCueFixture new];
@@ -553,6 +556,21 @@ int main(int argc, char **) {
         assert([presentation.preview isEqual:@"synthetic overlay final"] && presentation.phase == 3);
         controller.polishFixture.completion(@"synthetic overlay polished", nil);
         assert(!presentation.preview.length && !capture.active);
+        const NSUInteger beforeShort = client.commits.count, beforeShortFailures = presentation.failures;
+        for (NSNumber *duration in @[@0, @0.2499375]) {
+            capture.capturedSeconds = duration.doubleValue;
+            [controller toggleVoiceInput:nil];
+            void (^shortReply)(NSString *, BOOL) = capture.transcript;
+            shortReply(@"synthetic short partial", NO);
+            presentation.actionHandler(NO);
+            shortReply(@"synthetic late final", YES);
+            assert(!capture.active && !client.marked.length && !presentation.preview.length);
+            assert(client.commits.count == beforeShort && presentation.failures == beforeShortFailures);
+            [controller toggleVoiceInput:nil];
+            capture.transcript(@"synthetic early final", YES);
+            assert(!capture.active && !controller.polishFixture.submissions && client.commits.count == beforeShort);
+        }
+        capture.capturedSeconds = 0.25;
         [defaults setVolatileDomain:old forName:NSArgumentDomain];
         assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }

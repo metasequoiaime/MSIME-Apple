@@ -1,6 +1,8 @@
 #import "../VoiceInputService.h"
+#include "../../../shared/voice/CaptureDuration.h"
 #include <cassert>
 #include <limits>
+#include <memory>
 
 static void Drain() {
     __block BOOL done = NO;
@@ -14,6 +16,40 @@ static void Drain() {
 @property BOOL failStart;
 @property NSUInteger stops;
 @end
+@interface DurationInput : NSObject
+@property(copy) AVAudioNodeTapBlock tap;
+@end
+@implementation DurationInput
+- (AudioUnit)audioUnit { return nullptr; }
+- (AVAudioFormat *)inputFormatForBus:(AVAudioNodeBus)bus {
+    (void)bus; return [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:1];
+}
+- (void)installTapOnBus:(AVAudioNodeBus)bus bufferSize:(AVAudioFrameCount)size format:(AVAudioFormat *)format block:(AVAudioNodeTapBlock)tap {
+    (void)bus; (void)size; (void)format; self.tap = tap;
+}
+- (void)installTapOnBus:(AVAudioNodeBus)bus bufferSize:(AVAudioFrameCount)size format:(AVAudioFormat *)format error:(NSError **)error block:(AVAudioNodeTapBlock)tap {
+    (void)error; [self installTapOnBus:bus bufferSize:size format:format block:tap];
+}
+- (void)removeTapOnBus:(AVAudioNodeBus)bus { (void)bus; }
+@end
+@interface DurationEngine : NSObject
+@property DurationInput *inputNode;
+@property BOOL failStart;
+@end
+@implementation DurationEngine
+- (BOOL)startAndReturnError:(NSError **)error { (void)error; return !self.failStart; }
+- (void)stop {}
+@end
+@interface DurationCapture : MSIMEVoiceInputService
+@property DurationEngine *engine;
+@property BOOL failStart;
+@end
+@implementation DurationCapture
+- (AVAuthorizationStatus)microphoneAuthorizationStatus { return AVAuthorizationStatusAuthorized; }
+- (AVAudioEngine *)makeAudioEngine {
+    self.engine = [DurationEngine new]; self.engine.inputNode = [DurationInput new]; self.engine.failStart = self.failStart; return (id)self.engine;
+}
+@end
 @implementation SyntheticCapture
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
     (void)error;
@@ -24,6 +60,17 @@ static void Drain() {
 @end
 int main() {
     @autoreleasepool {
+        for (double rate : {16000.0, 44100.0, 48000.0, 96000.0}) {
+            auto previous = std::make_shared<msime::voice::CaptureDuration>(rate);
+            assert(msime::voice::short_capture(previous->seconds()));
+            assert(previous->append(static_cast<uint64_t>(rate / 4) - 1));
+            assert(msime::voice::short_capture(previous->seconds()));
+            assert(previous->append(1));
+            assert(previous->finish() == 0.25 && !msime::voice::short_capture(previous->seconds()));
+            msime::voice::CaptureDuration next(rate);
+            assert(!previous->append(1000) && next.seconds() == 0 && previous->seconds() == 0.25);
+        }
+        assert(msime::voice::short_capture(std::numeric_limits<double>::quiet_NaN()));
         AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:1];
         AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:4800];
         buffer.frameLength = 4800;
@@ -77,5 +124,29 @@ int main() {
         for (NSUInteger i = 0; i < 601; ++i) service.capture(buffer);
         Drain();
         assert(failures == 2 && service.stops == stopped + 1);
+        // Exercise the production tap wiring without opening an audio device.
+        DurationCapture *durationService = [DurationCapture new];
+        __block NSUInteger delivered = 0;
+        MSIMEVoiceAudioBuffer durationObserve = ^(AVAudioPCMBuffer *) { ++delivered; };
+        assert([durationService startMicrophoneCapture:durationObserve deviceUID:nil error:nil]);
+        AVAudioNodeTapBlock previousTap = durationService.engine.inputNode.tap;
+        AVAudioTime *timestamp = [AVAudioTime timeWithSampleTime:0 atRate:48000];
+        previousTap(buffer, timestamp);
+        assert(durationService.recordedDuration == 0.1);
+        [durationService stopMicrophoneCapture];
+        previousTap(buffer, timestamp);
+        assert(durationService.recordedDuration == 0.1 && delivered == 1);
+        assert([durationService startMicrophoneCapture:durationObserve deviceUID:nil error:nil]);
+        assert(durationService.recordedDuration == 0);
+        previousTap(buffer, timestamp);
+        assert(durationService.recordedDuration == 0 && delivered == 1);
+        durationService.engine.inputNode.tap(buffer, timestamp);
+        durationService.engine.inputNode.tap(buffer, timestamp);
+        assert(durationService.recordedDuration == 0.2 && delivered == 3);
+        [durationService stopMicrophoneCapture];
+        durationService.failStart = YES;
+        assert(![durationService startMicrophoneCapture:durationObserve deviceUID:nil error:nil]);
+        durationService.engine.inputNode.tap(buffer, timestamp);
+        assert(durationService.recordedDuration == 0 && delivered == 3);
     }
 }
