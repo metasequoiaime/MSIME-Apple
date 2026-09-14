@@ -129,6 +129,30 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("@objc public func saveSession", swift)
         self.assertIn("@objc public func clearSession", swift)
 
+    def test_ios_registers_shared_account_commands_and_ui(self):
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+
+        self.assertIn('mod ios_account;', rust_entry)
+        self.assertIn('ios_account::setup(app.handle())?', rust_entry)
+        for command in [
+            "account_status",
+            "account_providers",
+            "account_request_code",
+            "account_login",
+            "account_profile",
+            "account_rename",
+            "account_logout",
+            "account_delete",
+            "account_forget",
+        ]:
+            self.assertIn(f"ios_account::{command}", rust_entry)
+            self.assertIn(f"pub async fn {command}", account)
+        self.assertIn("BackendAccountSession::new", account)
+        self.assertIn("IosAccountStorage(platform)", account)
+        self.assertIn('host.platform === "ios" ? { appIcon, account: basicAccount,', desktop_entry)
+
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("revision: a83e2b2f196e3fa9605cb21c7d3b82652205c279", project)

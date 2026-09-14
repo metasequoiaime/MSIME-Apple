@@ -6,6 +6,8 @@ mod linux_audio_devices;
 mod linux_clipboard;
 #[cfg(target_os = "android")]
 mod android_account;
+#[cfg(any(target_os = "ios", test))]
+mod ios_account;
 #[cfg(any(target_os = "macos", test))]
 mod macos_launch;
 #[cfg(any(target_os = "macos", test))]
@@ -4148,6 +4150,8 @@ pub fn run() {
     let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
+            #[cfg(target_os = "ios")]
+            ios_account::setup(app.handle())?;
             #[cfg(target_os = "macos")]
             app.manage(macos_panel_session::PanelState::from_environment()?);
             #[cfg(target_os = "macos")]
@@ -4512,6 +4516,24 @@ pub fn run() {
             app_icon_info,
             #[cfg(target_os = "ios")]
             app_icon_set,
+            #[cfg(target_os = "ios")]
+            ios_account::account_status,
+            #[cfg(target_os = "ios")]
+            ios_account::account_providers,
+            #[cfg(target_os = "ios")]
+            ios_account::account_request_code,
+            #[cfg(target_os = "ios")]
+            ios_account::account_login,
+            #[cfg(target_os = "ios")]
+            ios_account::account_profile,
+            #[cfg(target_os = "ios")]
+            ios_account::account_rename,
+            #[cfg(target_os = "ios")]
+            ios_account::account_logout,
+            #[cfg(target_os = "ios")]
+            ios_account::account_delete,
+            #[cfg(target_os = "ios")]
+            ios_account::account_forget,
             #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]

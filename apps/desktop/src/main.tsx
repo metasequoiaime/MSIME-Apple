@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -35,6 +35,17 @@ const typingStatistics: TypingStatisticsClient = {
 const appIcon = {
   info: () => invoke<{ supported: boolean; selected: string }>("app_icon_info"),
   set: (style: string) => invoke<{ supported: boolean; selected: string }>("app_icon_set", { style }),
+};
+const basicAccount: AccountClient = {
+  status: () => invoke("account_status"),
+  providers: () => invoke("account_providers"),
+  requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
+  login: (challengeId, code) => invoke("account_login", { challengeId, code }),
+  profile: () => invoke("account_profile"),
+  rename: displayName => invoke("account_rename", { displayName }),
+  logout: all => invoke("account_logout", { all }),
+  deleteAccount: () => invoke("account_delete"),
+  clearExpired: () => invoke("account_forget"),
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
@@ -85,15 +96,7 @@ const client: SettingsClient = {
     load: () => invoke("load_custom_skin_library"),
     mutate: action => invoke("mutate_custom_skin_library", { action }),
   }, appIcon, account: {
-    status: () => invoke("account_status"),
-    providers: () => invoke("account_providers"),
-    requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
-    login: (challengeId, code) => invoke("account_login", { challengeId, code }),
-    profile: () => invoke("account_profile"),
-    rename: displayName => invoke("account_rename", { displayName }),
-    logout: all => invoke("account_logout", { all }),
-    deleteAccount: () => invoke("account_delete"),
-    clearExpired: () => invoke("account_forget"),
+    ...basicAccount,
     settingsSync: {
       schema: () => invoke("account_preferences_schema"),
       load: () => invoke("account_preferences_load"),
@@ -290,7 +293,7 @@ function DesktopSettings() {
             host.platform === "macos",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon,
+          ...(host.platform === "ios" ? { appIcon, account: basicAccount,
             touchKeyboardSchemes: true,
             customTouchKeyboardSkins: true,
             customSkinLibrary: {

@@ -570,7 +570,7 @@ export interface SettingsClient {
   host?: HostCapabilities;
   /** Android's platform-adapted Apple-style keyboard home surface. */
   home?: HomePageActions;
-  /** Android account commands expose user/profile DTOs but never session tokens. */
+  /** Mobile account commands expose user/profile DTOs but never session tokens. */
   account?: AccountClient;
   /** Mobile hosts expose platform-native launcher or alternate icon selection. */
   appIcon?: AppIconClient;
