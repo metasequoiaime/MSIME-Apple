@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace msime::windows {
 namespace {
@@ -110,7 +111,9 @@ void send_text_via_ctrl_v(std::wstring_view text) {
   (void)SendInput(4, input, sizeof(INPUT));
 }
 
-void show_voice_failure(WaveOverlay &overlay, const std::atomic<uint64_t> &session,
+// Require the live lvalue: const-reference binding also accepts a temporary
+// atomic constructed from an integer snapshot, defeating both epoch checks.
+void show_voice_failure(WaveOverlay &overlay, std::atomic<uint64_t> &session,
                         uint64_t expected, const wchar_t *message) {
   if (session.load() != expected)
     return;
@@ -123,6 +126,14 @@ void show_voice_failure(WaveOverlay &overlay, const std::atomic<uint64_t> &sessi
   if (session.load() == expected)
     overlay.hide();
 }
+static_assert(std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
+                                  std::atomic<uint64_t> &, uint64_t,
+                                  const wchar_t *>);
+static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
+                                   uint64_t, uint64_t, const wchar_t *>);
+static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
+                                   std::atomic<uint64_t> &&, uint64_t,
+                                   const wchar_t *>);
 } // namespace
 
 VoiceInputSession::VoiceInputSession(WaveOverlay &overlay,
@@ -346,7 +357,7 @@ void VoiceInputSession::stop() {
       doubao->Cancel();
     cancel_inline();
     if (overflowed && lease)
-      show_voice_failure(overlay_, session_.load(), session_.load(),
+      show_voice_failure(overlay_, session_, session_.load(),
                          L"录音超过 60 秒上限");
     clear_overlay();
     return;
@@ -440,7 +451,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   } catch (const std::exception &) {
     cancel_inline();
     if (!cancel_requested_.load())
-      show_voice_failure(overlay_, session, session, L"语音识别失败");
+      show_voice_failure(overlay_, session_, session, L"语音识别失败");
     if (session_.load() == session)
       clear_overlay();
     release_doubao();
