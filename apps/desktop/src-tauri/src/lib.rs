@@ -140,6 +140,60 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
         .map_err(|code| CommandError { code })
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn macos_voice_capture_devices(document: &Value) -> Vec<Value> {
+    fn collect(value: &Value, devices: &mut Vec<Value>) {
+        if devices.len() >= 128 {
+            return;
+        }
+        if let Some(object) = value.as_object() {
+            let input_channels = object
+                .get("coreaudio_device_input")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
+            if input_channels > 0 {
+                if let Some(name) = object
+                    .get("_name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| {
+                        !name.is_empty()
+                            && name.len() <= 512
+                            && !name.chars().any(char::is_control)
+                    })
+                {
+                    let id = object
+                        .get("coreaudio_device_uid")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|id| {
+                            !id.is_empty()
+                                && id.len() <= 512
+                                && !id.chars().any(char::is_control)
+                        })
+                        .unwrap_or(name);
+                    devices.push(serde_json::json!({
+                        "backend": "macos",
+                        "id": id,
+                        "label": name
+                    }));
+                }
+            }
+            for child in object.values() {
+                collect(child, devices);
+            }
+        } else if let Some(array) = value.as_array() {
+            for child in array {
+                collect(child, devices);
+            }
+        }
+    }
+
+    let mut devices = Vec::new();
+    collect(document, &mut devices);
+    devices
+}
+
 #[tauri::command]
 async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     #[cfg(target_os = "linux")]
@@ -174,23 +228,7 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
         }
         let document: Value = serde_json::from_slice(&output.stdout)
             .map_err(|_| CommandError { code: "audio_devices" })?;
-        let mut devices = Vec::new();
-        fn collect(value: &Value, devices: &mut Vec<Value>) {
-            if let Some(object) = value.as_object() {
-                if let Some(name) = object.get("_name").and_then(Value::as_str) {
-                    let id = object
-                        .get("coreaudio_device_uid")
-                        .and_then(Value::as_str)
-                        .unwrap_or(name);
-                    devices.push(serde_json::json!({ "id": id, "name": name }));
-                }
-                for child in object.values() { collect(child, devices); }
-            } else if let Some(array) = value.as_array() {
-                for child in array { collect(child, devices); }
-            }
-        }
-        collect(&document, &mut devices);
-        return Ok(Value::Array(devices));
+        Ok(Value::Array(macos_voice_capture_devices(&document)))
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     Err(CommandError { code: "unavailable" })
@@ -3965,6 +4003,35 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn macos_voice_devices_match_the_picker_and_exclude_outputs() {
+        let document = serde_json::json!({
+            "SPAudioDataType": [
+                {"_name": "Fixture Speakers", "coreaudio_device_output": 2},
+                {"_name": "Fixture Microphone", "coreaudio_device_input": 1,
+                 "coreaudio_device_uid": "fixture-input"},
+                {"_name": "Fallback Microphone", "coreaudio_device_input": 2},
+                {"_name": "Not An Input", "coreaudio_device_input": 0}
+            ]
+        });
+
+        assert_eq!(
+            super::macos_voice_capture_devices(&document),
+            vec![
+                serde_json::json!({
+                    "backend": "macos",
+                    "id": "fixture-input",
+                    "label": "Fixture Microphone"
+                }),
+                serde_json::json!({
+                    "backend": "macos",
+                    "id": "Fallback Microphone",
+                    "label": "Fallback Microphone"
+                }),
+            ]
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
