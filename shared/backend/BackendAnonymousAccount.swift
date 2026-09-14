@@ -30,6 +30,8 @@ enum BackendAnonymousAccount {
                        secret: random(48, from: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
   }
 
+  private static let fileName = "anonymous-account.json"
+
   private static var query: [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
      kSecAttrService as String: service,
@@ -37,24 +39,35 @@ enum BackendAnonymousAccount {
   }
 
   static func stored() -> Credentials? {
+    if let data = BackendLocalStore.read(fileName),
+       let credentials = try? JSONDecoder().decode(Credentials.self, from: data)
+    {
+      return credentials
+    }
+    // 早先的版本把它放在钥匙串里。读到就搬到文件并把钥匙串条目删掉,这样重装再也不会弹授权框。
     var lookup = query
     lookup[kSecReturnData as String] = true
     lookup[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
     guard SecItemCopyMatching(lookup as CFDictionary, &result) == errSecSuccess,
-          let data = result as? Data else { return nil }
-    return try? JSONDecoder().decode(Credentials.self, from: data)
+          let data = result as? Data,
+          let credentials = try? JSONDecoder().decode(Credentials.self, from: data) else { return nil }
+    if BackendLocalStore.write(data, to: fileName) {
+      SecItemDelete(query as CFDictionary)
+    }
+    return credentials
   }
 
   @discardableResult
   static func save(_ credentials: Credentials) -> Bool {
     guard let data = try? JSONEncoder().encode(credentials) else { return false }
-    SecItemDelete(query as CFDictionary)
-    var item = query
-    item[kSecValueData as String] = data
-    // 锁屏后不再需要读它:开户只发生一次,之后靠会话 token 续期。
-    item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    return BackendLocalStore.write(data, to: fileName)
+  }
+
+  /// 匿名账号换来的会话也留在本机文件里。把自动生成的凭据锁进钥匙串、却让它换来的 token 也去问一次
+  /// 登录密码,是把保护级别加在了错误的东西上 —— 真正关于用户的个人词库就在同一个目录,是普通文件。
+  static func sessionStorage() -> any BackendSessionStorage {
+    BackendLocalStore(fileName: "anonymous-session.json")
   }
 
   /// 已有凭据就用它登录,没有就先生成再登录。成功返回本次使用的凭据。

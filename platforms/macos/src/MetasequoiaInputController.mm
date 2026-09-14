@@ -2,7 +2,7 @@
 
 // Implemented in CandidateTranslationBridge.swift.
 extern "C" void MSIMETranslateCandidates(const char *wordsJSON, const char *languageName,
-                                         unsigned long long generation);
+                                         const char *secondaryLanguageName, unsigned long long generation);
 extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 #import "DictionaryInstaller.h"
@@ -186,8 +186,13 @@ static NSHashTable *LiveDictionaryControllers()
     NSUInteger _voiceGeneration;
     id _voiceMouseMonitor;
     NSMutableDictionary<NSString *, NSString *> *_translationCache;
+    NSMutableDictionary<NSString *, NSString *> *_secondaryTranslationCache;
     NSURLSessionDataTask *_translationTask;
     NSUInteger _translationGeneration;
+    // 组字期间安静下来才发请求。常驻释义意味着每个候选页都要问一整页的词,而一次组字要敲好几下:
+    // 不防抖的话 pingguo 七个字母就是七次整页请求,每次都被下一次按键作废,额度全烧在没人看见的
+    // 中间态上。
+    dispatch_source_t _translationDebounce;
     unichar _lastAsciiPunctuation;
     NSTimeInterval _lastAsciiPunctuationTime;
     metasequoia::mac::SolitaryShiftTracker _solitaryShift;
@@ -215,6 +220,7 @@ static NSHashTable *LiveDictionaryControllers()
     {
         _candidatePanel = [MetasequoiaCandidatePanel new];
         _translationCache = [NSMutableDictionary dictionary];
+        _secondaryTranslationCache = [NSMutableDictionary dictionary];
         _candidatePanel.delegate = self;
         _floatingToolbarPanel = [MetasequoiaFloatingToolbarPanel sharedPanel];
         _shuangpinKeymapPanel = [[MetasequoiaShuangpinKeymapPanel alloc] init];
@@ -258,6 +264,8 @@ static NSHashTable *LiveDictionaryControllers()
 - (void)dealloc
 {
     [_translationTask cancel];
+    if (_translationDebounce != nil)
+        dispatch_source_cancel(_translationDebounce);
     [_voiceService cancel];
     if (_voiceMouseMonitor)
         [NSEvent removeMonitor:_voiceMouseMonitor];
@@ -324,6 +332,20 @@ static NSHashTable *LiveDictionaryControllers()
         NSString *translation = translations[word];
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
             _translationCache[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
+    }
+    NSDictionary<NSString *, NSString *> *secondaryTranslations = info[@"secondaryTranslations"];
+    const NSInteger secondaryIndex = MetasequoiaSecondaryTranslationLanguageIndex();
+    if (secondaryIndex >= 0 && [secondaryTranslations isKindOfClass:[NSDictionary class]])
+    {
+        NSString *secondaryLanguage =
+            @(metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondaryIndex)).code);
+        for (NSString *word in secondaryTranslations)
+        {
+            NSString *translation = secondaryTranslations[word];
+            if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] &&
+                translation.length)
+                _secondaryTranslationCache[[NSString stringWithFormat:@"%@|%@", secondaryLanguage, word]] = translation;
+        }
     }
     if (!_sessionSnapshot.preedit.empty())
         [self rebuildCandidatePanelPreservingSelection:YES];
@@ -1157,6 +1179,11 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
     {
         glossDictionary = [self translationDictionary];
     }
+    const NSInteger secondaryIndex = MetasequoiaSecondaryTranslationLanguageIndex();
+    NSString *secondaryLanguage =
+        secondaryIndex >= 0
+            ? @(metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondaryIndex)).code)
+            : @"";
     NSUInteger candidateIndex = 0;
     // 固顶的词提到最前,其余保持引擎给的顺序。Reordering here rather than asking the engine keeps the
     // shared ranking untouched, and the panel is the only thing that needs to know about the pin.
@@ -1205,6 +1232,14 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
             }
         }
         NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
+        // 第二条释义单独挂,不并进显示文本:候选格把它画在自己那一行,而上屏的仍然只是候选词本身。
+        if (secondaryLanguage.length > 0)
+        {
+            NSString *secondary = _secondaryTranslationCache[
+                [NSString stringWithFormat:@"%@|%@", secondaryLanguage, MetasequoiaStringFromUtf8(candidate.word)]];
+            if (secondary.length > 0)
+                indexed = MetasequoiaCandidateStringByAddingSecondaryTranslation(indexed, secondary);
+        }
         if (glossDictionary != nullptr && !carriesTranslation)
         {
             if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
@@ -1220,7 +1255,7 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
     }
     _visibleCandidateWords = [words copy];
     _candidateData = [data copy];
-    [self requestCandidateTranslationsForSnapshot:_sessionSnapshot];
+    [self scheduleCandidateTranslations];
     if (!_sessionSnapshot.preedit.empty() && _candidateData.count > 0)
     {
         const NSUInteger selectedIndex =
@@ -1249,6 +1284,44 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
     }
 }
 
+// 350ms:一个音节敲下来大约 150-250ms,所以这个窗口只在你停下来看候选时才到期 —— 那正是需要
+// 释义的一刻。每次按键重排计时器,中间态一次请求都不发。
+static const int64_t kCandidateTranslationQuietNanoseconds = 350 * NSEC_PER_MSEC;
+
+// 第二条释义默认关:读日文的人开它值一行,不读的人白白让每格高一截。-1 表示关闭,其余是语言表下标。
+static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
+{
+    return MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1,
+                                   static_cast<NSInteger>(metasequoia::mac::kCandidateTranslationLanguageCount) - 1);
+}
+
+- (void)scheduleCandidateTranslations
+{
+    if (_translationDebounce != nil)
+    {
+        dispatch_source_cancel(_translationDebounce);
+        _translationDebounce = nil;
+    }
+    if (_sessionSnapshot.preedit.empty() || !MetasequoiaInputFlag(@"candidateTranslation", YES))
+        return;
+    __weak MetasequoiaInputController *weakSelf = self;
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, kCandidateTranslationQuietNanoseconds),
+                              DISPATCH_TIME_FOREVER, 20 * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(timer, ^{
+      MetasequoiaInputController *strongSelf = weakSelf;
+      if (strongSelf == nullptr)
+          return;
+      dispatch_source_cancel(strongSelf->_translationDebounce);
+      strongSelf->_translationDebounce = nil;
+      if (strongSelf->_session == nullptr || strongSelf->_sessionSnapshot.preedit.empty())
+          return;
+      [strongSelf requestCandidateTranslationsForSnapshot:strongSelf->_sessionSnapshot];
+    });
+    _translationDebounce = timer;
+    dispatch_resume(timer);
+}
+
 - (void)requestCandidateTranslationsForSnapshot:(const metasequoia::SessionSnapshot &)snapshot
 {
     if (!MetasequoiaInputFlag(@"candidateTranslation", YES) || !snapshot.preedit.size())
@@ -1267,7 +1340,10 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
     NSString *language = @(languageEntry.code);
-    const NSUInteger limit = MIN((NSUInteger)5, snapshot.candidates.size());
+    // 一页有几格就问几个词。原本写死 5,而一页最多九格,后四个候选于是永远没有释义。
+    const NSUInteger pageSize = metasequoia::mac::NormalizeCandidatePageSize(
+        static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidatePageSize]));
+    const NSUInteger limit = MIN(pageSize, snapshot.candidates.size());
     if (provider == metasequoia::mac::CandidateTranslationProvider::AccountModel)
     {
         // One request for the whole page: a model keeps a page consistent when it sees it at once,
@@ -1285,8 +1361,15 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
         NSString *wordsJSON =
             payload != nil ? [[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding] : nil;
         if (wordsJSON.length)
-            MSIMETranslateCandidates(wordsJSON.UTF8String, languageEntry.name,
+        {
+            const NSInteger secondary = MetasequoiaSecondaryTranslationLanguageIndex();
+            const char *secondaryName =
+                secondary >= 0
+                    ? metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(secondary)).name
+                    : "";
+            MSIMETranslateCandidates(wordsJSON.UTF8String, languageEntry.name, secondaryName,
                                      static_cast<unsigned long long>(generation));
+        }
         return;
     }
     for (NSUInteger i = 0; i < limit; ++i)
