@@ -375,13 +375,14 @@ bool SessionController::exit_dedicated_english(const FocusLease &lease) {
     throw std::logic_error("Dedicated-English exit cannot reenter controller callbacks");
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock()) return false;
+  bool exited = false;
   auto submitted = input_.submit([&](InputState &state) {
-    if (stopping_ || !transport_.current(lease.transport)) return false;
-    return state.dedicated_english(lease, true).has_value();
+    if (stopping_ || !transport_.current(lease.transport)) return;
+    exited = state.dedicated_english(lease, true).has_value();
   });
   if (!submitted || submitted->wait_for(std::chrono::seconds(2)) != std::future_status::ready)
     return false;
-  return submitted->get();
+  return submitted->get() == InputTaskStatus::Completed && exited;
 }
 bool SessionController::focus_current(const FocusLease &lease) {
   if (input_.on_worker_thread() || active_controller == this)
