@@ -2057,7 +2057,8 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
         ibus_text_new_from_string((std::string("取消固定 ") + std::to_string(slot)).c_str()), "",
-        ibus_text_new_from_static_string("取消当前候选的位置固定"), fixed_position > 0, TRUE,
+        ibus_text_new_from_static_string("取消当前候选的位置固定"),
+        actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
   }
   return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
