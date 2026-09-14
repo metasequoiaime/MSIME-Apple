@@ -321,6 +321,7 @@
     }
     CGFloat x = inset;
     const CGFloat contentTop = size.height - inset - decorationHeight;
+    const CGFloat verticalItemWidth = MAX(0.0, size.width - 2.0 * inset);
     NSColor *selectedFill = MetasequoiaColorFromRgba(_skin.tokens.selected);
     NSColor *textColor = MetasequoiaColorFromRgba(_skin.tokens.text);
     NSColor *selectedText = MetasequoiaColorFromRgba(_skin.tokens.selectedText);
@@ -328,10 +329,10 @@
     NSColor *accent = MetasequoiaColorFromRgba(_skin.tokens.accent);
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
-        const CGFloat itemWidth = vertical ? width : widths[index].doubleValue;
+        const CGFloat itemWidth = vertical ? verticalItemWidth : widths[index].doubleValue;
         const CGFloat y = vertical ? contentTop - (index + 1) * rowHeight : inset;
         MetasequoiaCandidateButton *button =
-            [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(x, y, itemWidth, rowHeight)];
+            [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(vertical ? inset : x, y, itemWidth, rowHeight)];
         button.title = titles[index];
         button.font = _font;
         button.bordered = NO;
