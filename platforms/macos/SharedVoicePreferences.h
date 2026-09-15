@@ -14,6 +14,78 @@ static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
            ([defaults objectForKey:key] == nil || [defaults boolForKey:key]);
 }
 
+// macOS always records through CoreAudio. Keep the shared backend explicit so
+// a setting synced from another desktop is never silently reinterpreted here.
+static inline BOOL MSIMEVoiceCaptureBackendSupported(id backend) {
+    if (backend == nil) return YES;
+    if (![backend isKindOfClass:NSString.class]) return NO;
+    return ![(NSString *)backend length] ||
+        [@[@"auto", @"macos"] containsObject:[(NSString *)backend lowercaseString]];
+}
+
+// Capture the native fallback's valid voice fields when it writes the shared
+// Preferences snapshot. The Tauri settings page remains the primary editor,
+// but the fallback window must not leave a second, silently diverging config
+// behind. Missing defaults are omitted so a shared value from another host is
+// preserved; malformed defaults are ignored rather than poisoning the next
+// shared snapshot.
+static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *defaults) {
+    if (!defaults) return @{};
+    NSMutableDictionary *voice = [NSMutableDictionary dictionary];
+    NSDictionary *strings = @{
+        @"language": @"MSIMEClientVoiceLanguage",
+        @"asr_provider": @"MSIMEClientVoiceASRProvider",
+        @"asr_endpoint": @"MSIMEClientVoiceASREndpoint",
+        @"asr_model": @"MSIMEClientVoiceASRModel",
+        @"asr_token": @"MSIMEClientVoiceASRToken",
+        @"capture_backend": @"MSIMEClientVoiceCaptureBackend",
+        @"capture_device": @"MSIMEClientVoiceCaptureDevice",
+        @"commit_mode": @"MSIMEClientVoiceCommitMode",
+        @"asr_app_key": @"MSIMEClientVoiceDoubaoAppKey",
+        @"asr_resource_id": @"MSIMEClientVoiceDoubaoResourceID",
+        @"doubao_auth_mode": @"MSIMEClientVoiceDoubaoAuthMode",
+        @"doubao_boosting_table_id": @"MSIMEClientVoiceDoubaoBoostingTableID",
+        @"polish_provider": @"MSIMEClientVoicePolishProvider",
+        @"polish_endpoint": @"MSIMEClientVoicePolishEndpoint",
+        @"polish_model": @"MSIMEClientVoicePolishModel",
+        @"polish_token": @"MSIMEClientVoicePolishToken",
+        @"polish_prompt_id": @"MSIMEClientVoicePolishPromptID",
+        @"polish_prompt": @"MSIMEClientVoicePolishPrompt",
+        @"polish_prompt_custom_1": @"MSIMEClientVoicePolishPromptCustom1",
+        @"polish_prompt_custom_2": @"MSIMEClientVoicePolishPromptCustom2",
+        @"polish_prompt_custom_3": @"MSIMEClientVoicePolishPromptCustom3"
+    };
+    for (NSString *field in strings) {
+        id value = [defaults objectForKey:strings[field]];
+        if ([value isKindOfClass:NSString.class]) voice[field] = value;
+    }
+    NSDictionary *booleans = @{
+        @"enabled": @"MSIMEClientVoiceEnabled",
+        @"sound_enabled": @"MSIMEClientVoiceSoundEnabled",
+        @"start_sound": @"MSIMEClientVoiceStartSound",
+        @"end_sound": @"MSIMEClientVoiceEndSound",
+        @"mute_system_audio": @"MSIMEClientVoiceMuteSystemAudio",
+        @"stream_inline_preedit": @"MSIMEClientVoiceStreamInlinePreedit",
+        @"polish_enabled": @"MSIMEClientVoicePolish",
+        @"polish_text": @"MSIMEClientVoicePolishText",
+        @"doubao_enable_itn": @"MSIMEClientVoiceDoubaoEnableITN",
+        @"doubao_enable_punc": @"MSIMEClientVoiceDoubaoEnablePunctuation",
+        @"doubao_enable_ddc": @"MSIMEClientVoiceDoubaoEnableDDC",
+        @"hotkey_ctrl_f9": @"MSIMEClientVoiceHotkeyCtrlF9",
+        @"hotkey_hold_space_lock": @"MSIMEClientVoiceHotkeyHoldSpace",
+        @"hotkey_ralt": @"MSIMEClientVoiceHotkeyRightAlt",
+        @"hotkey_rctrl_ralt": @"MSIMEClientVoiceHotkeyCtrlOption",
+        @"hotkey_ctrl_win": @"MSIMEClientVoiceHotkeyCtrlCommand"
+    };
+    for (NSString *field in booleans) {
+        id value = [defaults objectForKey:booleans[field]];
+        if ([value isKindOfClass:NSNumber.class] &&
+            CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID())
+            voice[field] = value;
+    }
+    return [voice copy];
+}
+
 // Adapt shared settings to the legacy native consumers. Missing or malformed
 // fields preserve local values; explicit false and empty strings clear them.
 // Reloading settings must not restart an active recording or emit save events.
@@ -24,7 +96,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"language": @"Language",
         @"asr_provider": @"ASRProvider", @"asr_endpoint": @"ASREndpoint",
         @"asr_model": @"ASRModel", @"asr_token": @"ASRToken",
-        @"capture_device": @"CaptureDevice",
+        @"capture_backend": @"CaptureBackend", @"capture_device": @"CaptureDevice",
         @"commit_mode": @"CommitMode",
         @"asr_app_key": @"DoubaoAppKey", @"asr_resource_id": @"DoubaoResourceID",
         @"doubao_auth_mode": @"DoubaoAuthMode",

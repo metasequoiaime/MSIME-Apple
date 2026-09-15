@@ -10,6 +10,7 @@ pub enum OutputMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OutputError {
     InvalidText,
+    TsfRequiresServer,
     Unavailable,
 }
 
@@ -32,9 +33,13 @@ pub fn submit(
         "ctrl_v" => OutputMode::Clipboard,
         _ => return Err(OutputError::Unavailable),
     };
-    deliver(mode, text)
-        .then_some(())
-        .ok_or(OutputError::Unavailable)
+    if deliver(mode, text) {
+        return Ok(());
+    }
+    if mode == OutputMode::Tsf {
+        return Err(OutputError::TsfRequiresServer);
+    }
+    Err(OutputError::Unavailable)
 }
 
 #[cfg(test)]
@@ -92,6 +97,14 @@ mod tests {
             Err(OutputError::Unavailable)
         );
         assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn tsf_failure_is_explicitly_not_a_native_fallback() {
+        assert_eq!(
+            submit("synthetic", "tsf", |_, _| false),
+            Err(OutputError::TsfRequiresServer)
+        );
     }
 
     #[test]

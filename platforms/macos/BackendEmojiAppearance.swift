@@ -40,7 +40,9 @@ struct MacEmojiPalette {
 
   func apply(_ preferences: NSDictionary) {
     let resolved: ColorScheme?
-    switch preferences["theme"] as? String {
+    let surface = preferences["emoji_theme"] as? String
+    let global = preferences["theme"] as? String
+    switch (surface == "dark" || surface == "light") ? surface : global {
     case "light": resolved = .light
     case "system": resolved = nil
     default: resolved = .dark

@@ -41,6 +41,10 @@ int main() {
     assert(!encode_voice_controller_reply(reply, invalid));
   assert(!encode_voice_controller_reply(reply, std::string(MaxTextBytes + 1, 'x')));
   assert(encode_voice_controller_reply(reply, std::string(MaxTextBytes, 'x')));
+  assert(!encode_voice_controller_reply(reply, std::string("ok\0tail", 7)));
+  std::string boundary(MaxTextBytes - 1, 'x');
+  boundary.push_back('\0');
+  assert(!encode_voice_controller_reply(reply, boundary));
   reply.status = Status::Denied;
   assert(!encode_voice_controller_reply(reply, "fixture"));
   assert(encode_voice_controller_reply(reply));

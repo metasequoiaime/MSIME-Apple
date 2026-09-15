@@ -1,0 +1,9 @@
+// The Server's own resources. Separate from ServerManifest.rc, which is only
+// linked for signed UIAccess installs; this one is always present.
+//
+// The icon is the same file the TIP registers as the IME's icon, so the mark
+// at the left of the floating toolbar and the one Windows shows in the input
+// switcher are the same image rather than two drifting copies.
+#include "ServerResources.h"
+
+IDI_MSIME_LOGO ICON "installer/assets/icons/msime.ico"

@@ -51,9 +51,12 @@ int main() {
     std::filesystem::path path;
     ~Cleanup() { std::error_code ec; std::filesystem::remove_all(path, ec); }
   } cleanup{root};
-  for (bool enabled : {false, true}) {
-    auto options = test_host_options(root / (enabled ? "enabled" : "disabled"));
-    options["preferences"]["default_ime_mode"] = enabled ? "english" : "chinese";
+  // Both defaults describe the host's own passthrough for a new focus
+  // session. Neither may start the Engine in dedicated English, which the
+  // CN/EN switch cannot leave.
+  for (const char *mode : {"chinese", "english"}) {
+    auto options = test_host_options(root / mode);
+    options["preferences"]["default_ime_mode"] = mode;
     ModeTransport transport;
     RegistrationInbox inbox(1);
     std::promise<FocusLease> activation;
@@ -80,12 +83,16 @@ int main() {
     while (!(result = controller.dedicated_english_state(lease)) &&
            std::chrono::steady_clock::now() < deadline)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    assert(result && *result == enabled);
+    assert(result && *result == false);
     assert(transport.writes == 1); // Only the activation fence; reads send nothing.
     DedicatedEnglishMailbox mailbox;
     assert(!mailbox.snapshot(lease));
     mailbox.publish(lease, *result);
-    assert(mailbox.snapshot(lease) == enabled);
+    assert(mailbox.snapshot(lease) == false);
+    // The mailbox reports whatever the queue observed, including a mode the
+    // user turns on at runtime; only the lease decides what it will answer.
+    mailbox.publish(lease, true);
+    assert(mailbox.snapshot(lease) == true);
     auto stale = lease;
     ++stale.token;
     assert(!controller.dedicated_english_state(stale));

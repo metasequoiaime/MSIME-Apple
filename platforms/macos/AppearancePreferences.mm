@@ -5,6 +5,7 @@
 #import "TranslationSettingsWindow.h"
 #import "DesktopSettingsLauncher.h"
 #import "AISettingsWindow.h"
+#import "SharedVoicePreferences.h"
 #include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
@@ -414,9 +415,10 @@ static BOOL ValidToolbarFontSize(id value) {
     if (LocalModeBoolean([_defaults objectForKey:NeighborKey]))
         quanpin[@"autocorrect_neighbor"] = _sharedNeighbor ?: @(self.autocorrectNeighbor);
     if (quanpin.count) merged[@"quanpin"] = quanpin;
-    NSMutableDictionary *voice = [merged[@"voice_input"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"];
-    if ([language isEqualToString:@"zh-CN"] || [language isEqualToString:@"en-US"]) voice[@"language"] = language;
+    id existingVoice = merged[@"voice_input"];
+    NSMutableDictionary *voice = [existingVoice isKindOfClass:NSDictionary.class]
+        ? [existingVoice mutableCopy] : [NSMutableDictionary dictionary];
+    [voice addEntriesFromDictionary:MSIMEVoicePreferencesFromDefaults(NSUserDefaults.standardUserDefaults)];
     merged[@"voice_input"] = voice;
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
@@ -494,6 +496,11 @@ static BOOL ValidToolbarFontSize(id value) {
     _sharedTraditionalOutput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
+    _sharedCandidateLearning = nil;
+    _sharedQuanpinHelpcode = nil;
+    _sharedShuangpinHelpcode = nil;
+    _sharedHelpcodeOptions = nil;
+    _sharedLocalModes = nil;
     [self reloadSkins]; // Resolve the imported skin and publish one complete update.
     return YES;
 }
@@ -506,10 +513,16 @@ static BOOL ValidToolbarFontSize(id value) {
     snapshot[@"platform.macos.candidate_page_size"] = @(self.pageSize);
     snapshot[@"platform.macos.candidate_panel_style"] = @(self.vertical ? 1 : 0);
     snapshot[@"platform.macos.input_scheme"] = @([@[@"quanpin", @"shuangpin", @"wubi"] indexOfObject:self.inputScheme]);
+    snapshot[@"platform.macos.quanpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"quanpin"][@"schema"]]);
+    snapshot[@"platform.macos.shuangpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"shuangpin"][@"schema"]]);
+    BOOL allLocalModes = YES;
+    for (NSString *mode in MSIMECloudLocalModeKeys()) allLocalModes = allLocalModes && [self localModeEnabled:mode];
+    snapshot[@"platform.macos.local_input_modes"] = @(allLocalModes);
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.autocorrect"] = @(self.autocorrect);
+    snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
     return [snapshot copy];
 }
@@ -1686,7 +1699,13 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     return _skinWindow;
 }
-- (void)showSkinCatalog:(id)sender { [[self skinCatalogController] showWindow:sender]; }
+- (void)showSkinCatalog:(id)sender {
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, [self desktopSettingsWorkspace], ^{
+        MSIMEAppearancePreferences *strongSelf = weakSelf;
+        if (strongSelf) [[strongSelf skinCatalogController] showWindow:sender];
+    });
+}
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
 - (void)skinChanged:(NSPopUpButton *)sender {

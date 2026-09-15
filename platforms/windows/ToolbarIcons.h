@@ -26,9 +26,10 @@ enum ToolbarButton {
   kToolbarEmoji = 4,
   kToolbarScreenKeyboard = 5,
   kToolbarSettings = 6,
-  kToolbarHandwriting = 7,
-  kToolbarVoice = 8,
-  kToolbarAbout = 9,
+  // 7, 8 and 9 were handwriting, voice and about. The toolbar no longer
+  // offers them - they live in the tray menu - and the ids are left with no
+  // constants rather than renumbered, so a stored layout cannot silently
+  // point at a different button.
   kToolbarHide = 10,
 };
 // The icon for one button. `state` is that button's two-way mode - Chinese,
@@ -90,17 +91,6 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     return {0xE765, L"键"}; // 键
   case kToolbarSettings:
     return {0xE713, L"设"}; // 设
-  case kToolbarHandwriting:
-    // Text only: which codepoint the shipped toolbar uses for handwriting is
-    // not established here, and a guessed one would draw a blank box on the
-    // builds whose icon font lacks it.
-    return {0, L"✍"}; // ✍
-  case kToolbarVoice:
-    // No upstream counterpart: the shipped toolbar has no voice button. The
-    // microphone codepoint is the standard one both icon fonts carry.
-    return {0xE720, L"音"}; // 音
-  case kToolbarAbout:
-    return {0, L"?"};
   case kToolbarHide:
     return {0, L"×"};
   default:

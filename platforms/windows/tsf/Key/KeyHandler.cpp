@@ -1512,7 +1512,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         punctuationStr = _ResolveSmartPunctuation(wch, preceding);
     }
 
-    const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed);
+    const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
+                                          !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
     if (pairedPunctuationEnabled && !punctuationStr.empty())
     {
         // Quotes share one physical key for both sides. In paired mode every

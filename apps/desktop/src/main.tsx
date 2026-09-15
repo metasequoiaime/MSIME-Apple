@@ -11,6 +11,7 @@ import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
 import { DesktopKeyboard } from "./desktop-keyboard";
 import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
+import { testDesktopApiCredential } from "./credential-test-client";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
@@ -338,6 +339,9 @@ function DesktopSettings() {
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
+          } : {}),
+          ...(host.platform === "windows" || host.platform === "macos" ? {
+            testApiCredential: testDesktopApiCredential,
           } : {}),
           ...(host.platform === "ios" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>

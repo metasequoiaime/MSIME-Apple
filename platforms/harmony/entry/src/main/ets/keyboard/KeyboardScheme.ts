@@ -1,0 +1,208 @@
+/**
+ * Keyboard schemes the host exposes, ported from
+ * platforms/android/java/app/msime/client/KeyboardScheme.java.
+ *
+ * Java spells this as an enum carrying fields. ArkTS enums hold only a value, so each scheme is a
+ * frozen record and SCHEMES preserves the declaration order the Apple hosts also rely on.
+ */
+export interface SchemeDefinition {
+  readonly id: string;
+  readonly preferenceId: string;
+  readonly engineScheme: string;
+  readonly shuangpinProfile: string | null;
+  readonly touchKeyboardLayout: string;
+  readonly title: string;
+  readonly glyph: string;
+  readonly badge: string;
+}
+
+/** Complete preference values needed for one compare-and-swap update. */
+export interface PreferenceMapping {
+  readonly scheme: string;
+  readonly lastChineseScheme: string;
+  readonly shuangpinProfile: string;
+  readonly touchKeyboardLayout: string;
+}
+
+const QUANPIN: SchemeDefinition = {
+  id: 'QUANPIN', preferenceId: 'quanpin', engineScheme: 'quanpin', shuangpinProfile: null,
+  touchKeyboardLayout: 'twenty_six_key', title: '全拼 26 键', glyph: '拼', badge: '26'
+};
+const QUANPIN_NINE_KEY: SchemeDefinition = {
+  id: 'QUANPIN_NINE_KEY', preferenceId: 'nine_key', engineScheme: 'quanpin', shuangpinProfile: null,
+  touchKeyboardLayout: 'nine_key', title: '全拼 9 键', glyph: '拼', badge: '9'
+};
+const XIAOHE: SchemeDefinition = {
+  id: 'XIAOHE', preferenceId: 'xiaohe', engineScheme: 'shuangpin', shuangpinProfile: 'xiaohe',
+  touchKeyboardLayout: 'twenty_six_key', title: '小鹤双拼', glyph: '鹤', badge: '双'
+};
+const ZIRANMA: SchemeDefinition = {
+  id: 'ZIRANMA', preferenceId: 'ziranma', engineScheme: 'shuangpin', shuangpinProfile: 'ziranma',
+  touchKeyboardLayout: 'twenty_six_key', title: '自然码双拼', glyph: '自', badge: '双'
+};
+const MICROSOFT: SchemeDefinition = {
+  id: 'MICROSOFT', preferenceId: 'microsoft', engineScheme: 'shuangpin', shuangpinProfile: 'microsoft',
+  touchKeyboardLayout: 'twenty_six_key', title: '微软双拼', glyph: '微', badge: '双'
+};
+const SHOUDAO: SchemeDefinition = {
+  id: 'SHOUDAO', preferenceId: 'shoudao', engineScheme: 'shuangpin', shuangpinProfile: 'shoudao',
+  touchKeyboardLayout: 'twenty_six_key', title: '首道双拼', glyph: 'S', badge: '双'
+};
+const WUBI: SchemeDefinition = {
+  id: 'WUBI', preferenceId: 'wubi', engineScheme: 'wubi', shuangpinProfile: null,
+  touchKeyboardLayout: 'twenty_six_key', title: '86 五笔', glyph: '五', badge: '86'
+};
+const JAPANESE_NINE_KEY: SchemeDefinition = {
+  id: 'JAPANESE_NINE_KEY', preferenceId: 'japanese_nine_key', engineScheme: 'japanese',
+  shuangpinProfile: null, touchKeyboardLayout: 'nine_key', title: '日语 9 键', glyph: 'あ', badge: '9'
+};
+const JAPANESE: SchemeDefinition = {
+  id: 'JAPANESE', preferenceId: 'japanese', engineScheme: 'japanese', shuangpinProfile: null,
+  touchKeyboardLayout: 'twenty_six_key', title: '日语 26 键', glyph: 'あ', badge: '26'
+};
+const HANDWRITING: SchemeDefinition = {
+  id: 'HANDWRITING', preferenceId: 'handwriting', engineScheme: 'quanpin', shuangpinProfile: null,
+  touchKeyboardLayout: 'handwriting', title: '手写', glyph: '写', badge: '手'
+};
+const THOUGHTFUL_REPLY: SchemeDefinition = {
+  id: 'THOUGHTFUL_REPLY', preferenceId: 'thoughtful_reply', engineScheme: 'quanpin',
+  shuangpinProfile: null, touchKeyboardLayout: 'twenty_six_key', title: '高情商回复', glyph: '聊',
+  badge: 'AI'
+};
+
+export class KeyboardScheme {
+  static readonly QUANPIN: SchemeDefinition = QUANPIN;
+  static readonly QUANPIN_NINE_KEY: SchemeDefinition = QUANPIN_NINE_KEY;
+  static readonly XIAOHE: SchemeDefinition = XIAOHE;
+  static readonly ZIRANMA: SchemeDefinition = ZIRANMA;
+  static readonly MICROSOFT: SchemeDefinition = MICROSOFT;
+  static readonly SHOUDAO: SchemeDefinition = SHOUDAO;
+  static readonly WUBI: SchemeDefinition = WUBI;
+  static readonly JAPANESE_NINE_KEY: SchemeDefinition = JAPANESE_NINE_KEY;
+  static readonly JAPANESE: SchemeDefinition = JAPANESE;
+  static readonly HANDWRITING: SchemeDefinition = HANDWRITING;
+  static readonly THOUGHTFUL_REPLY: SchemeDefinition = THOUGHTFUL_REPLY;
+
+  /** Declaration order is the fixed order the pickers render. */
+  static readonly SCHEMES: SchemeDefinition[] = [
+    QUANPIN, QUANPIN_NINE_KEY, XIAOHE, ZIRANMA, MICROSOFT, SHOUDAO, WUBI,
+    JAPANESE_NINE_KEY, JAPANESE, HANDWRITING, THOUGHTFUL_REPLY
+  ];
+
+  static fromPreferenceId(value: string | null): SchemeDefinition | null {
+    if (value === null) {
+      return null;
+    }
+    for (const candidate of KeyboardScheme.SCHEMES) {
+      if (candidate.preferenceId === value) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  /** Resolves preference IDs in the fixed order and ignores unknown duplicates. */
+  static enabledFromPreferenceIds(ids: string[] | null): SchemeDefinition[] {
+    if (ids === null) {
+      return KeyboardScheme.SCHEMES;
+    }
+    const enabled: SchemeDefinition[] = [];
+    for (const candidate of KeyboardScheme.SCHEMES) {
+      if (ids.includes(candidate.preferenceId)) {
+        enabled.push(candidate);
+      }
+    }
+    return enabled.length === 0 ? [QUANPIN] : enabled;
+  }
+
+  /** Shared selection is authoritative; otherwise preserve the applied scheme or use first enabled. */
+  static resolveEnabledSelection(applied: SchemeDefinition | null, selectedPreferenceId: string | null,
+                                 enabled: SchemeDefinition[] | null): SchemeDefinition {
+    const available: SchemeDefinition[] =
+      enabled === null || enabled.length === 0 ? [QUANPIN] : enabled;
+    const selected: SchemeDefinition | null = KeyboardScheme.fromPreferenceId(selectedPreferenceId);
+    if (selected !== null && available.includes(selected)) {
+      return selected;
+    }
+    if (selectedPreferenceId === null && applied !== null && available.includes(applied)) {
+      return applied;
+    }
+    return available[0];
+  }
+
+  /** The Engine preference mapping needed when the shared picker changed the fallback. */
+  static mappingForRuntimeSelection(applied: SchemeDefinition | null, selected: SchemeDefinition | null,
+                                    currentLastChineseScheme: string | null,
+                                    currentProfile: string | null): PreferenceMapping | null {
+    if (selected === null || selected === THOUGHTFUL_REPLY || selected === applied) {
+      return null;
+    }
+    return KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+  }
+
+  static fromHostSelection(value: string | null, thoughtfulEnabled: boolean,
+                           engineSelection: SchemeDefinition): SchemeDefinition {
+    if (thoughtfulEnabled && value === THOUGHTFUL_REPLY.id && engineSelection === QUANPIN) {
+      return THOUGHTFUL_REPLY;
+    }
+    return engineSelection;
+  }
+
+  static fromPreferences(scheme: string, profile: string | null,
+                         touchLayout: string): SchemeDefinition {
+    if (scheme === 'quanpin' && touchLayout === 'handwriting') {
+      return HANDWRITING;
+    }
+    if (scheme === 'quanpin' && touchLayout === 'nine_key') {
+      return QUANPIN_NINE_KEY;
+    }
+    if (scheme === 'japanese' && touchLayout === 'nine_key') {
+      return JAPANESE_NINE_KEY;
+    }
+    if (scheme === 'shuangpin') {
+      for (const candidate of KeyboardScheme.SCHEMES) {
+        if (profile !== null && profile === candidate.shuangpinProfile) {
+          return candidate;
+        }
+      }
+      return XIAOHE;
+    }
+    for (const candidate of KeyboardScheme.SCHEMES) {
+      if (candidate !== THOUGHTFUL_REPLY && candidate.shuangpinProfile === null
+          && candidate.engineScheme === scheme && candidate.touchKeyboardLayout !== 'nine_key') {
+        return candidate;
+      }
+    }
+    return QUANPIN;
+  }
+
+  static mapping(scheme: SchemeDefinition, currentLastChineseScheme: string | null,
+                 currentProfile: string | null): PreferenceMapping {
+    let profile: string = KeyboardScheme.normalizedProfile(currentProfile);
+    if (scheme.shuangpinProfile !== null) {
+      profile = scheme.shuangpinProfile;
+    }
+    let lastChinese: string = KeyboardScheme.isChineseScheme(currentLastChineseScheme)
+      && currentLastChineseScheme !== null ? currentLastChineseScheme : 'quanpin';
+    if (scheme.engineScheme !== 'japanese') {
+      lastChinese = scheme.engineScheme;
+    }
+    return {
+      scheme: scheme.engineScheme,
+      lastChineseScheme: lastChinese,
+      shuangpinProfile: profile,
+      touchKeyboardLayout: scheme.touchKeyboardLayout
+    };
+  }
+
+  private static isChineseScheme(value: string | null): boolean {
+    return value === 'quanpin' || value === 'shuangpin' || value === 'wubi';
+  }
+
+  private static normalizedProfile(value: string | null): string {
+    if (value === 'ziranma' || value === 'microsoft' || value === 'shoudao') {
+      return value;
+    }
+    return 'xiaohe';
+  }
+}

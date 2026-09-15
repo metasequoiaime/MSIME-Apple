@@ -12,6 +12,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNo
 @property(nonatomic, copy) NSString *polishEndpoint;
 @property(nonatomic, copy) NSString *polishModel;
 @property(nonatomic, copy) NSString *polishToken;
+/// CoreAudio device UID; an empty value means the system default input.
+@property(nonatomic, copy) NSString *captureDevice;
 + (instancetype)loadSettings;
 - (BOOL)validate:(NSError **)error;
 - (BOOL)save:(NSError **)error;

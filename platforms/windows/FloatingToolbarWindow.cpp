@@ -5,10 +5,13 @@
 #include "ToolbarCoordinates.h"
 #include "ToolbarClick.h"
 #include "ToolbarModeCommand.h"
+#include "ServerResources.h"
 #include "WindowShadow.h"
 #include "IconFont.h"
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
+#include <string>
 #include <windowsx.h>
 #include <vector>
 
@@ -26,8 +29,10 @@ bool same(const FocusLease &a, const FocusLease &b) {
          same_ticket(a.transport, b.transport);
 }
 // The preference array is ordered as character_set, punctuation, fullwidth,
-// emoji, screen_keyboard, settings. Language and handwriting are always
-// present; the other buttons follow the shared shell order.
+// emoji, screen_keyboard, settings. Language and hide are always present; the
+// other buttons follow the shared shell order. Handwriting, voice and about
+// are not offered here - the shipped toolbar has no voice button at all, and
+// all three stay one click away in the tray menu.
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
   result.push_back(0); // language
@@ -37,9 +42,6 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   if (items[3]) result.push_back(4); // emoji
   if (items[4]) result.push_back(5); // screen keyboard
   if (items[5]) result.push_back(6); // settings
-  result.push_back(7); // handwriting
-  result.push_back(8); // voice
-  result.push_back(9); // about
   result.push_back(10); // hide
   return result;
 }
@@ -51,8 +53,6 @@ bool needs_shell(int button) {
   case kToolbarEmoji:
   case kToolbarScreenKeyboard:
   case kToolbarSettings:
-  case kToolbarHandwriting:
-  case kToolbarAbout:
     return true;
   default:
     return false;
@@ -77,7 +77,26 @@ FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
                             this);
   if (!window_) throw std::runtime_error("Toolbar window unavailable");
 }
-FloatingToolbarWindow::~FloatingToolbarWindow() { hide(); if (window_) DestroyWindow(window_); }
+FloatingToolbarWindow::~FloatingToolbarWindow() {
+  hide();
+  if (logo_) DestroyIcon(logo_);
+  if (window_) DestroyWindow(window_);
+}
+ID2D1Bitmap *FloatingToolbarWindow::logo_bitmap(int pixels) {
+  if (pixels <= 0) return nullptr;
+  if (!logo_ || logo_pixels_ != pixels) {
+    // LR_SHARED would hand back a cached system copy at the standard size and
+    // ignore the one asked for, which is exactly the resampling to avoid.
+    const HANDLE loaded =
+        LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_MSIME_LOGO),
+                   IMAGE_ICON, pixels, pixels, LR_DEFAULTCOLOR);
+    if (!loaded) return nullptr;
+    if (logo_) DestroyIcon(logo_);
+    logo_ = static_cast<HICON>(loaded);
+    logo_pixels_ = pixels;
+  }
+  return device_.GetBitmapFromIcon(logo_, L"icon:toolbar-logo:" + std::to_wstring(pixels));
+}
 void FloatingToolbarWindow::hide() {
   // A hidden toolbar has no pointer over it; leaving these set would show a
   // stale highlight the next time it appears.
@@ -250,20 +269,37 @@ void FloatingToolbarWindow::paint() {
         std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     const auto active = slots(items_);
     const auto layout = toolbar_metrics(static_cast<double>(font_size_));
+    // The product mark at the far left. Drawn before the drag strip and the
+    // buttons, and skipped rather than substituted if the icon will not load -
+    // a missing mark costs nothing, a placeholder box would look like a bug.
+    const auto mark = toolbar_logo(layout);
+    // Loaded at the size it is drawn at, in real pixels rather than Direct2D's
+    // DIPs: msime.ico carries frames from 16 to 256, and asking for the right
+    // one is the difference between a crisp mark and a resampled one.
+    const double pixels = (mark.right - mark.left) *
+                          toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
+      target->DrawBitmap(logo,
+                         D2D1_RECT_F{static_cast<float>(mark.left) * unit,
+                                     static_cast<float>(mark.top) * unit,
+                                     static_cast<float>(mark.right) * unit,
+                                     static_cast<float>(mark.bottom) * unit},
+                         1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     // The drag strip and the divider that separates it from the buttons. The
     // strip is the only part that drags, so it has to be visible; upstream
     // draws it in the accent colour. Both follow the bar height so they stay
     // centred when the icon size changes.
     const auto height = static_cast<float>(layout.height);
     const float top = card_rect.top;
-    const float handle_left = card_rect.left + 3.0f * unit;
+    const float strip = card_rect.left + static_cast<float>(layout.logo) * unit;
+    const float handle_left = strip + 3.0f * unit;
     const D2D1_ROUNDED_RECT handle{{handle_left, top + height * 0.269f * unit,
                                     handle_left + 2.0f * unit,
                                     top + height * 0.731f * unit},
                                    1.0f * unit, 1.0f * unit};
     target->FillRoundedRectangle(handle, brush(palette_.accent));
     const float divider =
-        card_rect.left + static_cast<float>(layout.handle - 1.0) * unit;
+        strip + static_cast<float>(layout.handle - 1.0) * unit;
     target->DrawLine({divider, top + height * 0.231f * unit},
                      {divider, top + height * 0.769f * unit},
                      brush(palette_.border), 1.0f * unit);
@@ -528,12 +564,6 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           self->keyboard_action_();
         else if (slot == 6 && self->settings_action_)
           self->settings_action_();
-        else if (slot == 7 && self->handwriting_action_)
-          self->handwriting_action_();
-        else if (slot == 8 && self->voice_action_)
-          self->voice_action_();
-        else if (slot == 9 && self->about_action_)
-          self->about_action_();
         else if (slot == 10 && self->hide_action_)
           self->hide_action_();
       }

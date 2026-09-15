@@ -269,11 +269,17 @@ impl TouchKeyboardSchemePreferences {
     }
 }
 
+/// Which state a new focus session starts in.
+///
+/// Chinese, because that is what this input method is for: opening in English means the first thing
+/// a new user does is find the switch. The macOS host already resolved anything but an explicit
+/// "english" to Chinese on its own, so this is the shared default agreeing with the one host that
+/// had already decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
-    Chinese,
     #[default]
+    Chinese,
     English,
 }
 
@@ -1807,6 +1813,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_voice_upgrade_preserves_existing_credentials() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        let voice = value["voice_input"].as_object_mut().unwrap();
+        voice.insert("asr_token".into(), "synthetic-asr-token".into());
+        voice.insert("polish_token".into(), "synthetic-polish-token".into());
+        voice.remove("commit_mode");
+        voice.remove("doubao_auth_mode");
+        voice.remove("asr_tokens");
+        voice.remove("polish_tokens");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.asr_token, "synthetic-asr-token");
+        assert_eq!(restored.voice_input.polish_token, "synthetic-polish-token");
+        assert_eq!(restored.voice_input.commit_mode, "tsf");
+        assert_eq!(restored.voice_input.doubao_auth_mode, "");
+        assert!(restored.voice_input.asr_tokens.is_empty());
+        assert!(restored.voice_input.polish_tokens.is_empty());
+    }
+
+    #[test]
     fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
         // A file written by a build that offered "local_whisper" must still load.
         // No backend implements it: the Linux provider builds
@@ -2153,10 +2178,12 @@ mod tests {
             .remove("default_ime_mode");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), bytes).unwrap();
+        // A document written before the field existed takes the default, which is Chinese.
         assert_eq!(
             store.load().unwrap().preferences.default_ime_mode,
-            DefaultImeMode::English
+            DefaultImeMode::Chinese
         );
+        // An explicit English is still English; only the absent case moved.
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
         value["default_ime_mode"] = "english".into();
         let saved = store

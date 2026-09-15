@@ -234,7 +234,7 @@ SessionWorkers 为 1–64 个固定连接槽位预建 I/O worker，每槽最多�
 
 submit 供外部控制线程消费已协商的登记通知，先检查 MainTransport.current；取消可能等待有限时间的在途写入，不得直接放进要求非阻塞的 PipeIntake 回调或输入/gate 回调。原生控制器还需提供有界登记通知入口。request_stop 标记停止、关闭活动和待替换票据以取消读取；stop 从外部线程串行 join，不能从输入队列或自身 worker 调用。依赖的传输、Gate、输入队列和处理器须活到 stop 返回；正常退出顺序是停止接纳、取消/join 连接循环、停止输入队列，再释放传输服务。输入队列故障被循环观察到时会停止其余槽位；全部连接空闲时仍需宿主监控输入队列/服务状态并主动取消，不能依靠空闲读取自行发现故障。
 
-本机测试组合实际 SessionWorkers、SessionPump、InputQueue 和真实会话，使用可取消的空闲传输验证并发读取上限、重复登记、容量拒绝、重连线程复用、连续替换合并、旧关闭隔离与并发 stop。仍未执行 Windows 原生组合，也未完成服务启动装配、实际 TSF/UI 处理器与安装验收。
+本机测试组合实际 SessionWorkers、SessionPump、InputQueue 和真实会话，使用可取消的空闲传输验证并发读取上限、重复登记、容量拒绝、重连线程复用、连续替换合并、旧关闭隔离与并发 stop。`main.cpp` 现已用 `WindowsServer` 装配 production/preview 管道、`production_key_handler()` 与偏好发布回调；仍未执行 Windows 原生组合，也未完成实际 TSF/UI 编辑器交互与安装验收。
 
 ### 原生服务装配与故障监控
 

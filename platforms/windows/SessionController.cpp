@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "CandidateRenderSync.h"
 #include "ReplyCodec.h"
 #include "UiSelectionDelivery.h"
 
@@ -101,8 +102,11 @@ SessionController::SessionController(
              }
            },
            [this](const FocusLease &lease, const PendingReply &reply) {
-             if (reply.translation_query)
+           if (reply.translation_query)
                (void)translations_.submit(lease, *reply.translation_query);
+           },
+           [this](const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+             wait_candidate_render_for_key(lease, packet);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
@@ -137,8 +141,19 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
         shown->lease.token != lease.token ||
         !same_ticket(shown->lease.transport, lease.transport))
       return SelectionRequestResult::Rejected;
+    if (should_wait_for_candidate_render(0, shown->render_serial, false,
+                                         shown->visible))
+      (void)candidates_.wait_rendered(
+          lease, shown->render_serial,
+          std::chrono::milliseconds(candidate_render_wait_max_ms));
+    // Re-read after the receipt; the page may have changed while painting.
+    const auto painted = candidate_view();
+    if (!painted || painted->session != session ||
+        painted->generation != generation ||
+        painted->render_serial < shown->render_serial)
+      return SelectionRequestResult::Rejected;
     bool found = false;
-    for (const auto &candidate : shown->candidates)
+    for (const auto &candidate : painted->candidates)
       if (candidate.index == index && candidate.session == session &&
           candidate.generation == generation)
         found = true;
@@ -174,8 +189,8 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
           FanyImeNamedpipeData packet{};
           packet.client_id = lease.transport.client;
           packet.event_type = FanyImePipeEventType::KeyEvent;
-          packet.point[0] = shown->x;
-          packet.point[1] = shown->y;
+          packet.point[0] = painted->x;
+          packet.point[1] = painted->y;
           candidates_.delivered(lease, *pending, packet);
           if (presentation_.delivered)
             presentation_.delivered(lease, *pending, packet);
@@ -337,6 +352,20 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
   if (stopping_ || !input_.stats().accepting)
     return std::nullopt;
   return value;
+}
+void SessionController::wait_candidate_render_for_key(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+  if (packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !candidate_render_key(packet.keycode))
+    return;
+  const auto shown = candidate_view();
+  if (!shown || !shown->visible ||
+      !same_ticket(shown->lease.transport, lease.transport) ||
+      shown->lease.epoch != lease.epoch || shown->lease.token != lease.token)
+    return;
+  (void)candidates_.wait_rendered(
+      lease, shown->render_serial,
+      std::chrono::milliseconds(candidate_render_wait_max_ms));
 }
 bool SessionController::mode_active() {
   if (stopping_)

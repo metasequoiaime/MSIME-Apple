@@ -874,7 +874,10 @@ int wmain(int argc, wchar_t **argv) {
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
         config.candidate_font, config.candidate_fallback_fonts, config.dark_theme,
         config.horizontal_candidates, config.candidate_show_preedit,
-        [&](const CandidatePage &page) { (void)pages.submit(page); });
+        [&](const CandidatePage &page) { (void)pages.submit(page); },
+        [&](const CandidatePresentation &value) {
+          server.candidate_rendered(value.lease, value.render_serial);
+        });
     const auto palette = resolve_palette(config);
     // An external package may ask for a wider card than the font implies; the
     // artwork is drawn against that width.
@@ -973,19 +976,8 @@ int wmain(int argc, wchar_t **argv) {
       const auto request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
       if (request) (void)launch_shell(*request);
     });
-    toolbar.set_handwriting_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::OpenHandwritingPanel);
-      if (request) (void)launch_shell(*request);
-    });
     toolbar.set_keyboard_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
-      if (request) (void)launch_shell(*request);
-    });
-    toolbar.set_voice_action([&] {
-      (void)voice->toggle();
-    });
-    toolbar.set_about_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
       if (request) (void)launch_shell(*request);
     });
     toolbar.set_hide_action([&] {

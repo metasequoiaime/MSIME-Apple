@@ -7,6 +7,7 @@ int main() {
   using msime::linux_host::PairedPunctuationModifier;
   using msime::linux_host::paired_closing_modifiers_allowed;
   using msime::linux_host::paired_closing_for_key;
+  using msime::linux_host::paired_punctuation_excluded_client;
 
   PairedPunctuationTracker tracker;
   tracker.push("）");
@@ -37,6 +38,11 @@ int main() {
   assert(paired_closing_for_key('}', false) == "}");
   assert(paired_closing_for_key('}', true) == "｝");
   assert(!paired_closing_for_key(',', false));
+  assert(paired_punctuation_excluded_client("/usr/bin/scalc"));
+  assert(paired_punctuation_excluded_client("scalc.bin"));
+  assert(paired_punctuation_excluded_client("GNUMERIC"));
+  assert(!paired_punctuation_excluded_client("soffice.bin"));
+  assert(!paired_punctuation_excluded_client("org.gnome.TextEditor"));
 
   constexpr auto control =
       static_cast<unsigned>(PairedPunctuationModifier::Control);

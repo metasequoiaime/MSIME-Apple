@@ -14,6 +14,20 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // Reading the system clipboard is a system_basic permission on OpenHarmony, so an ordinary
+    // third-party input method is refused it however it asks: the request is granted only to a build
+    // signed with a provisioning profile that carries the ACL for it. Declared so such a build works,
+    // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.READ_PASTEBOARD",
+        "reason": "$string:clipboard_permission_reason",
+        "usedScene": {
+          "abilities": ["KeyboardExtensionAbility"],
+          "when": "inuse"
+        }
+      }
+    ],
     "extensionAbilities": [
       {
         "name": "KeyboardExtensionAbility",

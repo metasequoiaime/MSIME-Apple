@@ -1,5 +1,6 @@
 #import "../VoiceCaptureDevice.h"
 #include <cassert>
+#include <cstring>
 
 namespace CaptureFixture {
 int failure = 0;
@@ -39,6 +40,46 @@ OSStatus GetUnit(AudioUnit unit, AudioUnitPropertyID property, AudioUnitScope sc
     return failure == 8 ? -1 : noErr;
 }
 }
+
+namespace ListFixture {
+OSStatus Size(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 *bytes) {
+    assert(!qualifierSize && !qualifier);
+    if (object == kAudioObjectSystemObject) {
+        assert(address->mSelector == kAudioHardwarePropertyDevices);
+        *bytes = 4 * sizeof(AudioDeviceID);
+        return noErr;
+    }
+    assert(address->mSelector == kAudioDevicePropertyStreams);
+    assert(address->mScope == kAudioDevicePropertyScopeInput);
+    *bytes = object == 12 ? 0 : sizeof(AudioStreamID);
+    return noErr;
+}
+OSStatus Get(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 *bytes, void *data) {
+    assert(!qualifierSize && !qualifier);
+    if (object == kAudioObjectSystemObject && address->mSelector == kAudioHardwarePropertyDevices) {
+        assert(*bytes == 4 * sizeof(AudioDeviceID));
+        AudioDeviceID ids[] = {11, 12, 13, 14};
+        std::memcpy(data, ids, sizeof(ids));
+        return noErr;
+    }
+    if (object == kAudioObjectSystemObject && address->mSelector == kAudioHardwarePropertyDefaultInputDevice) {
+        assert(*bytes == sizeof(AudioDeviceID));
+        *static_cast<AudioDeviceID *>(data) = 13;
+        return noErr;
+    }
+    if (address->mSelector == kAudioDevicePropertyDeviceUID) {
+        if (object == 14) return -1;
+        assert(*bytes == sizeof(CFStringRef));
+        *static_cast<CFStringRef *>(data) = object == 11 ? CFSTR("uid-alpha") : CFSTR("uid-default");
+        return noErr;
+    }
+    assert(address->mSelector == kAudioObjectPropertyName && *bytes == sizeof(CFStringRef));
+    *static_cast<CFStringRef *>(data) = object == 11 ? CFSTR("Alpha Mic") : CFSTR("Zulu Mic");
+    return noErr;
+}
+}
 int main() {
     using namespace CaptureFixture;
     @autoreleasepool {
@@ -62,5 +103,14 @@ int main() {
         assert(!error && propertyReads == 1 && sizes == 1 && sets == 1 && reads == 1);
         failure = 1;
         assert(!MSIMEConfigureVoiceCaptureDevice(@"synthetic-input", unit, nil, api));
+
+        MSIMEVoiceCaptureDeviceListAPI listAPI{ListFixture::Get, ListFixture::Size};
+        NSArray<NSDictionary *> *devices = MSIMEListVoiceCaptureDevices(listAPI);
+        assert(devices.count == 2); // Output-only and missing-UID devices are omitted.
+        assert([devices[0][@"uid"] isEqual:@"uid-default"]);
+        assert([devices[0][@"name"] isEqual:@"Zulu Mic"]);
+        assert([devices[0][@"default"] isEqual:@YES]);
+        assert([devices[1][@"uid"] isEqual:@"uid-alpha"]);
+        assert([devices[1][@"default"] isEqual:@NO]);
     }
 }

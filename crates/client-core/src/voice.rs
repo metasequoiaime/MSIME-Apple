@@ -18,6 +18,11 @@ pub struct VoiceSessionState {
 impl VoiceSessionState {
     pub fn start(&mut self) -> u64 {
         self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            // Generation zero is the inactive sentinel used by the provider
+            // lease protocol; never expose it after integer wraparound.
+            self.generation = 1;
+        }
         self.active = true;
         self.generation
     }
@@ -52,5 +57,15 @@ mod tests {
         assert!(state.apply(old, "旧结果").is_none());
         assert_eq!(state.apply(current, "新结果"), Some("新结果".into()));
         assert!(!state.is_active());
+    }
+
+    #[test]
+    fn starting_after_generation_wrap_skips_zero() {
+        let mut state = VoiceSessionState {
+            generation: u64::MAX,
+            active: false,
+        };
+        assert_eq!(state.start(), 1);
+        assert!(state.is_active());
     }
 }

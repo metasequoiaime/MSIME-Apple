@@ -451,4 +451,57 @@ ID2D1Bitmap *DeviceResources::GetBitmapFromFile(const std::wstring &filePath, D2
     }
     return bitmapCache_.back().bitmap.Get();
 }
+
+ID2D1Bitmap *DeviceResources::GetBitmapFromIcon(HICON icon, const std::wstring &key, D2D1_SIZE_F *size)
+{
+    ID2D1RenderTarget *target = GetRenderTarget();
+    if (!target || !wicFactory_ || !icon || key.empty())
+    {
+        return nullptr;
+    }
+
+    // Shares the file cache: the key is the caller's, and an icon key and a
+    // path cannot collide as long as callers keep using a prefix.
+    for (auto &entry : bitmapCache_)
+    {
+        if (entry.filePath == key && entry.bitmap)
+        {
+            if (size)
+            {
+                *size = entry.size;
+            }
+            return entry.bitmap.Get();
+        }
+    }
+
+    Microsoft::WRL::ComPtr<IWICBitmap> source;
+    if (FAILED(wicFactory_->CreateBitmapFromHICON(icon, source.GetAddressOf())))
+    {
+        return nullptr;
+    }
+
+    // CreateBitmapFromHICON hands back straight alpha; Direct2D wants it
+    // premultiplied, and drawing the unconverted bitmap haloes every edge.
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    if (FAILED(wicFactory_->CreateFormatConverter(converter.GetAddressOf())) ||
+        FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeMedianCut)))
+    {
+        return nullptr;
+    }
+
+    BitmapCacheEntry entry;
+    entry.filePath = key;
+    if (FAILED(target->CreateBitmapFromWicBitmap(converter.Get(), nullptr, entry.bitmap.GetAddressOf())))
+    {
+        return nullptr;
+    }
+    entry.size = entry.bitmap->GetSize();
+    bitmapCache_.push_back(std::move(entry));
+    if (size)
+    {
+        *size = bitmapCache_.back().size;
+    }
+    return bitmapCache_.back().bitmap.Get();
+}
 } // namespace msimeui

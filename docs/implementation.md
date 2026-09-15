@@ -16,11 +16,35 @@
 
 ## 当前证据
 
+### macOS Emoji 面板主题覆盖（next42）
+
+共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
+
+### macOS 手写板主题覆盖（next43）
+
+共享设置中的 `handwriting_theme` 已接入 macOS 原生 SwiftUI 手写识别板。手写板表面显式 `dark`/`light` 时覆盖全局 `theme`；`follow` 继承全局；全局为 `system` 时使用可选 `ColorScheme`，由 SwiftUI/AppKit 跟随系统。画布背景、笔迹和根窗口前景色同步使用解析后的明暗 palette；偏好热更新只更新展示状态，不重建手写识别请求或改变候选提交路径。缺失、非法或非字符串表面值不会覆盖全局解析。
+
+新增 `handwriting-provider` CTest 覆盖显式覆盖、跟随、系统和非法值，以及原有笔迹请求边界；Rust workspace、`msime-host-api`、手写 provider 和真实 `MSIMEClientInputMethod.app` target 均在 macOS 13 最低部署目标下通过本地构建验证。该切片仍不代表已安装输入源、麦克风/识别权限、真实编辑器或完整手写模型链路的系统级验收。
+
 ### macOS 候选表面主题覆盖（next41）
 
 共享设置中的 `theme`（`dark`、`light`、`system`）与 `candidate_theme`（`follow`、`dark`、`light`）现由实际 IMK 候选面板消费。候选表面显式深色或浅色时覆盖全局主题；跟随时继承全局；全局为 `system` 时不设置窗口外观，让 AppKit 根据系统外观动态解析。偏好热更新会在不重建 Engine 或改变候选身份的情况下更新面板 appearance，并复用候选皮肤重绘路径。未收到共享主题字段的旧宿主保留其既有面板 appearance，避免测试替身或宿主注入外观被意外清除。`skin-preview`、`shortcut`、真实输入法 bundle 编译与 Rust workspace 测试均覆盖该切片；系统安装后的编辑器端到端验收仍需后续执行。
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
+
+### macOS 云端桌面设置补齐基线字段（cloud-settings-parity）
+
+macOS 云端桌面快照现与固定 Apple 基线的 20 项字段对齐，并保留客户端新增的 `shuangpin_preedit_uses_raw`，共 21 项。补齐全拼/双拼辅助码方案索引、候选学习和本地扩展模式；后者在兼容的单布尔字段与当前八个独立模式之间采用全开/全关映射，应用时保留未知本地模式键。快照、完整类型校验、默认值归一化、导入应用及缓存失效均在同一验证边界内，缺字段旧快照仍拒绝部分替换。`cloud-appearance-settings-test` 使用独立偏好 suite 覆盖 12–32 字号、1–9 页大小、方案索引、布尔类型、非法输入和八模式写回；Swift backend 类型检查通过。该切片验证的是本地桥接和合成云端数据，不代表真实账号服务或已安装输入源验收。
+
+### macOS 共享录音后端消费
+
+macOS IMK 语音运行时现在消费 Tauri 共享 `voice_input.capture_backend`。空值、`auto` 与 `macos` 明确映射到平台 CoreAudio 路径；同步自 Windows 或 Linux 的 `windows`、`pulse`、`pipewire`、`alsa` 等后端不会被静默当成 CoreAudio，而是在开始会话和打开麦克风前显示录音失败并保持当前编辑器焦点。设备仍使用稳定 CoreAudio UID，输入算法、录音和识别状态继续留在既有宿主与共享 Engine 边界。
+
+macOS 设置页现在也显示共享的腾讯云翻译凭据探测入口；探测请求通过已有 Tauri `test_api_credential` 路由发送当前 SecretId、SecretKey 和地域，不改变 macOS 的原生 IMK 边界。
+
+macOS 语音设置页不再显示无法提交到 IMK 输入会话的共享 Tauri 语音面板按钮。云端识别和结果提交继续由当前输入法进程负责，设置页改为明确提示使用输入法快捷键或悬浮工具栏；Windows/Linux 的共享语音面板入口保持不变。
+
+同一输入会话边界也应用于 macOS 手写、云剪贴板和云词典：从共享设置页移除无法获得原生会话的 Tauri 面板按钮，改为指向输入法悬浮工具栏或菜单。Windows/Linux 的共享面板路由不变；macOS 从原生输入法入口启动时仍通过带会话描述的 Tauri route 使用共享 UI。
 
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
@@ -718,6 +742,22 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
 
+### macOS 原生语音备用设置回写共享配置
+
+macOS 原生语音备用窗口写入的有效字段现在会随宿主偏好 CAS 快照回写共享 `voice_input`：提供方、端点、模型、提交方式、CoreAudio 后端/稳定设备 UID、Doubao 选项、润色和快捷键/提示音开关均保持字段级一致。缺失字段不覆盖 Tauri 或其他宿主已有值；类型错误字段被忽略，录音设备仍不静默切换。凭据仅在本机已有值时保留，云端外观快照仍不包含语音凭据或设备路径。`shared-voice-preferences`、`preference-snapshot-merge` 及 macOS 输入法 bundle 构建通过；未执行安装输入源、真实硬件权限或网络服务验收。
+
+### macOS 语音波形面板主题覆盖（next44）
+
+原生 `MSIMEVoiceWaveOverlay` 现消费共享 `voice_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局；全局为 `system` 时清除窗口外观，让 AppKit 的有效外观决定波形、状态、转写预览和确认/取消按钮配色。偏好热更新会应用到已存在的面板，尚未创建的面板也会在首次显示时采用最新快照，不触碰录音、识别、润色或 Engine 提交状态。
+
+`voice-wave-overlay` CTest 覆盖显式覆盖、跟随、系统和非法值回退，并继续验证面板非激活、动作按钮、转写上限、失败提示和异步电平边界；真实系统外观切换、麦克风权限、网络服务与安装后编辑器验收仍待执行。
+
+### macOS 输入法菜单主题覆盖（next45）
+
+macOS `MSIMEInputController` 生成的 IMK 原生输入菜单现消费共享 `menu_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，`system` 清除 `NSMenu.appearance` 交给 AppKit；非法或缺失的表面值回退到全局，非法全局值保持深色安全默认。菜单仍按每次 IMK 请求新建，主题变更不会改动菜单动作、快捷键、输入模式或 Engine 状态。
+
+`InputMenuTests` 新增四种优先级/回退断言，并继续验证中英文、简繁输出、字符面板、更新、设置和语音入口。候选右键菜单复用同一主题解析 helper，避免 `menu_theme` 只影响主菜单。该切片只验证 AppKit 菜单对象与主题属性，不宣称系统输入源安装后菜单逐像素、辅助功能或多显示器验收。
+
 ### macOS 悬浮输入工具栏
 
 新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
@@ -811,3 +851,21 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 将 Windows 开发维护组合按 macOS 输入法生命周期适配到当前 IMK 输入上下文：`Control+Shift+Option+C` 清除当前会话的 Engine 候选缓存，`Control+Shift+Option+R` 启动同一输入法 bundle 的独立重新注册实例并在启动成功后退出当前进程，`Control+Shift+Option+T` 退出当前输入法进程。三项均使用物理 C/R/T 键位，要求精确的 Control、Shift、Option，排除 Command；Caps Lock 不影响识别，重复 keyDown 只消费而不重复执行。候选窗口中的 `1–8` 删除继续使用同一修饰键语义。
 
 共享快捷键页在 macOS 显示 Option 和“当前输入上下文”，不再声称 Windows 风格的全局 hook；重启按钮也明确为重新注册已安装输入源。Tauri 的 macOS 重新注册命令改为按输入法 bundle identifier 启动 `app.msime.client.preview.inputmethod`，不再把设置应用自身误当成输入法 bundle。Engine 缓存清理由既有 Host C ABI 经 Apple Foundation 适配器调用，平台不复制 Engine 状态。
+
+### macOS 更新入口共享 About 路由
+
+macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通过 `settings:about` 启动共享 Tauri 设置页，更新检查和下载说明由公共 About UI 提供；当 Tauri 设置 bundle 未安装或启动失败时，平台入口回退到 Sparkle 更新控制器，保留 macOS 原生更新能力。输入法进程不携带输入内容、凭据或原生偏好到新进程，只沿用既有受控运行时配置路径。
+
+本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建、`desktop-settings-launcher`/`shortcut`/`floating-toolbar-panel`/`input-menu` 四项 CTest 通过；桌面 UI TypeScript 类型检查和 Vite production build 通过，`macos-settings-routes` 两项测试通过。一次全量 UI 测试还暴露两个与本切片无关的既有断言失败（外部皮肤预览顺序、输入默认标点状态），未修改其行为；真实安装输入源、Sparkle 下载/签名和系统升级验收仍需在产品环境执行，CI 保持禁用。
+
+### macOS 候选皮肤目录入口共享 Tauri
+
+原生候选设置中的“浏览所有皮肤…”现在优先启动共享 Tauri `settings:skin` 页面，复用桌面宿主已经提供的皮肤目录扫描、受限资源读取、外部目录打开和共享偏好保存；Tauri bundle 不存在或启动失败时，仍回退到原生 `SkinSettingsView` 卡片窗口。新增 `Skin` 设置路由不会把皮肤解析、候选绘制或 Engine 状态移入 UI，两个入口继续使用同一受控皮肤目录和快照字段。
+
+本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建，以及 `desktop-settings-launcher`、`candidate-skin`、`external-skin`、`shortcut`、`skin-preview`、`skin-settings`、`input-menu` 七项相关 CTest 通过。未执行安装输入源、真实外部皮肤目录权限、Tauri bundle 启动和系统级视觉验收，CI 保持禁用。
+
+### macOS/Windows Tauri 凭据测试入口
+
+桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
+
+本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。

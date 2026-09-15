@@ -1,17 +1,42 @@
 #pragma once
 #include "CandidatePresentation.h"
 #include <functional>
+#include <condition_variable>
+#include <chrono>
 
 namespace msime::windows {
 // Single latest value, not an unbounded per-key UI event queue. Publish only
 // from the input queue's confirmed-delivery callback under the focus gate.
 class CandidateMailbox final {
 public:
+  void rendered(const FocusLease &lease, uint64_t render_serial) {
+    std::lock_guard lock(mutex_);
+    if (!latest_ || stopped_ || latest_->lease.epoch != lease.epoch ||
+        latest_->lease.token != lease.token ||
+        !same_ticket(latest_->lease.transport, lease.transport) ||
+        render_serial < latest_->render_serial)
+      return;
+    rendered_generation_ = render_serial;
+    rendered_lease_ = lease;
+    rendered_ready_.notify_all();
+  }
+  bool wait_rendered(const FocusLease &lease, uint64_t generation,
+                     std::chrono::milliseconds timeout) {
+    std::unique_lock lock(mutex_);
+    return rendered_ready_.wait_for(lock, timeout, [&] {
+      return stopped_ ||
+             (rendered_generation_ >= generation && rendered_lease_ &&
+              rendered_lease_->epoch == lease.epoch &&
+              rendered_lease_->token == lease.token &&
+              same_ticket(rendered_lease_->transport, lease.transport));
+    }) && !stopped_;
+  }
   void delivered(const FocusLease &lease, const PendingReply &reply,
                  const FanyImeNamedpipeData &packet) {
     auto value = candidate_presentation(lease, reply, packet);
     std::lock_guard lock(mutex_);
     if (!stopped_) {
+      value.render_serial = ++render_serial_;
       latest_ = std::move(value);
       suppressed_ = false;
     }
@@ -55,6 +80,7 @@ private:
       latest_ = candidate_presentation_from_view(lease, view, latest_->x,
                                                  latest_->y, prefix,
                                                  latest_->traditional_output);
+      latest_->render_serial = ++render_serial_;
     } catch (...) {
       // Provider data is optional; malformed/stale projections are ignored.
     }
@@ -105,13 +131,19 @@ public:
   }
   void disconnected(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
-    if (latest_ && same_ticket(latest_->lease.transport, ticket))
+    if (latest_ && same_ticket(latest_->lease.transport, ticket)) {
       latest_.reset();
+      rendered_lease_.reset();
+      rendered_generation_ = 0;
+    }
   }
   void stop() {
     std::lock_guard lock(mutex_);
     stopped_ = true;
     latest_.reset();
+    rendered_lease_.reset();
+    rendered_generation_ = 0;
+    rendered_ready_.notify_all();
   }
   // External consumer only, never while holding the gate. No UI callbacks run
   // under either lock. The returned copy is valid at read time, not a grant to
@@ -169,5 +201,9 @@ private:
   bool stopped_ = false;
   bool suppressed_ = false;
   std::optional<CandidatePresentation> latest_;
+  std::optional<FocusLease> rendered_lease_;
+  uint64_t rendered_generation_ = 0;
+  uint64_t render_serial_ = 0;
+  std::condition_variable rendered_ready_;
 };
 } // namespace msime::windows
