@@ -41,6 +41,7 @@ final class JapaneseNineKeyView: UIStackView {
   private var variantsKey: UIButton?
   private var showsDigits = false
   private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
+  private let flickPreview = KanaFlickPreview()
 
   init(makeKey: (String, String, @escaping () -> Void) -> UIButton) {
     super.init(frame: .zero)
@@ -101,11 +102,21 @@ final class JapaneseNineKeyView: UIStackView {
     button.menu = UIMenu(children: key.kana.enumerated().map { direction, kana in
       UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
     })
-    let pan = KanaFlickGesture { [weak self, weak button] direction, ended in
+    let pan = KanaFlickGesture { [weak self, weak button] direction, phase in
       guard let self else { return }
       let active = self.activeKeys[index]
-      if ended { self.select(index, direction: direction) }
-      button?.configuration?.title = active.kana[ended ? 0 : direction]
+      switch phase {
+      case .moving:
+        self.flickPreview.show(active.kana, highlighting: direction, over: button ?? self, in: self)
+        button?.configuration?.title = active.kana[direction]
+      case .ended:
+        self.select(index, direction: direction)
+        self.flickPreview.hide()
+        button?.configuration?.title = active.kana[0]
+      case .cancelled:
+        self.flickPreview.hide()
+        button?.configuration?.title = active.kana[0]
+      }
     }
     button.addGestureRecognizer(pan)
     keyButtons.append(button)
@@ -151,22 +162,127 @@ final class JapaneseNineKeyView: UIStackView {
 }
 
 @MainActor
+private final class KanaFlickChip: UIView {
+  let label = UILabel()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    layer.cornerRadius = 8
+    layer.shadowColor = UIColor.black.cgColor
+    layer.shadowOpacity = 0.25
+    layer.shadowRadius = 6
+    layer.shadowOffset = CGSize(width: 0, height: 2)
+    label.textAlignment = .center
+    label.font = .systemFont(ofSize: 22, weight: .regular)
+    label.adjustsFontSizeToFitWidth = true
+    label.minimumScaleFactor = 0.6
+    label.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(label)
+    NSLayoutConstraint.activate([
+      label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+      label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+      label.topAnchor.constraint(equalTo: topAnchor),
+      label.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+@MainActor
+private final class KanaFlickPreview: UIView {
+  private static let offsets: [CGPoint] = [
+    CGPoint(x: 0, y: 0), CGPoint(x: -1, y: 0), CGPoint(x: 0, y: -1), CGPoint(x: 1, y: 0),
+    CGPoint(x: 0, y: 1),
+  ]
+  private static let gap: CGFloat = 6
+  private let chips: [KanaFlickChip] = (0..<5).map { _ in KanaFlickChip(frame: .zero) }
+  private var cell = CGSize(width: 44, height: 44)
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isUserInteractionEnabled = false
+    isHidden = true
+    accessibilityIdentifier = "japaneseFlickPreview"
+    backgroundColor = .clear
+    chips.forEach(addSubview)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let middle = CGPoint(x: bounds.midX, y: bounds.midY)
+    let step = CGSize(width: cell.width + Self.gap, height: cell.height + Self.gap)
+    for (index, chip) in chips.enumerated() {
+      let offset = Self.offsets[index]
+      chip.frame = CGRect(
+        x: middle.x + offset.x * step.width - cell.width / 2,
+        y: middle.y + offset.y * step.height - cell.height / 2,
+        width: cell.width,
+        height: cell.height)
+    }
+  }
+
+  func show(_ kana: [String], highlighting direction: Int, over key: UIView, in host: UIView) {
+    let skin = KeyboardSkinPreference.selected
+    for (index, chip) in chips.enumerated() {
+      let text = index < kana.count ? kana[index] : ""
+      chip.label.text = text
+      chip.isHidden = text.isEmpty
+      chip.label.textColor = index == direction ? skin.actionForeground : skin.keyForeground
+      chip.backgroundColor = index == direction ? skin.accent : skin.keyBackground
+    }
+    var canvas = host
+    while let parent = canvas.superview { canvas = parent }
+    if superview !== canvas { canvas.addSubview(self) }
+    canvas.bringSubviewToFront(self)
+    translatesAutoresizingMaskIntoConstraints = true
+    cell = CGSize(width: max(key.bounds.width, 40), height: max(key.bounds.height, 36))
+    let step = CGSize(width: cell.width + Self.gap, height: cell.height + Self.gap)
+    bounds = CGRect(origin: .zero, size: CGSize(width: step.width * 3, height: step.height * 3))
+    center = key.convert(CGPoint(x: key.bounds.midX, y: key.bounds.midY), to: canvas)
+    setNeedsLayout()
+    isHidden = false
+  }
+
+  func hide() { isHidden = true }
+}
+
+@MainActor
 private final class KanaFlickGesture: UIPanGestureRecognizer {
-  private let feedback: (Int, Bool) -> Void
-  init(feedback: @escaping (Int, Bool) -> Void) {
+  enum Phase { case moving, ended, cancelled }
+  private let feedback: (Int, Phase) -> Void
+  init(feedback: @escaping (Int, Phase) -> Void) {
     self.feedback = feedback
     super.init(target: nil, action: nil)
     addTarget(self, action: #selector(update))
     maximumNumberOfTouches = 1
     cancelsTouchesInView = true
   }
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesBegan(touches, with: event)
+    feedback(0, .moving)
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesEnded(touches, with: event)
+    if state == .possible || state == .failed { feedback(0, .cancelled) }
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesCancelled(touches, with: event)
+    if state == .possible || state == .failed { feedback(0, .cancelled) }
+  }
+
   @objc private func update() {
     let offset = translation(in: view)
     let direction: Int
     if max(abs(offset.x), abs(offset.y)) < 12 { direction = 0 }
     else if abs(offset.x) > abs(offset.y) { direction = offset.x < 0 ? 1 : 3 }
     else { direction = offset.y < 0 ? 2 : 4 }
-    if state == .cancelled || state == .failed { feedback(0, false) }
-    else { feedback(direction, state == .ended) }
+    if state == .cancelled || state == .failed { feedback(0, .cancelled) }
+    else { feedback(direction, state == .ended ? .ended : .moving) }
   }
 }
