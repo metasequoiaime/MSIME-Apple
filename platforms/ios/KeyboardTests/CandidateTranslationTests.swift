@@ -237,6 +237,46 @@ final class CandidateTranslationTests: XCTestCase {
                       "关掉释义才回到一行高")
   }
 
+  func testTheCandidateMenuOffersToInsertTheGlossItself() throws {
+    // macOS 用 Option/Control 加数字键把译文交出去,触摸键盘没有修饰键,挂在候选的长按菜单上。
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+    CandidateGlossPreference.enabled = true
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+    controller.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+
+    let titles = controller.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
+    XCTAssertTrue(titles.contains { $0.lowercased().contains("hello") },
+                  "长按第一个候选应当能把它的释义交出去:\(titles)")
+    XCTAssertTrue(titles.contains("优先显示"), "原来的词条操作还在")
+
+    CandidateGlossPreference.enabled = false
+    let plain = KeyboardViewController()
+    plain.loadViewIfNeeded()
+    plain.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+    plain.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(plain.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    plain.view.layoutIfNeeded()
+    let plainTitles = plain.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
+    XCTAssertFalse(plainTitles.contains { $0.hasPrefix("输入 ") }, "关着释义时没有可交出去的译文:\(plainTitles)")
+  }
+
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
     XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
     XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")

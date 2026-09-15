@@ -2493,10 +2493,35 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   // Not private: the keyboard tests are compiled into this target and check the menu here,
   // since the button only holds a deferred placeholder until it is opened.
+  /// 把释义本身上屏,而不是候选词。
+  ///
+  /// macOS 用 Option/Control 加数字键,还能用 Tab 切换要交出去的是哪一条;触摸键盘没有修饰键,就挂在候选本来就有的长按菜单上。菜单里给的是完整释义 —— 格子里那一份为了排版可能缩过或截过。
+  private func glossMenuElements(at index: Int) -> [UIMenuElement] {
+    guard visibleCandidates.indices.contains(index) else { return [] }
+    let candidate = visibleCandidates[index]
+    let revision = candidateRevision
+    return candidateGlosses(at: index)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+      .map { gloss in
+        UIAction(title: "输入 \(gloss)", image: UIImage(systemName: "character.bubble")) { [weak self] _ in
+          guard let self, candidateRevision == revision,
+                visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
+          playInputClick()
+          // 先上屏译文再作废组字,和 macOS 同一个顺序。
+          insertOwnText(gloss)
+          render(session.cancel())
+          UIAccessibility.post(notification: .announcement, argument: "已输入 \(gloss)")
+        }
+      }
+  }
+
   func candidateMenuElements(at index: Int) -> [UIMenuElement] {
+    // 上屏译文挂在这里,不看方案也不看本地模式:有释义画出来,就该能把它交出去。
+    let glossActions = glossMenuElements(at: index)
     guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode,
       visibleCandidates.indices.contains(index)
-    else { return [] }
+    else { return glossActions }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
     func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
@@ -2513,7 +2538,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
       }
     }
-    return [
+    return glossActions + [
       action("优先显示", "arrow.up", .promote),
       action("固定到首位", "pin", .fixFirst),
       action("取消固定", "pin.slash", .clearPosition),

@@ -291,7 +291,13 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   func testCandidateManagementMenuUsesEngineSupportedLayouts() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    // 这条量的是词条管理那几项,所以把释义关掉:开着的话菜单顶上还会多出「输入 <释义>」,那是另一件事,由 CandidateTranslationTests 盯着,它同时也确认这两组并存。
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = false
     for scheme in [ChineseInputScheme.quanpin, .nineKey] {
       InputSchemePreference.scheme = scheme
       let controller = KeyboardViewController()
