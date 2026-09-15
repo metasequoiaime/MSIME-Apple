@@ -5231,23 +5231,35 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!japanese_long_vowel) {
         if (const auto edge =
                 s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
-          for (const auto &candidate : s.view.at("candidates")) {
-            if (!candidate.at("highlighted").get<bool>())
-              continue;
-            const auto &id = candidate.at("id");
-            if (id.at("session").get<uint64_t>() != s.session)
+          // Edge selection is an identity-bearing action. Resolve the
+          // highlighted candidate from the page actually handed to IBus,
+          // rather than a newer live view that may still be awaiting redraw.
+          const bool rendered_current =
+              s.rendered_session == s.session && s.rendered_view.is_object() &&
+              s.rendered_candidates.is_array() &&
+              !s.rendered_candidates.empty() &&
+              s.rendered_view.value("generation", uint64_t{0}) ==
+                  s.view.value("generation", uint64_t{0});
+          if (rendered_current) {
+            for (const auto &candidate : s.rendered_candidates) {
+              if (!candidate.is_object() ||
+                  !candidate.value("highlighted", false))
+                continue;
+              const auto &id = candidate.value("id", Json::object());
+              if (!id.is_object() ||
+                  id.value("session", uint64_t{0}) != s.session)
+                return;
+              handled = apply(engine,
+                              msime_client_select_edge(
+                                  s.session, id.value("generation", uint64_t{0}),
+                                  id.value("index", size_t{0}), *edge));
+              if (!handled)
+                handled =
+                    apply(engine, msime_client_punctuation(
+                                      s.session, static_cast<uint8_t>(key)));
               return;
-            handled = apply(engine,
-                            msime_client_select_edge(
-                                s.session, id.at("generation").get<uint64_t>(),
-                                id.at("index").get<size_t>(), *edge));
-            if (!handled)
-              handled =
-                  apply(engine, msime_client_punctuation(
-                                    s.session, static_cast<uint8_t>(key)));
-            return;
+            }
           }
-          return;
         }
       }
       if (!japanese_minus_equal) {
