@@ -110,14 +110,10 @@ final class KeyboardCandidatePanelView: UIView {
         candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
         glosses: glosses.indices.contains(offset) ? glosses[offset] : [],
         number: offset + 1)
-      // 先排一次,让标题标签建出来并吃到行数 —— 三行的格子按一行量,量到的是三行接成一条长线的宽度,一行就只塞得下它一个。
-      chip.layoutIfNeeded()
       // 按自然宽度量,并且不许超过一行的可用宽度。
-      let natural = chip.systemLayoutSizeFitting(
-        CGSize(width: available, height: UIView.layoutFittingCompressedSize.height),
-        withHorizontalFittingPriority: .fittingSizeLevel,
-        verticalFittingPriority: .fittingSizeLevel).width
-      let width = min(ceil(natural), available)
+      let width = min(naturalWidth(of: chip), available)
+      // 量出来的宽度直接钉在格子上。多行标题的固有宽度不可靠 —— 实测两行的格子只按第一行报宽,画出来 56pt,候选被截成「您…」;而排版的算术本来就按这个宽度走,钉上去两边才是同一个数。
+      chip.widthAnchor.constraint(equalToConstant: width).isActive = true
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
         row = makeRow(spacing: spacing)
@@ -127,6 +123,23 @@ final class KeyboardCandidatePanelView: UIView {
       used += (used > 0 ? spacing : 0) + width
     }
     if !row.arrangedSubviews.isEmpty { rows.addArrangedSubview(row) }
+  }
+
+  /// 一个格子要多宽。
+  ///
+  /// 不能问 `systemLayoutSizeFitting`:带释义的标题是多行的,而多行标签在压缩优先级下可以缩到任意窄 —— 量回来的「自然宽度」接近零,于是每个候选都被排成一丁点宽,画出来就是「您…」和整排的「…」。自己按最宽的那一行量,再加上左右内边距。
+  private func naturalWidth(of chip: UIButton) -> CGFloat {
+    guard let title = chip.configuration?.attributedTitle.map({ NSAttributedString($0) }) else {
+      return chip.intrinsicContentSize.width
+    }
+    let text = title.string as NSString
+    var widest: CGFloat = 0
+    text.enumerateSubstrings(in: NSRange(location: 0, length: text.length),
+                             options: [.byLines, .substringNotRequired]) { _, range, _, _ in
+      widest = max(widest, title.attributedSubstring(from: range).size().width)
+    }
+    let insets = chip.configuration?.contentInsets ?? .zero
+    return ceil(widest + insets.leading + insets.trailing)
   }
 
   private func makeRow(spacing: CGFloat) -> UIStackView {
@@ -141,35 +154,33 @@ final class KeyboardCandidatePanelView: UIView {
   private func makeChip(candidate: String, hint: String, glosses: [String], number: Int) -> KeyboardKeyButton {
     let text = display(candidate)
     var configuration = UIButton.Configuration.plain()
-    configuration.title = text
-    if !hint.isEmpty || !glosses.isEmpty {
-      let paragraph = NSMutableParagraphStyle()
-      paragraph.alignment = .natural
-      paragraph.lineBreakMode = .byTruncatingTail
-      var title = AttributedString(
-        text,
+    // 一律走 attributedTitle,哪怕只有候选词本身:排版要按最宽的一行量出格子宽度,而那个测量读的就是这个串。
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .natural
+    paragraph.lineBreakMode = .byTruncatingTail
+    var title = AttributedString(
+      text,
+      attributes: AttributeContainer([
+        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      ]))
+    if !hint.isEmpty {
+      title += AttributedString(
+        " " + hint,
         attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
         ]))
-      if !hint.isEmpty {
-        title += AttributedString(
-          " " + hint,
-          attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
-      }
-      // 释义自己一行,跟候选条上一样。面板一行排好几个格,挤在候选右边会把一行挤得只剩两三个词。
-      for gloss in glosses {
-        title += AttributedString(
-          "\n" + gloss,
-          attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
-      }
-      configuration.attributedTitle = title
     }
+    // 释义自己一行,跟候选条上一样。面板一行排好几个格,挤在候选右边会把一行挤得只剩两三个词。
+    for gloss in glosses {
+      title += AttributedString(
+        "\n" + gloss,
+        attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+    }
+    configuration.attributedTitle = title
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     // 候选一行写完,写不下就截断。Leaving this unset let a long candidate wrap inside its own chip,
     // and it broke the packing as well: a wrapping title measures at its narrowest under a

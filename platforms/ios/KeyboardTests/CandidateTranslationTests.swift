@@ -171,6 +171,30 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(bare.configuration?.title, "泥好", "没有释义的候选还是一行")
   }
 
+  func testPanelChipsAreAsWideAsTheirWidestLine() throws {
+    // 带释义的标题是多行的,而多行标签在压缩优先级下能缩到任意窄。照 systemLayoutSizeFitting 量出来的宽度接近零,于是每个格子都被排成一丁点宽,候选被截成「您…」,后面几排干脆只剩「…」。
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["您好", "你好"], hints: ["", ""],
+      glosses: [["hello; how do you do"], []], preedit: "nhao",
+      display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+
+    func chip(_ identifier: String) throws -> UIButton {
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == identifier } as? UIButton)
+    }
+    let glossed = try chip("panelCandidate-1")
+    let gloss = NSAttributedString(string: "hello; how do you do",
+                                   attributes: [.font: UIFont.preferredFont(forTextStyle: .caption2)])
+    XCTAssertGreaterThanOrEqual(glossed.bounds.width, gloss.size().width,
+                               "格子要容得下最宽的那一行,否则候选被截成「您…」")
+
+    let bare = try chip("panelCandidate-2")
+    let word = NSAttributedString(string: "你好",
+                                  attributes: [.font: UIFont.preferredFont(forTextStyle: .body)])
+    XCTAssertGreaterThanOrEqual(bare.bounds.width, word.size().width, "没有释义的格子也不该被压窄")
+  }
+
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
     XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
     XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")
