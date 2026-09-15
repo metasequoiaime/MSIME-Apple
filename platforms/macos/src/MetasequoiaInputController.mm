@@ -1405,23 +1405,23 @@ static NSString *MetasequoiaGlossCachePath(void)
     return path;
 }
 
-// 一次最多联网翻几个候选。原来是整页九个 —— 而用户最终只会选其中一个,剩下八个的译文既费上游调用量,
-// 又污染所有人共用的服务端缓存。生产库实测:752 行里只有 16 行(2.13%)被命中过,48% 是「吋 忖 洊 皴
-// 邨」这类没人会选的单字。
+// 该不该把这个候选送去联网翻译。只看候选本身合不合适(含汉字才送,理由见 CandidateSupportsOnlineGloss),
+// 不看它排第几。
 //
-// 本机 ECDICT 查一整页是 0.03 毫秒且常用词命中 8/9,所以排在后面的候选大多仍有离线释义;联网这条路
-// 只补最前面几个和用户实际停留的那个。
-static constexpr NSUInteger kCandidateTranslationOnlineLimit = 3;
-
-// 该不该把这个候选送去联网翻译。候选本身合不合适由 CandidateSupportsOnlineGloss 判断(含汉字才送,
-// 理由见那里);这里只加位置这一层:前几个,外加用户当前停留的那个。
-static BOOL MetasequoiaCandidateWantsOnlineGloss(const WordItem &candidate, NSUInteger index,
-                                                 const std::optional<size_t> &highlighted)
+// 曾经只翻前三个 + 当前高亮,为的是省上游用量。那个取舍建立在两个错误认识上,两个都实测推翻了:
+//
+// 一、「本机 ECDICT 对常用词命中 8/9,后面的候选大多仍有离线释义」—— 这句来自更早的注释,我照抄了没
+//     验证。实测常见输入命中 13/24(54%),而对「有问题的」「都坐吧」这类拼音引擎拼出来的短语接近 0。
+//     ECDICT 是词典,收词条不收短语。于是四号之后的候选变成彻底空白,不是「大多仍有离线释义」。
+//
+// 二、以为省的是请求数。TMT 按**字符**计费,而且 TextTranslateBatch 一次请求发完整页 —— 实测一次发
+//     九个候选就是一个 HTTP 请求。9 → 3 省的是约三倍字符,不是六倍请求。
+//
+// 用三分之二候选没有释义去换三倍字符,不划算。真正该压的是频次(debounce + 签名去重,本来就有)和命中率
+// (缓存,已经在工作),不是宽度。
+static BOOL MetasequoiaCandidateWantsOnlineGloss(const WordItem &candidate)
 {
-    if (!metasequoia::mac::CandidateSupportsOnlineGloss(candidate))
-        return NO;
-    return index < kCandidateTranslationOnlineLimit ||
-           (highlighted.has_value() && *highlighted == static_cast<size_t>(index));
+    return metasequoia::mac::CandidateSupportsOnlineGloss(candidate);
 }
 
 // 把网络回来的释义写进引擎的持久缓存,下次开机就不用再问一遍。
@@ -1533,9 +1533,6 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     const NSUInteger pageSize = metasequoia::mac::NormalizeCandidatePageSize(
         static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidatePageSize]));
     const NSUInteger limit = MIN(pageSize, snapshot.candidates.size());
-    // 当前高亮的候选总是要问,即使它排在联网上限之外 —— 用方向键停在第七个上时,下一次 debounce 要
-    // 把它带上。live_selected_index 会在候选列表重建后失效,拿到的不会是过期的下标。
-    const auto highlighted = _candidateSelection.live_selected_index(snapshot);
     if (provider == metasequoia::mac::CandidateTranslationProvider::AccountModel)
     {
         // One request for the whole page: a model keeps a page consistent when it sees it at once,
@@ -1544,7 +1541,7 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
         NSMutableString *signature = [NSMutableString stringWithString:language];
         for (NSUInteger i = 0; i < limit; ++i)
         {
-            if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i], i, highlighted))
+            if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i]))
                 continue;
             NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
             // 签名只包含真正会问的词。否则移动高亮不会改变签名,新选中的那个候选永远等不到请求。
@@ -1578,7 +1575,7 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     }
     for (NSUInteger i = 0; i < limit; ++i)
     {
-        if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i], i, highlighted))
+        if (!MetasequoiaCandidateWantsOnlineGloss(snapshot.candidates[i]))
             continue;
         NSString *word = MetasequoiaStringFromUtf8(snapshot.candidates[i].word);
         NSString *key = [NSString stringWithFormat:@"%@|%@", language, word];
