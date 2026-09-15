@@ -126,6 +126,65 @@ int main(int argc, char **argv) {
               "Pending focus changed composition");
       require(gate.acknowledge(first.pending, [] { return true; }),
               "Synthetic queue-test fence failed");
+      packet.keycode = 'F';
+      packet.wch = 'f';
+      packet.modifiers_down = 0b11;
+      size_t character_set_persists = 0;
+      auto persist_character_set = [&](bool desired) {
+        require(desired, "Character-set persistence target was inverted");
+        ++character_set_persists;
+        return true;
+      };
+      auto disabled_shortcut = focused.toggle_character_set(
+          first.pending, packet, false, persist_character_set);
+      require(disabled_shortcut && !disabled_shortcut->encoded &&
+                  !disabled_shortcut->traditional_output &&
+                  character_set_persists == 0 &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Disabled character-set shortcut changed the session");
+      ++packet.request_id;
+      require(focused.set_input_enabled(first.pending, false),
+              "English-mode fixture failed");
+      auto english_shortcut = focused.toggle_character_set(
+          first.pending, packet, true, persist_character_set);
+      require(english_shortcut && !english_shortcut->encoded &&
+                  !english_shortcut->traditional_output &&
+                  character_set_persists == 0 &&
+                  focused.confirm(first.pending, packet.request_id),
+              "English mode changed the character set");
+      ++packet.request_id;
+      require(focused.set_input_enabled(first.pending, true),
+              "Chinese-mode fixture failed");
+      auto busy_shortcut = focused.toggle_character_set(
+          first.pending, packet, true, [&](bool desired) {
+            require(desired, "Busy character-set target was inverted");
+            ++character_set_persists;
+            return false;
+          });
+      require(busy_shortcut && !busy_shortcut->encoded &&
+                  !busy_shortcut->traditional_output &&
+                  character_set_persists == 1 &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Rejected persistence changed the character set");
+      ++packet.request_id;
+      auto accepted_shortcut = focused.toggle_character_set(
+          first.pending, packet, true, persist_character_set);
+      require(accepted_shortcut && !accepted_shortcut->encoded &&
+                  accepted_shortcut->traditional_output &&
+                  character_set_persists == 2 &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Accepted character-set shortcut was not applied");
+      ++packet.request_id;
+      auto restored_shortcut = focused.toggle_character_set(
+          first.pending, packet, true, {});
+      require(restored_shortcut && !restored_shortcut->encoded &&
+                  !restored_shortcut->traditional_output &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Character-set shortcut did not restore the projection");
+      ++packet.request_id;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
       auto initial = focused.key(first.pending, packet, ReplyPath::Composition);
       require(initial && focused.view().at("editing_text") == "U",
               "Focused key did not reach Engine");
@@ -580,6 +639,16 @@ int main(int argc, char **argv) {
     };
     rejected([&] { key('U', 'U', 1); });
     session.activate(epoch);
+    {
+      const bool before = session.traditional_output();
+      const auto toggled = session.toggle_traditional_output(epoch);
+      require(toggled.at("session") == session.view().at("session") &&
+                  session.traditional_output() == !before,
+              "Character-set shortcut did not toggle the host output projection");
+      (void)session.toggle_traditional_output(epoch);
+      require(session.traditional_output() == before,
+              "Character-set shortcut did not restore the host output projection");
+    }
     {
       using namespace msime::windows;
       key('U', 'U', 1);

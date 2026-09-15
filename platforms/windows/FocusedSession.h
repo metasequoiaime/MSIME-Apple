@@ -1,6 +1,7 @@
 #pragma once
 #include "FocusGate.h"
 #include "ReplyComposer.h"
+#include <functional>
 
 namespace msime::windows {
 // One registered client's queue-owned adapter. No pipe I/O runs here; the
@@ -38,6 +39,9 @@ public:
   std::optional<PendingReply> basic_key(const FocusLease &lease,
       const FanyImeNamedpipeData &packet, TsfPreeditStyle style,
       std::optional<std::string> local_text = std::nullopt);
+  std::optional<PendingReply> toggle_character_set(
+      const FocusLease &lease, const FanyImeNamedpipeData &packet,
+      bool enabled, const std::function<bool(bool)> &persist);
   std::optional<PendingReply> edit(const FocusLease &lease,
       const FanyImeNamedpipeData &packet, TsfPreeditStyle style);
   std::optional<PendingReply> navigate(const FocusLease &lease,

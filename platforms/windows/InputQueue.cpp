@@ -10,6 +10,15 @@ InputState::select_candidate(const FocusLease &lease, uint64_t expected_session,
                                          index)
                : std::nullopt;
 }
+std::optional<PendingReply> InputState::toggle_character_set(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet,
+    bool enabled, const std::function<bool(bool)> &persist) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  if (!owner)
+    return std::nullopt;
+  return owner->toggle_character_set(lease, packet, enabled, persist);
+}
 std::optional<nlohmann::json>
 InputState::candidate_action(const FocusLease &lease, uint64_t session,
                              uint64_t generation, size_t index,
@@ -40,6 +49,10 @@ InputState::InputState(FocusGate &gate, size_t clients, std::string options)
   navigation_ = preference_navigation(document.value("preferences", nlohmann::json::object()));
   word_character_ = preference_word_character(document.value("preferences", nlohmann::json::object()));
   tsf_preedit_style_ = preference_tsf_preedit_style(document.value("preferences", nlohmann::json::object()));
+  character_set_shortcut_enabled_ =
+      document.value("preferences", nlohmann::json::object())
+          .value("keybindings", nlohmann::json::object())
+          .value("toggle_character_set_ctrl_shift_f", true);
 }
 InputState::~InputState() { shutdown(); }
 void InputState::shutdown() noexcept {
@@ -308,10 +321,14 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   const auto navigation = preference_navigation(document);
   const auto word = preference_word_character(document);
   const auto style = preference_tsf_preedit_style(document);
+  const bool character_set_shortcut =
+      document.value("keybindings", nlohmann::json::object())
+          .value("toggle_character_set_ctrl_shift_f", true);
   preferences_ = snapshot;
   navigation_ = navigation;
   word_character_ = word;
   tsf_preedit_style_ = style;
+  character_set_shortcut_enabled_ = character_set_shortcut;
   for (auto &[id, client] : clients_) {
     (void)id;
     client.session->queue_current_preferences(snapshot.serialized());
