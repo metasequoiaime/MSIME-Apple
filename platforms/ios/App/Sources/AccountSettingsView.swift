@@ -87,7 +87,6 @@ struct AccountSettingsView: View {
       }
     }
     .navigationTitle("我的")
-    .scrollContentBackground(.hidden)
     .background(MetasequoiaTheme.canvas)
     .task { designs = CustomSkinLibrary.designs }
     .sheet(isPresented: $replayOnboarding) {
