@@ -1881,10 +1881,11 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             return Err("user data requires an existing absolute directory".into());
         }
         if request.translations.len() > 9
-            || request
-                .translations
-                .iter()
-                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+            || request.translations.iter().any(|item| {
+                item.text.len() > 4096
+                    || item.translation.len() > 4096
+                    || item.text.chars().any(char::is_control)
+            })
         {
             return Err("translation persistence entries exceed limits".into());
         }
@@ -6269,6 +6270,58 @@ mod tests {
         assert_eq!(request(json!({"parent":"Parent-A"}))["ok"], false);
         db.execute_batch("DROP TABLE emoji").unwrap();
         assert_eq!(request(json!({"list_groups":true}))["ok"], false);
+    }
+
+    #[test]
+    fn translation_persistence_rejects_control_keys_before_writing() {
+        let user = tempfile::tempdir().unwrap();
+        let user_path = user.path().to_str().unwrap();
+        let save = |translations: Value| {
+            let request = serde_json::to_vec(&json!({
+                "target_language": "en",
+                "translations": translations,
+            }))
+            .unwrap();
+            read(unsafe {
+                msime_client_translation_gloss_save(
+                    request.as_ptr(),
+                    request.len(),
+                    user_path.as_ptr(),
+                    user_path.len(),
+                )
+            })
+        };
+
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            let result = save(json!([
+                {"text":"你好","translation":"hello"},
+                {"text":format!("测试{control}"),"translation":"test"},
+            ]));
+            assert_eq!(result["ok"], false);
+            assert_eq!(
+                result["error"],
+                "translation persistence entries exceed limits"
+            );
+            assert!(!user.path().join("translation-glosses.db").exists());
+        }
+
+        let saved = save(json!([
+            {"text":"你好","translation":"  hello\tworld\r\n"},
+        ]));
+        assert_eq!(saved["value"]["saved"], 1);
+        let database =
+            rusqlite::Connection::open(user.path().join("translation-glosses.db")).unwrap();
+        assert_eq!(
+            database
+                .query_row(
+                    "SELECT english_gloss FROM zh_en_glosses WHERE chinese='你好'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "hello world"
+        );
     }
 
     #[test]
