@@ -5681,7 +5681,10 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // Do not let a late page command mutate a live session without the
       // candidate snapshot that was visible when the event was generated.
       if (!s.session || s.rendered_session != s.session ||
-          !s.rendered_candidates.is_array() || s.rendered_candidates.empty())
+          !s.rendered_candidates.is_array() || s.rendered_candidates.empty() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
         return;
       if (const auto wheel = s.navigation.wheel_command(button))
         apply(engine, msime_client_command(s.session, *wheel));
@@ -5708,7 +5711,14 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
 void page(IBusEngine *engine, uint32_t command) {
   guarded(engine, "page", [&] {
     auto &s = state(engine);
-    if (s.session && s.focused && !s.blocked && s.input_enabled)
+    // IBus page/cursor callbacks carry no generation. Fence them to the
+    // candidate page currently owned by the panel so a delayed callback
+    // cannot page a newer Engine view that has not been rendered yet.
+    if (s.session && s.focused && !s.blocked && s.input_enabled &&
+        s.rendered_session == s.session && s.rendered_view.is_object() &&
+        s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.value("generation", uint64_t{0}) ==
+            s.view.value("generation", uint64_t{0}))
       apply(engine, msime_client_command(s.session, command));
   });
 }
