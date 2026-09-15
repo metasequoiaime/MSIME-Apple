@@ -1,16 +1,12 @@
 import AppKit
-import AuthenticationServices
 import SwiftUI
 
 @MainActor
-final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+final class MacAccountModel: NSObject, ObservableObject {
   @Published var user: BackendAccountClient.User?
-  @Published var providers: [String: Bool] = [:]
   @Published var message: String?
   @Published var busy = false
-  @Published var authorizing = false
   @Published var name = ""
-  weak var window: NSWindow?
   // 匿名账号是本机文件,不在钥匙串里。这一页原来只问 account(钥匙串),于是装完自动开的那个账号
   // 在设置里完全不存在 —— 页面劝你登录一个你已经有的账号。
   @Published var anonymous = false
@@ -19,8 +15,6 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   private let anonymousAccount: BackendAccountSession
   private let discardAnonymous: () -> Void
   private var pending: Task<Void, Never>?
-  private var appleController: ASAuthorizationController?
-  private var appleChallenge: String?
 
   // 匿名会话和「用完丢弃凭据」都要能注入:默认值指向本机的真实文件,测试里换成内存的,否则一跑测试就
   // 读到(并可能删掉)本机真实的匿名账号。
@@ -51,84 +45,12 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
         self.user = try await self.anonymousAccount.user(); self.anonymous = self.user != nil
       }
       self.name = self.user?.preferredDisplayName ?? ""
-      let providers = try await self.client.providers()
-      try Task.checkCancellation()
-      self.providers = providers
     }
   }
-
-  /// 这个构建能不能做 Sign in with Apple。服务端报 apple 可用是一回事,本机这份 bundle 有没有被授权
-  /// 是另一回事:com.apple.developer.applesignin 是受限权限,没有它 ASAuthorizationServices 直接拒绝,
-  /// 而失败会以 .canceled 回来 —— 和用户自己关掉弹窗一模一样,于是界面上就是「点了没反应」。
-  /// 与其让人对着一个死按钮试,不如在这里就说清楚。
-  static let appleSignInAuthorized: Bool = {
-    guard let task = SecTaskCreateFromSelf(nil) else { return false }
-    return SecTaskCopyValueForEntitlement(task, "com.apple.developer.applesignin" as CFString, nil) != nil
-  }()
 
   /// 改昵称、退出、注销针对的是页面上显示的那个账号,不一定是钥匙串里的那个。
   private var currentSession: BackendAccountSession { anonymous ? anonymousAccount : account }
 
-  /// 当前显示的是匿名账号时返回它的 token,登录于是变成「把身份绑到这个账号上」而不是另开一个。
-  /// 不这么做,用户一登录就换了账号,匿名账号名下的云端词库当场变成孤儿。
-  private func linkToken() async -> String? {
-    guard anonymous else { return nil }
-    return try? await anonymousAccount.accessToken()
-  }
-
-  /// 绑定成功后账号已经有了真实身份,凭据归位到钥匙串,本机那份匿名凭据就该清掉 —— 留着只会在
-  /// 下次启动时被当成另一个可用会话。
-  private func adoptKeychainIdentity() async {
-    guard anonymous else { return }
-    try? await anonymousAccount.forget()
-    discardAnonymous()
-    anonymous = false
-  }
-  /// 登录或绑定成功之后的收尾:凭据已落钥匙串,匿名那份随即丢弃。抽出来是因为 Apple 回调是
-  /// 唯一入口,而它要一个 ASAuthorization 才能触发,测试进不去。
-  func completeSignIn(challenge: String, credential: String) {
-    perform {
-      try await self.account.signIn(challenge: challenge, credential: credential,
-                                    linkToken: await self.linkToken())
-      let user = try await self.account.user()
-      try Task.checkCancellation()
-      await self.adoptKeychainIdentity()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
-    }
-  }
-  func appleLogin() {
-    perform {
-      guard self.window != nil, self.providers["apple"] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let challenge = try await self.client.challenge(provider: "apple", linkToken: await self.linkToken())
-      try Task.checkCancellation()
-      guard let nonce = challenge.nonce else { throw BackendAccountClient.Failure(status: 503) }
-      let request = ASAuthorizationAppleIDProvider().createRequest()
-      request.nonce = nonce
-      let controller = ASAuthorizationController(authorizationRequests: [request])
-      controller.delegate = self; controller.presentationContextProvider = self
-      self.appleChallenge = challenge.challenge_id; self.appleController = controller; self.authorizing = true
-      controller.performRequests()
-    }
-  }
-  func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor { window! }
-  func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-    guard controller === appleController else { return }
-    defer { appleController = nil; appleChallenge = nil; authorizing = false }
-    guard let challenge = appleChallenge, let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-          let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
-    completeSignIn(challenge: challenge, credential: token)
-  }
-  func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-    guard controller === appleController else { return }
-    appleController = nil; appleChallenge = nil; authorizing = false
-    // 把真正的错误带出来。"请重试" was all the user and the log ever saw, so a build that can never
-    // succeed -- an ad-hoc signature carries no com.apple.developer.applesignin entitlement, which
-    // ASAuthorizationServices refuses outright -- looked exactly like a flaky network.
-    guard (error as? ASAuthorizationError)?.code != .canceled else { return }
-    let reason = (error as NSError).localizedFailureReason ?? error.localizedDescription
-    message = "Apple 登录未完成：\(reason)（\((error as NSError).domain) \((error as NSError).code)）"
-    NSLog("[Metasequoia] Apple sign-in failed: %@", error as NSError)
-  }
   func rename() {
     let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
     // 见 GeneratedKeyboardSkin:把 CharacterSet.contains 当方法引用传进 contains(where:),
@@ -160,7 +82,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       self.user = nil; self.name = ""; self.anonymous = false
     }
   }
-  func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil }
+  func close() { pending?.cancel() }
 }
 
 
@@ -251,12 +173,6 @@ struct MacAccountView: View {
   @State private var snapshot = false
   @State private var resources = false
 
-  private var appleSubtitle: String? {
-    if model.providers["apple"] != true { return "此登录方式尚未启用" }
-    if !MacAccountModel.appleSignInAuthorized { return "此版本不支持 Apple 登录，请使用邮箱或手机号" }
-    return "绑定后这个账号就能在其他设备上找回"
-  }
-
   private var monogram: String {
     let name = model.user?.preferredDisplayName ?? ""
     return String(name.prefix(1)).uppercased()
@@ -266,7 +182,11 @@ struct MacAccountView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         if let user = model.user { identity(user) }
-        if model.user == nil || model.anonymous { binding }
+        if model.anonymous { localAccountNotice }
+        if model.user == nil {
+          Text("当前没有可用账号。输入法会在启动时尝试连接本机账号，请检查网络后重启输入法。")
+            .font(.callout).foregroundStyle(.secondary)
+        }
         if model.user != nil { cloudServices; accountActions }
         if model.busy { ProgressView().controlSize(.small) }
         if let message = model.message {
@@ -276,7 +196,7 @@ struct MacAccountView: View {
       .padding(.vertical, 4)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .disabled(model.busy || model.authorizing)
+    .disabled(model.busy)
     .sheet(isPresented: $resources) {
       if let user = model.user { BackendCommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
     }
@@ -338,23 +258,15 @@ struct MacAccountView: View {
     }
   }
 
-  /// 绑定区。匿名账号丢了就找不回来,所以这段说明必须在,但它是提示不是正文 —— 放进卡片顶部,
-  /// 后面紧跟着能解决它的两个入口。
-  private var binding: some View {
-    SettingsCard(title: model.anonymous ? "绑定身份" : "登录") {
-      if model.anonymous {
-        HStack(alignment: .top, spacing: 10) {
-          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 13))
-          Text("这个账号是安装时自动创建的，凭据只在本机。清除输入法数据或更换设备后无法找回它和它的云端词库。绑定后仍是同一个账号，云词库不会丢。")
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 12)
-        CardDivider()
+  /// 本机账号的恢复边界，避免暗示存在可用的身份绑定入口。
+  private var localAccountNotice: some View {
+    SettingsCard(title: "本机账号") {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 13))
+        Text("这个账号是安装时自动创建的，凭据只在本机。清除输入法数据或更换设备后无法找回它和它的云端词库。")
+          .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
-      SettingsRow(title: "Apple 账号", subtitle: appleSubtitle) {
-        Button(model.anonymous ? "绑定" : "登录") { model.appleLogin() }
-          .disabled(model.providers["apple"] != true || !MacAccountModel.appleSignInAuthorized)
-      }
+      .padding(.vertical, 12)
     }
   }
 
@@ -400,7 +312,7 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 440), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     super.init(window: window)
     window.title = "水杉账号"; window.isReleasedWhenClosed = false; window.delegate = self
-    window.contentView = NSHostingView(rootView: MacAccountView(model: model)); model.window = window
+    window.contentView = NSHostingView(rootView: MacAccountView(model: model))
     window.center()
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -430,11 +342,10 @@ func accountPaneView() -> NSView {
   MainActor.assumeIsolated { AccountPane.shared.hosting }
 }
 
-// 登录要一个 presentationAnchor;嵌进设置页之后它没有自己的窗口,得由宿主交出来。
+// Refresh the account when its settings pane is attached.
 @_cdecl("MSIMEAccountPaneAttach")
 func accountPaneAttach(_ window: NSWindow?) {
   MainActor.assumeIsolated {
-    AccountPane.shared.model.window = window
     AccountPane.shared.model.load()
   }
 }

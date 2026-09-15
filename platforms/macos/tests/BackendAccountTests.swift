@@ -124,11 +124,10 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.load(); try await finished(model)
     try require(model.user?.id == "synthetic-user" && model.anonymous)
 
-    // 绑定走的是同一条登录路径,结果落在钥匙串;本机那份匿名凭据绑完就该丢掉,否则下次启动会被
-    // 当成另一个可用会话。
-    model.completeSignIn(challenge: "synthetic-challenge", credential: "123456"); try await finished(model)
-    try require(!model.anonymous && discarded)
-    try require(try keychain.load() != nil && (try local.load()) == nil)
+    model.name = "新昵称"; model.rename(); try await finished(model)
+    try require(model.user?.display_name == "新昵称" && model.anonymous && !discarded)
+    try require(try keychain.load() == nil && (try local.load())?.tokens.user.display_name == "新昵称")
+
   }
 
   @MainActor static func main() async throws {
@@ -142,8 +141,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
                                 anonymousAccount: BackendAccountSession(api: client, storage: MemoryCredentials()),
                                 discardAnonymous: {})
     model.load(); try await finished(model)
-    try require(model.providers["email"] == true && model.user == nil)
-    model.completeSignIn(challenge: "synthetic-challenge", credential: "123456"); try await finished(model)
+    try require(model.user == nil && model.message == nil)
+    try await session.signIn(challenge: "synthetic-challenge", credential: "123456")
+    model.load(); try await finished(model)
     try require(model.user?.id == "synthetic-user")
     model.name = "新昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
@@ -189,8 +189,8 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
     model.logout(all: true); try await finished(model)
     try require(model.user == nil && storage.load() == nil)
-    model.close(); try require(!model.authorizing)
+    model.close()
     try await anonymousFallback(client: client)
-    print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
+    print("PASS: native account model existing session, empty state, anonymous rename, failed deletion, logout and credential cleanup")
   }
 }
