@@ -253,6 +253,20 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         (&active.cache, &staged.cache),
         (&active.dictionaries, &staged.dictionaries),
     ];
+    let backups: Vec<std::path::PathBuf> = pairs
+        .iter()
+        .map(|(current, _)| {
+            let current = Path::new(current.as_str());
+            current.with_file_name(format!(
+                "{}{}",
+                current
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("state"),
+                suffix
+            ))
+        })
+        .collect();
     // Swap each root's contents rather than the root itself.
     //
     // Renaming the roots cannot work on Windows: the maintenance guard holds
@@ -275,6 +289,9 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         for (from, to) in moved.iter().rev() {
             let _ = std::fs::rename(to, from);
         }
+        for backup in &backups {
+            let _ = std::fs::remove_dir_all(backup);
+        }
     };
     // An entry that leads to another root nested below this one is left alone:
     // that root does its own swap, and it holds its own lock file.
@@ -285,14 +302,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     for (index, (current, replacement)) in pairs.iter().enumerate() {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
-        let backup = current.with_file_name(format!(
-            "{}{}",
-            current
-                .file_name()
-                .and_then(|x| x.to_str())
-                .unwrap_or("state"),
-            suffix
-        ));
+        let backup = &backups[index];
         if std::fs::create_dir_all(&backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
@@ -350,16 +360,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             moved.push((path, destination));
         }
     }
-    for (current, _) in pairs {
-        let current = Path::new(current.as_str());
-        let backup = current.with_file_name(format!(
-            "{}{}",
-            current
-                .file_name()
-                .and_then(|x| x.to_str())
-                .unwrap_or("state"),
-            suffix
-        ));
+    for backup in &backups {
         let _ = std::fs::remove_dir_all(backup);
     }
     entries.remove(&handle);
@@ -460,24 +461,23 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
 }
 
 /// Discard only a process-owned, unpublished preparation. Unknown/consumed IDs fail.
+fn discard(handle: u64) -> Result<Value, &'static str> {
+    let mut entries = registry()
+        .lock()
+        .map_err(|_| "snapshot registry unavailable")?;
+    let prepared = entries.get(&handle).ok_or("unknown snapshot handle")?;
+    // A prepared directory is outside all active roots (validated by prepare),
+    // so cleaning it never touches the live journal or dictionaries. Requiring
+    // the maintenance lock here made cancellation fail while an input session
+    // held its normal shared lock, leaking the process-owned handle.
+    std::fs::remove_dir_all(prepared.directory.path()).map_err(|_| "snapshot cleanup failed")?;
+    entries.remove(&handle);
+    Ok(json!({"discarded": true}))
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
-    response(|| {
-        let mut entries = registry()
-            .lock()
-            .map_err(|_| "snapshot registry unavailable")?;
-        let prepared = entries.get(&handle).ok_or("unknown snapshot handle")?;
-        let _access = DictionaryAccess::try_maintenance(
-            Path::new(&prepared.options.user_data),
-            Path::new(&prepared.options.dictionaries),
-        )
-        .map_err(|_| "snapshot access unavailable")?
-        .ok_or("snapshot access busy")?;
-        std::fs::remove_dir_all(prepared.directory.path())
-            .map_err(|_| "snapshot cleanup failed")?;
-        entries.remove(&handle);
-        Ok(json!({"discarded": true}))
-    })
+    response(|| discard(handle))
 }
 
 #[no_mangle]

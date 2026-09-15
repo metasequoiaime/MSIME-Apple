@@ -108,13 +108,17 @@ extension BackendAccountClient: DesktopSnapshotAPI {}
   }
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
     guard let operation = request["operation"] as? String else { throw BackendAccountClient.Failure(status: 400) }
-    let token = try await authorize()
     if operation == "snapshot_status" { return ["nativeFiles":true, "request":status as Any? ?? NSNull()] }
     if operation == "snapshot_cancel" {
-      job?.cancel(); job = nil
+      // Keep the handle until the task's defer path observes cancellation and
+      // releases its prepared snapshot. A synchronous staging call may still
+      // be unwinding; clearing job here would allow a second enqueue to race
+      // that cleanup and create two native snapshot lifecycles at once.
+      job?.cancel()
       if status?["status"] as? String == "preparing" || status?["status"] as? String == "queued" { status?["status"] = "cancelled" }
       return ["request":status as Any? ?? NSNull()]
     }
+    let token = try await authorize()
     guard !busy else { throw BackendAccountClient.Failure(status: 409) }
     busy = true; defer { busy = false }
     switch operation {
