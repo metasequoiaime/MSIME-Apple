@@ -881,3 +881,9 @@ Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React
 依据 Apple 远端默认分支 `origin/develop` 的固定提交 `abda282`，同步其依赖的九键拼写长度排序修复。Client 采用默认分支引入的校验归档机制，并把 `engine-lock.json` 固定到 Engine 实际远端默认分支 `main` 的提交 `a122e56b632b4c826464fa1bc199f3cdc68b61aa`；归档 SHA-256 已从固定 URL 重新计算。该提交同时包含按数字长度排列九键拼写、九键英文候选及状态修复，并保留 Client 已接入的日语长音输入修复；输入算法和组合状态继续完全归 C++ Engine，Android 与 iOS 只消费共享 Host API 快照。
 
 本地 Release CMake 构建及 Engine CTest 28/28 通过，覆盖 `nine_key_session`、英文输入、日语、全拼/双拼与本地模式；共享 `client-core` 237 项、`host-api` 91 项及其集成测试、fmt、clippy、Android 宿主静态检查、iOS Swift 解析和 10 项工程配置测试通过。未执行 Android/iOS 真机输入、安装包或产品级九键触控验收，CI 保持禁用。
+
+### 移动端账号资料卡与编辑器
+
+依据 Apple 远端 `develop` 的账号资料交互提交 `2660020`、`ae3d646`、`07d8f45` 和 `d5144e7`，共享 Tauri 账号页将已登录用户的资料卡变为可操作入口，并提供独立的资料编辑对话框。编辑器复用平台注入的账号接口，校验昵称长度和控制字符，显示登录方式、加入时间及短 ID；复制动作只在用户明确点击时写入系统剪贴板，完整 ID 不进入日志或持久化设置。Android 与 iOS 继续由各自原生账号会话持有凭据，WebView 只接收脱敏 DTO。
+
+本地账号 UI 定向测试 13 项通过，桌面 UI 共 615 项测试、TypeScript 类型检查和 Vite 构建通过。该切片未声称完成 Apple 登录/系统剪贴板或真实设备验收；平台权限、签名和账号服务仍按宿主边界验证，CI 保持禁用。
