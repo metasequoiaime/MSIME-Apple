@@ -81,6 +81,26 @@
         ]
       }
     ],
+    "abilities": [
+      {
+        // The keyboard is an extension and has no window of its own beyond its panel. This is where
+        // everything that is a setting rather than a keystroke lives, and on a 2in1 it is the only
+        // place: a candidate window has no key faces to reach a surface from.
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:entry_ability_desc",
+        "label": "$string:entry_ability_label",
+        "startWindowIcon": "$media:keyboard_brand",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": ["entity.system.home"],
+            "actions": ["action.system.home"]
+          }
+        ]
+      }
+    ],
     "extensionAbilities": [
       {
         "name": "KeyboardExtensionAbility",
