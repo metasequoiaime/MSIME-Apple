@@ -768,6 +768,14 @@ int wmain(int argc, wchar_t **argv) {
     DWORD voice_controller_error = ERROR_SUCCESS;
     auto voice_controller = VoiceControllerListener::create(
         voice_controller_mailbox, voice_controller_error);
+    // Keep the pre-dedicated endpoint alive during rolling upgrades. Both
+    // listeners feed the same authenticated mailbox and dispatcher; a client
+    // still using VoiceControllerV2 therefore receives identical ownership
+    // and generation checks.
+    DWORD legacy_voice_controller_error = ERROR_SUCCESS;
+    auto legacy_voice_controller = VoiceControllerListener::create(
+        voice_controller_mailbox, legacy_voice_controller_error,
+        FanyImeVoiceController::PipeName);
     if (!voice_controller)
       std::cerr
           << "Voice controller unavailable; native input remains enabled\n";
@@ -1374,6 +1382,8 @@ int wmain(int argc, wchar_t **argv) {
     // thread. Retire the matching review before Server/focus teardown.
     if (voice_controller)
       voice_controller->stop();
+    if (legacy_voice_controller)
+      legacy_voice_controller->stop();
     voice_controller_dispatch.retire();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a
