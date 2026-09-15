@@ -1,6 +1,15 @@
 import SwiftUI
 import AuthenticationServices
 
+/// 任务取消不是错误。切换标签页会让 `.task` 连同它已经发出的请求一起取消,而 URLSession 抛回来的是 `URLError.cancelled` —— 它的 `localizedDescription` 就是 "cancelled"。把它当错误弹出来,结果就是每次切到「我的」都跳一个写着 cancelled 的框。
+///
+/// 只判 `CancellationError` 不够:那是 Swift 结构化并发自己抛的那一种,而这里真正会抛的是网络层那一种,两者没有继承关系。
+private func isCancellation(_ error: Error) -> Bool {
+  if error is CancellationError { return true }
+  if let error = error as? URLError { return error.code == .cancelled }
+  return false
+}
+
 struct AccountSettingsView: View {
   @State private var signedIn = false
   @State private var designs = CustomSkinLibrary.designs
@@ -201,17 +210,17 @@ struct AppleAccountSection: View {
     }
     .task {
       await codeModel.loadProviders()
-      do { user = try await api.currentUser(); signedIn = user != nil } catch { needsRecovery = true; message = error.localizedDescription }
+      do { user = try await api.currentUser(); signedIn = user != nil }
+      catch { if !isCancellation(error) { needsRecovery = true; report(error) } }
       if signedIn {
         do { user = try await api.profile().user }
-        catch is CancellationError { }
-        catch { message = error.localizedDescription }
+        catch { report(error) }
       } else { await prepareLogin() }
     }
     .sheet(item: $codeChannel, onDismiss: {
       Task {
         do { user = try await api.currentUser(); signedIn = user != nil }
-        catch { message = error.localizedDescription }
+        catch { report(error) }
       }
     }) { channel in CodeLoginView(model: codeModel, channel: channel) }
     .alert("账号与登录", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -221,7 +230,12 @@ struct AppleAccountSection: View {
   @MainActor private func prepareLogin() async {
     challenge = nil
     guard codeModel.providers["apple"] == true else { return }
-    do { challenge = try await api.challenge() } catch { message = error.localizedDescription }
+    do { challenge = try await api.challenge() } catch { report(error) }
+  }
+  /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
+  private func report(_ error: Error) {
+    guard !isCancellation(error) else { return }
+    message = error.localizedDescription
   }
   private func run(_ action: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }; busy = true
@@ -229,7 +243,7 @@ struct AppleAccountSection: View {
       defer { busy = false }
       do { try await action() }
       catch {
-        message = error.localizedDescription
+        report(error)
         if let state = try? await api.signedIn() {
           signedIn = state
           if !state { await prepareLogin() }
@@ -413,7 +427,7 @@ struct AccountProfileEditor: View {
         try await action()
         onSignedOut()
         dismiss()
-      } catch { message = error.localizedDescription }
+      } catch { report(error) }
     }
   }
 
@@ -585,7 +599,7 @@ struct AccountProfileEditor: View {
         let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
         onSaved(updated.user)
         dismiss()
-      } catch { message = error.localizedDescription }
+      } catch { report(error) }
     }
   }
 
@@ -598,7 +612,11 @@ struct AccountProfileEditor: View {
       profile = result
       name = result.user.preferredDisplayName
       onSaved(result.user)
-    } catch is CancellationError {
-    } catch { message = error.localizedDescription }
+    } catch { report(error) }
+  }
+
+  private func report(_ error: Error) {
+    guard !isCancellation(error) else { return }
+    message = error.localizedDescription
   }
 }
