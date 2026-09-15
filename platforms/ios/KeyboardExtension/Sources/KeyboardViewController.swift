@@ -287,6 +287,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // frame in the default English presentation; the next activation then appears to "fix" it.
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
+      // A delayed proxy callback must not cancel text typed between appearance and this turn.
+      // The next keyboard activation will retry the context synchronization if the host is still
+      // withholding its document identifier.
+      guard !self.hasComposition else { return }
       self.synchronizeInputContext()
       self.synchronizeInputSchemePreference()
       self.updateLanguageModeButton()
