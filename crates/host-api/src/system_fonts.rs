@@ -42,31 +42,148 @@ pub fn list() -> Result<Vec<String>, &'static str> {
 
 #[cfg(target_os = "linux")]
 pub fn list() -> Result<Vec<String>, &'static str> {
-    use std::collections::BTreeSet;
-    use std::process::Command;
+    linux_catalog::list()
+}
 
-    const MAX_FAMILIES: usize = 16_384;
+#[cfg(any(target_os = "linux", test))]
+fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'static str> {
+    use std::collections::BTreeSet;
+
     const MAX_BYTES: usize = 128;
-    let output = Command::new("fc-list")
-        .args([":", "family"])
-        .output()
-        .map_err(|_| "font_catalog")?;
-    if !output.status.success() || output.stdout.len() > 8 * 1024 * 1024 {
-        return Err("font_catalog");
-    }
+    let output = std::str::from_utf8(output).map_err(|_| "font_catalog")?;
     let mut names = BTreeSet::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for line in output.lines() {
         for family in line.split(',') {
             let family = family.trim();
-            if !family.is_empty() && family.len() <= MAX_BYTES {
+            if !family.is_empty()
+                && family.len() <= MAX_BYTES
+                && !family.chars().any(char::is_control)
+            {
                 names.insert(family.to_owned());
             }
-            if names.len() > MAX_FAMILIES {
+            if names.len() > max_families {
                 return Err("font_catalog_limit");
             }
         }
     }
     Ok(names.into_iter().collect())
+}
+
+#[cfg(target_os = "linux")]
+mod linux_catalog {
+    use super::parse_catalog;
+    use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+    use std::io::{ErrorKind, Read};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const MAX_FAMILIES: usize = 16_384;
+    const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+    const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn read_output(
+        program: &str,
+        arguments: &[&str],
+        max_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, &'static str> {
+        let mut child = Command::new(program)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "font_catalog")?;
+        let result = (|| {
+            let mut output = child.stdout.take().ok_or("font_catalog")?;
+            let flags = fcntl_getfl(&output).map_err(|_| "font_catalog")?;
+            fcntl_setfl(&output, flags | OFlags::NONBLOCK).map_err(|_| "font_catalog")?;
+            let deadline = Instant::now() + timeout;
+            let mut bytes = Vec::with_capacity(max_bytes.min(8192));
+            let mut buffer = [0; 8192];
+            let mut eof = false;
+            loop {
+                if !eof {
+                    let remaining = max_bytes
+                        .saturating_add(1)
+                        .saturating_sub(bytes.len())
+                        .min(buffer.len());
+                    if remaining == 0 {
+                        return Err("font_catalog");
+                    }
+                    match output.read(&mut buffer[..remaining]) {
+                        Ok(0) => eof = true,
+                        Ok(count) => {
+                            bytes.extend_from_slice(&buffer[..count]);
+                            if bytes.len() > max_bytes {
+                                return Err("font_catalog");
+                            }
+                            continue;
+                        }
+                        Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                        Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+                        Err(_) => return Err("font_catalog"),
+                    }
+                }
+                if eof {
+                    if let Some(status) = child.try_wait().map_err(|_| "font_catalog")? {
+                        return status.success().then_some(bytes).ok_or("font_catalog");
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err("font_catalog");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })();
+        if result.is_err() {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+        result
+    }
+
+    pub(super) fn list() -> Result<Vec<String>, &'static str> {
+        let output = read_output(
+            "fc-list",
+            &[":", "family"],
+            MAX_OUTPUT_BYTES,
+            CATALOG_TIMEOUT,
+        )?;
+        parse_catalog(&output, MAX_FAMILIES)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn output_capture_is_bounded_and_times_out() {
+            assert_eq!(
+                read_output("/bin/sh", &["-c", "printf abc"], 3, Duration::from_secs(1)).unwrap(),
+                b"abc"
+            );
+            assert!(
+                read_output("/bin/sh", &["-c", "printf abcd"], 3, Duration::from_secs(1)).is_err()
+            );
+            assert!(
+                read_output("/bin/sh", &["-c", "sleep 1"], 3, Duration::from_millis(20)).is_err()
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::parse_catalog;
+
+    #[test]
+    fn parses_bounded_utf8_families_in_sorted_order() {
+        let names = parse_catalog("Zulu,别名\nAlpha\nAlpha\nBad\tName\n".as_bytes(), 3).unwrap();
+        assert_eq!(names, ["Alpha", "Zulu", "别名"]);
+        assert!(parse_catalog(b"A\nB\n", 1).is_err());
+        assert!(parse_catalog(&[0xff], 3).is_err());
+    }
 }
 
 #[cfg(target_os = "macos")]

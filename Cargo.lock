@@ -2393,6 +2393,7 @@ dependencies = [
  "msime-engine-bridge",
  "msime-input-runtime",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
