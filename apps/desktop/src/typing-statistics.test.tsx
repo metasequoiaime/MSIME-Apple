@@ -90,6 +90,19 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
   expect(screen.getByRole("heading", { name: "输入方案" })).toBeTruthy();
 });
 
+test("mobile statistic tabs use Apple chart shapes", async () => {
+  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await screen.findByRole("heading", { name: /每日趋势/ });
+  fireEvent.click(screen.getByRole("tab", { name: "类型" }));
+  expect(screen.getByRole("img", { name: "字符类型饼图" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByRole("img", { name: "语言模式环形图" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "方案" }));
+  expect(screen.getByRole("img", { name: "输入方案排行" })).toBeTruthy();
+});
+
 test("mobile trend includes a calendar heatmap that selects a day", async () => {
   const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
   render(<SettingsPage client={{ ...baseClient(), host: { platform: "android" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
