@@ -1,6 +1,6 @@
 name: Engine bump triage
 
-# Dependabot opens the engine submodule bump; this decides whether it can merge itself.
+# engine-update.yml opens the engine bump; this decides whether it can merge itself.
 #
 # The rule is an allowlist, not a blocklist: the bump merges on green CI only when every file the
 # engine changed across the range is provably inert. Anything else waits for a human. A blocklist
@@ -10,7 +10,7 @@ name: Engine bump triage
 on:
   pull_request:
     paths:
-      - 'vendor/MetasequoiaImeEngine'
+      - 'engine-lock.json'
 
 permissions:
   contents: write
@@ -18,12 +18,12 @@ permissions:
 
 jobs:
   triage:
-    if: github.actor == 'dependabot[bot]'
+    if: github.actor == 'github-actions[bot]'
     name: Classify the engine range
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SUBMODULE: vendor/MetasequoiaImeEngine
+      LOCK: engine-lock.json
       ENGINE: metasequoiaime/MSIME-Engine
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_URL: ${{ github.event.pull_request.html_url }}
@@ -40,8 +40,9 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          base=$(git rev-parse "origin/$BASE_REF:$SUBMODULE")
-          head=$(git rev-parse "HEAD:$SUBMODULE")
+          # The engine is an archive rather than a gitlink, so the commit under review is the one engine-lock.json names on each side.
+          base=$(git show "origin/$BASE_REF:$LOCK" | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"])')
+          head=$(python3 -c 'import json; print(json.load(open("engine-lock.json"))["commit"])')
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "head=$head" >> "$GITHUB_OUTPUT"
           echo "引擎 $base -> $head"
