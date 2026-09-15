@@ -561,6 +561,8 @@ test("mobile translation languages stay editable for offline English glosses", a
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const primary = screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement;
   const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect([...primary.options].map(option => option.value)).not.toContain("ru");
+  expect([...secondary.options].map(option => option.value)).not.toContain("ru");
   expect(primary.disabled).toBe(false);
   expect(secondary.disabled).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "显示英文释义" }));
