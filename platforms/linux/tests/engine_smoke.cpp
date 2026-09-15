@@ -1373,6 +1373,10 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.committed == committed_before_stale_action,
             "Stale candidate action mutated a cleared snapshot");
+    const auto stale_wheel_candidates = seen.candidates;
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, 4, 0));
+    require(seen.candidates == stale_wheel_candidates && !seen.lookup_visible,
+            "Stale candidate wheel event mutated a cleared snapshot");
     phrase();
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");

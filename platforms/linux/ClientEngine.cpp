@@ -5656,9 +5656,14 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
     if (button >= 4) {
+      // Mouse-wheel events can arrive after IBus has hidden the lookup table.
+      // Do not let a late page command mutate a live session without the
+      // candidate snapshot that was visible when the event was generated.
+      if (!s.session || s.rendered_session != s.session ||
+          !s.rendered_candidates.is_array() || s.rendered_candidates.empty())
+        return;
       if (const auto wheel = s.navigation.wheel_command(button))
-        if (s.session)
-          apply(engine, msime_client_command(s.session, *wheel));
+        apply(engine, msime_client_command(s.session, *wheel));
       return;
     }
     const auto &candidates = s.rendered_candidates;
