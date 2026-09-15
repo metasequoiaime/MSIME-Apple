@@ -40,6 +40,13 @@ static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace
     MSIMEOpenDesktopRouteWithOptions(route, MSIMERuntimeOptionsPath(), workspace, fallback);
 }
 
+// The update entry is a shared About page on desktop. Native Sparkle remains
+// the platform fallback when the Tauri shell is not installed or cannot launch.
+static inline void MSIMEOpenDesktopUpdateSettings(NSWorkspace *workspace,
+                                                  dispatch_block_t fallback) {
+    MSIMEOpenDesktopRoute(@"settings:about", workspace, fallback);
+}
+
 // These are settings categories from client-core, not input-panel routes.
 static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
                                            NSWorkspace *workspace,

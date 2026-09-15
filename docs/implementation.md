@@ -845,3 +845,9 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 将 Windows 开发维护组合按 macOS 输入法生命周期适配到当前 IMK 输入上下文：`Control+Shift+Option+C` 清除当前会话的 Engine 候选缓存，`Control+Shift+Option+R` 启动同一输入法 bundle 的独立重新注册实例并在启动成功后退出当前进程，`Control+Shift+Option+T` 退出当前输入法进程。三项均使用物理 C/R/T 键位，要求精确的 Control、Shift、Option，排除 Command；Caps Lock 不影响识别，重复 keyDown 只消费而不重复执行。候选窗口中的 `1–8` 删除继续使用同一修饰键语义。
 
 共享快捷键页在 macOS 显示 Option 和“当前输入上下文”，不再声称 Windows 风格的全局 hook；重启按钮也明确为重新注册已安装输入源。Tauri 的 macOS 重新注册命令改为按输入法 bundle identifier 启动 `app.msime.client.preview.inputmethod`，不再把设置应用自身误当成输入法 bundle。Engine 缓存清理由既有 Host C ABI 经 Apple Foundation 适配器调用，平台不复制 Engine 状态。
+
+### macOS 更新入口共享 About 路由
+
+macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通过 `settings:about` 启动共享 Tauri 设置页，更新检查和下载说明由公共 About UI 提供；当 Tauri 设置 bundle 未安装或启动失败时，平台入口回退到 Sparkle 更新控制器，保留 macOS 原生更新能力。输入法进程不携带输入内容、凭据或原生偏好到新进程，只沿用既有受控运行时配置路径。
+
+本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建、`desktop-settings-launcher`/`shortcut`/`floating-toolbar-panel`/`input-menu` 四项 CTest 通过；桌面 UI TypeScript 类型检查和 Vite production build 通过，`macos-settings-routes` 两项测试通过。一次全量 UI 测试还暴露两个与本切片无关的既有断言失败（外部皮肤预览顺序、输入默认标点状态），未修改其行为；真实安装输入源、Sparkle 下载/签名和系统升级验收仍需在产品环境执行，CI 保持禁用。
