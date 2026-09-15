@@ -9,6 +9,7 @@ export type AccountUser = {
 export type AccountProviders = {
   email: boolean;
   phone: boolean;
+  apple?: boolean;
 };
 
 export type AccountChallenge = {
@@ -57,6 +58,8 @@ export interface AccountClient {
   providers(): Promise<AccountProviders>;
   requestCode(provider: "email" | "phone", target: string): Promise<AccountChallenge>;
   login(challengeId: string, code: string): Promise<{ user?: AccountUser | null }>;
+  /** iOS performs the nonce and AuthenticationServices exchange natively. */
+  appleLogin?: () => Promise<{ user?: AccountUser | null }>;
   profile(): Promise<AccountProfile>;
   rename(displayName: string): Promise<AccountProfile>;
   logout(all: boolean): Promise<void>;
@@ -96,6 +99,7 @@ function preferredName(user: AccountUser): string {
 }
 
 function providerName(provider: string): string {
+  if (provider === "apple") return "Apple";
   if (provider === "email") return "邮箱";
   if (provider === "phone" || provider === "sms") return "手机号";
   return provider;
@@ -455,7 +459,16 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
 
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expired = Boolean(challenge) && expiresAt <= now;
-  const enabledProviders = Number(providers.email) + Number(providers.phone);
+  const enabledProviders = Number(providers.email) + Number(providers.phone) + Number(providers.apple === true);
+
+  const signInWithApple = () => void perform(async () => {
+    if (!client.appleLogin) throw { code: "account_unavailable" };
+    const result = await client.appleLogin();
+    if (!result.user) throw { code: "account_unavailable" };
+    setUser(result.user);
+    await loadProfile();
+    setNotice("登录成功。");
+  });
 
   return <div className="account-page">
     {error && <p role="alert" className="error">{error}</p>}
@@ -549,6 +562,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>
       {!channel ? <>
         <div className="account-provider-actions">
+          {providers.apple && client.appleLogin && <button type="button" className="account-primary" disabled={busy} onClick={signInWithApple}>使用 Apple 登录</button>}
           {providers.email && <button type="button" className="account-primary" onClick={() => chooseChannel("email")}>邮箱登录</button>}
           {providers.phone && <button type="button" className="account-primary" onClick={() => chooseChannel("phone")}>手机号登录</button>}
         </div>

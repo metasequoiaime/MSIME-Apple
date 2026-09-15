@@ -2559,7 +2559,7 @@ async fn recognize_handwriting(
     // A user-managed socket owns recognizer and model policy where one is
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     let socket = match std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET") {
         Some(value) => {
             let path = PathBuf::from(value);
@@ -2572,7 +2572,7 @@ async fn recognize_handwriting(
         }
         None => discover_session_provider("handwriting.sock"),
     };
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     if let Some(path) = socket {
         let candidates = tauri::async_runtime::spawn_blocking(move || {
             UnixSocketProvider::new(path).handwriting(query)
@@ -5093,6 +5093,8 @@ pub fn run() {
             ios_account::account_request_code,
             #[cfg(target_os = "ios")]
             ios_account::account_login,
+            #[cfg(target_os = "ios")]
+            ios_account::account_apple_login,
             #[cfg(target_os = "ios")]
             ios_account::account_profile,
             #[cfg(target_os = "ios")]

@@ -294,6 +294,21 @@ struct AccountSessionRequest<'a> {
 
 #[cfg(target_os = "ios")]
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppleSignInRequest<'a> {
+    challenge_id: &'a str,
+    nonce: &'a str,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppleSignInResponse {
+    credential: String,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
 struct CopyTextRequest<'a> {
     text: &'a str,
 }
@@ -455,6 +470,34 @@ impl<R: Runtime> MobilePlatform<R> {
 
     pub fn clear_account_session(&self) -> Result<(), ()> {
         self.0.run_mobile_plugin("clearSession", ()).map_err(|_| ())
+    }
+
+    pub async fn sign_in_with_apple(&self, challenge_id: &str, nonce: &str) -> Result<String, ()> {
+        if challenge_id.is_empty()
+            || challenge_id.len() > 256
+            || challenge_id.chars().any(char::is_control)
+            || nonce.is_empty()
+            || nonce.len() > 4096
+            || nonce.chars().any(char::is_control)
+        {
+            return Err(());
+        }
+        let response = self
+            .0
+            .run_mobile_plugin_async::<AppleSignInResponse>(
+                "signInWithApple",
+                AppleSignInRequest {
+                    challenge_id,
+                    nonce,
+                },
+            )
+            .await
+            .map_err(|_| ())?;
+        (!response.credential.is_empty()
+            && response.credential.len() <= 16 * 1024
+            && !response.credential.chars().any(char::is_control))
+        .then_some(response.credential)
+        .ok_or(())
     }
 
     pub fn copy_text(&self, text: &str) -> Result<(), ()> {

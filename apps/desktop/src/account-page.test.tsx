@@ -94,6 +94,18 @@ test("profile card opens the shared editor and copies the complete account ID", 
   expect(screen.queryByRole("dialog", { name: "编辑个人资料" })).toBeNull();
 });
 
+test("iOS Apple sign-in stays behind the native account client boundary", async () => {
+  const appleLogin = vi.fn().mockResolvedValue({ user });
+  const client = account({
+    providers: vi.fn().mockResolvedValue({ email: false, phone: false, apple: true }),
+    appleLogin,
+  });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "使用 Apple 登录" }));
+  await waitFor(() => expect(appleLogin).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/token|nonce/i)).toBeNull();
+});
+
 test("account deletion requires its destructive confirmation", async () => {
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} />);

@@ -296,7 +296,7 @@ function DesktopSettings() {
             host.platform === "macos" || host.platform === "ios",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, settingsSync: accountSettingsSync }, chat: accountChat,
+          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, appleLogin: () => invoke<{ user?: { id: string; displayName: string; createdAt: string } | null }>("account_apple_login"), settingsSync: accountSettingsSync }, chat: accountChat,
             touchKeyboardSchemes: true,
             customTouchKeyboardSkins: true,
             customSkinLibrary: {

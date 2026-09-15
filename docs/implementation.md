@@ -866,6 +866,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建，以及 `desktop-settings-launcher`、`candidate-skin`、`external-skin`、`shortcut`、`skin-preview`、`skin-settings`、`input-menu` 七项相关 CTest 通过。未执行安装输入源、真实外部皮肤目录权限、Tauri bundle 启动和系统级视觉验收，CI 保持禁用。
 
+### iOS Tauri 原生 Apple 登录
+
+账号页现在在 iOS 收到 Apple 登录提供商时显示原生登录入口。Tauri command 先向共享账号服务申请一次性 challenge，再把 challenge 与 nonce 交给 `AuthenticationServices`；身份 token 由原生 Swift delegate 直接交回 Rust `BackendAccountSession` 完成登录，不经过 WebView，也不写日志。状态、资料、设置同步、社区和 AI 页面继续只接收无凭据的用户 DTO；Android 保持邮箱/手机号验证码路径。
+
+本地验证通过 iOS arm64 target 的 `cargo check --locked`、Swift package 编译、Swift 语法解析、共享账号 237 项 Rust 测试、移动插件测试和账号 UI 14 项 Vitest。Apple 登录依赖系统 Apple ID 授权界面，未在签名设备执行交互验收，CI 保持禁用。
+
 ### macOS/Windows Tauri 凭据测试入口
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
