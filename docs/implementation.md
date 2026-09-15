@@ -857,3 +857,9 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 原生候选设置中的“浏览所有皮肤…”现在优先启动共享 Tauri `settings:skin` 页面，复用桌面宿主已经提供的皮肤目录扫描、受限资源读取、外部目录打开和共享偏好保存；Tauri bundle 不存在或启动失败时，仍回退到原生 `SkinSettingsView` 卡片窗口。新增 `Skin` 设置路由不会把皮肤解析、候选绘制或 Engine 状态移入 UI，两个入口继续使用同一受控皮肤目录和快照字段。
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建，以及 `desktop-settings-launcher`、`candidate-skin`、`external-skin`、`shortcut`、`skin-preview`、`skin-settings`、`input-menu` 七项相关 CTest 通过。未执行安装输入源、真实外部皮肤目录权限、Tauri bundle 启动和系统级视觉验收，CI 保持禁用。
+
+### macOS/Windows Tauri 凭据测试入口
+
+桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
+
+本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
