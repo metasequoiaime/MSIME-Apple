@@ -59,6 +59,15 @@ constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
     }
 }
 
+// Candidate digits are a controller shortcut only for an ordinary candidate
+// panel. Unicode composition consumes the same physical keys as hexadecimal
+// input, while nine-key mode and modified chords belong to the Engine.
+constexpr bool ShouldRoutePhysicalCandidateDigit(bool candidatePanelVisible, bool nineKeyMode, bool unicodeMode,
+                                                   bool modified)
+{
+    return candidatePanelVisible && !nineKeyMode && !unicodeMode && !modified;
+}
+
 constexpr bool IsKeypadDecimal(unsigned short keyCode)
 {
     return keyCode == 65; // kVK_ANSI_KeypadDecimal

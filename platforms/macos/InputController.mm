@@ -2317,9 +2317,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // Candidate numbers follow the physical ANSI number row, matching the
     // Windows TSF path even when the active keyboard layout emits different
     // characters.  Let nine-key mode and modified chords reach the Engine.
-    if (_panel.isVisible && !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
-                                                     NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
-        ![_view[@"nine_key"] boolValue]) {
+    const NSEventModifierFlags candidateDigitModifiers = NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                                          NSEventModifierFlagOption | NSEventModifierFlagCommand;
+    if (msime::mac::ShouldRoutePhysicalCandidateDigit(
+            _panel.isVisible, [_view[@"nine_key"] boolValue], [_view[@"local_mode"] isEqual:@"unicode"],
+            (event.modifierFlags & candidateDigitModifiers) != 0)) {
         const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
         NSArray *candidates = _view[@"candidates"];
         if (slot >= 0 && [candidates isKindOfClass:NSArray.class] && (NSUInteger)slot < candidates.count) {
