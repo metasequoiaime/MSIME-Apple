@@ -91,6 +91,20 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements", project)
         self.assertIn("CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements", project)
 
+    def test_app_icon_assets_and_alternate_names_are_configured(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        self.assertIn("- path: App/Resources/Assets.xcassets", project)
+        self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
+        self.assertIn(
+            "ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIconForest AppIconSky AppIconDusk AppIconVermilion",
+            project,
+        )
+        assets = IOS_ROOT / "App/Resources/Assets.xcassets"
+        for name in ["AppIcon", "AppIconForest", "AppIconSky", "AppIconDusk", "AppIconVermilion"]:
+            self.assertTrue((assets / f"{name}.appiconset/Contents.json").is_file(), name)
+        for name in ["Classic", "Forest", "Sky", "Dusk", "Vermilion"]:
+            self.assertTrue((assets / f"AppIconPreview{name}.imageset/Contents.json").is_file(), name)
+
     # A `swift build` under shared/backend leaves 2000+ files in .build, and every target that takes
     # that directory as a source path would otherwise compile them into the app: the archive fails
     # with dozens of "Multiple commands produce" errors naming MSIMEBackend.o and precompiled
