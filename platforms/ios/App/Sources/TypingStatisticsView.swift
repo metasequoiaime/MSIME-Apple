@@ -17,12 +17,14 @@ struct TypingStatisticsView: View {
 
   /// 三块内容轮流占这一屏,不再一路往下滚。
   private enum Tab: String, CaseIterable {
-    case trend, kind, mode
+    case trend, kind, mode, scheme
+    /// 标签只给两个字 —— 四格分段控件上放「语言模式」「输入方案」会挤成一行小字;全名在下面的分组标题里。
     var title: String {
       switch self {
       case .trend: return "趋势"
       case .kind: return "类型"
-      case .mode: return "模式方案"
+      case .mode: return "模式"
+      case .scheme: return "方案"
       }
     }
   }
@@ -116,6 +118,7 @@ struct TypingStatisticsView: View {
           distribution(languageSlices)
         } header: { Text("语言模式") }
           footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
+      case .scheme:
         Section {
           distribution(sourceSlices)
         } header: { Text("输入方案") }

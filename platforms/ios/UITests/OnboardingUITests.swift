@@ -881,11 +881,17 @@ final class OnboardingUITests: XCTestCase {
     kind.lifetime = .keepAlways
     add(kind)
 
-    tabs.buttons["模式方案"].tap()
+    tabs.buttons["模式"].tap()
     let mode = XCTAttachment(screenshot: app.screenshot())
-    mode.name = "统计语言与输入方案"
+    mode.name = "统计语言模式"
     mode.lifetime = .keepAlways
     add(mode)
+
+    tabs.buttons["方案"].tap()
+    let scheme = XCTAttachment(screenshot: app.screenshot())
+    scheme.name = "统计输入方案"
+    scheme.lifetime = .keepAlways
+    add(scheme)
 
     tabs.buttons["趋势"].tap()
     XCTAssertTrue(day.waitForExistence(timeout: 3), "切回趋势要能看到柱形")
