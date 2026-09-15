@@ -157,6 +157,8 @@ ctest --test-dir target/macos --output-on-failure
 
 文本适配测试验证提交、ASCII 光标和清除预编辑；它不是系统输入源安装后在编辑器中的验收。系统级焦点、候选位置和键盘输入仍需真实宿主验证后才能标为完成。
 
+维护快捷键只在水杉输入法当前 IMK 上下文中处理，不安装全局键盘监听。`Control+Shift+Option+1–8` 删除当前候选页对应槽位，`Control+Shift+Option+C` 通过共享 Host API 清除当前会话 Engine 缓存，`Control+Shift+Option+R` 用独立 helper 实例重新注册当前输入源并退出旧进程，`Control+Shift+Option+T` 退出当前输入法进程。物理键位不受当前键盘布局字符影响，Command 明确排除，Caps Lock 可共存，重复事件只消费一次。macOS 设置页相应使用 Option 与输入上下文文案；桌面重新注册命令按输入法 bundle identifier 定位目标，而不是重新打开设置应用。
+
 完整词库快照激活集成测试需显式运行，不自动下载资源或触发 CI：
 
 ```sh

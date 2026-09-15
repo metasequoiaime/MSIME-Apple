@@ -663,6 +663,33 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
 
+test("macOS maintenance shortcuts use the current input context and Option", async () => {
+  const restartInputMethod = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    restartInputMethod,
+    host: {
+      platform: "macos",
+      restart_input_method: true,
+      panel_windows: true,
+      mode_switch_shortcuts: true,
+      panel_shortcuts: true,
+    } as never,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("输入上下文维护快捷键")).toBeDefined();
+  expect(screen.getByText("仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。")).toBeDefined();
+  for (const key of ["1–8", "C", "R", "T"])
+    expect(screen.getByText(`Ctrl+Shift+Option+${key}`)).toBeDefined();
+  expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
+  expect(screen.getByText("重新注册并重启当前输入法")).toBeDefined();
+  expect(screen.getByText("立即退出当前输入法进程")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
+  await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
+  expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);

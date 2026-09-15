@@ -1,6 +1,7 @@
 #import "../SharedVoicePreferences.h"
 #import "../VoiceProviderOptions.h"
 #include <cassert>
+#import "TestPreferenceSuite.h"
 
 int main() {
     @autoreleasepool {
@@ -49,6 +50,6 @@ int main() {
         assert([query[@"doubao_enable_itn"] isEqual:@YES]);
         assert([query[@"doubao_enable_punc"] isEqual:@YES]);
         assert([query[@"doubao_enable_ddc"] isEqual:@NO]);
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }

@@ -94,3 +94,22 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
     }
     CFRelease(sources); return noErr;
 }
+
+void MSIMELaunchInputSourceReregistration(NSURL *bundleURL, NSWorkspace *workspace,
+                                          void (^completion)(BOOL launched)) {
+    if (!completion) return;
+    if (!bundleURL || !bundleURL.isFileURL || !workspace) {
+        completion(NO);
+        return;
+    }
+    NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
+    configuration.arguments = @[@"--reregister-input-source"];
+    configuration.activates = NO;
+    configuration.createsNewApplicationInstance = YES;
+    [workspace openApplicationAtURL:bundleURL configuration:configuration
+                 completionHandler:^(NSRunningApplication *application, NSError *error) {
+        BOOL launched = application != nil && error == nil;
+        if (NSThread.isMainThread) completion(launched);
+        else dispatch_async(dispatch_get_main_queue(), ^{ completion(launched); });
+    }];
+}

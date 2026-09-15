@@ -5,6 +5,7 @@
 #import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>
+#import "TestPreferenceSuite.h"
 
 static NSView *FindControl(NSView *root, NSString *label) {
     if ([root.accessibilityLabel isEqual:label]) return root;
@@ -486,7 +487,7 @@ surface = "#123456"
             assert([[Draw(preview) representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);
         }
         [NSNotificationCenter.defaultCenter removeObserver:observer];
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
         std::filesystem::remove_all(root);
     }
 }

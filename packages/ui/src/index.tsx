@@ -800,6 +800,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showVoiceCaptureDevices = !androidPlatform && (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
   // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
   const showDesktopMaintenanceShortcuts = !host || host.panel_windows;
+  const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   const clientHostedPlatform = linuxPlatform || androidPlatform || macosPlatform || harmonyPlatform || host?.platform === "ios";
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
@@ -1919,27 +1920,27 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           </div>
         </div>
         {showDesktopMaintenanceShortcuts && <div className="section shortcut-section">
-          <div className="section-title">全局维护快捷键</div>
-          <small>{linuxPlatform ? "当前 IBus 会话中的候选维护与服务重启" : "程序运行时全局生效；用于维护与调试"}</small>
+          <div className="section-title">{macosPlatform ? "输入上下文维护快捷键" : "全局维护快捷键"}</div>
+          <small>{macosPlatform ? "仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。" : linuxPlatform ? "当前 IBus 会话中的候选维护与服务重启" : "程序运行时全局生效；用于维护与调试"}</small>
           <div className="shortcut-list">
-            <div className="shortcut-row"><span>删除当前候选窗口中的第 1–8 项</span><kbd>Ctrl+Shift+Alt+1–8</kbd></div>
+            <div className="shortcut-row"><span>删除当前候选窗口中的第 1–8 项</span><kbd>{maintenanceChord}+1–8</kbd></div>
             {linuxPlatform && <>
               <div className="shortcut-row"><span>清除当前输入法会话的 Engine 缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
               <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
             </>}
             {!linuxPlatform && <>
-              <div className="shortcut-row"><span>清除输入法引擎缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
-              <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
-              <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
+              <div className="shortcut-row"><span>{macosPlatform ? "清除当前输入法会话的 Engine 缓存" : "清除输入法引擎缓存"}</span><kbd>{maintenanceChord}+C</kbd></div>
+              <div className="shortcut-row"><span>{macosPlatform ? "重新注册并重启当前输入法" : "重启输入法服务"}</span><kbd>{maintenanceChord}+R</kbd></div>
+              <div className="shortcut-row shortcut-row-danger"><span>{macosPlatform ? "立即退出当前输入法进程" : "立即退出输入法服务"}</span><kbd>{maintenanceChord}+T</kbd></div>
             </>}
           </div>
         </div>}
         {showRestartInputMethod && <div className="section shortcut-section">
           <div className="section-title">输入法服务</div>
-          <small>IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。</small>
+          <small>{macosPlatform ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。" : linuxPlatform ? "IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。" : "请求受监督的输入法服务重新启动。"}</small>
           <div className="service-action-row">
-            <span>立即重启输入法服务</span>
-            <HostActionButton action={client.restartInputMethod} label="重启" success="已发送重启请求。" error="重启输入法服务失败，请稍后重试。" />
+            <span>{macosPlatform ? "重新注册当前输入源" : "立即重启输入法服务"}</span>
+            <HostActionButton action={client.restartInputMethod} label={macosPlatform ? "重新注册" : "重启"} success={macosPlatform ? "已重新注册输入源。" : "已发送重启请求。"} error={macosPlatform ? "重新注册输入源失败，请确认输入法已经安装。" : "重启输入法服务失败，请稍后重试。"} />
           </div>
         </div>}
       </fieldset>

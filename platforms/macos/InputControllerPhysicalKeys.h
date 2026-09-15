@@ -2,6 +2,31 @@
 
 namespace msime::mac
 {
+enum class MaintenanceShortcutAction
+{
+    None,
+    ClearCache,
+    Restart,
+    Terminate,
+};
+
+// InputMethodKit only receives events for the active input context.  Preserve
+// the Windows maintenance keys while replacing Alt with macOS Option and using
+// physical ANSI key codes so keyboard-layout characters cannot change them.
+constexpr MaintenanceShortcutAction PhysicalMaintenanceShortcut(unsigned short keyCode, bool control, bool shift,
+                                                                  bool option, bool command)
+{
+    if (!control || !shift || !option || command)
+        return MaintenanceShortcutAction::None;
+    switch (keyCode)
+    {
+    case 8: return MaintenanceShortcutAction::ClearCache; // C
+    case 15: return MaintenanceShortcutAction::Restart;   // R
+    case 17: return MaintenanceShortcutAction::Terminate; // T
+    default: return MaintenanceShortcutAction::None;
+    }
+}
+
 // Main-row ANSI digit key codes used for candidate selection.  These helpers
 // live in the Engine-facing namespace so InputController.mm can include them
 // alongside CandidateSkin.h, which reserves metasequoia::mac as an alias.

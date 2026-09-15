@@ -501,6 +501,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_command(_handle, command), error);
 }
+- (nullable NSDictionary *)resetCacheWithError:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_reset_cache(_handle), error);
+}
 - (nullable NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_select(_handle, generation, index), error);

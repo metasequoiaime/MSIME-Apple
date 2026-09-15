@@ -24,6 +24,35 @@ class IOSProjectConfigTests(unittest.TestCase):
             info = plistlib.load(file)
         self.assertEqual(info["NSMicrophoneUsageDescription"], explanation)
 
+    def test_tauri_voice_panel_uses_bounded_native_recording_and_batch_asr(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        plugin_rust = (plugin / "src/lib.rs").read_text()
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+
+        self.assertIn("sdk: AVFoundation.framework", project)
+        self.assertIn("AVFoundation.framework in Frameworks", generated)
+        self.assertIn('run_mobile_plugin_async::<IosVoiceTranscriptionResponse>("recognizeVoice", request)', plugin_rust)
+        self.assertIn('"stopVoice"', plugin_rust)
+        self.assertIn('"cancelVoice"', plugin_rust)
+        self.assertIn("import AVFoundation", swift)
+        self.assertIn("AVAudioRecorder(url: file", swift)
+        self.assertIn("AVSampleRateKey: 16_000", swift)
+        self.assertIn("AVNumberOfChannelsKey: 1", swift)
+        self.assertIn("AVLinearPCMBitDepthKey: 16", swift)
+        self.assertIn("DispatchQueue.main.asyncAfter(deadline: .now() + 60", swift)
+        self.assertIn('request.setValue("multipart/form-data; boundary=', swift)
+        self.assertIn("willPerformHTTPRedirection", swift)
+        self.assertIn("private static let maximumResponseBytes = 1024 * 1024", swift)
+        self.assertIn('["openai", "siliconflow", "groq"]', swift)
+        self.assertNotIn('["openai", "siliconflow", "groq", "doubao"]', swift)
+        self.assertIn('#[cfg(all(unix, not(target_os = "ios")))]', rust_entry)
+        self.assertIn("ios_voice_provider_configuration(&snapshot.preferences)", rust_entry)
+        self.assertIn('phase: Some("recording".into())', rust_entry)
+        self.assertIn('phase: Some("recognizing".into())', rust_entry)
+
     def test_privacy_manifest_is_shared_by_tauri_app_and_keyboard(self):
         privacy_path = TAURI_ROOT / "../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
         with privacy_path.resolve().open("rb") as file:

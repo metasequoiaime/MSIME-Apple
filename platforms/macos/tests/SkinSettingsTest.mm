@@ -3,6 +3,7 @@
 #import "CandidateSkinPreviewView.h"
 #include <cassert>
 #include <fstream>
+#import "TestPreferenceSuite.h"
 
 static void WritePackage(const std::filesystem::path &root) {
     std::filesystem::create_directories(root / "synthetic");
@@ -137,7 +138,7 @@ int main(int argc, const char **argv) {
             assert([titles.firstObject.stringValue containsString:[theme isEqual:NSAppearanceNameDarkAqua] ? @"Dark" : @"Light"]);
         }
         [NSNotificationCenter.defaultCenter removeObserver:observer];
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
         std::filesystem::remove_all(std::filesystem::path(temporary));
     }
 }

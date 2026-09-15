@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sqlite3.h>
 #import <objc/runtime.h>
+#import "TestPreferenceSuite.h"
 
 static NSUInteger missingKeyFontCalls;
 static IMP originalMonospacedFont;
@@ -59,6 +60,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger selectedIndex;
 @property(nonatomic) NSUInteger maintenanceCalls;
 @property(nonatomic) NSInteger maintenanceAction;
+@property(nonatomic) NSUInteger resetCacheCalls;
+@property(nonatomic, copy) NSDictionary *resetCacheTransition;
 @property(nonatomic) NSUInteger englishCandidateCalls;
 @property(nonatomic) BOOL dedicatedEnglish;
 @property(nonatomic, copy) NSDictionary *nextTransition;
@@ -158,6 +161,11 @@ static void CheckMenu(NSMenu *menu, id controller) {
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
 }
+- (NSDictionary *)resetCacheWithError:(NSError **)error {
+    (void)error;
+    ++self.resetCacheCalls;
+    return self.resetCacheTransition;
+}
 @end
 
 @interface ShortcutClient : NSObject <MSIMETextClient>
@@ -204,6 +212,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger preparationCalls;
 @property(nonatomic) NSUInteger paletteCalls;
 @property(nonatomic) NSUInteger screenKeyboardCalls;
+@property(nonatomic) NSUInteger restartCalls;
+@property(nonatomic) NSUInteger terminationCalls;
 @end
 @implementation ModeController
 - (void)prepareSession {
@@ -212,6 +222,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 }
 - (void)showSystemCharacterPalette { ++self.paletteCalls; }
 - (void)showScreenKeyboard:(id)sender { (void)sender; ++self.screenKeyboardCalls; }
+- (void)restartCurrentInputMethod { ++self.restartCalls; }
+- (void)terminateCurrentInputMethod { ++self.terminationCalls; }
 @end
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
@@ -282,7 +294,7 @@ static void TestPageSizeCache() {
     assert(session.pageSizeCalls == 3 && session.requestedPageSize == 9);
     [controller prepareSession];
     assert(session.focusCalls == 1 && ![[controller valueForKey:@"focusPending"] boolValue]);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestSharedPunctuation() {
@@ -316,7 +328,7 @@ static void TestSharedPunctuation() {
     [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @NO}];
     assert(!prefs.chinesePunctuation && saves == 1);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestSharedTraditionalOutput() {
@@ -371,7 +383,7 @@ static void TestSharedTraditionalOutput() {
     NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(loaded && !error && [loaded[@"preferences"][@"traditional_chinese_output"] isEqual:@YES]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
     MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(!fresh.traditionalOutput);
     [fresh applySharedInputPreferences:loaded[@"preferences"]];
@@ -475,7 +487,7 @@ static void TestIndependentAssistancePreferences() {
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_neighbor": @1}}];
     assert(!prefs.autocorrectNeighbor);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestSharedInputPreferences() {
@@ -539,7 +551,7 @@ static void TestSharedInputPreferences() {
     NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
     assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@2]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -789,7 +801,7 @@ static void TestPairedPunctuationPreferences() {
     session.punctuationView = @{ @"editing_text": @"", @"candidates": @[] };
     [controller syncPunctuation];
     assert(!session.pairedPunctuation && session.punctuationLock == 0 && session.pairedPunctuationCalls == 1 && session.punctuationLockCalls == 1);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestPairedPunctuationHostExclusion() {
@@ -839,7 +851,7 @@ static void TestMixedInputPreferences() {
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(reopened.mixedEnglishInput && reopened.mixedEnglishMinimumPrefix == 5 &&
            !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -1065,6 +1077,51 @@ static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
     appearance.englishMode = previousEnglishMode;
 }
 
+static void TestMaintenanceShortcuts(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    session.resetCacheTransition = @{@"handled": @YES, @"view": @{
+        @"focused": @YES, @"editing_text": @"", @"candidates": @[]
+    }};
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    const BOOL previousEnglishMode = appearance.englishMode;
+    const NSEventModifierFlags chord = NSEventModifierFlagControl |
+        NSEventModifierFlagShift | NSEventModifierFlagOption;
+
+    appearance.englishMode = NO;
+    assert([controller handleEvent:ModeKey(8, chord, NO) client:client]);
+    assert(session.resetCacheCalls == 1);
+    assert([controller handleEvent:ModeKey(15, chord, NO) client:client]);
+    assert(controller.restartCalls == 1);
+    assert([controller handleEvent:ModeKey(17, chord, NO) client:client]);
+    assert(controller.terminationCalls == 1);
+
+    for (NSNumber *code in @[@8, @15, @17])
+        assert([controller handleEvent:ModeKey(code.unsignedShortValue, chord, YES) client:client]);
+    assert(session.resetCacheCalls == 1 && controller.restartCalls == 1 && controller.terminationCalls == 1);
+
+    assert([controller handleEvent:ModeKey(8, chord | NSEventModifierFlagCapsLock, NO) client:client]);
+    assert(session.resetCacheCalls == 2);
+    appearance.englishMode = YES;
+    assert([controller handleEvent:ModeKey(15, chord, NO) client:client]);
+    assert(controller.restartCalls == 2);
+
+    for (NSNumber *modifiers in @[
+        @(chord & ~NSEventModifierFlagControl),
+        @(chord & ~NSEventModifierFlagShift),
+        @(chord & ~NSEventModifierFlagOption),
+        @(chord | NSEventModifierFlagCommand)
+    ]) {
+        assert(![controller handleEvent:ModeKey(8, modifiers.unsignedIntegerValue, NO) client:client]);
+    }
+    assert(![controller handleEvent:ModeKey(9, chord, NO) client:client]);
+    assert(session.resetCacheCalls == 2 && controller.restartCalls == 2 && controller.terminationCalls == 1);
+    appearance.englishMode = previousEnglishMode;
+}
+
 static NSEvent *TapEvent(NSEventType type, unsigned short key, NSEventModifierFlags flags, double time) {
     return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:time windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key];
 }
@@ -1131,7 +1188,7 @@ static void TestStaleClientDeactivation() {
     [controller deactivateServer:current];
     assert(session.focusCalls == 1 && toolbar.calls == 1 && baseDeactivationCalls == 1);
     method_setImplementation(base, original);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 @interface ControlledPreferenceRead : NSObject
@@ -1235,7 +1292,7 @@ static void TestPreferenceClientGeneration() {
         WaitForPreferenceCompletions(controller, 3);
         assert(controller.appliedPreferences.count == 2 && !prefs.chinesePunctuation);
         assert(session.updates == (session ? 2 : 0));
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }
 
@@ -1353,7 +1410,7 @@ static void TestModifierTaps() {
     assert(![controller handleEvent:down client:other]);
     assert(![controller handleEvent:up client:nil]);
     assert(![controller handleEvent:up client:other] && prefs.englishMode);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 @interface ApplicationShortcutClient : ShortcutClient
@@ -1439,7 +1496,7 @@ static void TestInputSourceModeReset() {
     monitor = nil;
     assert(weakMonitor == nil);
     [NSNotificationCenter.defaultCenter removeObserver:saveObserver];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
     monitoredSource = nil;
 }
 
@@ -1519,7 +1576,7 @@ static void TestInputModePolicy() {
     // App identities are memory-only; no per-app state is exported or persisted.
     assert([defaults objectForKey:a.bundleIdentifier] == nil);
     assert(![prefs sharedPreferencesByMerging:@{}][a.bundleIdentifier]);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestControlOptionSpace() {
@@ -1589,7 +1646,7 @@ static void TestControlOptionSpace() {
     assert(prefs.englishMode && button.state == NSControlStateValueOff);
     prefs.controlOptionSpaceShortcut = NO;
     assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] controlOptionSpaceShortcut]);
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
     if (previousHoldSpace) [standardDefaults setObject:previousHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
     else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
 }
@@ -2088,7 +2145,7 @@ static void TestCloudCandidatePreference() {
     NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(loaded && !error && [loaded[@"preferences"][@"cloud_candidates"] isEqual:@NO]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
     MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(fresh.cloudCandidates);
     [fresh applySharedInputPreferences:loaded[@"preferences"]];
@@ -2494,7 +2551,7 @@ static void TestCustomTranslationController() {
     nativePending.reply(online);
     assert(session.delivered.count == 0);
     [prefs.window close];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 static void TestCustomTranslationCacheDelivery() {
     [[MSIMETranslationCache sharedCache] clear];
@@ -2705,7 +2762,7 @@ static void TestCandidateTranslationPreference() {
     assert(translationWindow.window.visible);
     [translationWindow close];
     [NSNotificationCenter.defaultCenter removeObserver:observer];
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
     MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(fresh.candidateTranslations);
     [fresh applySharedInputPreferences:loaded[@"preferences"]];
@@ -3612,6 +3669,7 @@ int main(int argc, char **argv) {
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
         TestScreenKeyboardShortcut(appearance);
+        TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
@@ -3625,7 +3683,7 @@ int main(int argc, char **argv) {
         TestKeymap(defaults, appearance);
         method_setImplementation(fontMethod, originalMonospacedFont);
         assert(missingKeyFontCalls > 0);
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
         if (previousVoiceHoldSpace) [standardDefaults setObject:previousVoiceHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
     }

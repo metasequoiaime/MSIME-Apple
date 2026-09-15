@@ -587,7 +587,7 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/SupportWindowController.mm")
 add_executable(input-source-registration-test tests/InputSourceRegistrationTests.mm InputSourceRegistration.mm)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(input-source-registration-test PRIVATE "-framework Carbon" "-framework Foundation")
+target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework Foundation")
 add_test(NAME input-source-registration COMMAND input-source-registration-test)
 add_executable(local-input-mode-test tests/LocalInputModeTests.cpp)
 target_include_directories(local-input-mode-test PRIVATE ../../vendor/MSIME-Engine/include)
