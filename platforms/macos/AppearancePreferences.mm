@@ -5,6 +5,7 @@
 #import "TranslationSettingsWindow.h"
 #import "DesktopSettingsLauncher.h"
 #import "AISettingsWindow.h"
+#import "SharedVoicePreferences.h"
 #include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
@@ -414,9 +415,10 @@ static BOOL ValidToolbarFontSize(id value) {
     if (LocalModeBoolean([_defaults objectForKey:NeighborKey]))
         quanpin[@"autocorrect_neighbor"] = _sharedNeighbor ?: @(self.autocorrectNeighbor);
     if (quanpin.count) merged[@"quanpin"] = quanpin;
-    NSMutableDictionary *voice = [merged[@"voice_input"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"];
-    if ([language isEqualToString:@"zh-CN"] || [language isEqualToString:@"en-US"]) voice[@"language"] = language;
+    id existingVoice = merged[@"voice_input"];
+    NSMutableDictionary *voice = [existingVoice isKindOfClass:NSDictionary.class]
+        ? [existingVoice mutableCopy] : [NSMutableDictionary dictionary];
+    [voice addEntriesFromDictionary:MSIMEVoicePreferencesFromDefaults(NSUserDefaults.standardUserDefaults)];
     merged[@"voice_input"] = voice;
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];

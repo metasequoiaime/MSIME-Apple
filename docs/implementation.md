@@ -736,6 +736,10 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
 
+### macOS 原生语音备用设置回写共享配置
+
+macOS 原生语音备用窗口写入的有效字段现在会随宿主偏好 CAS 快照回写共享 `voice_input`：提供方、端点、模型、提交方式、CoreAudio 后端/稳定设备 UID、Doubao 选项、润色和快捷键/提示音开关均保持字段级一致。缺失字段不覆盖 Tauri 或其他宿主已有值；类型错误字段被忽略，录音设备仍不静默切换。凭据仅在本机已有值时保留，云端外观快照仍不包含语音凭据或设备路径。`shared-voice-preferences`、`preference-snapshot-merge` 及 macOS 输入法 bundle 构建通过；未执行安装输入源、真实硬件权限或网络服务验收。
+
 ### macOS 语音波形面板主题覆盖（next44）
 
 原生 `MSIMEVoiceWaveOverlay` 现消费共享 `voice_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局；全局为 `system` 时清除窗口外观，让 AppKit 的有效外观决定波形、状态、转写预览和确认/取消按钮配色。偏好热更新会应用到已存在的面板，尚未创建的面板也会在首次显示时采用最新快照，不触碰录音、识别、润色或 Engine 提交状态。

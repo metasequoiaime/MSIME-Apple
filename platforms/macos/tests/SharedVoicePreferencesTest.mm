@@ -37,6 +37,13 @@ int main() {
         assert([defaults boolForKey:@"MSIMEClientVoicePolishText"]);
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]);
         assert(![defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]);
+        NSDictionary *captured = MSIMEVoicePreferencesFromDefaults(defaults);
+        assert([captured[@"asr_provider"] isEqual:@"openai"]);
+        assert([captured[@"capture_backend"] isEqual:@"macos"]);
+        assert([captured[@"capture_device"] isEqual:@"fixture-device"]);
+        assert([captured[@"hotkey_ctrl_win"] isEqual:@YES]);
+        assert([captured[@"polish_prompt_custom_3"] isEqual:@"three"]);
+        assert([MSIMEVoicePreferencesFromDefaults(nil) isEqual:@{}]);
         NSDictionary *saved = [defaults persistentDomainForName:suite];
         assert(saved.count == voice.count);
         assert(!MSIMEApplySharedVoicePreferences(voice, defaults));
