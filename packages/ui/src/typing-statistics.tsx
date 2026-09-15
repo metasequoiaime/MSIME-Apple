@@ -57,6 +57,16 @@ function recentDays(length: number, today = new Date()): { key: string; label: s
   });
 }
 
+function mobileTrendLength(days: Record<string, number>): number {
+  const earliest = Object.keys(days).filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key)).sort()[0];
+  if (!earliest) return 30;
+  const start = new Date(`${earliest}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return 30;
+  const today = new Date();
+  const span = Math.floor((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - start.getTime()) / 86_400_000) + 1;
+  return Math.min(366, Math.max(30, span));
+}
+
 function sum(values: Record<string, number>, keys: readonly string[]): number {
   return keys.reduce((total, key) => total + (values[key] ?? 0), 0);
 }
@@ -101,13 +111,16 @@ function Distribution({ title, slices, footer }: { title: string; slices: Slice[
   </section>;
 }
 
-export function TypingStatisticsPage({ client }: { client: TypingStatisticsClient }) {
+export function TypingStatisticsPage({ client, mobile = false }: { client: TypingStatisticsClient; mobile?: boolean }) {
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [period, setPeriod] = useState<Period>(7);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<"trend" | "kind" | "mode" | "scheme">("trend");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
-  const trendDays = useMemo(() => recentDays(period === 0 ? 30 : period), [period]);
+  const mobileTrendDays = useMemo(() => recentDays(mobileTrendLength(status?.statistics.days ?? {})), [status?.statistics.days]);
+  const desktopTrendDays = useMemo(() => recentDays(period === 0 ? 30 : period), [period]);
+  const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
   async function update(operation: () => Promise<TypingStatisticsStatus>) {
     setBusy(true); setError("");
@@ -120,11 +133,11 @@ export function TypingStatisticsPage({ client }: { client: TypingStatisticsClien
 
   if (!status) return <div className="statistics-page">{error ? <p role="alert" className="error">{error}</p> : <p role="status">正在读取打字统计…</p>}</div>;
   const statistics = status.statistics;
-  const scopeKeys = selectedDay ? [selectedDay] : period === 0 ? null : trendDays.map(day => day.key);
+  const scopeKeys = selectedDay ? [selectedDay] : mobile || period === 0 ? null : trendDays.map(day => day.key);
   const breakdown = scopedBreakdown(statistics, scopeKeys);
   const scopeTotal = scopeKeys === null ? statistics.total : scopeKeys.reduce((total, key) => total + (statistics.days[key] ?? 0), 0);
   const today = recentDays(1)[0];
-  const scopeTitle = selectedDay ? trendDays.find(day => day.key === selectedDay)?.label ?? selectedDay : period === 0 ? "累计输入" : `近 ${period} 天输入`;
+  const scopeTitle = selectedDay ? trendDays.find(day => day.key === selectedDay)?.label ?? selectedDay : mobile || period === 0 ? "累计输入" : `近 ${period} 天输入`;
   const maximum = Math.max(1, ...trendDays.map(day => statistics.days[day.key] ?? 0));
   const characterSlices = characterKinds.map(([id, title], index) => ({ id, title, count: breakdown.characters[id] ?? 0, color: palette[index % palette.length] }));
   const sourceSlices = sources.map(([id, title], index) => ({ id, title, count: breakdown.sources[id] ?? 0, color: palette[index % palette.length] }));
@@ -146,16 +159,19 @@ export function TypingStatisticsPage({ client }: { client: TypingStatisticsClien
   return <div className="statistics-page">
     {error && <p role="alert" className="error">{error}</p>}
     <section className="section statistics-overview">
-      <div className="statistics-period" role="group" aria-label="统计范围">
+      {mobile ? <div className="statistics-mobile-tabs" role="tablist" aria-label="统计内容">
+        {([['trend', '趋势'], ['kind', '类型'], ['mode', '模式'], ['scheme', '方案']] as const).map(([value, label]) => <button type="button" role="tab" key={value}
+          aria-selected={mobileTab === value} onClick={() => { setMobileTab(value); setSelectedDay(null); }}>{label}</button>)}
+      </div> : <div className="statistics-period" role="group" aria-label="统计范围">
         {([[7, "7 天"], [30, "30 天"], [0, "累计"]] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setSelectedDay(null); }}>{label}</button>)}
-      </div>
+      </div>}
       <div className="statistics-metrics">
         <div><span>今日输入</span><strong aria-label="今日输入字符数">{(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}</strong><small>字符</small></div>
         <div><span>{scopeTitle}</span><strong aria-label="当前范围输入字符数">{scopeTotal.toLocaleString("zh-CN")}</strong><small>字符</small></div>
       </div>
     </section>
-    <section className="section statistics-trend" aria-labelledby="statistics-trend-title">
-      <h2 id="statistics-trend-title">每日趋势 · 近 {period === 0 ? 30 : period} 天</h2>
+    {(!mobile || mobileTab === "trend") && <section className="section statistics-trend" aria-labelledby="statistics-trend-title">
+      <h2 id="statistics-trend-title">每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${mobile ? trendDays.length : period === 0 ? 30 : period} 天`}</h2>
       <p>最高 {maximum === 1 && trendDays.every(day => !statistics.days[day.key]) ? 0 : maximum.toLocaleString("zh-CN")} 字符 / 天</p>
       <div className={`statistics-bars statistics-bars-${trendDays.length}`}>
         {trendDays.map(day => {
@@ -168,10 +184,10 @@ export function TypingStatisticsPage({ client }: { client: TypingStatisticsClien
       <div className="statistics-axis"><span>{trendDays[0]?.label}</span><span>{trendDays.at(-1)?.label}</span></div>
       <p className="statistics-footer-note">点按柱形查看当天的分类与占比。</p>
       {selectedDay && <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>返回整个时间范围</button>}
-    </section>
-    <Distribution title="字符类型" slices={characterSlices} />
-    <Distribution title="语言模式" slices={languageSlices} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />
-    <Distribution title="输入方案" slices={sourceSlices} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />
+    </section>}
+    {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} />}
+    {(!mobile || mobileTab === "mode") && <Distribution title="语言模式" slices={languageSlices} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />}
+    {(!mobile || mobileTab === "scheme") && <Distribution title="输入方案" slices={sourceSlices} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />}
     <section className="section statistics-controls">
       <label className="section-header"><span className="section-title">记录打字统计<small>关闭后，新提交不会增加统计。</small></span><input aria-label="记录打字统计" className="toggle" type="checkbox" checked={statistics.enabled} disabled={busy} onChange={event => void update(() => client.setEnabled(event.target.checked))} /></label>
       <div className="statistics-control-actions">

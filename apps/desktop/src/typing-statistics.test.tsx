@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPage, type SettingsClient, type Snapshot, type TypingStatistics, type TypingStatisticsStatus } from "@msime/ui";
+import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot, type TypingStatistics, type TypingStatisticsStatus } from "@msime/ui";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -74,6 +74,20 @@ test("statistics capability provides 7 day, 30 day, cumulative and selected-day 
   expect(selectedTotal.parentElement?.querySelector("span")?.textContent).toBe(label(0));
   expect(screen.getByLabelText(/汉字 4 字符/)).not.toBeNull();
   expect(screen.queryByText("private fixture text")).toBeNull();
+});
+
+test("mobile statistics follow Apple tabs and show the full retained trend", async () => {
+  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  expect(await screen.findByRole("tab", { name: "趋势" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /每日趋势 · 近 30 天/ })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "类型" }));
+  expect(screen.getByRole("heading", { name: "字符类型" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "方案" }));
+  expect(screen.getByRole("heading", { name: "输入方案" })).toBeTruthy();
 });
 
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {

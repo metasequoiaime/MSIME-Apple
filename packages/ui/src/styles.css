@@ -157,6 +157,9 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .statistics-page .section { margin: 0; }
 .statistics-page h2 { margin: 0; color: var(--text-color); font-size: 15px; font-weight: 600; }
 .statistics-period { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
+.statistics-mobile-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
+.statistics-mobile-tabs button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); }
+.statistics-mobile-tabs button[aria-selected="true"] { background: var(--surface-raised); color: var(--text-color); box-shadow: var(--card-shadow); }
 .statistics-period button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); }
 .statistics-period button[aria-pressed="true"] { background: var(--surface-raised); color: var(--text-color); box-shadow: var(--card-shadow); }
 .statistics-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 22px; }

@@ -878,6 +878,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证通过移动导航定向 Vitest、完整 `settings.test.tsx`（133 项）和桌面 TypeScript 类型检查。CSS 响应式规则未作为原生设备视觉验收；iOS/Android 真机窗口尺寸、系统返回手势和旋转行为仍需产品环境验证，CI 保持禁用。
 
+### 移动端 Tauri 统计页分段展示
+
+依据 Apple 远端 `origin/develop` 固定提交 `60d2531` 及其统计页行为，移动端统计页改为“趋势 / 类型 / 模式 / 方案”四个分段标签；趋势按共享统计中最早记录至今展示，最多 366 天，其他分类不会在窄屏同时堆叠。桌面端继续保留 7 天、30 天和累计范围切换。两端仍读取同一聚合统计接口，启停、刷新、清空和隐私边界不变。
+
+本地验证通过移动统计标签、桌面统计范围回归、TypeScript 检查和 Vite 构建。未执行 iOS/Android 真机触控、旋转或系统返回手势验证，CI 保持禁用。
+
 ### macOS/Windows Tauri 凭据测试入口
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
