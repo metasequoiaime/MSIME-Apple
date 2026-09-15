@@ -101,6 +101,17 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
   expect(screen.getByText("返回整个时间范围")).toBeTruthy();
 });
 
+test("mobile statistics refresh when the settings surface returns to the foreground", async () => {
+  const load = vi.fn().mockResolvedValue(status());
+  const typingStatistics = { load, setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await screen.findByRole("heading", { name: /每日趋势/ });
+  load.mockClear();
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+});
+
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {
   const disabled = { ...initialStatistics, enabled: false };
   const cleared: TypingStatistics = { enabled: false, total: 0, days: {}, detail: { characters: {}, sources: {} }, dailyDetails: {} };
