@@ -273,10 +273,32 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
         }
         update_dpi_scale();
         return 0;
+    case WM_POWERBROADCAST:
+      if (wParam != PBT_APMRESUMEAUTOMATIC && wParam != PBT_APMRESUMECRITICAL &&
+          wParam != PBT_APMRESUMESUSPEND)
+        break;
+      [[fallthrough]];
     case WM_DPICHANGED:
-        update_dpi_scale();
-        update_window_bounds();
-        return 0;
+    case WM_DISPLAYCHANGE:
+    case WM_DWMCOMPOSITIONCHANGED:
+      // Hwnd render targets retain both their display device and creation
+      // DPI. Recreate them before the next paint after any device edge.
+      release_render_target();
+      if (message == WM_DWMCOMPOSITIONCHANGED) {
+        const MARGINS margins = {-1, 0, 0, 0};
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+      }
+      update_dpi_scale();
+      update_window_bounds();
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return message == WM_POWERBROADCAST ? TRUE : 0;
+    case WM_SETTINGCHANGE:
+      // Taskbar/work-area changes need placement refresh even when neither
+      // the monitor resolution nor this window's DPI changed.
+      update_dpi_scale();
+      update_window_bounds();
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
     case WM_SETCURSOR: {
@@ -338,13 +360,12 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
         update_window_bounds();
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
-    case WM_PAINT:
-    case WM_DISPLAYCHANGE: {
-        PAINTSTRUCT ps{};
-        BeginPaint(hwnd, &ps);
-        draw();
-        EndPaint(hwnd, &ps);
-        return 0;
+    case WM_PAINT: {
+      PAINTSTRUCT ps{};
+      BeginPaint(hwnd, &ps);
+      draw();
+      EndPaint(hwnd, &ps);
+      return 0;
     }
     case WM_DESTROY:
         KillTimer(hwnd, kTimerId);
@@ -376,6 +397,11 @@ bool WaveOverlay::ensure_render_target()
     {
         return false;
     }
+
+    // CreateHwndRenderTarget otherwise inherits factory/desktop DPI, which is
+    // not necessarily the per-monitor DPI used by the window's logical layout.
+    update_dpi_scale();
+    render_target_->SetDpi(static_cast<FLOAT>(dpi_), static_cast<FLOAT>(dpi_));
 
     const D2D1_COLOR_F background = light_theme_ ? D2D1::ColorF(0.98f, 0.98f, 0.99f, kPanelOpacity)
                                                  : D2D1::ColorF(0.07f, 0.08f, 0.10f, kPanelOpacity);
@@ -409,7 +435,6 @@ bool WaveOverlay::ensure_render_target()
         return false;
     }
 
-    update_dpi_scale();
     return true;
 }
 
