@@ -972,7 +972,12 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
   expect(within(primary).getByRole("button", { name: "账号" })).toBeTruthy();
   const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
-  expect(Array.from(more.options).map(option => option.text)).toContain("输入");
+  const secondaryLabels = Array.from(more.options).map(option => option.text);
+  expect(secondaryLabels).toContain("输入");
+  expect(secondaryLabels).toContain("实用功能");
+  expect(secondaryLabels).not.toContain("辅助码");
+  expect(secondaryLabels).not.toContain("快捷键");
+  expect(secondaryLabels).not.toContain("悬浮工具栏");
   fireEvent.change(more, { target: { value: "input" } });
   expect(more.value).toBe("input");
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
