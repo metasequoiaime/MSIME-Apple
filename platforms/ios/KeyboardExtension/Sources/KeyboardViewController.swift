@@ -277,6 +277,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    // UIKit may publish the document identifier and keyboard type one run-loop turn after the
+    // extension appears. Refresh the first frame once those host traits are available.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      // Do not let a delayed proxy callback cancel text typed between appearance and this turn.
+      // The next keyboard activation retries synchronization if the host withheld its identifier.
+      guard !self.hasComposition else { return }
+      self.synchronizeInputContext()
+      self.synchronizeInputSchemePreference()
+      self.updateLanguageModeButton()
+      self.updateLetterCaseControls()
+      self.updateCandidateStrip(preedit: self.visiblePreedit, candidates: self.visibleCandidates)
+    }
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
