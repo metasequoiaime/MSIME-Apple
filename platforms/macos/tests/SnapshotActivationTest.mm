@@ -51,6 +51,16 @@ int main(int argc, const char *argv[]) {
                 assert([[session viewWithError:nil][@"character_width"] isEqual:enabled.boolValue ? @"Halfwidth" : @"Fullwidth"]);
                 ++notifications;
             }];
+            assert([[MSIMEClientSession snapshotActivationReady][@"ready"] isEqual:@YES]);
+            assert([session typeASCII:'U' shift:YES error:&error]);
+            assert([[MSIMEClientSession snapshotActivationReady][@"ready"] isEqual:@NO]);
+            error = nil;
+            assert(![MSIMEClientSession applySnapshotHandle:[prepared[@"handle"] unsignedLongLongValue] expectedVersion:version error:&error]);
+            assert(error && [[session viewWithError:nil][@"editing_text"] length] > 0);
+            error = nil;
+            assert([session command:MSIME_CANCEL error:&error]);
+            assert([[MSIMEClientSession snapshotActivationReady][@"ready"] isEqual:@YES]);
+            error = nil;
             BOOL activated = [MSIMEClientSession applySnapshotHandle:[prepared[@"handle"] unsignedLongLongValue] expectedVersion:version error:&error];
             if (!activated) NSLog(@"Synthetic snapshot activation failed: %@", error.localizedDescription);
             assert(activated);
