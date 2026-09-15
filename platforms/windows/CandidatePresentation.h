@@ -11,6 +11,7 @@ inline constexpr int invalid_candidate_anchor_y = -100000;
 struct PresentationCandidate {
   uint64_t session;
   uint64_t generation;
+  uint64_t render_serial = 0;
   size_t index;
   std::string text;
   bool highlighted;

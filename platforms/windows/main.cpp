@@ -876,7 +876,7 @@ int wmain(int argc, wchar_t **argv) {
         config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); },
         [&](const CandidatePresentation &value) {
-          server.candidate_rendered(value.lease, value.generation);
+          server.candidate_rendered(value.lease, value.render_serial);
         });
     const auto palette = resolve_palette(config);
     // An external package may ask for a wider card than the font implies; the
