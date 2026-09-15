@@ -63,21 +63,32 @@ class CKeyboardCancellationEditSession final : public CEditSessionBase
     uint64_t epoch_;
 };
 
-WCHAR GetPairedPunctuationStepOverCandidate(WCHAR wch, const std::wstring &resolved)
+WCHAR GetPairedPunctuationClosing(const std::wstring &text)
 {
-    if (resolved.size() != 1)
+    if (text.empty())
     {
         return 0;
     }
-    if (wch == L'"')
+
+    switch (text.back())
     {
+    case L'“':
         return L'”';
-    }
-    if (wch == L'\'')
-    {
+    case L'‘':
         return L'’';
+    case L'【':
+        return L'】';
+    case L'{':
+        return L'}';
+    case L'《':
+        return L'》';
+    case L'〈':
+        return L'〉';
+    case L'（':
+        return L'）';
+    default:
+        return 0;
     }
-    return resolved[0];
 }
 
 DWORD_PTR MapRawCaretToPreedit(const CStringRange &raw, DWORD_PTR rawCaret, const std::wstring &preedit,
@@ -1501,19 +1512,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         punctuationStr = _ResolveSmartPunctuation(wch, preceding);
     }
 
-    // Excel cannot consume the caret move that places the caret between the
-    // auto-inserted pair. Fall back to ordinary punctuation for that host.
     const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
                                           !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
-    if (pairedPunctuationEnabled && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
-    {
-        const WCHAR stepOver = GetPairedPunctuationStepOverCandidate(wch, punctuationStr);
-        if (_TryStepOverPairedPunctuation(ec, pContext, stepOver))
-        {
-            return S_OK;
-        }
-    }
-
     if (pairedPunctuationEnabled && !punctuationStr.empty())
     {
         // Quotes share one physical key for both sides. In paired mode every
@@ -1529,8 +1529,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         }
     }
 
-    const WCHAR pairedOpening = punctuationStr.empty() ? 0 : punctuationStr.back();
-    const WCHAR pairedClosing = pairedPunctuationEnabled ? _GetPairedPunctuationClosingFor(pairedOpening) : 0;
+    const WCHAR pairedClosing = pairedPunctuationEnabled ? GetPairedPunctuationClosing(punctuationStr) : 0;
     if (pairedClosing != 0)
     {
         punctuationStr.push_back(pairedClosing);
@@ -1580,14 +1579,14 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     double completeElapsedMs = completeTimer.ElapsedMs();
     if (pairedClosing != 0)
     {
-        // The closing half was emitted here, not by a closing keystroke, so the
-        // nest-pair depth that resolving the opening advanced would never be
-        // paid back (the '>' is consumed by step-over). Balance it now, or the
-        // next 《》 degrades into 〈〉.
-        pCompositionProcessorEngine->BalanceNestPairAfterAutoClose(wch);
         _InvalidateSmartPunctuationShadow();
-        _PushPairedPunctuation(pairedOpening, pairedClosing);
-        _QueuePairedPunctuationCaretMove(-1);
+
+        const uint64_t focusToken = _CaptureFocusSessionToken();
+        if (_msgWndHandle != nullptr)
+        {
+            PostMessage(_msgWndHandle, WM_PairedPunctuationMoveLeft, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
+                        static_cast<LPARAM>((focusToken >> 32) & 0xFFFFFFFFULL));
+        }
     }
 
     return S_OK;

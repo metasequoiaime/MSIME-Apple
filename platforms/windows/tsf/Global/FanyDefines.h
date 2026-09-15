@@ -30,6 +30,13 @@ inline bool IsPairedPunctuationExcludedProcess(const std::wstring &processName)
 // inline std::unordered_set<std::wstring> VSCodeSeries = {L"Code.exe", L"Code - Insiders.exe", L"VSCodium.exe"};
 // inline bool IsVSCodeLike = false;
 inline LONG INVALID_Y = -100000;
+
+// Excel cell editing cannot preserve the caret move used by paired punctuation.
+inline bool IsPairedPunctuationExcludedProcess(const std::wstring &processName)
+{
+    return !processName.empty() &&
+           CompareStringOrdinal(processName.c_str(), -1, L"EXCEL.EXE", -1, TRUE) == CSTR_EQUAL;
+}
 } // namespace Global
 
 namespace GlobalSettings
