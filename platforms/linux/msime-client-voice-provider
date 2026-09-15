@@ -32,6 +32,9 @@ from msime_voice_doubao import normalize_doubao_auth_mode
 
 RATE = 16000
 MAX_AUDIO = 20 * 1024 * 1024
+MAX_PACTL_OUTPUT = 1024 * 1024
+MAX_PIPEWIRE_OUTPUT = 8 * 1024 * 1024
+MAX_VOLUME_OUTPUT = 4096
 ASR_PROVIDERS = {"openai", "groq", "siliconflow"}
 POLISH_PROVIDERS = ASR_PROVIDERS | {"deepseek"}
 ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}
@@ -366,9 +369,43 @@ def request_capture_command(options, default_backend, default_device):
                            device or (default_device if not backend else None))
 
 
-def command(args, data=None, timeout=2):
-    return subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                          timeout=timeout, check=True).stdout
+def command(args, data=None, timeout=2, max_output=0):
+    if timeout <= 0 or max_output < 0 or (data is not None and max_output):
+        raise ValueError("invalid command bounds")
+    if not max_output:
+        subprocess.run(args, input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=timeout, check=True)
+        return b""
+    deadline = time.monotonic() + timeout
+    process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL)
+    output = bytearray()
+    try:
+        os.set_blocking(process.stdout.fileno(), False)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(args, timeout)
+            if not select.select([process.stdout], [], [], remaining)[0]:
+                raise subprocess.TimeoutExpired(args, timeout)
+            chunk = os.read(process.stdout.fileno(), min(8192, max_output + 1 - len(output)))
+            if chunk:
+                output.extend(chunk)
+                if len(output) > max_output:
+                    raise ValueError("command output too large")
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(args, timeout)
+            returncode = process.wait(timeout=remaining)
+            if returncode != 0:
+                raise subprocess.CalledProcessError(returncode, args)
+            return bytes(output)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        process.stdout.close()
 
 
 def cue_audio(start):
@@ -415,7 +452,8 @@ def cue(options, start):
 
 
 def sink_inputs():
-    return json.loads(command(["pactl", "--format=json", "list", "sink-inputs"], timeout=0.5))
+    return json.loads(command(["pactl", "--format=json", "list", "sink-inputs"], timeout=0.5,
+                              max_output=MAX_PACTL_OUTPUT))
 
 
 def stream_identity(stream):
@@ -426,7 +464,7 @@ def stream_identity(stream):
 
 
 def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None, failed_indices=None):
-    nodes = json.loads(command(["pw-dump"], timeout=0.5))
+    nodes = json.loads(command(["pw-dump"], timeout=0.5, max_output=MAX_PIPEWIRE_OUTPUT))
     streams = []
     for node in nodes:
         if session is not None and session.stopped.is_set():
@@ -454,7 +492,8 @@ def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None,
             if excluded is not None and (index, props["object.serial"]) in excluded:
                 continue
             # Query current mute state instead of inferring it from the graph.
-            volume = command(["wpctl", "get-volume", str(index)], timeout=0.5)
+            volume = command(["wpctl", "get-volume", str(index)], timeout=0.5,
+                             max_output=MAX_VOLUME_OUTPUT)
             if not volume.startswith(b"Volume:"):
                 if indices is not None:
                     raise ValueError()
