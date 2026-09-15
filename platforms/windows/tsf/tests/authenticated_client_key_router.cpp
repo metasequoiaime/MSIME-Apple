@@ -8,9 +8,14 @@ public:
         last = event;
         return true;
     }
-    bool cancel(const ClientFocusLease &) override { return true; }
     int calls = 0;
+    int cancels = 0;
     ClientKeyEvent last{};
+    bool cancel(const ClientFocusLease &lease) override {
+        ++cancels;
+        last.lease = lease;
+        return true;
+    }
 };
 
 int main() {
@@ -24,7 +29,10 @@ int main() {
     const auto frame = msime::windows::encode_tsf_focus_lease(request);
     assert(guarded.dispatch(frame, event));
     assert(router.calls == 1);
+    assert(guarded.cancel(frame, event.lease));
+    assert(router.cancels == 1);
     guarded.update_lease(7, 11, 20);
     assert(!guarded.dispatch(frame, event));
+    assert(!guarded.cancel(frame, event.lease));
     assert(router.calls == 1);
 }

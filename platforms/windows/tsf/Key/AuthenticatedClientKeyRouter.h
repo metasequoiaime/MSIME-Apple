@@ -30,6 +30,18 @@ public:
         return router_.dispatch(event);
     }
 
+    bool cancel(const msime::windows::TsfFocusLeaseFrame &frame,
+                const ClientFocusLease &lease) {
+        const auto request = msime::windows::decode_tsf_focus_lease(frame);
+        const ClientFocusLease requested{request.client, request.epoch, request.token};
+        if (!authenticator_.authenticate(frame) ||
+            !valid_client_focus_lease(lease) ||
+            !same_client_focus_lease(requested, lease)) {
+            return false;
+        }
+        return router_.cancel(lease);
+    }
+
 private:
     IClientKeyRouter &router_;
     msime::windows::TsfFocusLeaseAuthenticator authenticator_;
