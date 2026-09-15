@@ -21,6 +21,12 @@ int main() {
     require(msime::mac::IsJapaneseMinusEqualInput(3, false, '-') && msime::mac::IsJapaneseMinusEqualInput(3, false, '='), "direct Japanese scheme punctuation");
     require(msime::mac::IsJapaneseMinusEqualInput(0, true, '-') && msime::mac::IsJapaneseMinusEqualInput(0, true, '='), "temporary Japanese punctuation");
     require(!msime::mac::IsJapaneseMinusEqualInput(0, false, '-') && !msime::mac::IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
+    require(msime::mac::IsJapaneseMinusEqualKey(3, false, 27, 'x') &&
+                msime::mac::IsJapaneseMinusEqualKey(3, false, 24, 'x'),
+            "Japanese physical minus/equal keys bypass paging despite layout characters");
+    require(msime::mac::IsJapaneseMinusEqualKey(0, true, 0, '-') &&
+                !msime::mac::IsJapaneseMinusEqualKey(0, false, 27, '-'),
+            "temporary Japanese keeps character fallback and ordinary input keeps paging");
     require(msime::mac::PhysicalCandidateDigitSlot(18) == 0 && msime::mac::PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(83) == 0 && msime::mac::PhysicalCandidateDigitSlot(92) == 8, "keypad digit mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(82) == -1 && msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");

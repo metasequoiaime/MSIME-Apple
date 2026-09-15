@@ -2426,9 +2426,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             // In temporary Japanese mode '-' and '=' are composition input (the
             // Windows TSF path gives these keys to the engine as well). Do not
             // consume them as candidate paging shortcuts while the panel is up.
-            if (msime::mac::IsJapaneseMinusEqualInput([_view[@"scheme"] intValue],
-                                                       [_view[@"local_mode"] isEqual:@"temporary_japanese"],
-                                                       static_cast<char>(character))) {
+            if (msime::mac::IsJapaneseMinusEqualKey([_view[@"scheme"] intValue],
+                                                     [_view[@"local_mode"] isEqual:@"temporary_japanese"],
+                                                     event.keyCode, static_cast<char>(character))) {
                 // Fall through to the normal engine dispatch below.
             } else {
             NSDictionary *wordCharacter = [_appearance wordCharacterOptions];

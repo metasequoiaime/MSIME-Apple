@@ -95,4 +95,14 @@ constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, cha
 {
     return (scheme == 3 || temporaryJapanese) && (character == '-' || character == '=');
 }
+
+// Candidate paging is configured by characters, but Japanese input owns the
+// physical ANSI minus/equal keys.  AppKit's charactersIgnoringModifiers can
+// change with the active keyboard layout, so retain the character fallback for
+// synthetic/older events while preferring the physical key codes in real input.
+constexpr bool IsJapaneseMinusEqualKey(int scheme, bool temporaryJapanese, unsigned short keyCode, char character)
+{
+    if (scheme != 3 && !temporaryJapanese) return false;
+    return keyCode == 24 || keyCode == 27 || character == '-' || character == '=';
+}
 } // namespace msime::mac
