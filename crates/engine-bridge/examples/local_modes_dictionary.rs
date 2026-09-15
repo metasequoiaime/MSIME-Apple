@@ -36,6 +36,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(committed.has_commit);
             assert_eq!(committed.commit, "中");
         }
+        if letter == b'T' {
+            for character in b"rq" {
+                enabled.character(*character, false)?;
+            }
+            assert!(!enabled.snapshot()?.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
         let mut disabled = options.clone();
         match index {
             0 => disabled.local_unicode = false,
