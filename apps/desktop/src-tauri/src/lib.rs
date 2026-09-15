@@ -4358,7 +4358,9 @@ fn sync_clipboard_history_blocking(
     let output = linux_clipboard_text();
     #[cfg(target_os = "windows")]
     let text = msime_host_windows::read_clipboard_text()
-        .map_err(|_| HostActionError { code: "unavailable" })?
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
         .trim_end_matches(['\r', '\n'])
         .to_owned();
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -4404,6 +4406,14 @@ async fn copy_text_impl(
     #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
     #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
 ) -> Result<(), HostActionError> {
+    // Clipboard writes are shared by Emoji, handwriting and voice panels. Keep
+    // the same bounded text contract as paste/submit so a panel cannot make an
+    // unbounded system-clipboard or history update on any desktop host.
+    if !clipboard_text_is_valid(&text) {
+        return Err(HostActionError {
+            code: "invalid_text",
+        });
+    }
     let state = state.inner().clone();
     let store = store.inner().clone();
     #[cfg(target_os = "android")]
@@ -4487,6 +4497,12 @@ async fn copy_text_impl(
                 code: "unavailable",
             })?
     }
+}
+
+fn clipboard_text_is_valid(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= msime_client_core::clipboard::MAX_TEXT_BYTES
+        && !text.contains('\0')
 }
 
 #[cfg(target_os = "android")]
@@ -5231,6 +5247,21 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
+        assert!(!super::clipboard_text_is_valid(""));
+        assert!(!super::clipboard_text_is_valid("a\0b"));
+
+        let at_limit = "x".repeat(msime_client_core::clipboard::MAX_TEXT_BYTES);
+        assert!(super::clipboard_text_is_valid(&at_limit));
+
+        let over_limit = format!("{at_limit}x");
+        assert!(!super::clipboard_text_is_valid(&over_limit));
+        assert!(super::clipboard_text_is_valid(
+            "第一行\nsecond line\n第三行"
+        ));
+    }
+
     #[test]
     fn windows_restart_payload_is_exact_utf16_without_terminator() {
         let payload = super::windows_restart_payload();
