@@ -180,6 +180,26 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     return [identifier[@"session"] isEqual:view[@"session"]] && [identifier[@"generation"] isEqual:view[@"generation"]] &&
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
+static BOOL MSIMESmartPunctuationKey(unichar character) {
+    return character == ',' || character == '.' || character == ':';
+}
+static BOOL MSIMEASCIIAlphanumeric(unichar character) {
+    return (character >= '0' && character <= '9') || (character >= 'A' && character <= 'Z') ||
+           (character >= 'a' && character <= 'z');
+}
+static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
+    switch (character) {
+    case ',': return @"，";
+    case '.': return @"。";
+    case ':': return @"：";
+    default: return nil;
+    }
+}
+static NSString *MSIMEFullWidthSmartMark(unichar character, BOOL fullWidth) {
+    if (!fullWidth) return [NSString stringWithCharacters:&character length:1];
+    const unichar converted = msime::mac::FullWidthCharacter(character);
+    return [NSString stringWithCharacters:&converted length:1];
+}
 
 @interface MSIMECandidatePanel : NSPanel
 @property(nonatomic) BOOL mouseWheelEnabled;
@@ -346,6 +366,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     BOOL _focusPending;
+    unichar _lastSmartPunctuation;
+    NSTimeInterval _lastSmartPunctuationTime;
+    __weak id _smartPunctuationClient;
+    unichar _rejectedSmartPunctuation;
+    BOOL _smartPunctuationRejected;
     msime::mac::PairedPunctuationTracker _pairedPunctuation;
     NSNumber *_typingSourceOverride;
     MSIMEModifierTap _modifierTap;
@@ -377,6 +402,95 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_aiTimer;
     NSDictionary *_aiQuery;
     uint64_t _aiEpoch;
+}
+
+- (void)resetSmartPunctuationState {
+    _lastSmartPunctuation = 0;
+    _lastSmartPunctuationTime = 0;
+    _smartPunctuationClient = nil;
+    _rejectedSmartPunctuation = 0;
+    _smartPunctuationRejected = NO;
+}
+
+- (BOOL)handleSmartPunctuation:(NSEvent *)event client:(id<MSIMETextClient>)client {
+    if (event.characters.length != 1 || (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) return NO;
+    const unichar character = [event.characters characterAtIndex:0];
+    if (!MSIMESmartPunctuationKey(character)) return NO;
+    if (!_appearance.smartPunctuation) { [self resetSmartPunctuationState]; return NO; }
+    if (!_appearance.smartPunctuationRepeatToChinese || !_appearance.pairedPunctuation) {
+        _lastSmartPunctuation = 0;
+        _smartPunctuationRejected = NO;
+    }
+    const BOOL repeat = _lastSmartPunctuation == character && !_smartPunctuationRejected &&
+        _smartPunctuationClient == client && NSProcessInfo.processInfo.systemUptime - _lastSmartPunctuationTime <= 2.0;
+    if (repeat && _appearance.smartPunctuationRepeatToChinese && _appearance.pairedPunctuation &&
+        ![_view[@"editing_text"] length] && [_view[@"candidates"] isKindOfClass:NSArray.class] && ![_view[@"candidates"] count]) {
+        const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+        NSString *expected = MSIMEFullWidthSmartMark(character, _appearance.fullWidthInput);
+        if (preceding && expected.length == 1 && [expected characterAtIndex:0] == (unichar)preceding) {
+            const NSRange selected = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+            const NSUInteger length = expected.length;
+            if (selected.location != NSNotFound && selected.location >= length) {
+                [client insertText:MSIMEChinesePunctuationForSmart(character)
+                  replacementRange:NSMakeRange(selected.location - length, length)];
+                [self resetSmartPunctuationState];
+                return YES;
+            }
+        }
+    }
+    if (_lastSmartPunctuation && _lastSmartPunctuation != character) [self resetSmartPunctuationState];
+    const BOOL rejected = _smartPunctuationRejected && _rejectedSmartPunctuation == character;
+    const BOOL hasComposition = [_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+    uint32_t preceding = 0;
+    if (hasComposition) {
+        for (NSDictionary *candidate in _view[@"candidates"]) {
+            if (![candidate isKindOfClass:NSDictionary.class] || ![candidate[@"highlighted"] isEqual:@YES]) continue;
+            NSString *text = candidate[@"text"];
+            if ([text isKindOfClass:NSString.class] && text.length && MSIMEASCIIAlphanumeric([text characterAtIndex:text.length - 1]))
+                preceding = [text characterAtIndex:text.length - 1];
+            break;
+        }
+    } else if (!rejected) {
+        preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+    }
+    if (!rejected && preceding && (preceding < 0x80) && MSIMEASCIIAlphanumeric((unichar)preceding)) {
+        NSDictionary *transition = hasComposition
+            ? [_session punctuationASCII:(uint8_t)character error:nil]
+            : [_session punctuation:(uint8_t)character preceding:preceding error:nil];
+        if (!transition) return NO;
+        if (hasComposition) {
+            NSString *commit = transition[@"commit"];
+            if (_appearance.fullWidthInput && [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character) {
+                NSMutableDictionary *converted = [transition mutableCopy];
+                converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
+                transition = converted;
+            }
+            [self apply:transition];
+        } else if ([transition[@"handled"] boolValue]) {
+            NSString *commit = transition[@"commit"];
+            if (_appearance.fullWidthInput && [commit isKindOfClass:NSString.class] && commit.length &&
+                [commit characterAtIndex:commit.length - 1] == character) {
+                NSMutableDictionary *converted = [transition mutableCopy];
+                converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
+                transition = converted;
+            }
+            [self apply:transition];
+        } else {
+            return NO;
+        }
+        if (_appearance.pairedPunctuation) {
+            _lastSmartPunctuation = character;
+            _lastSmartPunctuationTime = NSProcessInfo.processInfo.systemUptime;
+            _smartPunctuationClient = client;
+        }
+        _smartPunctuationRejected = NO;
+        _rejectedSmartPunctuation = 0;
+        return YES;
+    }
+    if (rejected) [self resetSmartPunctuationState];
+    return NO;
 }
 
 - (void)cancelAITranslations {
@@ -2032,6 +2146,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _modifierTap.reset();
         _preferenceLoadState.reset();
         _pairedPunctuation.clear();
+        [self resetSmartPunctuationState];
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
@@ -2069,6 +2184,20 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
+    if (event.keyCode == 51) {
+        if (_lastSmartPunctuation) {
+            _smartPunctuationRejected = YES;
+            _rejectedSmartPunctuation = _lastSmartPunctuation;
+            _lastSmartPunctuation = 0;
+        }
+    } else if (_smartPunctuationRejected && event.characters.length == 1 &&
+               [event.characters characterAtIndex:0] != _rejectedSmartPunctuation) {
+        _smartPunctuationRejected = NO;
+        _rejectedSmartPunctuation = 0;
+    } else if (_lastSmartPunctuation && event.characters.length == 1 &&
+               [event.characters characterAtIndex:0] != _lastSmartPunctuation) {
+        [self resetSmartPunctuationState];
+    }
     if (voiceEnabled && !event.isARepeat && event.keyCode == 101 &&
         (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand)) == NSEventModifierFlagControl &&
         ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) {
@@ -2209,6 +2338,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         // as the main-row '-'/'=' candidate navigation shortcut.
         return [transition[@"handled"] boolValue];
     }
+    if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
@@ -2335,6 +2465,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)commitComposition:(id)sender {
     if (sender != _activeClient || !_session) return;
     _pairedPunctuation.clear();
+    [self resetSmartPunctuationState];
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
 }
 

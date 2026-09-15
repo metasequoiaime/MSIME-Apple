@@ -49,6 +49,28 @@ NSString *MSIMETextClientFollowingCharacter(id<MSIMETextClient> client) {
     return text.length == 1 ? [text substringWithRange:NSMakeRange(0, 1)] : nil;
 }
 
+uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client) {
+    if (!client || ![client respondsToSelector:@selector(selectedRange)] ||
+        ![client respondsToSelector:@selector(attributedSubstringFromRange:)]) return 0;
+    NSRange selected = [client selectedRange];
+    if (selected.location == NSNotFound || selected.length != 0 || selected.location == 0) return 0;
+    NSUInteger start = selected.location - 1;
+    NSAttributedString *one = [client attributedSubstringFromRange:NSMakeRange(start, 1)];
+    NSString *text = one.string;
+    if (!text.length) return 0;
+    unichar tail = [text characterAtIndex:text.length - 1];
+    if (tail >= 0xDC00 && tail <= 0xDFFF && start > 0) {
+        NSAttributedString *pair = [client attributedSubstringFromRange:NSMakeRange(start - 1, 2)];
+        NSString *pairText = pair.string;
+        if (pairText.length == 2) {
+            unichar high = [pairText characterAtIndex:0];
+            if (high >= 0xD800 && high <= 0xDBFF)
+                return CFStringGetLongCharacterForSurrogatePair(high, tail);
+        }
+    }
+    return tail;
+}
+
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {
     id commit = transition[@"commit"];
     if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];

@@ -505,6 +505,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_punctuation(_handle, ascii), error);
 }
+- (nullable NSDictionary *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_punctuation_with_context(_handle, ascii, preceding), error);
+}
 - (nullable NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_command(_handle, command), error);

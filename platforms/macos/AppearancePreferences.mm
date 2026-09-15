@@ -69,6 +69,8 @@ static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
+static NSString *const SmartPunctuationKey = @"MSIMEClientSmartPunctuation";
+static NSString *const SmartPunctuationRepeatToChineseKey = @"MSIMEClientSmartPunctuationRepeatToChinese";
 static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
 static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
 static NSString *const MixedInputKey = @"MSIMEClientMixedInput";
@@ -170,6 +172,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
     NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
+    NSNumber *_sharedSmartPunctuation;
+    NSNumber *_sharedSmartPunctuationRepeatToChinese;
     NSNumber *_sharedPairedPunctuation;
     NSString *_sharedPunctuationLock;
     NSButton *_pairedPunctuationButton;
@@ -241,6 +245,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSButton *_keymapButton;
     NSButton *_wubiButton;
     NSButton *_punctuationButton;
+    NSButton *_smartPunctuationButton;
+    NSButton *_smartPunctuationRepeatButton;
     NSButton *_toolbarButton;
     NSButton *_transpositionButton;
     NSButton *_neighborButton;
@@ -382,6 +388,8 @@ static BOOL ValidToolbarFontSize(id value) {
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    merged[@"smart_punctuation"] = @(self.smartPunctuation);
+    merged[@"smart_punctuation_repeat"] = @(self.smartPunctuationRepeatToChinese);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
     merged[@"mixed_input"] = @{
@@ -493,6 +501,8 @@ static BOOL ValidToolbarFontSize(id value) {
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
     _sharedChinesePunctuation = nil;
+    _sharedSmartPunctuation = nil;
+    _sharedSmartPunctuationRepeatToChinese = nil;
     _sharedTraditionalOutput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
@@ -742,6 +752,10 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
+    id smart = preferences[@"smart_punctuation"];
+    if (LocalModeBoolean(smart)) _sharedSmartPunctuation = smart;
+    id smartRepeat = preferences[@"smart_punctuation_repeat"];
+    if (LocalModeBoolean(smartRepeat)) _sharedSmartPunctuationRepeatToChinese = smartRepeat;
     id paired = preferences[@"paired_punctuation"];
     if (LocalModeBoolean(paired)) _sharedPairedPunctuation = paired;
     id punctuationLock = preferences[@"punctuation_lock"];
@@ -812,6 +826,10 @@ static BOOL ValidToolbarFontSize(id value) {
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
+- (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationKey]); }
+- (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
+- (BOOL)smartPunctuationRepeatToChinese { return _sharedSmartPunctuationRepeatToChinese ? _sharedSmartPunctuationRepeatToChinese.boolValue : ([_defaults objectForKey:SmartPunctuationRepeatToChineseKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationRepeatToChineseKey]); }
+- (void)setSmartPunctuationRepeatToChinese:(BOOL)value { _sharedSmartPunctuationRepeatToChinese = nil; [_defaults setBool:value forKey:SmartPunctuationRepeatToChineseKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
@@ -1224,6 +1242,8 @@ static BOOL ValidToolbarFontSize(id value) {
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _smartPunctuationButton.state = self.smartPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _smartPunctuationRepeatButton.state = self.smartPunctuationRepeatToChinese ? NSControlStateValueOn : NSControlStateValueOff;
     _pairedPunctuationButton.state = self.pairedPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
@@ -1437,6 +1457,10 @@ static BOOL ValidToolbarFontSize(id value) {
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _punctuationButton.toolTip = @"Control+. 切换中英文标点";
+    _smartPunctuationButton = [NSButton checkboxWithTitle:@"智能标点" target:self action:@selector(smartPunctuationChanged:)];
+    _smartPunctuationButton.toolTip = @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式";
+    _smartPunctuationRepeatButton = [NSButton checkboxWithTitle:@"重复标点转中文" target:self action:@selector(smartPunctuationRepeatChanged:)];
+    _smartPunctuationRepeatButton.toolTip = @"短时间重复输入 ASCII 标点时替换为中文标点";
     _pairedPunctuationButton = [NSButton checkboxWithTitle:@"成对标点" target:self action:@selector(pairedPunctuationChanged:)];
     _pairedPunctuationButton.toolTip = @"自动插入并配对引号、括号等标点";
     _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1529,6 +1553,8 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
+        @[[NSTextField labelWithString:@"标点输入"], _smartPunctuationButton],
+        @[[NSTextField labelWithString:@"标点输入"], _smartPunctuationRepeatButton],
         @[[NSTextField labelWithString:@"标点输入"], _pairedPunctuationButton],
         @[[NSTextField labelWithString:@"标点锁定"], _punctuationLockButton],
         @[[NSTextField labelWithString:@"混合输入"], _mixedEnglishButton],
@@ -1664,6 +1690,8 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (void)punctuationChanged:(NSButton *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationChanged:(NSButton *)sender { self.smartPunctuation = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationRepeatChanged:(NSButton *)sender { self.smartPunctuationRepeatToChinese = sender.state == NSControlStateValueOn; }
 - (void)pairedPunctuationChanged:(NSButton *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
 - (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
 - (void)mixedEnglishChanged:(NSButton *)sender { self.mixedEnglishInput = sender.state == NSControlStateValueOn; }

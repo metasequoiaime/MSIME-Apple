@@ -71,6 +71,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger punctuationASCIICalls;
 @property(nonatomic) uint8_t lastPunctuationASCII;
 @property(nonatomic, copy) NSDictionary *punctuationASCIITransition;
+@property(nonatomic) NSUInteger contextualPunctuationCalls;
+@property(nonatomic) uint8_t lastContextualPunctuation;
+@property(nonatomic) uint32_t lastPrecedingScalar;
+@property(nonatomic, copy) NSDictionary *contextualPunctuationTransition;
 @property(nonatomic) NSUInteger enginePunctuationCalls;
 @property(nonatomic) uint8_t lastEnginePunctuation;
 @property(nonatomic, copy) NSDictionary *enginePunctuationTransition;
@@ -165,6 +169,13 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastPunctuationASCII = ascii;
     return self.punctuationASCIITransition ?: self.nextTransition;
 }
+- (NSDictionary *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error {
+    (void)error;
+    ++self.contextualPunctuationCalls;
+    self.lastContextualPunctuation = ascii;
+    self.lastPrecedingScalar = preceding;
+    return self.contextualPunctuationTransition ?: self.nextTransition;
+}
 - (NSDictionary *)punctuation:(uint8_t)ascii error:(NSError **)error {
     (void)error;
     ++self.enginePunctuationCalls;
@@ -189,19 +200,34 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @interface ShortcutClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
+@property(nonatomic, copy) NSString *document;
+@property(nonatomic) NSRange selection;
 @property(nonatomic) NSRect caret;
 @property(nonatomic, strong) NSMutableArray<NSString *> *insertions;
 @end
 @implementation ShortcutClient
+- (NSRange)selectedRange { return self.selection; }
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    if (range.location == NSNotFound || range.location > self.document.length || range.length > self.document.length - range.location) return nil;
+    return [[NSAttributedString alloc] initWithString:[self.document substringWithRange:range]];
+}
 - (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
     (void)index;
     *rect = self.caret;
     return @{};
 }
 - (void)insertText:(id)text replacementRange:(NSRange)range {
-    (void)range;
     self.committed = text;
-    [self.insertions addObject:text];
+    if ([text isKindOfClass:NSString.class]) {
+        NSRange target = range.location == NSNotFound ? self.selection : range;
+        if (target.location != NSNotFound && target.location <= self.document.length && target.length <= self.document.length - target.location) {
+            NSString *string = text;
+            self.document = [self.document stringByReplacingCharactersInRange:target withString:string];
+            self.selection = NSMakeRange(target.location + string.length, 0);
+        }
+        if (!self.insertions) self.insertions = [NSMutableArray array];
+        [self.insertions addObject:text];
+    }
 }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     (void)selection;
@@ -1142,6 +1168,105 @@ static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
     const NSUInteger engineCalls = session.enginePunctuationCalls;
     assert(![controller handleEvent:KeypadKey(69, @"+", NSEventModifierFlagControl, NO) client:client]);
     assert(session.punctuationASCIICalls == asciiCalls && session.enginePunctuationCalls == engineCalls);
+}
+
+static void TestSmartPunctuationPreferences() {
+    NSString *suite = [@"msime.smart-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    NSButton *smartButton = (id)PreferenceControl(appearance, @selector(smartPunctuationChanged:));
+    NSButton *smartRepeatButton = (id)PreferenceControl(appearance, @selector(smartPunctuationRepeatChanged:));
+    assert(smartButton.state == NSControlStateValueOn && smartRepeatButton.state == NSControlStateValueOn);
+    smartButton.state = NSControlStateValueOff;
+    [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
+    smartRepeatButton.state = NSControlStateValueOff;
+    [NSApp sendAction:smartRepeatButton.action to:smartRepeatButton.target from:smartRepeatButton];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    smartButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
+    smartRepeatButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartRepeatButton.action to:smartRepeatButton.target from:smartRepeatButton];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@YES]);
+    [appearance applySharedInputPreferences:@{@"smart_punctuation": @NO, @"smart_punctuation_repeat": @NO}];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    [appearance applySharedInputPreferences:@{@"smart_punctuation": @1, @"smart_punctuation_repeat": @"true"}];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    appearance.smartPunctuation = YES;
+    appearance.smartPunctuationRepeatToChinese = YES;
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"a";
+    client.selection = NSMakeRange(1, 0);
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{@"focused": @YES, @"editing_text": @"", @"candidates": @[]} forKey:@"view"];
+    session.contextualPunctuationTransition = @{@"handled": @YES, @"commit": @".",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    NSEvent *period = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"." isARepeat:NO keyCode:47];
+    assert([controller handleEvent:period client:client]);
+    assert(session.contextualPunctuationCalls == 1 && session.lastContextualPunctuation == '.' && session.lastPrecedingScalar == 'a');
+    assert([client.document isEqual:@"a."]);
+    client.selection = NSMakeRange(2, 0);
+    session.contextualPunctuationTransition = @{@"handled": @YES, @"commit": @".",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    assert([controller handleEvent:period client:client]);
+    assert([client.document isEqual:@"a。"] && [client.committed isEqual:@"。"]);
+
+    ModeController *composingController = [ModeController alloc];
+    ShortcutSession *composingSession = [ShortcutSession new];
+    ShortcutClient *composingClient = [ShortcutClient new];
+    composingClient.document = @"";
+    [composingController setValue:appearance forKey:@"appearance"];
+    [composingController setValue:composingSession forKey:@"session"];
+    [composingController setValue:composingClient forKey:@"activeClient"];
+    [composingController setValue:@{@"focused": @YES, @"editing_text": @"abc",
+        @"candidates": @[@{@"text": @"abc", @"highlighted": @YES}]} forKey:@"view"];
+    composingSession.punctuationASCIITransition = @{@"handled": @YES, @"commit": @"abc.",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    assert([composingController handleEvent:period client:composingClient]);
+    assert(composingSession.punctuationASCIICalls == 1 && [composingClient.committed isEqual:@"abc."]);
+
+    // A non-ASCII preceding scalar stays on the normal Engine route rather
+    // than using the contextual ASCII fast path.
+    ModeController *nonASCIIController = [ModeController alloc];
+    ShortcutSession *nonASCIISession = [ShortcutSession new];
+    ShortcutClient *nonASCIIClient = [ShortcutClient new];
+    nonASCIIClient.document = @"中";
+    nonASCIIClient.selection = NSMakeRange(1, 0);
+    [nonASCIIController setValue:appearance forKey:@"appearance"];
+    [nonASCIIController setValue:nonASCIISession forKey:@"session"];
+    [nonASCIIController setValue:nonASCIIClient forKey:@"activeClient"];
+    [nonASCIIController setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    nonASCIISession.nextTransition = @{ @"handled": @YES, @"commit": @"，",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([nonASCIIController handleEvent:period client:nonASCIIClient]);
+    assert(nonASCIISession.contextualPunctuationCalls == 0 && nonASCIISession.asciiCalls == 1);
+
+    // Full-width input applies to the idle smart-punctuation transition too.
+    ModeController *fullWidthController = [ModeController alloc];
+    ShortcutSession *fullWidthSession = [ShortcutSession new];
+    ShortcutClient *fullWidthClient = [ShortcutClient new];
+    fullWidthClient.document = @"a";
+    fullWidthClient.selection = NSMakeRange(1, 0);
+    appearance.fullWidthInput = YES;
+    [fullWidthController setValue:appearance forKey:@"appearance"];
+    [fullWidthController setValue:fullWidthSession forKey:@"session"];
+    [fullWidthController setValue:fullWidthClient forKey:@"activeClient"];
+    [fullWidthController setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    fullWidthSession.contextualPunctuationTransition = @{ @"handled": @YES, @"commit": @".",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([fullWidthController handleEvent:period client:fullWidthClient]);
+    assert([fullWidthClient.document isEqual:@"a．"]);
+    appearance.fullWidthInput = NO;
+    appearance.smartPunctuation = NO;
+    assert(![[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] boolValue]);
+    [defaults removePersistentDomainForName:suite];
 }
 
 static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
@@ -3777,6 +3902,7 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestKeypadDecimal(appearance);
         TestKeypadOperators(appearance);
+        TestSmartPunctuationPreferences();
         TestScreenKeyboardShortcut(appearance);
         TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);
