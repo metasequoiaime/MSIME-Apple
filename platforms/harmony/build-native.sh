@@ -68,4 +68,12 @@ output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 "$ndk/llvm/bin/llvm-readobj" --file-headers "$output/libmsime_host_api.so" | grep -q "EM_AARCH64\|EM_ARM\|EM_X86_64"
-echo "OpenHarmony native library built: $output/libmsime_host_api.so (not yet device-verified)"
+# The ArkTS side reaches the C ABI through this module. --no-undefined keeps a missing binding a link
+# error here rather than a failed import on the device. Unlike Android, libc++_shared.so is not
+# copied alongside: the NDK ships only the static C++ runtime and the system provides the shared one.
+"${compiler}++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
+  -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
+  platforms/harmony/native/client_napi.cpp -Icrates/host-api/include \
+  -L"$output" -lmsime_host_api -lace_napi.z -o "$output/libmsimeclient.so"
+"$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep -q RegisterClientModule
+echo "OpenHarmony native libraries built: $output (not yet device-verified)"
