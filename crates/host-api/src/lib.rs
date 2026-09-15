@@ -1756,6 +1756,7 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
             || request.config.api_key.chars().any(char::is_control)
             || request.text.is_empty()
             || request.text.chars().count() > 40
+            || request.text.chars().any(char::is_control)
             || !valid_language(&request.source_language)
             || !valid_language(&request.target_language)
         {
@@ -5816,6 +5817,15 @@ mod tests {
         ] {
             let mut invalid = request.clone();
             invalid[field] = json!(value);
+            assert_eq!(
+                build(invalid)["error"],
+                "invalid custom translation parameters"
+            );
+        }
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            let mut invalid = request.clone();
+            invalid["text"] = json!(format!("before{control}after"));
             assert_eq!(
                 build(invalid)["error"],
                 "invalid custom translation parameters"

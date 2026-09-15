@@ -313,7 +313,10 @@ pub fn translate_batch_cached(
     let scope = format!("{}\0{}\0", source, target);
     let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
-        if text.chars().count() > MAX_SOURCE_CHARS {
+        if text.is_empty()
+            || text.chars().count() > MAX_SOURCE_CHARS
+            || text.chars().any(char::is_control)
+        {
             continue;
         }
         let cache_key = format!("{scope}{text}");
@@ -597,15 +600,59 @@ mod tests {
 
     #[test]
     fn translation_inputs_over_source_limit_are_not_requested() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let server_done = done.clone();
+        let server_accepted = accepted.clone();
+        let server = std::thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    server_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let mut request = [0_u8; 4096];
+                    let _ = stream.read(&mut request);
+                    let body = r#"{"data":"unexpected"}"#;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if server_done.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("translation fixture failed: {error}"),
+            }
+        });
         let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(1));
         let config = TranslationConfig {
-            endpoint: "ftp://invalid".into(),
+            endpoint: format!("http://{address}"),
             api_key: String::new(),
         };
-        assert_eq!(
-            translate_batch_cached(&config, &["字".repeat(41)], "zh", "en", &mut cache),
-            vec![None]
-        );
+        for text in [
+            String::new(),
+            "字".repeat(41),
+            "before\0after".into(),
+            "before\u{0085}after".into(),
+        ] {
+            assert_eq!(
+                translate_batch_cached(&config, &[text], "zh", "en", &mut cache),
+                vec![None]
+            );
+        }
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        server.join().unwrap();
+        assert_eq!(accepted.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[test]
