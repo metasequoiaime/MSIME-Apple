@@ -33,6 +33,12 @@ int main()
         [cursorButton resetCursorRects];
         assert(NSEqualRects(cursorButton.capturedRect, cursorButton.bounds));
         assert(cursorButton.capturedCursor == NSCursor.pointingHandCursor);
+        cursorButton.enabled = NO;
+        cursorButton.capturedCursor = nil;
+        cursorButton.capturedRect = NSZeroRect;
+        [cursorButton resetCursorRects];
+        assert(cursorButton.capturedCursor == nil);
+        assert(NSEqualRects(cursorButton.capturedRect, NSZeroRect));
         puts("Candidate hover tracking passed");
     }
     return 0;
