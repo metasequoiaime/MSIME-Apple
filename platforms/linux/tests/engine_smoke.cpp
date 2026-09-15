@@ -42,6 +42,7 @@ struct Observation {
   bool traditional_output = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
+  bool clipboard_toggle_sensitive = false;
   bool punctuation_enabled = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
@@ -95,6 +96,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     }
     if (key == "SmartPunctuation")
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
+    if (key == "ClipboardHistory/Enabled")
+      seen.clipboard_toggle_sensitive = ibus_property_get_sensitive(property);
     if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "TraditionalOutput")
@@ -749,8 +752,21 @@ int main(int argc, char **argv) {
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");
-    require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
-            "Input mode property was not registered");
+    require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive &&
+                seen.clipboard_toggle_sensitive,
+            "Initial input and clipboard properties were not available");
+    auto relative_preferences = options;
+    relative_preferences["preferences_directory"] = "relative";
+    invoke("FocusOut");
+    msime_preview_configure(relative_preferences.dump());
+    invoke("FocusIn");
+    require(!seen.clipboard_toggle_sensitive,
+            "Relative preferences directory enabled the clipboard toggle");
+    invoke("FocusOut");
+    msime_preview_configure(options.dump());
+    invoke("FocusIn");
+    require(seen.clipboard_toggle_sensitive,
+            "Absolute preferences directory did not restore the clipboard toggle");
     for (const bool enabled : {false, true}) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode",
           enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED));
@@ -852,11 +868,16 @@ int main(int argc, char **argv) {
       return false;
     };
     invoke("PropertyActivate",
+           g_variant_new("(su)", "DesktopTools/VoiceEnabled",
+                         PROP_STATE_INCONSISTENT));
+    invoke("PropertyActivate",
            g_variant_new("(su)", "NumberRowSelection", PROP_STATE_UNCHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
-              return !preferences.value("number_row_selection", true);
+              return !preferences.value("number_row_selection", true) &&
+                     preferences.value("voice_input", nlohmann::json::object())
+                         .value("enabled", true);
             }),
-            "Number-row selection disable was not persisted");
+            "Invalid desktop voice state occupied the menu save slot");
     phrase();
     const auto number_row_commit = seen.committed;
     require(!key(IBUS_1) && seen.committed == number_row_commit &&

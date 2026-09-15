@@ -2350,12 +2350,16 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
+  const auto preferences_directory =
+      configured.value("preferences_directory", std::string{});
   auto clipboard_toggle = ibus_property_new(
       "ClipboardHistory/Enabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("启用历史采集"), "",
       ibus_text_new_from_static_string("启用或停用本地剪贴板历史记录"),
       s.focused && !s.blocked && !menu_save_pending &&
-          !configured.value("preferences_directory", std::string{}).empty(), TRUE,
+          !preferences_directory.empty() &&
+          preferences_directory.front() == '/',
+      TRUE,
       s.clipboard_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, clipboard_toggle);
   auto open_clipboard = ibus_property_new(
@@ -3735,7 +3739,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (!s.focused || s.blocked)
       return;
     if (property_name == "DesktopTools/VoiceEnabled") {
-      if (menu_save_pending || !s.focused || s.blocked) return;
+      if (menu_save_pending || !s.focused || s.blocked ||
+          (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+        return;
       save_menu_preference(engine, MenuPreference::VoiceEnabled, value == PROP_STATE_CHECKED);
       return;
     }
