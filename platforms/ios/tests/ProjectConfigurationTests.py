@@ -140,6 +140,9 @@ class ProjectConfigurationTests(unittest.TestCase):
             + feedback.count("https://github.com/metasequoiaime/MSIME-Client"),
             2,
         )
+        project = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("path = HelpAndFeedbackViews.swift", project)
+        self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
 
 
 if __name__ == "__main__":
