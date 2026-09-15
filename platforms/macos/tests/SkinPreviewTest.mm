@@ -109,6 +109,15 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     [preferences applySharedCandidatePreferences:@{@"candidate_font_size": @12, @"candidate_page_size": @1,
         @"candidate_layout": @"vertical", @"candidate_font_family": @"Menlo", @"candidate_preedit_font_size": @28}];
     [preferences applySharedInputPreferences:@{@"scheme": @"wubi", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO, @"chinese_punctuation": @NO}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleRaw);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleRaw);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"pinyin"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStylePinyin);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"empty"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleEmpty);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"invalid"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleEmpty);
     [preferences applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_neighbor": @NO}}];
     [preferences applySharedToolbarVisibility:NO];
     assert(!preferences.chinesePunctuation && !preferences.autocorrect && !preferences.shuangpinPreeditUsesRaw && !preferences.floatingToolbarEnabled);
