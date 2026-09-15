@@ -2822,7 +2822,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         button.fillColor = [_appearance candidateSelectedColorWithDefault:SkinColor(tokens.selected)];
         button.hoverColor = [_appearance candidateHoverColorWithDefault:SkinColor(tokens.hover)];
         button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
-        button.translationColor = [button.titleColor colorWithAlphaComponent:0.65];
+        button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         // Windows fixed-position span overrides candidate text, not its number.
         if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];

@@ -1,6 +1,8 @@
 #pragma once
 #import <AppKit/AppKit.h>
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
+static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
+
 @interface MSIMECandidateButton : NSButton
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic) BOOL candidateHighlighted;
@@ -104,7 +106,7 @@
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
     NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:self.font.pointSize * 0.78];
     NSDictionary *glossAttributes = @{NSFontAttributeName:glossFont,
-        NSForegroundColorAttributeName:self.translationColor ?: [(self.titleColor ?: NSColor.labelColor) colorWithAlphaComponent:0.65],
+        NSForegroundColorAttributeName:self.translationColor ?: [(self.titleColor ?: NSColor.labelColor) colorWithAlphaComponent:MSIMECandidateTranslationOpacity],
         NSParagraphStyleAttributeName:paragraph};
     NSSize glossSize = [self.translation ?: @"" sizeWithAttributes:glossAttributes];
     CGFloat extraHeight = self.translationBelow ? self.translationRowHeight : 0;

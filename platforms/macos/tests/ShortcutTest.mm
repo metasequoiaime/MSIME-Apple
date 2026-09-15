@@ -3690,6 +3690,8 @@ int main(int argc, char **argv) {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
+                    assert([selected.translationColor isEqual:[SkinColor(tokens.selectedText) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
+                    assert([unselected.translationColor isEqual:[SkinColor(tokens.text) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
                     appearance.candidateTextColor = @"#1234AB";
                     [controller refreshCandidateSkin];
                     NSColor *override = [appearance candidateTextColorWithDefault:NSColor.blackColor];
