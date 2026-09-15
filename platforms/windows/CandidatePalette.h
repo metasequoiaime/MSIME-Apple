@@ -110,6 +110,11 @@ struct CandidatePalette {
   CandidateColor menu_border = candidate_rgb(0x9B9B9B, 0.18f);
   CandidateColor menu_text = candidate_rgb(0xE9E8E8);
   CandidateColor menu_hover = candidate_rgb(0x414141);
+  // The native composition surface matches the two offset box-shadow layers
+  // used by the built-in WebView skins. Geometry is shared by every skin;
+  // light and dark palettes only change layer opacity.
+  float shadow_outer_alpha = 0.34f;
+  float shadow_inner_alpha = 0.22f;
   float radius = 6.0f;
   float border_width = 1.5f;
   float container_padding = 5.0f;
@@ -141,6 +146,8 @@ inline CandidatePalette candidate_light_palette() {
   palette.menu_border = {0.0f, 0.0f, 0.0f, 0.12f};
   palette.menu_text = candidate_rgb(0x1A1A1A);
   palette.menu_hover = candidate_rgb(0xECECEC);
+  palette.shadow_outer_alpha = 0.18f;
+  palette.shadow_inner_alpha = 0.10f;
   return palette;
 }
 // Is this one of the ids the product ships? The shared catalog refuses to load

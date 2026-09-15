@@ -4,7 +4,9 @@
 #include "CandidateWheel.h"
 #include "CursorResource.h"
 #include "NativeFontAlias.h"
+#include "WindowShadow.h"
 #include <algorithm>
+#include <iterator>
 
 namespace msime::windows {
 namespace {
@@ -430,37 +432,54 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
         font_fallback_.Get()));
   }
   const auto card = candidate_card_size(input);
-  const auto width =
-      (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
+  const auto shadow_left =
+      static_cast<int64_t>(std::lround(shadow_insets_.left * scale));
+  const auto shadow_top =
+      static_cast<int64_t>(std::lround(shadow_insets_.top * scale));
+  const auto shadow_right =
+      static_cast<int64_t>(std::lround(shadow_insets_.right * scale));
+  const auto shadow_bottom =
+      static_cast<int64_t>(std::lround(shadow_insets_.bottom * scale));
+  const auto content_width =
+      (std::min)(static_cast<int64_t>(card.width * scale + 0.5),
+                 (std::max)(int64_t{1},
+                            available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
   // artwork would be clipped by the window it overhangs.
-  const int64_t decoration = decoration_image_.empty()
-                                 ? 0
-                                 : static_cast<int64_t>(decoration_top_ * scale + 0.5);
-  decoration_offset_ = static_cast<float>(decoration);
-  const auto height = (std::min)(
-      static_cast<int64_t>(card.height * scale + 0.5) + decoration,
-      available_height);
+  const int64_t decoration =
+      decoration_image_.empty()
+          ? 0
+          : static_cast<int64_t>(decoration_top_ * scale + 0.5);
+  decoration_offset_ = decoration_image_.empty()
+                           ? 0.0f
+                           : static_cast<float>(decoration_top_);
+  const auto content_height =
+      (std::min)(static_cast<int64_t>(card.height * scale + 0.5) + decoration,
+                 (std::max)(int64_t{1},
+                            available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
   // tallest it has been this composition keeps it on one side of the caret
   // instead of jumping below-to-above mid-word; tallest_ is cleared in hide().
   if (!horizontal_)
-    tallest_ = (std::max)(tallest_, height);
+    tallest_ = (std::max)(tallest_, content_height);
   CandidatePlacementInput placement;
   placement.anchor_x = value.x;
   placement.anchor_y = value.y;
-  placement.width = static_cast<int>(width);
-  placement.height = static_cast<int>(height);
-  placement.decision_height =
-      static_cast<int>(horizontal_ ? height : (std::min)(tallest_, available_height));
+  placement.width = static_cast<int>(content_width);
+  placement.height = static_cast<int>(content_height);
+  placement.decision_height = static_cast<int>(
+      horizontal_ ? content_height : (std::min)(tallest_, available_height));
   placement.work_left = work.left;
   placement.work_top = work.top;
   placement.work_right = work.right;
   placement.work_bottom = work.bottom;
   placement.scale = scale;
-  const auto placed = candidate_card_placement(placement);
-  return {placed.x, placed.y, static_cast<int>(width),
-          static_cast<int>(height)};
+  // Place the visible card against the caret, while keeping its transparent
+  // blur margins inside the work area. The helper returns the outer HWND.
+  return candidate_shadow_bounds(placement, {static_cast<int>(shadow_left),
+                                             static_cast<int>(shadow_top),
+                                             static_cast<int>(shadow_right),
+                                             static_cast<int>(shadow_bottom)});
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
@@ -484,6 +503,12 @@ void CandidateWindow::paint() {
   const auto metrics = candidate_card_metrics(font_size_, preedit_font_size_,
                                               show_preedit_);
   const auto size = target->GetSize();
+  const auto frame = candidate_shadow_frame(
+      size.width -
+          static_cast<float>(shadow_insets_.left + shadow_insets_.right),
+      size.height - decoration_offset_ -
+          static_cast<float>(shadow_insets_.top + shadow_insets_.bottom),
+      decoration_offset_, shadow_insets_);
   auto brush = [&](const CandidateColor &color) {
     auto *value = device_.GetSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a));
     if (!value)
@@ -519,10 +544,18 @@ void CandidateWindow::paint() {
   // Clear to nothing: only the rounded card itself is opaque, so the corners
   // stay transparent rather than showing a square window edge.
   target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-  const D2D1_ROUNDED_RECT card{
-      {inset, decoration_offset_ + inset, size.width - inset,
-       size.height - inset},
-      palette_.radius, palette_.radius};
+  const D2D1_RECT_F card_rect{
+      static_cast<float>(frame.card_left) + inset,
+      static_cast<float>(frame.card_top) + inset,
+      static_cast<float>(frame.card_left + frame.card_width) - inset,
+      static_cast<float>(frame.card_top + frame.card_height) - inset};
+  const WindowShadowPass shadow_passes[] = {
+      {12.0f, palette_.shadow_outer_alpha, 8.0f, 10.0f},
+      {4.0f, palette_.shadow_inner_alpha, 2.0f, 3.0f},
+  };
+  draw_window_shadow_passes(target, card_rect, palette_.radius, shadow_passes,
+                            std::size(shadow_passes));
+  const D2D1_ROUNDED_RECT card{card_rect, palette_.radius, palette_.radius};
   target->FillRoundedRectangle(card, brush(palette_.surface));
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
@@ -538,20 +571,26 @@ void CandidateWindow::paint() {
           natural.width > 0.0f ? drawn_width * (natural.height / natural.width)
                                : decoration_offset_;
       // Right-aligned above the card, as the settings preview places it.
-      const float right = size.width - static_cast<float>(metrics.pad_x);
+      const float right =
+          static_cast<float>(frame.card_left + frame.card_width) -
+          static_cast<float>(metrics.pad_x);
       const float left = (std::max)(0.0f, right - drawn_width);
-      const float bottom = decoration_offset_ + static_cast<float>(metrics.pad_y);
-      const float top = (std::max)(0.0f, bottom - drawn_height);
+      const float bottom = static_cast<float>(shadow_insets_.top) +
+                           decoration_offset_ +
+                           static_cast<float>(metrics.pad_y);
+      const float top = (std::max)(static_cast<float>(shadow_insets_.top),
+                                   bottom - drawn_height);
       target->DrawBitmap(bitmap, D2D1_RECT_F{left, top, right, bottom}, 1.0f,
                          D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
   }
   if (show_preedit_) {
     const D2D1_RECT_F rect{
-        static_cast<float>(metrics.pad_x),
-        decoration_offset_ + static_cast<float>(metrics.pad_y),
-        size.width - static_cast<float>(metrics.pad_x / 2.0),
-        decoration_offset_ +
+        static_cast<float>(frame.card_left + metrics.pad_x),
+        static_cast<float>(frame.card_top + metrics.pad_y),
+        static_cast<float>(frame.card_left + frame.card_width -
+                           metrics.pad_x / 2.0),
+        static_cast<float>(frame.card_top) +
             static_cast<float>(metrics.pad_y + metrics.preedit_row)};
     const auto text = wide(value->preedit);
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
@@ -582,15 +621,15 @@ void CandidateWindow::paint() {
   const float gutter = static_cast<float>(metrics.number_and_bar);
   const size_t count = value->candidates.size();
   for (size_t i = 0; i < count; ++i) {
-    const auto row = candidate_row_bounds(i, count, size.width, metrics,
-                                          horizontal_);
+    const auto row =
+        candidate_row_bounds(i, count, frame.card_width, metrics, horizontal_);
     // Rows are laid out in card coordinates; the decoration strip sits above
     // the card, so every row moves down with it. Without this the rows would
     // be drawn over the artwork and the hit test below would disagree.
-    const D2D1_RECT_F rect{
-        static_cast<float>(row.left), decoration_offset_ + static_cast<float>(row.top),
-        static_cast<float>(row.right),
-        decoration_offset_ + static_cast<float>(row.bottom)};
+    const D2D1_RECT_F rect{static_cast<float>(frame.card_left + row.left),
+                           static_cast<float>(frame.card_top + row.top),
+                           static_cast<float>(frame.card_left + row.right),
+                           static_cast<float>(frame.card_top + row.bottom)};
     if (value->candidates[i].highlighted || hovered_ == i) {
       const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
                                         palette_.item_radius};
@@ -662,15 +701,19 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
   const double scale = painted_dpi_ ? painted_dpi_ / 96.0 : 1.0;
-  // Undo the decoration shift before testing: the rows were drawn that far
-  // down, so a click has to be measured from the card, not the window.
-  const double card_y = y - static_cast<double>(decoration_offset_);
-  if (card_y < 0.0)
-    return std::nullopt; // Inside the artwork, which is not clickable.
+  // Convert from physical client pixels into the visible card. The transparent
+  // blur margins and decoration are deliberately not interactive.
+  const double card_x = x / scale - shadow_insets_.left;
+  const double card_y =
+      y / scale - shadow_insets_.top - static_cast<double>(decoration_offset_);
+  const double card_width =
+      bounds.right / scale - shadow_insets_.left - shadow_insets_.right;
+  const double card_height = bounds.bottom / scale - shadow_insets_.top -
+                             shadow_insets_.bottom - decoration_offset_;
+  if (card_x < 0.0 || card_y < 0.0)
+    return std::nullopt;
   const auto row = candidate_card_hit(
-      x / scale, card_y / scale, bounds.right / scale,
-      (bounds.bottom - static_cast<double>(decoration_offset_)) / scale,
-      painted_->candidates.size(),
+      card_x, card_y, card_width, card_height, painted_->candidates.size(),
       candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_),
       horizontal_);
   if (!row)
