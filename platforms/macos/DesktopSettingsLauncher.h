@@ -3,7 +3,7 @@
 #import <AppKit/AppKit.h>
 #import "RuntimeOptions.h"
 
-enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI };
+enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI, Skin };
 
 static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *optionsPath,
     NSDictionary<NSString *, NSString *> *environment, NSWorkspace *workspace,
@@ -58,6 +58,7 @@ static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
         // Translation controls live in the shared Input category.
         case MSIMEDesktopSettingsPage::Translation: route = @"settings:input"; break;
         case MSIMEDesktopSettingsPage::AI: route = @"settings:ai"; break;
+        case MSIMEDesktopSettingsPage::Skin: route = @"settings:skin"; break;
     }
     MSIMEOpenDesktopRoute(route, workspace, fallback);
 }

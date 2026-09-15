@@ -1699,7 +1699,13 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     return _skinWindow;
 }
-- (void)showSkinCatalog:(id)sender { [[self skinCatalogController] showWindow:sender]; }
+- (void)showSkinCatalog:(id)sender {
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, [self desktopSettingsWorkspace], ^{
+        MSIMEAppearancePreferences *strongSelf = weakSelf;
+        if (strongSelf) [[strongSelf skinCatalogController] showWindow:sender];
+    });
+}
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
 - (void)skinChanged:(NSPopUpButton *)sender {

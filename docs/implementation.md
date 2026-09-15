@@ -851,3 +851,9 @@ iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态�
 macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通过 `settings:about` 启动共享 Tauri 设置页，更新检查和下载说明由公共 About UI 提供；当 Tauri 设置 bundle 未安装或启动失败时，平台入口回退到 Sparkle 更新控制器，保留 macOS 原生更新能力。输入法进程不携带输入内容、凭据或原生偏好到新进程，只沿用既有受控运行时配置路径。
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建、`desktop-settings-launcher`/`shortcut`/`floating-toolbar-panel`/`input-menu` 四项 CTest 通过；桌面 UI TypeScript 类型检查和 Vite production build 通过，`macos-settings-routes` 两项测试通过。一次全量 UI 测试还暴露两个与本切片无关的既有断言失败（外部皮肤预览顺序、输入默认标点状态），未修改其行为；真实安装输入源、Sparkle 下载/签名和系统升级验收仍需在产品环境执行，CI 保持禁用。
+
+### macOS 候选皮肤目录入口共享 Tauri
+
+原生候选设置中的“浏览所有皮肤…”现在优先启动共享 Tauri `settings:skin` 页面，复用桌面宿主已经提供的皮肤目录扫描、受限资源读取、外部目录打开和共享偏好保存；Tauri bundle 不存在或启动失败时，仍回退到原生 `SkinSettingsView` 卡片窗口。新增 `Skin` 设置路由不会把皮肤解析、候选绘制或 Engine 状态移入 UI，两个入口继续使用同一受控皮肤目录和快照字段。
+
+本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建，以及 `desktop-settings-launcher`、`candidate-skin`、`external-skin`、`shortcut`、`skin-preview`、`skin-settings`、`input-menu` 七项相关 CTest 通过。未执行安装输入源、真实外部皮肤目录权限、Tauri bundle 启动和系统级视觉验收，CI 保持禁用。

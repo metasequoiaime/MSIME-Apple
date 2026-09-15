@@ -2748,6 +2748,11 @@ static void TestCandidateTranslationPreference() {
     assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:ai"]]);
     prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
     assert(![prefs valueForKey:@"aiWindow"]);
+    NSControl *skinEntry = PreferenceControl(prefs, @selector(showSkinCatalog:));
+    [NSApp sendAction:skinEntry.action to:skinEntry.target from:skinEntry];
+    assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:skin"]]);
+    prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
+    assert(![prefs valueForKey:@"skinWindow"]);
     // A failed asynchronous launch still reaches the existing native editor.
     [NSApp sendAction:aiEntry.action to:aiEntry.target from:aiEntry];
     prefs.testWorkspace.completion(nil, [NSError errorWithDomain:@"SyntheticLaunchFailure" code:1 userInfo:nil]);
