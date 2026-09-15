@@ -114,9 +114,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def bounded_text(value):
     if not isinstance(value, str):
         return ""
-    value = value.strip()
     if any((ord(c) < 32 and c not in "\n\t") or 127 <= ord(c) <= 159 for c in value):
         return ""
+    value = value.strip()
     return value.encode()[:4096].decode("utf-8", errors="ignore")
 
 
