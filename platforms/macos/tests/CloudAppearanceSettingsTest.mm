@@ -19,6 +19,10 @@ int main() {
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
     for (NSString *key in @[@"english_input_mode", @"full_width_input", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
+    [defaults setObject:@"japanese" forKey:@"MSIMEClientInputScheme"];
+    NSDictionary *japaneseNativeSnapshot = MSIMECloudAppearanceSnapshot(defaults);
+    assert([japaneseNativeSnapshot[@"platform.macos.input_scheme"] isEqual:@0]);
+    assert(MSIMEValidateCloudAppearance(japaneseNativeSnapshot));
     NSMutableDictionary *values = [initial mutableCopy];
     values[@"platform.macos.candidate_panel_style"] = @1;
     values[@"platform.macos.candidate_font_size"] = @20;

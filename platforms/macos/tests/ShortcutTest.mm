@@ -562,6 +562,11 @@ static void TestSharedInputPreferences() {
     [controller applySharedToolbarPreferences:@{@"scheme": NSNull.null, @"shuangpin_profile": @42, @"shuangpin_preedit_uses_raw": @1}];
     [controller applySharedToolbarPreferences:@{}];
     assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw && saves == 0);
+    [controller applySharedToolbarPreferences:@{@"scheme": @"japanese"}];
+    assert([prefs.inputScheme isEqual:@"japanese"] && scheme.indexOfSelectedItem == 3 && saves == 0);
+    assert([[prefs sharedPreferencesByMerging:shared][@"scheme"] isEqual:@"japanese"]);
+    [controller applySharedToolbarPreferences:shared];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && scheme.indexOfSelectedItem == 1);
     [scheme selectItemAtIndex:2];
     [NSApp sendAction:scheme.action to:scheme.target from:scheme];
     [profile selectItemAtIndex:2];
