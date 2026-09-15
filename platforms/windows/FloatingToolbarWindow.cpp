@@ -43,6 +43,21 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   result.push_back(10); // hide
   return result;
 }
+// Buttons that do nothing on their own: they ask the shared desktop shell to
+// open a surface. The rest - the three mode toggles, 简繁, voice and hide - are
+// handled inside this process and stay usable without a shell.
+bool needs_shell(int button) {
+  switch (button) {
+  case kToolbarEmoji:
+  case kToolbarScreenKeyboard:
+  case kToolbarSettings:
+  case kToolbarHandwriting:
+  case kToolbarAbout:
+    return true;
+  default:
+    return false;
+  }
+}
 } // namespace
 
 FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
@@ -261,7 +276,11 @@ void FloatingToolbarWindow::paint() {
                              static_cast<float>(box.bottom) * unit};
       // Hover and press fills, so a button looks like one. Pressed is drawn
       // with the selected colour rather than a darker hover, matching the card.
-      if (hovered_ == i) {
+      // A button the shell would have to answer is drawn disabled: no hover
+      // fill and the secondary text colour, exactly as the tray draws a row
+      // whose capability is missing.
+      const bool usable = shell_available_ || !needs_shell(button);
+      if (hovered_ == i && usable) {
         const bool down = pressed_ == i;
         const D2D1_ROUNDED_RECT fill{{cell.left + 2.0f * unit, cell.top,
                                       cell.right - 2.0f * unit, cell.bottom},
@@ -290,7 +309,7 @@ void FloatingToolbarWindow::paint() {
       if (!length)
         continue;
       target->DrawText(drawn_text, length, cell_format, cell,
-                       brush(palette_.text));
+                       brush(usable ? palette_.text : palette_.number));
       // Dedicated English underlines its "En". Upstream insets the line by a
       // twelfth of the cell and floors both the offset and the stroke, so it
       // stays a visible line rather than thinning away at small icon sizes.
@@ -491,7 +510,12 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (valid_click) {
         const size_t position = *position_at;
         const int slot = active[position];
-        if (slot <= kToolbarPunctuation) {
+        if (!self->shell_available_ && needs_shell(slot)) {
+          // Nothing to open, so the press is not an action. Reported the same
+          // way the tray reports it: by doing nothing visible, not by looking
+          // pressed and then dropping the command.
+        }
+        else if (slot <= kToolbarPunctuation) {
           if (auto command = toolbar_mode_command(
                   slot, value->chinese, value->fullwidth, value->chinese_punctuation))
             self->click_(ModeClick{value->lease, *command});
