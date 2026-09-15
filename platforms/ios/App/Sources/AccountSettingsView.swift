@@ -139,14 +139,7 @@ struct AppleAccountSection: View {
       .buttonStyle(.plain)
       .padding(.vertical, 10)
       .accessibilityIdentifier("accountProfileCard")
-      if signedIn {
-        Menu("账号") {
-          Button("退出登录") { run { try await api.logout(); signedIn = false; await prepareLogin() } }
-          Button("退出所有设备") { confirmLogoutAll = true }
-          Button("重新登录") { run { try await api.clearExpiredLogin(); signedIn = false; await prepareLogin() } }
-          Button("注销账号", role: .destructive) { confirmDeleteAccount = true }
-        }
-      } else {
+      if !signedIn {
         if let challenge {
           SignInWithAppleButton(.signIn) { request in
             request.nonce = challenge.nonce
@@ -185,6 +178,23 @@ struct AppleAccountSection: View {
         if needsRecovery {
           Button("清除失效登录状态") { run { try await api.clearExpiredLogin(); signedIn = false; needsRecovery = false; await prepareLogin() } }
             .font(.caption)
+        }
+      }
+    }
+    // 账号管理挪到导航栏右上角。它原本是列表里一个标题为「账号」的菜单行 —— 一行没有图标、没有箭头的绿字，既不像可点的行，也说不出点了会发生什么。这四个动作都是偶尔才用一次的收尾操作，其中两个还不可撤销,放在退出口比放在首屏列表里更合适。
+    .toolbar {
+      ToolbarItem(placement: .navigationBarTrailing) {
+        if signedIn {
+          Menu {
+            Button("退出登录") { run { try await api.logout(); signedIn = false; await prepareLogin() } }
+            Button("退出所有设备") { confirmLogoutAll = true }
+            Button("重新登录") { run { try await api.clearExpiredLogin(); signedIn = false; await prepareLogin() } }
+            Button("注销账号", role: .destructive) { confirmDeleteAccount = true }
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
+          .accessibilityIdentifier("accountMenu")
+          .accessibilityLabel("账号管理")
         }
       }
     }
