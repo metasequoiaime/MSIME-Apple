@@ -116,7 +116,7 @@ HRESULT GetDisplayAttributeTrackPropertyRange(TfEditCookie ec, ITfContext *pic, 
         ppguidProp[i] = pguidProp++;
     }
 
-    if (SUCCEEDED(hr = pic->TrackProperties(ppguidProp, ulNumProp, 0, NULL, &pProp)))
+    if (SUCCEEDED(hr = pic->TrackProperties(ppguidProp, ulNumProp, nullptr, 0, &pProp)))
     {
         *ppProp = pProp;
     }

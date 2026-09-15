@@ -3344,7 +3344,10 @@ void TreeView::BuildVisibleNodes()
 
 void TreeView::AppendVisibleNodes(Node &node, size_t depth)
 {
-    visibleNodes_.push_back({&node, depth, {}, {}});
+    VisibleNode visible;
+    visible.node = &node;
+    visible.depth = depth;
+    visibleNodes_.push_back(std::move(visible));
     if (!node.expanded)
     {
         return;

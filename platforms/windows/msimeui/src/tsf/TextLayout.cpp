@@ -411,7 +411,7 @@ BOOL CTextLayout::Render(ID2D1RenderTarget *pRenderTarget, const WCHAR *psz, UIN
                         underlineRect.left -= _horizontalScrollDips;
                         underlineRect.right -= _horizontalScrollDips;
                     }
-                    const BOOL bClause = composition.nEnd <= static_cast<int>(line.nPos + line.nCnt);
+                    const BOOL bClause = composition.nEnd <= line.nPos + line.nCnt;
                     DrawUnderline(pRenderTarget, &composition.da, underlineRect, bClause);
                 }
             }

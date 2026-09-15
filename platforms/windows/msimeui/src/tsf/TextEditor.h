@@ -29,7 +29,7 @@ class CTextEditor : public CTextContainer
         _nCompositionRenderInfo = 0;
     }
 
-    ~CTextEditor()
+    virtual ~CTextEditor()
     {
         if (_pTextStore)
         {
