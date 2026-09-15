@@ -20,8 +20,11 @@ int main(int argc, char **argv) {
     event.lease.token = 0;
     assert(!msime_client_key_event_valid(&event));
     char options[4096];
+    // default_ime_mode is stated rather than defaulted: DefaultImeMode::default() is English, which
+    // makes host-api call set_dedicated_english(true) on the fresh session, and the Engine gives
+    // dedicated English precedence over local modes. The Unicode entry below would then never fire.
     int length = snprintf(options, sizeof(options),
-        "{\"api_version\":1,\"resources\":\"%s/resources\",\"user_data\":\"%s/user\",\"cache\":\"%s/cache\",\"dictionaries\":\"%s/dictionaries\",\"preferences\":{\"scheme\":\"quanpin\",\"candidate_page_size\":5,\"learning\":false,\"chinese_punctuation\":true}}",
+        "{\"api_version\":1,\"resources\":\"%s/resources\",\"user_data\":\"%s/user\",\"cache\":\"%s/cache\",\"dictionaries\":\"%s/dictionaries\",\"preferences\":{\"default_ime_mode\":\"chinese\",\"scheme\":\"quanpin\",\"candidate_page_size\":5,\"learning\":false,\"chinese_punctuation\":true}}",
         argv[1], argv[1], argv[1], argv[1]);
     assert(length > 0 && (size_t)length < sizeof(options));
     char *created = msime_client_create((const uint8_t *)options, (size_t)length);
