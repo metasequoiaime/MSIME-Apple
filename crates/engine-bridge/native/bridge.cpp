@@ -239,6 +239,14 @@ std::string candidate_gloss_display(const std::string& text) {
         if (end == std::string::npos) break;
         begin = end + (use_fullwidth ? fullwidth_delimiter.size() : 1);
     }
+    std::size_t offset = 0;
+    while (offset < output.size()) {
+        std::string character;
+        std::uint32_t codepoint = 0;
+        if (!next_utf8(output, offset, character, codepoint) || codepoint < 0x20 ||
+            (codepoint >= 0x7f && codepoint <= 0x9f))
+            return {};
+    }
     return output;
 }
 std::unordered_map<std::string, std::string> single_hanzi_map(sqlite3* database) {
@@ -898,12 +906,15 @@ rust::Vec<rust::String> candidate_glosses_with_user(
             output.push_back(rust::String());
             continue;
         }
-        auto raw = learned ? (chinese_to_english ? learned->query_english_gloss(key)
-                                                : learned->query_chinese_gloss(key)) : std::string{};
-        if (raw.empty() && dictionary)
-            raw = chinese_to_english ? dictionary->query_english_gloss(key)
-                                     : dictionary->query_chinese_gloss(key);
-        output.push_back(rust::String(candidate_gloss_display(raw)));
+        auto gloss = learned ? candidate_gloss_display(
+                                   chinese_to_english ? learned->query_english_gloss(key)
+                                                      : learned->query_chinese_gloss(key))
+                             : std::string{};
+        if (gloss.empty() && dictionary)
+            gloss = candidate_gloss_display(
+                chinese_to_english ? dictionary->query_english_gloss(key)
+                                   : dictionary->query_chinese_gloss(key));
+        output.push_back(rust::String(gloss));
     }
     return output;
 }

@@ -779,6 +779,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unsafe_learned_glosses_fall_back_to_packaged_values() {
+        let resources = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let database = rusqlite::Connection::open(resources.path().join("english.db")).unwrap();
+        database
+            .execute_batch(
+                "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+                 CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);
+                 CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT);
+                 INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');",
+            )
+            .unwrap();
+        let resources_path = resources.path().to_str().unwrap();
+        let user_path = user.path().to_str().unwrap();
+        let candidates = vec![("测试".into(), 0)];
+
+        for codepoint in (1..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            if matches!(control, '\t' | '\n' | '\r') {
+                continue;
+            }
+            assert!(save_candidate_gloss(
+                user_path,
+                true,
+                "测试",
+                &format!("before{control}after"),
+            ));
+            assert_eq!(
+                candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+                vec!["packaged gloss"]
+            );
+        }
+        for whitespace in ['\t', '\n', '\r'] {
+            assert!(save_candidate_gloss(
+                user_path,
+                true,
+                "测试",
+                &format!("learned{whitespace}gloss"),
+            ));
+            assert_eq!(
+                candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+                vec!["learned gloss"]
+            );
+        }
+    }
+
     pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);

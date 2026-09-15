@@ -1962,10 +1962,11 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
                 .map_err(|_| "invalid candidate gloss request")?;
         if request.candidates.len() > 4096
-            || request
-                .candidates
-                .iter()
-                .any(|candidate| candidate.text.is_empty() || candidate.text.len() > 4096)
+            || request.candidates.iter().any(|candidate| {
+                candidate.text.is_empty()
+                    || candidate.text.len() > 4096
+                    || candidate.text.chars().any(char::is_control)
+            })
         {
             return Err("candidate gloss entries exceed limits".into());
         }
@@ -6322,6 +6323,34 @@ mod tests {
                 .unwrap(),
             "hello world"
         );
+    }
+
+    #[test]
+    fn candidate_gloss_requests_reject_control_keys() {
+        let resources = tempfile::tempdir().unwrap();
+        let resources_path = resources.path().to_str().unwrap().as_bytes();
+        let call = |text: String| {
+            let request = serde_json::to_vec(&json!({
+                "generation": 1,
+                "candidates": [{"text": text, "source": 0}],
+            }))
+            .unwrap();
+            read(unsafe {
+                msime_client_candidate_gloss_request(
+                    request.as_ptr(),
+                    request.len(),
+                    resources_path.as_ptr(),
+                    resources_path.len(),
+                )
+            })
+        };
+
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            let result = call(format!("测试{control}"));
+            assert_eq!(result["ok"], false);
+            assert_eq!(result["error"], "candidate gloss entries exceed limits");
+        }
     }
 
     #[test]
