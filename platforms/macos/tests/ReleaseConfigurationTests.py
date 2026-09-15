@@ -450,7 +450,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
             (policy["nested"]["openingInput"], policy["nested"]["closingInput"])
         )
         self.assertIn("IsEnginePunctuationCharacter", controller)
-        self.assertIn("_session->punctuation(static_cast<char>(character))", controller)
+        self.assertIn("[self handlePunctuation:static_cast<char>(character) client:sender]", controller)
+        self.assertIn("return _session->punctuation(character);", controller)
         self.assertGreater(len(engine_characters), 10, "the Engine punctuation contract was not parsed")
 
         # The host decides the supported keys with its own literal now that it no longer calls the

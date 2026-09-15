@@ -88,6 +88,7 @@ static void Require(bool condition, const char *message)
 @interface RecordingInputClient : NSObject
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
+@property(nonatomic, copy) NSString *insertedText;
 @end
 @implementation RecordingInputClient
 - (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect
@@ -100,6 +101,7 @@ static void Require(bool condition, const char *message)
 {
     (void)range;
     self.committed = text;
+    self.insertedText = [(self.insertedText != nil ? self.insertedText : @"") stringByAppendingString:text];
 }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement
 {
@@ -198,6 +200,121 @@ static void Press(PaginationTestController *controller, unsigned short code, NSS
                                        keyCode:code];
     Require([controller handleEvent:event client:controller.testClient],
             "The controller did not handle a paging test key.");
+}
+
+static void RunPinnedCandidateTests()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    for (NSNumber *style in @[ @0, @1 ])
+        for (NSNumber *size in @[ @5, @9 ])
+            for (NSString *action in
+                 @[ @"mouse", @"space", @"digit", @"arrow", @"page", @"refresh", @"unpin", @"finish", @"punctuation" ])
+            {
+                [defaults setVolatileDomain:@{
+                    @"MetasequoiaImeCandidatePageSize" : size,
+                    @"MetasequoiaImeCandidatePanelStyle" : style,
+                    @"MetasequoiaImeCandidateLearning" : @NO,
+                    @"MetasequoiaImeHelpcodeEnabled" : @NO,
+                    @"MetasequoiaImeChinesePunctuation" : @YES,
+                    MetasequoiaInputBehaviorKey : @{@"candidateTranslation" : @NO},
+                    kMetasequoiaPinnedCandidatesKey : @{@"nihao" : @[ @"候选8", @"候选3" ]}
+                }
+                                    forName:NSArgumentDomain];
+                RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+                PaginationTestController *controller = [PaginationTestController alloc];
+                controller.testClient = [RecordingInputClient new];
+                [controller prepareTestPanel:panel];
+                Require([[panel.data[0] string] containsString:@"候选8"],
+                        "The fixture did not display its pinned word first.");
+                NSString *expected = @"候选8";
+                if ([action isEqualToString:@"mouse"])
+                    [controller candidateSelected:panel.data[0]];
+                else if ([action isEqualToString:@"digit"])
+                    Press(controller, kVK_ANSI_1, @"1");
+                else if ([action isEqualToString:@"finish"])
+                    [controller commitLeadingCandidate:controller.testClient];
+                else if ([action isEqualToString:@"punctuation"])
+                {
+                    Press(controller, kVK_ANSI_Comma, @",");
+                    expected = @"候选8，";
+                }
+                else
+                {
+                    if ([action isEqualToString:@"arrow"] || [action isEqualToString:@"refresh"] ||
+                        [action isEqualToString:@"unpin"])
+                    {
+                        Press(controller, style.intValue == 0 ? kVK_RightArrow : kVK_DownArrow, @"");
+                        expected = @"候选3";
+                        if ([action isEqualToString:@"unpin"])
+                        {
+                            NSMutableDictionary *preferences =
+                                [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
+                            preferences[kMetasequoiaPinnedCandidatesKey] = @{};
+                            [defaults setVolatileDomain:preferences forName:NSArgumentDomain];
+                        }
+                        if (![action isEqualToString:@"arrow"])
+                            [controller refreshCandidatePanelPreservingSelection];
+                    }
+                    if ([action isEqualToString:@"page"])
+                    {
+                        Press(controller, kVK_PageDown, @"");
+                        expected = size.intValue == 5 ? @"候选4" : @"候选9";
+                        Press(controller, kVK_ANSI_1, @"1");
+                    }
+                    else
+                        Press(controller, kVK_Space, @" ");
+                }
+                Require([controller.testClient.insertedText isEqualToString:expected],
+                        "Selecting a pinned candidate committed a different word from the displayed one.");
+            }
+    [defaults removeVolatileDomainForName:NSArgumentDomain];
+}
+
+static void RunPinnedPartialCandidateTests()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setVolatileDomain:@{
+        @"MetasequoiaImeCandidateLearning" : @NO,
+        @"MetasequoiaImeHelpcodeEnabled" : @NO,
+        @"MetasequoiaImeChinesePunctuation" : @YES,
+        MetasequoiaInputBehaviorKey : @{@"candidateTranslation" : @NO, @"edgeSelection" : @YES},
+        kMetasequoiaPinnedCandidatesKey : @{@"shui'lin" : @[ @"税" ]}
+    }
+                        forName:NSArgumentDomain];
+    for (NSString *action in @[ @"space", @"finish", @"punctuation", @"firstHan", @"lastHan" ])
+    {
+        RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+        PaginationTestController *controller = [PaginationTestController alloc];
+        controller.testClient = [RecordingInputClient new];
+        [controller prepareTestPanel:panel];
+        [controller preparePartialInput];
+        Require([[panel.data[0] string] containsString:@"税"], "The partial fixture did not pin its second candidate.");
+        NSString *expected = @"税林";
+        if ([action isEqualToString:@"finish"])
+            [controller commitLeadingCandidate:controller.testClient];
+        else if ([action isEqualToString:@"punctuation"])
+        {
+            Press(controller, kVK_ANSI_Comma, @",");
+            expected = @"税林，";
+        }
+        else if ([action isEqualToString:@"space"])
+        {
+            Press(controller, kVK_Space, @" ");
+            Require([controller.testClient.committed isEqualToString:@"税"] &&
+                        [controller.testClient.marked isEqualToString:@"lin"] && panel.visible,
+                    "Pinned partial selection lost the remaining composition.");
+            Press(controller, kVK_Space, @" ");
+        }
+        else
+        {
+            Press(controller, [action isEqualToString:@"firstHan"] ? kVK_ANSI_LeftBracket : kVK_ANSI_RightBracket,
+                  [action isEqualToString:@"firstHan"] ? @"[" : @"]");
+            expected = @"税";
+        }
+        Require([controller.testClient.insertedText isEqualToString:expected] && !panel.visible,
+                "Pinned partial or edge selection committed the wrong word or dropped its suffix.");
+    }
+    [defaults removeVolatileDomainForName:NSArgumentDomain];
 }
 
 static void RunTests()
@@ -909,6 +1026,7 @@ int main()
         Require(sqlite3_exec(database,
                              "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                              "INSERT INTO tbl_1_s VALUES('shui','s','水',100);"
+                             "INSERT INTO tbl_1_s VALUES('shui','s','税',90);"
                              "CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                              "INSERT INTO tbl_1_l VALUES('lin','l','林',100);"
                              "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER)",
@@ -920,6 +1038,8 @@ int main()
             @autoreleasepool
             {
                 RunTests();
+                RunPinnedCandidateTests();
+                RunPinnedPartialCandidateTests();
                 Require(sqlite3_open([directory stringByAppendingPathComponent:@"english.db"].fileSystemRepresentation,
                                      &database) == SQLITE_OK,
                         "Cannot create mixed English fixture.");

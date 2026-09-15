@@ -162,8 +162,8 @@ static NSHashTable *LiveDictionaryControllers()
     std::unique_ptr<metasequoia::apple::DictionarySessionLease> _dictionaryLease;
     std::unique_ptr<metasequoia::Session> _session;
     std::unique_ptr<EnglishDictionary> _translationDictionary;
-    // 当前面板上每个位置对应的原始词 —— 右键固顶要按位置取词,候选串本身带了序号和译文,不能直接用。
-    NSArray<NSString *> *_visibleCandidateWords;
+    // Display positions can differ from Engine indices after pinning.
+    std::vector<size_t> _candidateEngineIndices;
     metasequoia::SessionOptions _sessionOptions;
     metasequoia::SessionSnapshot _sessionSnapshot;
     std::string _activeHelpcodeSchema;
@@ -521,14 +521,47 @@ static NSHashTable *LiveDictionaryControllers()
                                        visible:[MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled]];
 }
 
+- (std::optional<size_t>)engineIndexForDisplayIndex:(NSUInteger)index
+{
+    if (_session == nullptr || index >= _candidateData.count || index >= _candidateEngineIndices.size())
+        return std::nullopt;
+    const size_t engineIndex = _candidateEngineIndices[index];
+    const auto current = _session->snapshot();
+    if (engineIndex >= current.candidates.size() || engineIndex >= _sessionSnapshot.candidates.size() ||
+        current.candidates[engineIndex].word != _sessionSnapshot.candidates[engineIndex].word)
+        return std::nullopt;
+    return engineIndex;
+}
+
+- (metasequoia::KeyResult)selectDisplayedCandidateAtIndex:(NSUInteger)index
+{
+    if (const auto engineIndex = [self engineIndexForDisplayIndex:index])
+        return _session->select(*engineIndex);
+    return {};
+}
+
+- (metasequoia::KeyResult)handlePunctuation:(char)character client:(id)sender
+{
+    // Finish the displayed selection before Engine punctuation auto-commits candidate zero.
+    [self commitLeadingCandidate:sender];
+    if (!_session->snapshot().preedit.empty())
+    {
+        metasequoia::KeyResult result;
+        result.handled = true;
+        return result;
+    }
+    return _session->punctuation(character);
+}
+
 - (void)trackCandidateAtIndex:(NSUInteger)index
 {
-    if (_session == nullptr || index >= _candidateData.count || index >= _sessionSnapshot.candidates.size())
+    const auto engineIndex = [self engineIndexForDisplayIndex:index];
+    if (!engineIndex)
     {
         return;
     }
 
-    _candidateSelection.update(static_cast<size_t>(index), _sessionSnapshot.candidates[index].word);
+    _candidateSelection.update(*engineIndex, _sessionSnapshot.candidates[*engineIndex].word);
     _candidateHighlightedIndex = index;
     _candidatePageStart = metasequoia::mac::CandidatePageStart(index, _candidateData.count, _candidatePageSize);
 }
@@ -536,7 +569,7 @@ static NSHashTable *LiveDictionaryControllers()
 - (void)showCurrentCandidatePage
 {
     // On macOS 26, selectionKeys does not reliably limit the visible list.
-    // Own page boundaries here; retain global engine indices on each string.
+    // Own page boundaries here; retain global display positions on each string.
     const NSUInteger count = std::min(_candidatePageSize, _candidateData.count - _candidatePageStart);
     _visibleCandidateData = [_candidateData subarrayWithRange:NSMakeRange(_candidatePageStart, count)];
     _candidateLineIdentifiersCollapsed = NO;
@@ -864,19 +897,18 @@ static NSHashTable *LiveDictionaryControllers()
         result = _session->command(metasequoia::Command::Cancel);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitCandidate:
-        result = _candidateSelection.commit(*_session);
+        result = _candidateData.count > 0 ? [self selectDisplayedCandidateAtIndex:_candidateHighlightedIndex]
+                                          : _candidateSelection.commit(*_session);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitFirstHan:
     case metasequoia::mac::ControllerKeyAction::CommitLastHan: {
-        const auto current = _session->snapshot();
-        const size_t index = _candidateHighlightedIndex;
         // Never commit a stale highlighted entry after a candidate refresh.
-        if (index >= current.candidates.size() || index >= _sessionSnapshot.candidates.size() ||
-            current.candidates[index].word != _sessionSnapshot.candidates[index].word)
+        const auto index = [self engineIndexForDisplayIndex:_candidateHighlightedIndex];
+        if (!index)
             return YES;
         result =
-            _session->select_edge(index, candidatePageShortcutCharacter == '[' ? metasequoia::CandidateEdge::FirstHan
-                                                                               : metasequoia::CandidateEdge::LastHan);
+            _session->select_edge(*index, candidatePageShortcutCharacter == '[' ? metasequoia::CandidateEdge::FirstHan
+                                                                                : metasequoia::CandidateEdge::LastHan);
         break;
     }
     case metasequoia::mac::ControllerKeyAction::Character: {
@@ -913,7 +945,7 @@ static NSHashTable *LiveDictionaryControllers()
                 result = _session->character(static_cast<char>(character));
                 if (!result.handled)
                 {
-                    result = _session->punctuation(static_cast<char>(character));
+                    result = [self handlePunctuation:static_cast<char>(character) client:sender];
                 }
             }
             // Unicode mode reads a hex code point, so while it is open its digits and its optional
@@ -927,8 +959,15 @@ static NSHashTable *LiveDictionaryControllers()
                 }
                 else if (character >= '1' && character <= '9')
                 {
-                    result =
-                        _candidateSelection.commit_number(*_session, static_cast<char>(character), _candidatePageSize);
+                    const NSUInteger offset = character - '1';
+                    if (_candidateData.count > 0)
+                    {
+                        if (offset < _candidatePageSize)
+                            result = [self selectDisplayedCandidateAtIndex:_candidatePageStart + offset];
+                    }
+                    else
+                        result = _candidateSelection.commit_number(*_session, static_cast<char>(character),
+                                                                   _candidatePageSize);
                     if (!result.handled && !_sessionSnapshot.preedit.empty())
                     {
                         return YES;
@@ -939,7 +978,7 @@ static NSHashTable *LiveDictionaryControllers()
             // Session still owns translation and stateful quote/book-title behaviour.
             else if (IsEnginePunctuationCharacter(static_cast<char>(character)))
             {
-                result = _session->punctuation(static_cast<char>(character));
+                result = [self handlePunctuation:static_cast<char>(character) client:sender];
             }
         }
         break;
@@ -981,7 +1020,10 @@ static NSHashTable *LiveDictionaryControllers()
     // The rest of the composition still finishes from the engine's first candidate, which is what
     // the default argument means and what this path already did.
     const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
-    const auto result = _session->finish(_candidateSelection.live_selected_index(_sessionSnapshot).value_or(0));
+    const auto index = [self engineIndexForDisplayIndex:_candidateHighlightedIndex];
+    if (_candidateData.count > 0 && !index)
+        return;
+    const auto result = _session->finish(index.value_or(0));
     if (result.handled)
     {
         [self applyResult:result localMode:localMode client:sender];
@@ -1195,7 +1237,7 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
     ++_translationGeneration;
     _sessionSnapshot = _session->snapshot();
     const std::optional<size_t> preservedSelection =
-        preserveSelection ? _candidateSelection.selected_index() : std::nullopt;
+        preserveSelection ? _candidateSelection.live_selected_index(_sessionSnapshot) : std::nullopt;
     if (!preserveSelection)
     {
         _candidateSelection.reset();
@@ -1246,8 +1288,8 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
     NSUInteger candidateIndex = 0;
     // 固顶的词提到最前,其余保持引擎给的顺序。Reordering here rather than asking the engine keeps the
     // shared ranking untouched, and the panel is the only thing that needs to know about the pin.
-    std::vector<WordItem> ordered;
-    ordered.reserve(_sessionSnapshot.candidates.size());
+    _candidateEngineIndices.clear();
+    _candidateEngineIndices.reserve(_sessionSnapshot.candidates.size());
     {
         NSArray<NSString *> *pinned = MetasequoiaPinnedWords(_sessionSnapshot.preedit);
         if (pinned.count > 0)
@@ -1255,22 +1297,23 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
             for (NSString *word in pinned)
             {
                 const std::string wanted = word.UTF8String ? word.UTF8String : "";
-                for (const WordItem &candidate : _sessionSnapshot.candidates)
-                    if (candidate.word == wanted)
-                        ordered.push_back(candidate);
+                for (size_t index = 0; index < _sessionSnapshot.candidates.size(); ++index)
+                    if (_sessionSnapshot.candidates[index].word == wanted)
+                        _candidateEngineIndices.push_back(index);
             }
-            for (const WordItem &candidate : _sessionSnapshot.candidates)
-                if (![pinned containsObject:MetasequoiaStringFromUtf8(candidate.word)])
-                    ordered.push_back(candidate);
+            for (size_t index = 0; index < _sessionSnapshot.candidates.size(); ++index)
+                if (![pinned containsObject:MetasequoiaStringFromUtf8(_sessionSnapshot.candidates[index].word)])
+                    _candidateEngineIndices.push_back(index);
         }
         else
         {
-            ordered.assign(_sessionSnapshot.candidates.begin(), _sessionSnapshot.candidates.end());
+            for (size_t index = 0; index < _sessionSnapshot.candidates.size(); ++index)
+                _candidateEngineIndices.push_back(index);
         }
     }
-    NSMutableArray<NSString *> *words = [NSMutableArray arrayWithCapacity:ordered.size()];
-    for (const WordItem &candidate : ordered)
+    for (const size_t engineIndex : _candidateEngineIndices)
     {
+        const WordItem &candidate = _sessionSnapshot.candidates[engineIndex];
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
             candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get(), wubiTypedCode));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
@@ -1318,18 +1361,17 @@ static void MetasequoiaTogglePinnedWord(const std::string &code, NSString *word)
                 indexed = MetasequoiaCandidateStringByAddingSecondaryTranslation(indexed, secondary);
         }
         [data addObject:indexed];
-        [words addObject:MetasequoiaStringFromUtf8(candidate.word)];
         ++candidateIndex;
     }
-    _visibleCandidateWords = [words copy];
     _candidateData = [data copy];
     [self scheduleCandidateTranslations];
     if (!_sessionSnapshot.preedit.empty() && _candidateData.count > 0)
     {
+        const auto preserved = preservedSelection ? std::find(_candidateEngineIndices.begin(),
+                                                              _candidateEngineIndices.end(), *preservedSelection)
+                                                  : _candidateEngineIndices.end();
         const NSUInteger selectedIndex =
-            preservedSelection.has_value() && preservedSelection.value() < _candidateData.count
-                ? preservedSelection.value()
-                : 0;
+            preserved != _candidateEngineIndices.end() ? std::distance(_candidateEngineIndices.begin(), preserved) : 0;
         _candidatePageStart =
             metasequoia::mac::CandidatePageStart(selectedIndex, _candidateData.count, _candidatePageSize);
         [self showCurrentCandidatePage];
@@ -1628,10 +1670,11 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
 {
     if (_session == nullptr || _sessionSnapshot.preedit.empty())
         return;
-    const NSUInteger index = MetasequoiaCandidateIndex(candidateString);
-    if (index == NSNotFound || index >= _visibleCandidateWords.count)
+    const auto index = [self engineIndexForDisplayIndex:MetasequoiaCandidateIndex(candidateString)];
+    if (!index)
         return;
-    MetasequoiaTogglePinnedWord(_sessionSnapshot.preedit, _visibleCandidateWords[index]);
+    MetasequoiaTogglePinnedWord(_sessionSnapshot.preedit,
+                                MetasequoiaStringFromUtf8(_sessionSnapshot.candidates[*index].word));
     // 就地重排,不动引擎状态:固顶只改显示顺序,组字和候选集都不该因为右键而变化。
     [self rebuildCandidatePanelPreservingSelection:NO];
 }
@@ -1691,12 +1734,12 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
             index = _candidatePageStart + static_cast<NSUInteger>(selectedLine);
         }
     }
-    if (index == NSNotFound || index >= _sessionSnapshot.candidates.size())
+    if (index == NSNotFound)
     {
         return;
     }
     const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
-    const auto result = _session->select(static_cast<size_t>(index));
+    const auto result = [self selectDisplayedCandidateAtIndex:index];
     if (result.handled)
     {
         [self applyResult:result localMode:localMode client:self.client];
