@@ -68,6 +68,7 @@ public:
   void refresh(bool enabled);
   void hide();
   bool failed() const { return failed_; }
+  HWND handle() const { return window_; }
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;

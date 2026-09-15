@@ -309,27 +309,26 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
   try { switch (message) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ERASEBKGND: return 1;
+    case WM_POWERBROADCAST:
+      if (w != PBT_APMRESUMEAUTOMATIC && w != PBT_APMRESUMECRITICAL &&
+          w != PBT_APMRESUMESUSPEND)
+        break;
+      [[fallthrough]];
+    case WM_DISPLAYCHANGE:
+    case WM_DWMCOMPOSITIONCHANGED:
     case WM_DPICHANGED: {
       const bool visible = IsWindowVisible(window) != FALSE;
       self->shown_.reset();
+      self->shown_character_set_.reset();
       self->hovered_.reset();
       self->pressed_.reset();
+      self->pressed_lease_.reset();
       // Cached composition surfaces retain their old DPI even when large
-      // enough for the new window. Recreate this window's target only.
+      // enough for the new window, and display/DWM/resume edges can invalidate
+      // their underlying device. Recreate this window's target only.
       self->device_.DiscardTarget();
       if (visible) self->refresh(true);
-      return 0;
-    }
-    case WM_DISPLAYCHANGE: {
-      // A resolution, taskbar or monitor-topology change does not have to
-      // carry a DPI edge. Invalidate the presentation snapshot so refresh()
-      // cannot take its unchanged-state fast path and leave a remembered
-      // toolbar position outside the new work area.
-      const bool visible = IsWindowVisible(window) != FALSE;
-      self->shown_.reset();
-      self->shown_character_set_.reset();
-      if (visible) self->refresh(true);
-      return 0;
+      return message == WM_POWERBROADCAST ? TRUE : 0;
     }
     case WM_PAINT: self->paint(); return 0;
     case WM_ENTERSIZEMOVE:
