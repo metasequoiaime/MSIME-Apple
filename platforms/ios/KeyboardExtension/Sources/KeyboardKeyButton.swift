@@ -2,25 +2,6 @@ import UIKit
 
 /// Animate the key itself without changing the stack view's layout or input timing.
 final class KeyboardKeyButton: UIButton {
-  /// 标题写几行。候选词一行,底下每条释义各一行。
-  ///
-  /// 配置化按钮的标题标签是它自己管的:按钮刚建出来时 `titleLabel` 还是 nil,而每次更新配置又会重新配一遍,所以直接赋值时灵时不灵 —— 释义那几行会毫无规律地被截掉。这里在每次布局之后重申一次,标签无论什么时候建出来都会被纠正。
-  var titleLines = 1 {
-    didSet {
-      guard titleLines != oldValue else { return }
-      titleLabel?.numberOfLines = titleLines
-      setNeedsLayout()
-    }
-  }
-
-  override func layoutSubviews() {
-    super.layoutSubviews()
-    guard let label = titleLabel, label.numberOfLines != titleLines else { return }
-    label.numberOfLines = titleLines
-    // 这一趟是按旧行数量的,改完要再排一次。
-    setNeedsLayout()
-  }
-
   override var isHighlighted: Bool {
     didSet {
       guard isHighlighted != oldValue else { return }

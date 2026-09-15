@@ -100,7 +100,11 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(lines.count, 2, "释义独占一行,不再挤在候选右边:\(title)")
     XCTAssertEqual(lines.first, "你好")
     XCTAssertTrue(lines[1].lowercased().contains("hello"), "释义来自随包的离线词库:\(title)")
-    XCTAssertEqual(chip.titleLabel?.numberOfLines, 2, "行数没跟上就会被截掉")
+    // 断言画出来的高度,不是 numberOfLines:配置的换行模式会在下一次更新时把行数压回一行,而赋完值立刻去读 numberOfLines 是读得到 2 的 —— 测试因此绿着,屏幕上却是截断的一行。
+    let label = try XCTUnwrap(chip.titleLabel)
+    XCTAssertGreaterThan(label.bounds.height,
+                         UIFont.preferredFont(forTextStyle: .body).lineHeight * 1.4,
+                         "候选和释义要真的画成两行")
   }
 
   func testARowIsReservedOnlyForAGlossThatCanActuallyBeFetched() throws {
@@ -164,7 +168,11 @@ final class CandidateTranslationTests: XCTestCase {
     let title = try XCTUnwrap(glossed.configuration?.attributedTitle.map { String($0.characters) })
     XCTAssertEqual(title.split(separator: "\n", omittingEmptySubsequences: false),
                    ["你好", "hello", "こんにちは"])
-    XCTAssertEqual(glossed.titleLabel?.numberOfLines, 3)
+    let label = try XCTUnwrap(glossed.titleLabel)
+    XCTAssertGreaterThan(label.bounds.height,
+                         UIFont.preferredFont(forTextStyle: .body).lineHeight
+                           + UIFont.preferredFont(forTextStyle: .caption2).lineHeight,
+                         "候选加两条释义要真的画成三行")
 
     let bare = try XCTUnwrap(
       descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)

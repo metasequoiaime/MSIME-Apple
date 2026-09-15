@@ -182,11 +182,8 @@ final class KeyboardCandidatePanelView: UIView {
     }
     configuration.attributedTitle = title
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
-    // 候选一行写完,写不下就截断。Leaving this unset let a long candidate wrap inside its own chip,
-    // and it broke the packing as well: a wrapping title measures at its narrowest under a
-    // compressed fit, so every chip was measured far thinner than it draws, each row was handed
-    // more chips than fit, and the whole panel spilled past its width.
-    configuration.titleLineBreakMode = .byTruncatingTail
+    // 没有释义的格子按老样子截断:那个模式顺带把标签钉成一行,长候选就截断而不是在格子里折行。有释义的格子必须放开这个限制,否则释义会被并进同一行 —— 它不折行靠的是宽度按最宽的一行给足,不是靠模式。
+    configuration.titleLineBreakMode = glosses.isEmpty ? .byTruncatingTail : .byWordWrapping
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor =
@@ -197,7 +194,6 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
-    chip.titleLines = 1 + glosses.count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"

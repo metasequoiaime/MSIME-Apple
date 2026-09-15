@@ -2575,9 +2575,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       converting ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
                  : KeyboardSkinPreference.selected.keyBackground
     if hint.isEmpty, glosses.isEmpty {
+      // 这一格是纯候选词,没有第二行可写,单行截断就是对的 —— 格子曾经带过释义的话,换行模式还停在允许多行上,长候选会在格子里折行。
+      configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.title = display
     } else {
+      // 有第二行要写,换行模式就必须是换行类的:`byTruncatingTail` 会把标题标签钉死成一行,释义被并进同一行再截掉,画出来就是「你…」。行数本身钉不住 —— UIKit 每次更新配置都重设它 —— 所以不折行靠的是格子宽度本来就按最宽的一行给足。
+      configuration.titleLineBreakMode = .byWordWrapping
       // 释义单独占一行。挤在候选右边时,「按 according to」这样一格就吃掉半屏宽,一行只剩两三个候选看得见。
       let paragraph = NSMutableParagraphStyle()
       paragraph.alignment = .natural
@@ -2606,8 +2610,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     button.configuration = configuration
-    // 换完配置再设行数:标题标签是跟着配置建出来的,在那之前 titleLabel 还是 nil,这一句就悄无声息地没了。KeyboardKeyButton 每次布局还会再纠正一遍。
-    button.titleLines = 1 + glosses.count
     button.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(display)" : "候选词 \(number)：\(display)，还需输入 \(hint)"
     if !glosses.isEmpty {
