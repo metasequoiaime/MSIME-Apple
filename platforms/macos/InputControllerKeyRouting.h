@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cstddef>
 
+#include "InputControllerPhysicalKeys.h"
+
 namespace metasequoia::mac
 {
 enum class ControllerKeyAction
@@ -60,35 +62,6 @@ constexpr size_t CandidatePageEnd(size_t selectedIndex, size_t candidateCount, s
         return 0;
     }
     return std::min(CandidatePageStart(selectedIndex, candidateCount, pageSize) + pageSize - 1, candidateCount - 1);
-}
-
-// Main-row ANSI digit key codes.  Reading event.characters is layout
-// dependent (for example, Dvorak and IME layouts can produce non-digits),
-// while candidate numbering follows the physical number row on Windows.
-constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
-{
-    switch (keyCode)
-    {
-    case 18: return 0; // 1
-    case 19: return 1; // 2
-    case 20: return 2; // 3
-    case 21: return 3; // 4
-    case 23: return 4; // 5
-    case 22: return 5; // 6
-    case 26: return 6; // 7
-    case 28: return 7; // 8
-    case 25: return 8; // 9
-    default: return -1;
-    }
-}
-
-// Japanese input schemes reserve '-' and '=' for Engine input while a
-// candidate list is visible.  The direct Japanese scheme (3) and the
-// temporary-Japanese local mode share this host rule; other schemes use the
-// configured paging shortcuts.
-constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, char character)
-{
-    return (scheme == 3 || temporaryJapanese) && (character == '-' || character == '=');
 }
 
 constexpr ControllerKeyAction ClassifyControllerKey(
