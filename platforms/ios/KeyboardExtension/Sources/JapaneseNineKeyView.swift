@@ -47,11 +47,22 @@ final class JapaneseNineKeyView: UIStackView {
   private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
   private let flickPreview = KanaFlickPreview()
 
-  init(makeKey: (String, String, @escaping () -> Void) -> UIButton) {
+  init(makeKey: (String, String, @escaping () -> Void) -> UIButton,
+       makeDelete: (() -> UIButton)? = nil,
+       sideKeys: [UIButton] = [],
+       modeKeys: [UIButton] = []) {
     super.init(frame: .zero)
     axis = .horizontal
     spacing = 6
     accessibilityIdentifier = "japaneseNineKey"
+    if !modeKeys.isEmpty {
+      let modes = UIStackView()
+      modes.axis = .vertical; modes.distribution = .fillEqually; modes.spacing = 7
+      modes.accessibilityIdentifier = "japaneseModeColumn"
+      modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
+      for key in modeKeys { modes.addArrangedSubview(key) }
+      addArrangedSubview(modes)
+    }
     let grid = UIStackView()
     grid.axis = .vertical; grid.distribution = .fillEqually; grid.spacing = 7
     addArrangedSubview(grid)
@@ -90,9 +101,19 @@ final class JapaneseNineKeyView: UIStackView {
     rows.append(side)
     addArrangedSubview(side)
     side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
-    let delete = makeKey("⌫", "删除", { [weak self] in self?.onDelete?() })
+    let delete = makeDelete?() ?? makeKey("⌫", "删除", { [weak self] in self?.onDelete?() })
     delete.accessibilityIdentifier = "japaneseDelete"
     side.addArrangedSubview(delete)
+    for key in sideKeys { side.addArrangedSubview(key) }
+    if let firstKanaRow = grid.arrangedSubviews.first {
+      delete.heightAnchor.constraint(equalTo: firstKanaRow.heightAnchor).isActive = true
+      for (index, key) in sideKeys.enumerated() {
+        key.heightAnchor.constraint(
+          equalTo: firstKanaRow.heightAnchor,
+          multiplier: index == sideKeys.count - 1 ? 2 : 1,
+          constant: index == sideKeys.count - 1 ? 7 : 0).isActive = true
+      }
+    }
   }
   required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 

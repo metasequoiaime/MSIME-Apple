@@ -26,6 +26,12 @@ final class JapaneseNineKeyTests: XCTestCase {
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
     XCTAssertFalse(panel.isHidden)
+    let modeColumn = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "japaneseModeColumn" } as? UIStackView)
+    XCTAssertEqual(modeColumn.arrangedSubviews.count, 4)
+    let japaneseReturn = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "japaneseReturn" } as? UIButton)
+    XCTAssertFalse(japaneseReturn.isHidden)
+    let sharedReturn = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
+    XCTAssertTrue(sharedReturn.superview?.isHidden == true)
     panel.select(4, direction: 1) // に
     panel.select(5, direction: 4) // ほ
     panel.select(9, direction: 2) // ん

@@ -111,6 +111,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionGlobeButton: UIButton!
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
+  private weak var japaneseGlobeButton: UIButton?
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
@@ -343,9 +344,36 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
-    japaneseKeys = JapaneseNineKeyView { [unowned self] title, label, action in
-      makeKey(title: title, accessibilityLabel: label, action: action)
+    let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in
+      self?.toggleLayout()
     }
+    japaneseSymbols.accessibilityIdentifier = "japaneseSymbols"
+    let japaneseEmoji = makeKey(title: "^_^", accessibilityLabel: "顔文字と絵文字") { [weak self] in
+      self?.showEmojiPicker()
+    }
+    japaneseEmoji.accessibilityIdentifier = "japaneseEmoji"
+    let japaneseLanguage = makeKey(title: "英", accessibilityLabel: "切换中英文") { [weak self] in
+      self?.toggleInputMode()
+    }
+    japaneseLanguage.accessibilityIdentifier = "japaneseLanguage"
+    let japaneseGlobe = makeSymbolKey(symbol: "globe", accessibilityLabel: "选择下一个键盘")
+    japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
+    japaneseGlobe.addTarget(
+      self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
+    let japaneseSpace = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
+      self?.handleSpace()
+    }
+    japaneseSpace.accessibilityIdentifier = "japaneseSpace"
+    let japaneseReturn = makeKey(title: "改行", accessibilityLabel: "改行", emphasized: true) { [weak self] in
+      self?.handleReturn()
+    }
+    japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
+      makeKey(title: title, accessibilityLabel: label, action: action)
+    }, makeDelete: { [unowned self] in makeDeleteKey() },
+       sideKeys: [japaneseSpace, japaneseReturn],
+       modeKeys: [japaneseSymbols, japaneseEmoji, japaneseLanguage, japaneseGlobe])
+    japaneseGlobeButton = japaneseGlobe
     japaneseKeys.onInput = { [weak self] input in
       guard let self, isChineseMode, inputScheme.isJapanese else { return }
       playInputClick()
@@ -389,7 +417,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
     // The kana surface now has a dedicated punctuation row beneath the three kana rows.
-    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 4, constant: 21)
+    japaneseHeight = japaneseKeys.heightAnchor.constraint(
+      equalToConstant: KeyboardLayoutPreference.rowSpacing * 3 + 4 * 44)
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
@@ -1871,9 +1900,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
     japaneseKeys?.isHidden = !kana
     japaneseKeys?.setDigits(showsSymbols)
-    japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 3
+    japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 3 + 4 * 44
     japaneseHeight?.isActive = kana
     japaneseKeys?.applyLayout()
+    actionRow?.isHidden = kana
+    japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
