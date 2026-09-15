@@ -11,7 +11,12 @@
 #include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
-struct CharacterSetClick {};
+// Null toggles the stored value for the toolbar. A value is the Server
+// session's explicit target, so a delayed preference write cannot invert a
+// newer state that was already persisted by another surface.
+struct CharacterSetClick {
+  std::optional<bool> desired;
+};
 using CharacterSetClickWorker = SingleClickWorker<CharacterSetClick>;
 class FloatingToolbarWindow final {
 public:

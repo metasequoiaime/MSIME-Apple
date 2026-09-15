@@ -3279,6 +3279,7 @@ int main(int argc, char **argv) {
         assert(layoutPanel.frame.size.width > shortWidth);
         NSButton *rendered = (NSButton *)layoutPanel.contentView.subviews.firstObject;
         assert(rendered.font.pointSize == 18);
+        assert(fabs(((MSIMECandidateButton *)rendered).numberFont.pointSize - 14.4) < 0.01);
         assert([rendered.toolTip isEqualToString:@"合成候选布局测试文本"]);
         assert(rendered.lineBreakMode == NSLineBreakByTruncatingTail);
         client.caret = NSZeroRect;
@@ -3690,6 +3691,8 @@ int main(int argc, char **argv) {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
+                    assert([selected.translationColor isEqual:[SkinColor(tokens.selectedText) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
+                    assert([unselected.translationColor isEqual:[SkinColor(tokens.text) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
                     appearance.candidateTextColor = @"#1234AB";
                     [controller refreshCandidateSkin];
                     NSColor *override = [appearance candidateTextColorWithDefault:NSColor.blackColor];
