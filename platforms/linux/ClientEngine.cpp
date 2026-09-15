@@ -4314,6 +4314,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "CharacterMode") {
       if (menu_save_pending || s.fullwidth == (value == PROP_STATE_CHECKED)) return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CharacterWidth,
+                             value == PROP_STATE_CHECKED);
+        return;
+      }
       s.fullwidth = value == PROP_STATE_CHECKED;
       s.paired_tracker.clear();
       if (s.session) {
@@ -4321,9 +4326,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         render(engine, s.view);
       }
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::CharacterWidth,
-                             value == PROP_STATE_CHECKED);
       return;
     }
     if (std::string(name) == "TraditionalOutput") {
@@ -4629,14 +4631,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (!s.input_enabled || !s.session || menu_save_pending)
         return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
+        return;
+      }
       s.view =
           response(msime_client_set_chinese_punctuation(s.session, enabled));
       s.chinese_punctuation = enabled;
       s.punctuation_override = enabled;
       s.paired_tracker.clear();
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
       return;
     }
     if (enabled != s.input_enabled) {

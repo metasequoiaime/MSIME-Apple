@@ -1554,11 +1554,22 @@ int main(int argc, char **argv) {
             "Quanpin scheme was not restored");
     auto committed = seen.committed;
     phrase();
+    int pending_punctuation_lock =
+        open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+    require(pending_punctuation_lock >= 0 &&
+                flock(pending_punctuation_lock, LOCK_EX | LOCK_NB) == 0,
+            "Cannot lock pending punctuation preference");
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_UNCHECKED));
+    require(seen.punctuation_enabled && seen.preedit_visible &&
+                seen.preedit == "nihao" && seen.lookup_visible &&
+                seen.committed == committed,
+            "Pending punctuation save changed the active session");
+    flock(pending_punctuation_lock, LOCK_UN);
+    close(pending_punctuation_lock);
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return !preferences.value("chinese_punctuation", true);
-            }),
+            }) && !seen.punctuation_enabled,
             "English punctuation mode was not persisted");
     require(seen.preedit_visible && seen.preedit == "nihao" &&
                 seen.lookup_visible && seen.committed == committed,
@@ -1644,22 +1655,31 @@ int main(int argc, char **argv) {
             "Private text focus did not recover");
     invoke("FocusOut");
     invoke("FocusIn");
+    int pending_width_lock =
+        open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+    require(pending_width_lock >= 0 &&
+                flock(pending_width_lock, LOCK_EX | LOCK_NB) == 0,
+            "Cannot lock pending character-width preference");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
-    require(key('1'), "Fullwidth idle digit was not handled");
-    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
+    require(!key('1') && seen.committed == committed + "你好",
+            "Pending fullwidth save changed idle character handling");
+    flock(pending_width_lock, LOCK_UN);
+    close(pending_width_lock);
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return preferences.value("character_width", "halfwidth") ==
                      "fullwidth";
             }),
             "Fullwidth idle mode was not persisted");
+    require(key('1'), "Fullwidth idle digit was not handled");
+    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
-    require(!key('2'), "Halfwidth idle digit was intercepted");
-    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return preferences.value("character_width", "fullwidth") ==
                      "halfwidth";
             }),
             "Halfwidth idle mode was not restored");
+    require(!key('2'), "Halfwidth idle digit was intercepted");
+    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {
