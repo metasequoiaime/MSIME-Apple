@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Download and verify the immutable Engine archive used by Apple builds."""
-import hashlib, json, shutil, sys, tarfile, tempfile, urllib.request
+import hashlib, json, shutil, subprocess, sys, tarfile, tempfile, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,13 @@ def main():
         if DEST.exists():
             shutil.rmtree(DEST)
         shutil.copytree(extracted, DEST)
+    # GitHub source archives omit the Engine's own submodules. Restore those pinned entries so
+    # Xcode and CMake see the same complete tree as a recursive checkout.
+    subprocess.run(["git", "-C", str(DEST), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(DEST), "remote", "add", "origin", "https://github.com/metasequoiaime/MSIME-Engine.git"], check=False)
+    subprocess.run(["git", "-C", str(DEST), "fetch", "-q", "--depth", "1", "origin", lock["commit"]], check=True)
+    subprocess.run(["git", "-C", str(DEST), "checkout", "-q", "FETCH_HEAD"], check=True)
+    subprocess.run(["git", "-C", str(DEST), "submodule", "update", "--init", "--recursive", "--depth", "1"], check=True)
     print(f"prepared Engine {lock['commit']} at {DEST}")
 
 if __name__ == "__main__":
