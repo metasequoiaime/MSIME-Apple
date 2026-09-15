@@ -266,6 +266,45 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// Persist the selected touch scheme and its presentation mapping in one
+  /// canonical snapshot. The App Group preference remains a compatibility
+  /// mirror for the legacy SwiftUI settings host.
+  @discardableResult
+  func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
+                              enabledSchemes: [ChineseInputScheme]) -> Bool {
+    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
+    guard !enabled.isEmpty else { return false }
+    let selected = enabled.contains(scheme) ? scheme : enabled[0]
+    let engineScheme: String
+    switch selected {
+    case .wubi: engineScheme = "wubi"
+    case .japanese, .japaneseNineKey: engineScheme = "japanese"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
+    case .quanpin, .nineKey, .handwriting, .thoughtfulReply: engineScheme = "quanpin"
+    }
+    let layout: String
+    switch selected {
+    case .nineKey, .japaneseNineKey: layout = "nine_key"
+    case .handwriting: layout = "handwriting"
+    default: layout = "twenty_six_key"
+    }
+    let selectedID = selected == .shuangpin ? "xiaohe" : selected.rawValue
+    return updatePreferences { preferences in
+      preferences["scheme"] = engineScheme
+      if engineScheme != "japanese" {
+        preferences["last_chinese_scheme"] = engineScheme
+      }
+      if let profile = selected.shuangpinProfile {
+        preferences["shuangpin_profile"] = profile
+      }
+      preferences["touch_keyboard_layout"] = layout
+      preferences["touch_keyboard_schemes"] = [
+        "enabled": enabled.map { $0 == .shuangpin ? "xiaohe" : $0.rawValue },
+        "selected": selectedID,
+      ]
+    }
+  }
+
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
   }

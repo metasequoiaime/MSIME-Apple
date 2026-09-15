@@ -1477,7 +1477,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  private func selectInputScheme(_ scheme: ChineseInputScheme) {
+  private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
     guard InputSchemePreference.enabledSchemes.contains(scheme) else { return }
     if scheme == inputScheme {
       if scheme == .thoughtfulReply { synchronizeReplyKeyboard() }
@@ -1489,6 +1489,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     inputScheme = scheme
     let snapshot = applyInputScheme()
     InputSchemePreference.scheme = scheme
+    if persistShared {
+      _ = session.setTouchKeyboardScheme(scheme, enabledSchemes: InputSchemePreference.enabledSchemes)
+    }
     showsSymbols = false
     updateSchemeButton()
     updateLanguageModeButton()
@@ -1771,7 +1774,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       selectedScheme = (schemes["selected"] as? String).flatMap(Self.sharedInputScheme)
     }
     if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
-      selectInputScheme(selectedScheme)
+      selectInputScheme(selectedScheme, persistShared: false)
     }
     if skinChanged || customSkinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()

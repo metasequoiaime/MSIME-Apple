@@ -90,6 +90,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
   }
 
+  func testTouchSchemeWritesCanonicalEngineAndPresentationMapping() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-touch-scheme-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+
+    XCTAssertTrue(bridge.setTouchKeyboardScheme(
+      .microsoft, enabledSchemes: [.quanpin, .microsoft, .japaneseNineKey]))
+    let preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["scheme"] as? String, "shuangpin")
+    XCTAssertEqual(preferences["last_chinese_scheme"] as? String, "shuangpin")
+    XCTAssertEqual(preferences["shuangpin_profile"] as? String, "microsoft")
+    XCTAssertEqual(preferences["touch_keyboard_layout"] as? String, "twenty_six_key")
+    let schemes = try XCTUnwrap(preferences["touch_keyboard_schemes"] as? [String: Any])
+    XCTAssertEqual(schemes["enabled"] as? [String], ["quanpin", "microsoft", "japanese_nine_key"])
+    XCTAssertEqual(schemes["selected"] as? String, "microsoft")
+  }
+
   func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-fuzzy-\(UUID().uuidString)", isDirectory: true)
