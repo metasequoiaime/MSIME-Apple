@@ -35,6 +35,21 @@ struct AccountSettingsView: View {
       }
 
       if signedIn {
+        Section("云端") {
+          NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
+            Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
+          }.accessibilityIdentifier("accountSettingsSync")
+          NavigationLink(destination: CommunityResourcesAccountView()) {
+            Label("词包与回复模板", systemImage: "books.vertical")
+          }.accessibilityIdentifier("accountCommunityResources")
+          NavigationLink(destination: CloudDictionaryView()) {
+            Label("云词库", systemImage: "character.book.closed")
+          }.accessibilityIdentifier("accountCloudDictionary")
+          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
+            Label("云剪贴板", systemImage: "doc.on.clipboard")
+          }.accessibilityIdentifier("accountCloudClipboard")
+        }
+
         Section("社区") {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
             Label("我发布的皮肤", systemImage: "paintpalette")
@@ -51,23 +66,6 @@ struct AccountSettingsView: View {
               Label("收藏的\(kind.title)", systemImage: "bookmark")
             }
           }
-        }
-      }
-
-      if signedIn {
-        Section("云端") {
-          NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
-            Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
-          }.accessibilityIdentifier("accountSettingsSync")
-          NavigationLink(destination: CommunityResourcesAccountView()) {
-            Label("词包与回复模板", systemImage: "books.vertical")
-          }.accessibilityIdentifier("accountCommunityResources")
-          NavigationLink(destination: CloudDictionaryView()) {
-            Label("云词库", systemImage: "character.book.closed")
-          }.accessibilityIdentifier("accountCloudDictionary")
-          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
-            Label("云剪贴板", systemImage: "doc.on.clipboard")
-          }.accessibilityIdentifier("accountCloudClipboard")
         }
       }
 
