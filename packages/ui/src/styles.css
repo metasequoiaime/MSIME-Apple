@@ -156,6 +156,16 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .statistics-page { display: flex; flex-direction: column; gap: 14px; }
 .statistics-page .section { margin: 0; }
 .statistics-page h2 { margin: 0; color: var(--text-color); font-size: 15px; font-weight: 600; }
+.statistics-mobile-toolbar { display: flex; justify-content: flex-end; min-height: 0; margin-bottom: -4px; }
+.statistics-mobile-menu { position: relative; z-index: 3; }
+.statistics-mobile-menu > summary { display: grid; width: 34px; height: 30px; place-items: center; border: 1px solid var(--border-color); border-radius: 9px; background: var(--card-bg); color: var(--text-secondary); font-size: 20px; line-height: 1; cursor: pointer; list-style: none; }
+.statistics-mobile-menu > summary::-webkit-details-marker { display: none; }
+.statistics-mobile-menu > summary:hover { background: var(--button-secondary-hover); color: var(--text-color); }
+.statistics-mobile-menu-popover { position: absolute; top: 36px; right: 0; display: flex; min-width: 180px; flex-direction: column; gap: 3px; padding: 6px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); box-shadow: var(--card-shadow); }
+.statistics-mobile-menu-popover button, .statistics-mobile-menu-toggle { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text-color); text-align: left; }
+.statistics-mobile-menu-popover button:hover:not(:disabled), .statistics-mobile-menu-toggle:hover { background: var(--button-secondary-hover); }
+.statistics-mobile-menu-toggle .toggle { flex: 0 0 38px; }
+.statistics-mobile-menu-popover .statistics-reset { color: var(--danger-text); }
 .statistics-period { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
 .statistics-mobile-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
 .statistics-mobile-tabs button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); }
@@ -232,6 +242,8 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .statistics-control-actions .secondary { margin: 0; }
 .statistics-reset { color: var(--danger-text); }
 .statistics-privacy { margin: 16px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.statistics-privacy-section { padding-top: 2px; }
+.statistics-privacy-section .statistics-privacy { margin-top: 0; }
 .account-page { display: flex; flex-direction: column; gap: 14px; }
 .account-page .section { margin: 0; }
 .account-page h2 { margin: 0; color: var(--text-color); font-size: 15px; font-weight: 600; }

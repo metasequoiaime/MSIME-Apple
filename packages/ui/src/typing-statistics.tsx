@@ -274,9 +274,23 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
   if (status.availability === "neverWritten") availabilityMessage = "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
   else if (statistics.total === 0 && status.lastWrittenMs) availabilityMessage = `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
   else if (statistics.total === 0) availabilityMessage = "统计文件已建立，但当前还没有输入记录。";
+  const resetStatistics = () => {
+    if (!window.confirm("清空所有打字统计？累计字数、分类和每日记录将被删除，无法恢复。")) return;
+    setSelectedDay(null); void update(client.reset);
+  };
 
   return <div className="statistics-page">
     {error && <p role="alert" className="error">{error}</p>}
+    {mobile && <div className="statistics-mobile-toolbar">
+      <details className="statistics-mobile-menu">
+        <summary aria-label="统计选项">⋯</summary>
+        <div className="statistics-mobile-menu-popover" role="menu" aria-label="统计选项">
+          <label className="statistics-mobile-menu-toggle"><span>记录打字统计</span><input aria-label="记录打字统计" className="toggle" type="checkbox" checked={statistics.enabled} disabled={busy} onChange={event => void update(() => client.setEnabled(event.target.checked))} /></label>
+          <button type="button" role="menuitem" disabled={busy} onClick={() => void update(() => client.load())}>{busy ? "处理中…" : "刷新统计"}</button>
+          <button type="button" role="menuitem" className="statistics-reset" disabled={busy} onClick={resetStatistics}>清空统计</button>
+        </div>
+      </details>
+    </div>}
     <section className="section statistics-overview">
       {mobile ? <div className="statistics-mobile-tabs" role="tablist" aria-label="统计内容">
         {([['trend', '趋势'], ['kind', '类型'], ['mode', '模式'], ['scheme', '方案']] as const).map(([value, label]) => <button type="button" role="tab" key={value}
@@ -308,17 +322,16 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
     {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />}
     {(!mobile || mobileTab === "mode") && <Distribution title="语言模式" slices={languageSlices} variant={mobile ? "donut" : "bar"} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />}
     {(!mobile || mobileTab === "scheme") && <Distribution title="输入方案" slices={sourceSlices} variant={mobile ? "rank" : "bar"} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />}
-    <section className="section statistics-controls">
+    {mobile ? <section className="section statistics-privacy-section">
+      <p className="statistics-privacy">仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。</p>
+    </section> : <section className="section statistics-controls">
       <label className="section-header"><span className="section-title">记录打字统计<small>关闭后，新提交不会增加统计。</small></span><input aria-label="记录打字统计" className="toggle" type="checkbox" checked={statistics.enabled} disabled={busy} onChange={event => void update(() => client.setEnabled(event.target.checked))} /></label>
       <div className="statistics-control-actions">
         <button type="button" className="secondary" disabled={busy} onClick={() => void update(() => client.load())}>{busy ? "处理中…" : "刷新统计"}</button>
-        <button type="button" className="secondary statistics-reset" disabled={busy} onClick={() => {
-          if (!window.confirm("清空所有打字统计？累计字数、分类和每日记录将被删除，无法恢复。")) return;
-          setSelectedDay(null); void update(client.reset);
-        }}>清空统计</button>
+        <button type="button" className="secondary statistics-reset" disabled={busy} onClick={resetStatistics}>清空统计</button>
       </div>
       <p className="statistics-privacy">仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。</p>
-    </section>
+    </section>}
     {availabilityMessage && <section className="section statistics-availability"><h2>统计没有数据</h2><p>{availabilityMessage}</p></section>}
   </div>;
 }
