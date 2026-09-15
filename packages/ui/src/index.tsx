@@ -1417,6 +1417,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     && (item.id !== "chat" || Boolean(client.chat))
     && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
     && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
+  const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
+  const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
+  const mobileSecondaryPages = availablePages.filter(item => !mobilePrimaryPageIds.includes(item.id));
+  const selectPage = (next: SettingsPageId) => {
+    setPage(next);
+    if (next === "community") setCommunityDestination("all");
+  };
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
   }, [availablePages, page]);
@@ -1528,10 +1535,21 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </span>}
     </header>}
     <div className="settings-body">
+    {mobilePlatform && <nav className="mobile-primary-nav" aria-label="主要功能">
+      {mobilePrimaryPages.map(item => <button key={item.id} type="button" className={page === item.id ? "active" : ""}
+        aria-current={page === item.id ? "page" : undefined} onClick={() => selectPage(item.id)}>
+        {item.id === "home" ? "键盘" : item.id === "typing-statistics" ? "统计" : item.id === "account" ? "账号" : item.title}
+      </button>)}
+      <label className="mobile-secondary-select">更多设置<select aria-label="更多设置" value={mobileSecondaryPages.some(item => item.id === page) ? page : ""}
+        onChange={event => { if (event.target.value) selectPage(event.target.value as SettingsPageId); }}>
+        <option value="">选择页面</option>
+        {mobileSecondaryPages.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+      </select></label>
+    </nav>}
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
-        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityDestination("all"); }}>
+        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => selectPage(item.id)}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>

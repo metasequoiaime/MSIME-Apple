@@ -872,6 +872,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证通过 iOS arm64 target 的 `cargo check --locked`、Swift package 编译、Swift 语法解析、共享账号 237 项 Rust 测试、移动插件测试和账号 UI 14 项 Vitest。Apple 登录依赖系统 Apple ID 授权界面，未在签名设备执行交互验收，CI 保持禁用。
 
+### 移动端 Tauri 设置一级导航
+
+依据 Apple 远端 `origin/develop` 固定提交 `60d2531` 的 `AppNavigation` 四个一级入口，Android 与 iOS 的共享 Tauri 设置页在窄屏改用“键盘 / 社区 / 统计 / 账号”主导航；外观、输入、词库、皮肤、帮助、反馈等详细页面通过“更多设置”继续可达。桌面宿主保留原有侧栏，移动端只改变导航组织和显示，不复制 SwiftUI 页面，也不改变设置快照、账号会话或 Engine 组合状态。
+
+本地验证通过移动导航定向 Vitest、完整 `settings.test.tsx`（133 项）和桌面 TypeScript 类型检查。CSS 响应式规则未作为原生设备视觉验收；iOS/Android 真机窗口尺寸、系统返回手势和旋转行为仍需产品环境验证，CI 保持禁用。
+
 ### macOS/Windows Tauri 凭据测试入口
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。

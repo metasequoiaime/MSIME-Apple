@@ -30,6 +30,7 @@ button:disabled, select:disabled, input:disabled { cursor: default; opacity: .5;
 @keyframes settings-startup-pulse { 0%, 100% { opacity: .35; transform: scale(.7); } 50% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .settings-startup-spinner, .settings-startup-dots i { animation: none; } }
 .settings-shell { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--chrome-bg); }
+.mobile-primary-nav { display: none; }
 .settings-body { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .window-titlebar { flex-shrink: 0; }
 .sidebar { flex: 0 0 200px; }
@@ -715,7 +716,14 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .emoji-panel[data-panel-theme="light"] .emoji-panel-notice { border-top-color: #d9dce3; }
 @media (max-width: 600px) {
   .settings-body { flex-direction: column; }
+  .mobile-primary-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 8px; background: var(--chrome-bg); border-bottom: 1px solid var(--border-color); }
+  .mobile-primary-nav button, .mobile-secondary-select { min-width: 0; min-height: 42px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--card-bg); color: var(--text-color); font: inherit; font-size: 13px; }
+  .mobile-primary-nav button { cursor: pointer; }
+  .mobile-primary-nav button.active { border-color: var(--accent-color); color: var(--accent-color); font-weight: 600; }
+  .mobile-secondary-select { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 3px 8px; font-size: 10px; color: var(--text-muted); }
+  .mobile-secondary-select select { min-width: 0; border: 0; background: transparent; color: var(--text-color); font: inherit; font-size: 12px; outline: none; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }
+  .sidebar { display: none; }
   .sidebar-header { width: 100%; margin-bottom: 0; padding: 0 4px 8px; }
   .sidebar .item { flex: 1; margin: 2px; gap: 6px; padding: 6px 8px; }
   .preview-label { display: none; }
