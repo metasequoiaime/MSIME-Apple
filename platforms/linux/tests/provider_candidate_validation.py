@@ -25,8 +25,10 @@ class ProviderCandidateValidation(unittest.TestCase):
 
     def test_every_c0_and_c1_control_is_rejected_inside_candidate_text(self):
         for codepoint in (*range(32), *range(127, 160)):
-            with self.subTest(codepoint=codepoint):
-                self.assertIsNone(online.candidate("left" + chr(codepoint) + "right", 0))
+            for text in (chr(codepoint) + "right", "left" + chr(codepoint) + "right",
+                         "left" + chr(codepoint)):
+                with self.subTest(codepoint=codepoint, text=text):
+                    self.assertIsNone(online.candidate(text, 0))
 
 
 if __name__ == "__main__":

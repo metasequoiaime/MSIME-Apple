@@ -125,9 +125,10 @@ def http_request_worker():
 def candidate(text, source):
     if not isinstance(text, str):
         return None
+    if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in text):
+        return None
     text = text.strip()
-    if (not text or len(text.encode()) > 4096 or
-            any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in text)):
+    if not text or len(text.encode()) > 4096:
         return None
     return {"text": text, "source": source}
 
