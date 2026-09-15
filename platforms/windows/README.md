@@ -322,21 +322,21 @@ WindowsServerOptions::preferences_directory 显式启用共享配置轮询，空
 
 `InputState::navigate(lease, packet, bindings)` 在同一个输入队列/焦点门禁下贯通 FocusedSession、ReplyComposer 和 ServerSession。NavigationBindings 是调用方提供的值快照，分别启用减号等号、逗号句号、方括号、Tab、PageUp/PageDown、上下候选；全部默认关闭，不暗设产品偏好。Tab 根据 Shift 判定方向，UiLess 从原始包读取；Unicode 的 + 仍交给共享字符输入。回复未确认时禁止再导航或输入，失效焦点不会推进 Engine。
 
-该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。已消费的导航键即使绑定关闭也返回 PendingReply：普通模式使用 NavigationIgnored，UILess 返回未变的候选页；不调用 Engine command，不改变组合、代次、页码或高亮，仍等待投递确认，禁止再回退旧 VK 映射。返回空只表示非导航键、快捷键、Unicode +、空组合或失效焦点等不适用情况。设置监听和产品 KeyHandler 尚未接入，本接口不证明默认产品行为已完成。
+该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。已消费的导航键即使绑定关闭也返回 PendingReply：普通模式使用 NavigationIgnored，UILess 返回未变的候选页；不调用 Engine command，不改变组合、代次、页码或高亮，仍等待投递确认，禁止再回退旧 VK 映射。返回空只表示非导航键、快捷键、Unicode +、空组合或失效焦点等不适用情况。生产入口已通过 `production_key_handler()` 接入 `SessionPump`，设置监听发布的导航快照也由 `InputState` 消费；预览入口则使用显式启动绑定。
 
 ### TSF 中文开关同步
 
 SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnapshot 与 FocusRestored，先同步 keycode 表示的中文开关，再调用外部事件回调。关闭时经共享宿主清空 Engine 组合与旧回复前缀；关闭期间迟到按键不再推进 Engine，重新开启从空组合输入。相同状态通知不重复改变 Engine 代次，每个客户端会话保留开关至再次通知；过期焦点不能修改状态，未确认回复阻止切换。外部事件回调仍在焦点锁内，不得重入 Engine/焦点门禁。
 
-这里只连接每客户端键盘开关，不实现上游全局模式作用域或全半角 UI 状态同步；完整产品按键分类与 Windows 原生验收仍未完成。出站模式请求见下文。
+这里只连接每客户端键盘开关，不实现上游全局模式作用域或全半角 UI 状态同步；这些仍需 Windows 原生验收。出站模式请求见下文。
 
 ### 配置相关按键分流
 
-InputState::configured_key 接受末尾可选 WordCharacterBinding（默认 Disabled，另有 Brackets/MinusEqual），先处理以词定字，再执行 basic_key 和候选标点／导航。仅无修饰键（UILess 除外）且 VK 与实际字符匹配时命中；以词定字优先于同键翻页配置。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；数字键盘加减键不属于以词定字。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方仍须先完成配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+InputState::configured_key 接受末尾可选 WordCharacterBinding（默认 Disabled，另有 Brackets/MinusEqual），先处理以词定字，再执行 basic_key 和候选标点／导航。仅无修饰键（UILess 除外）且 VK 与实际字符匹配时命中；以词定字优先于同键翻页配置。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；数字键盘加减键不属于以词定字。返回空表示该包未由共享 Server 消费；生产 `production_key_handler()` 将这个结果交给 `SessionPump` 的统一回复/确认路径，预览入口则使用同一编排器的显式绑定。调用方仍须先完成 TSF 配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。
 
 Microsoft 双拼分号在 edit/basic_key 中先于标点处理：读取 View.microsoft_shuangpin（当前已应用 Engine 配置）、local_mode、editing_text 与 caret_position，只有普通模式且光标所在分隔块为奇数长度时作为 ing 韵母编辑；已完成双键、其他方案或局部模式继续标点路径。不是从最新持久化设置推断，延迟应用期间仍遵循旧会话方案。新 View 字段与宿主库应成套更新；缺失时不启用特殊分号。
 
-以词定字依据共享视图中的高亮候选 ID 调用 Engine 首／尾汉字选择，成功发送 CommitExactText；无汉字或没有候选时清理组合并发送 Normal 高亮文本（可为空），交给 TSF 补本地智能标点，不在 Server 再转换一次，也不完成剩余分段。两条路径都带已有已选前缀，保留焦点、待回复及投递确认门禁。配置持久化监听和产品 TSF KeyHandler 接线仍未完成。
+以词定字依据共享视图中的高亮候选 ID 调用 Engine 首／尾汉字选择，成功发送 CommitExactText；无汉字或没有候选时清理组合并发送 Normal 高亮文本（可为空），交给 TSF 补本地智能标点，不在 Server 再转换一次，也不完成剩余分段。两条路径都带已有已选前缀，保留焦点、待回复及投递确认门禁。配置持久化监听和生产 KeyHandler 已分别由 `PreferenceMonitor`/`production_key_handler()` 接入；正式 TSF 行为仍需 Windows 原生验收。
 
 新增 ABI 1 附加符号 msime_client_punctuation，适配器与宿主库必须成套更新。它显式复用共享运行时的高亮候选完成与 Engine 标点转换，避免 Unicode 等局部模式把普通 character 调用标记为已处理却未完成标点提交。非 ASCII 标点参数在状态推进前拒绝；普通/UILess 标点完成均发送 CommitExactText，保留已有焦点、待回复与投递确认门禁。
 
@@ -356,7 +356,7 @@ WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中
 
 ### 编辑键与 TSF 预编辑回复
 
-InputState::basic_key(lease, packet, style, local_text) 统一基础分发：复用 edit 的预编辑规则，按 Engine 模式识别空格/数字选词，处理 Shift/Esc 本地清理及忽略的修饰键，并将 Enter 交给 LocalCommit 前置校验。原生配置相关优先路径必须先处理；返回空表示尚未处理的快捷键、标点或导航，不清空组合，调用方必须继续其他路径而非把空结果直接交给 SessionPump。Enter 的 local_text 必须来自宿主实际完成观察，不能从 Engine 返回结果拼造。本入口已经用于会话泵回归，但还不是完整产品 KeyHandler。
+InputState::basic_key(lease, packet, style, local_text) 统一基础分发：复用 edit 的预编辑规则，按 Engine 模式识别空格/数字选词，处理 Shift/Esc 本地清理及忽略的修饰键，并将 Enter 交给 LocalCommit 前置校验。原生配置相关优先路径必须先处理；返回空表示尚未处理的快捷键、标点或导航，不清空组合，生产 `configured_key()` 会继续候选标点与导航分支，不能把空结果直接当作最终处理结果。Enter 的 local_text 必须来自宿主实际完成观察，不能从 Engine 返回结果拼造。该编排已由生产 KeyHandler 和预览 KeyHandler 共同使用。
 
 普通模式的无修饰 1..9 与 Unicode 模式的 Shift+1..9 均按 VK 槽位选择当前共享候选 ID，不依赖 wch；例如非美式布局数字键产生 & 时仍选词，Unicode 裸数字仍编辑。小键盘按同样规则归一化。空候选返回未提交状态，不把布局字符作为替代文本上屏。
 
@@ -364,7 +364,7 @@ LocalCommit 分发先验证该包确为原始文本提交键，且调用方提�
 
 InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组合中的手动分隔符、Unicode 裸数字/加号、Backspace/Delete 和左右光标移动，并在同一焦点/待回复门禁中推进会话。非编辑键、快捷键、空组合删除、关闭输入或 unknown 模式返回空，不调用 Engine；调用方继续其余原生分发，不能将空结果当作完成了一次输入。
 
-调用方显式提供与 TSF 相同的 Local/Pinyin 预编辑样式，UILess 从包标志读取。Local 编辑不回包；普通 Pinyin 的字符与未清空组合的删除返回 Preedit，左右移动和删除到空组合不回包；UILess 编辑统一返回候选页，包括清空状态。非空 PendingReply 即使没有 encoded 帧也必须通过 SessionPump 确认，不能重跑 Engine。该入口不处理 Enter、取消、候选选择、标点或配置优先导航，尚未组成完整产品 KeyHandler。
+调用方显式提供与 TSF 相同的 Local/Pinyin 预编辑样式，UILess 从包标志读取。Local 编辑不回包；普通 Pinyin 的字符与未清空组合的删除返回 Preedit，左右移动和删除到空组合不回包；UILess 编辑统一返回候选页，包括清空状态。非空 PendingReply 即使没有 encoded 帧也必须通过 SessionPump 确认，不能重跑 Engine。`edit()` 仍只负责编辑子路径；Enter、取消、候选选择、标点和配置优先导航由 `configured_key()` 在同一编排器中按优先级衔接。
 
 ### Engine 模式与 Unicode 数字选词
 
@@ -372,4 +372,4 @@ InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组
 
 共享 View 新增 local_mode，由固定 Engine 的 SessionSnapshot.local_mode 显式映射并透传，不从 editing_text/preedit 猜测；快照失败时的 unknown 不能当作普通输入模式使用。模式变化不会沿用旧模式候选高亮。宿主与共享库应成套构建，Windows 不对缺失模式字段做前缀回退。
 
-依据固定上游 TSF 消费规则，ServerSession 在 Unicode 模式下把 Shift+1..9 解释为当前页候选选择，即使 wch 已被键盘布局翻译为 ! 等标点；通过视图提供的 generation/global index 调用共享 select，越界槽位不改变组合。非 Unicode 模式仍使用原始 wch 和共享标点处理，不将所有 Shift+数字都强制选词。UiLess 标志不干扰修饰键判定，模式快照只在该数字分支读取，不给普通字符路径增加一次完整视图查询。原生分发处理器仍须选择 Selection 回复路径，其他 TSF 键路由未因此自动完成。
+依据固定上游 TSF 消费规则，ServerSession 在 Unicode 模式下把 Shift+1..9 解释为当前页候选选择，即使 wch 已被键盘布局翻译为 ! 等标点；通过视图提供的 generation/global index 调用共享 select，越界槽位不改变组合。非 Unicode 模式仍使用原始 wch 和共享标点处理，不将所有 Shift+数字都强制选词。UiLess 标志不干扰修饰键判定，模式快照只在该数字分支读取，不给普通字符路径增加一次完整视图查询。生产与预览分发器均通过 `configured_key()` 选择 Selection 回复路径；Windows 原生 TSF 消费与安装生命周期仍需实机验收。
