@@ -121,6 +121,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       await this.panel.resize(screen.width, Math.round(
         KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment)
         * screen.densityPixels));
+      // The view asks; only the ability holds the panel.
+      const panel: inputMethodEngine.Panel = this.panel;
+      KeyboardSession.shared.onDismiss = (): void => {
+        panel.hide();
+      };
       KeyboardLog.info('panel ready');
       // Serve whatever focused while the panel was still being built.
       if (this.pending !== undefined) {

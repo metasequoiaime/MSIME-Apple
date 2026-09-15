@@ -15,6 +15,10 @@
     {
       "name": "clipboard_permission_reason",
       "value": "保存剪贴板历史需要读取剪贴板"
+    },
+    {
+      "name": "vibrate_permission_reason",
+      "value": "按键振动需要振动权限"
     }
   ]
 }

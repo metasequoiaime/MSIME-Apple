@@ -20,6 +20,15 @@
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
       {
+        // normal and system-granted: declaring it is all a keyboard needs to buzz a key.
+        "name": "ohos.permission.VIBRATE",
+        "reason": "$string:vibrate_permission_reason",
+        "usedScene": {
+          "abilities": ["KeyboardExtensionAbility"],
+          "when": "inuse"
+        }
+      },
+      {
         "name": "ohos.permission.READ_PASTEBOARD",
         "reason": "$string:clipboard_permission_reason",
         "usedScene": {

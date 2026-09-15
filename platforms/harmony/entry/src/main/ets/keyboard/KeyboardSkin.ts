@@ -207,6 +207,22 @@ export class KeyboardSkin {
     return skins;
   }
 
+  /**
+   * A translucent key background, for the surfaces that sit over the keyboard rather than among the
+   * keys: the candidate strip and the nine-key sidebar.
+   *
+   * The alpha belongs to the colour, not to the view. Setting opacity on the container fades
+   * everything inside it too, which turned the strip's icons and its scheme pill into smudges.
+   */
+  translucentKeyBackground(value: number): string {
+    return alpha(this.keyBackground, value);
+  }
+
+  /** A wash of the accent, for marking a selected card without hiding what is printed on it. */
+  tintedAccent(value: number): string {
+    return alpha(this.accent, value);
+  }
+
   /** Identity for caching a rendered skin, including the custom design it was built from. */
   key(): string {
     return this.id + ':' + this.dark + (this.designKey.length === 0 ? '' : ':' + this.designKey);

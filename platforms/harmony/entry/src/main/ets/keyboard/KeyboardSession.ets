@@ -8,6 +8,8 @@ import { KeyboardGeometry } from './KeyboardGeometry';
 import { FullWidthInputPolicy } from './FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './ChineseOutputPolicy';
+import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
+import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './InputDiagnosticPolicy';
 import { CandidateGlossPolicy, GlossToken } from './CandidateGlossPolicy';
@@ -288,6 +290,8 @@ export class KeyboardSession {
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /** The editor's traits arrive after inputStart, so the view is told when they do. */
   onEditorChanged: (() => void) | undefined = undefined;
+  /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
+  onDismiss: (() => void) | undefined = undefined;
 
   /**
    * True once the native ABI matches and a session exists.
@@ -310,6 +314,7 @@ export class KeyboardSession {
     }
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
+    this.feedbackSettings = this.feedback();
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
     try {
@@ -364,6 +369,11 @@ export class KeyboardSession {
       KeyboardLog.error(`session reply unreadable: ${describeError(error)}`);
       return false;
     }
+  }
+
+  /** Whether the Engine's output is being converted to traditional. */
+  usesTraditional(): boolean {
+    return this.traditional;
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -450,6 +460,16 @@ export class KeyboardSession {
     return this.enterKey;
   }
 
+  /** Ask the host to put the keyboard away, committing whatever was being composed first. */
+  dismiss(): void {
+    // The user typed those letters and never asked to throw them away, which is the same reason
+    // macOS commits in prepareForDeactivation.
+    this.commitRaw();
+    if (this.onDismiss !== undefined) {
+      this.onDismiss();
+    }
+  }
+
   /** The return key, doing whatever this particular editor asked its return key to do. */
   submit(): void {
     if (this.inputClient !== undefined) {
@@ -511,6 +531,7 @@ export class KeyboardSession {
       KeyboardLog.error('key ignored: no session');
       return;
     }
+    this.tapFeedback();
     this.apply(client.character(this.handle, ascii, shift));
   }
 
@@ -614,6 +635,8 @@ export class KeyboardSession {
 
   private diagnostic: string = '';
   private fullWidth: boolean = false;
+  private feedbackSettings: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  private vibratorFailed: boolean = false;
   private traditional: boolean = false;
   private glosses: boolean = false;
   // Which view a pending gloss lookup belongs to. A gloss arrives after the keystroke that asked for
@@ -704,6 +727,58 @@ export class KeyboardSession {
         english: view.dedicated_english,
         diagnostic: this.diagnostic
       });
+    }
+  }
+
+  private feedbackFile(): string {
+    return `${this.stateDirectory}/key-feedback.json`;
+  }
+
+  /** How keys should feel on this device, which is not something the shared preferences carry. */
+  feedback(): FeedbackSettings {
+    try {
+      if (!fs.accessSync(this.feedbackFile())) {
+        return KeyboardFeedback.DEFAULTS;
+      }
+      return KeyboardFeedback.parse(fs.readTextSync(this.feedbackFile()));
+    } catch (error) {
+      KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
+      return KeyboardFeedback.DEFAULTS;
+    }
+  }
+
+  saveFeedback(settings: FeedbackSettings): boolean {
+    try {
+      const handle = fs.openSync(this.feedbackFile(),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
+      fs.closeSync(handle);
+      this.feedbackSettings = settings;
+      return true;
+    } catch (error) {
+      KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Fires the feedback a key press asks for.
+   *
+   * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
+   * fill the log with the same line at typing speed.
+   */
+  private tapFeedback(): void {
+    const settings: FeedbackSettings = this.feedbackSettings;
+    if (!settings.haptics || this.vibratorFailed) {
+      return;
+    }
+    try {
+      vibrator.startVibration(
+        { type: 'time', duration: KeyboardFeedback.duration(settings.strength) },
+        { usage: 'physicalFeedback' });
+    } catch (error) {
+      this.vibratorFailed = true;
+      KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
     }
   }
 
