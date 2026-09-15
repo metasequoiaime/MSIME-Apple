@@ -1,6 +1,6 @@
 #import "PersonalDictionaryView.h"
 
-#import "PersonalDictionaryBridge.h"
+#import "PersonalDictionaryStore.h"
 #import "PreferencesWindowController.h"
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -141,10 +141,8 @@ NSTextField *EditorLabel(NSString *text)
 {
     NSError *error = nil;
     BOOL hasMore = NO;
-    NSArray<MetasequoiaPersonalDictionaryEntry *> *entries = [MetasequoiaPersonalDictionary entriesAtOffset:_offset
-                                                                                                      limit:kPageSize
-                                                                                                    hasMore:&hasMore
-                                                                                                      error:&error];
+    NSArray<MetasequoiaPersonalDictionaryEntry *> *entries =
+        [MetasequoiaPersonalDictionaryStore entriesAtOffset:_offset limit:kPageSize hasMore:&hasMore error:&error];
     if (entries == nil)
     {
         _entries = @[];
@@ -338,7 +336,7 @@ NSTextField *EditorLabel(NSString *text)
           replacing:(nullable MetasequoiaPersonalDictionaryEntry *)existing
 {
     NSError *error = nil;
-    if (![MetasequoiaPersonalDictionary validateEntry:entry error:&error])
+    if (![MetasequoiaPersonalDictionaryStore validateEntry:entry error:&error])
     {
         [self reportFailure:@"这条词条不符合词库的格式要求。" error:error];
         return;
@@ -346,8 +344,8 @@ NSTextField *EditorLabel(NSString *text)
     // 写库前先让输入会话停下来:引擎的候选和查询缓存是按会话建的,不重建就会继续答出旧结果。
     [self quiesceInputSessions];
     const BOOL written = existing != nil
-                             ? [MetasequoiaPersonalDictionary replaceEntry:existing withEntry:entry error:&error]
-                             : [MetasequoiaPersonalDictionary addEntry:entry error:&error];
+                             ? [MetasequoiaPersonalDictionaryStore replaceEntry:existing withEntry:entry error:&error]
+                             : [MetasequoiaPersonalDictionaryStore addEntry:entry error:&error];
     if (!written)
     {
         [self reportFailure:existing != nil ? @"词条未能保存。" : @"词条未能添加。" error:error];
@@ -398,7 +396,7 @@ NSTextField *EditorLabel(NSString *text)
                     }
                     [self quiesceInputSessions];
                     NSError *error = nil;
-                    if (![MetasequoiaPersonalDictionary removeEntry:entry error:&error])
+                    if (![MetasequoiaPersonalDictionaryStore removeEntry:entry error:&error])
                     {
                         [self reportFailure:@"词条未能删除。" error:error];
                         return;
@@ -438,10 +436,8 @@ NSTextField *EditorLabel(NSString *text)
     while (hasMore)
     {
         NSError *error = nil;
-        NSArray<MetasequoiaPersonalDictionaryEntry *> *page = [MetasequoiaPersonalDictionary entriesAtOffset:offset
-                                                                                                       limit:1000
-                                                                                                     hasMore:&hasMore
-                                                                                                       error:&error];
+        NSArray<MetasequoiaPersonalDictionaryEntry *> *page =
+            [MetasequoiaPersonalDictionaryStore entriesAtOffset:offset limit:1000 hasMore:&hasMore error:&error];
         if (page == nil)
         {
             [self reportFailure:@"读取用户词库失败，导出未完成。" error:error];

@@ -2,7 +2,7 @@
 
 #import "../src/FloatingToolbarPreferences.h"
 #import "../src/LocalInputModePreferences.h"
-#import "../src/PersonalDictionaryBridge.h"
+#import "../src/PersonalDictionaryStore.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -829,21 +829,23 @@ int main()
         // 校验只算不写。空编码、空词条都该被挡下来,而且理由要带出来 —— 「格式不对」不说哪里不对
         // 等于没说。
         NSError *validationError = nil;
-        require(![MetasequoiaPersonalDictionary validateEntry:[MetasequoiaPersonalDictionaryEntry
-                                                                  entryWithKind:MetasequoiaPersonalDictionaryKindPinyin
+        require(
+            ![MetasequoiaPersonalDictionaryStore
+                validateEntry:[MetasequoiaPersonalDictionaryEntry entryWithKind:MetasequoiaPersonalDictionaryKindPinyin
                                                                             key:@""
                                                                           value:@"测试"
                                                                          weight:100000]
-                                                        error:&validationError] &&
-                    validationError.localizedDescription.length > 0,
-                "An entry with no key was accepted, or was rejected without a reason.");
-        require(![MetasequoiaPersonalDictionary validateEntry:[MetasequoiaPersonalDictionaryEntry
-                                                                  entryWithKind:MetasequoiaPersonalDictionaryKindWubi
+                        error:&validationError] &&
+                validationError.localizedDescription.length > 0,
+            "An entry with no key was accepted, or was rejected without a reason.");
+        require(
+            ![MetasequoiaPersonalDictionaryStore
+                validateEntry:[MetasequoiaPersonalDictionaryEntry entryWithKind:MetasequoiaPersonalDictionaryKindWubi
                                                                             key:@"abcde"
                                                                           value:@"测试"
                                                                          weight:100000]
-                                                        error:nil],
-                "A five-letter wubi code was accepted; the engine allows at most four.");
+                        error:nil],
+            "A five-letter wubi code was accepted; the engine allows at most four.");
 
         NSView *floatingItemsCard =
             FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏显示项卡片");

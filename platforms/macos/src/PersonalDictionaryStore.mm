@@ -1,3 +1,6 @@
+#import "PersonalDictionaryStore.h"
+
+// shared/apple-bridge 里的那一份:错误文案映射和编解码,iOS 已经在用。
 #import "PersonalDictionaryBridge.h"
 
 #include "DictionaryRuntime.h"
@@ -9,8 +12,6 @@
 
 namespace
 {
-NSString *const kErrorDomain = @"MetasequoiaPersonalDictionary";
-
 metasequoia::PersonalDictionaryKind EngineKind(MetasequoiaPersonalDictionaryKind kind)
 {
     switch (kind)
@@ -53,14 +54,6 @@ metasequoia::PersonalDictionaryEntry EngineEntry(MetasequoiaPersonalDictionaryEn
     return result;
 }
 
-// 引擎把失败原因写成一句英文,原样带出来 —— 猜一个更好听的说法只会把真正的原因盖掉。
-NSError *ErrorWithMessage(const std::string &message, NSInteger code)
-{
-    NSString *text = [NSString stringWithUTF8String:message.c_str()];
-    return [NSError errorWithDomain:kErrorDomain
-                               code:code
-                           userInfo:@{NSLocalizedDescriptionKey : text.length > 0 ? text : @"词库操作失败。"}];
-}
 } // namespace
 
 NSString *MetasequoiaPersonalDictionaryKindTitle(MetasequoiaPersonalDictionaryKind kind)
@@ -110,7 +103,7 @@ NSString *MetasequoiaPersonalDictionaryKindKeyHint(MetasequoiaPersonalDictionary
 }
 @end
 
-@implementation MetasequoiaPersonalDictionary
+@implementation MetasequoiaPersonalDictionaryStore
 
 + (nullable NSArray<MetasequoiaPersonalDictionaryEntry *> *)entriesAtOffset:(NSUInteger)offset
                                                                       limit:(NSUInteger)limit
@@ -123,7 +116,7 @@ NSString *MetasequoiaPersonalDictionaryKindKeyHint(MetasequoiaPersonalDictionary
     {
         if (error != nullptr)
         {
-            *error = ErrorWithMessage(page.error, 1);
+            metasequoia::apple::PersonalDictionaryError(error, page.error);
         }
         return nil;
     }
@@ -148,13 +141,15 @@ NSString *MetasequoiaPersonalDictionaryKindKeyHint(MetasequoiaPersonalDictionary
           replacement:(std::optional<metasequoia::PersonalDictionaryEntry>)replacement
                 error:(NSError **)error
 {
+    // 带上幂等 ID:引擎用它认出「同一次编辑的重试」,重放不会变成加两遍。
+    const std::string requestID = NSUUID.UUID.UUIDString.lowercaseString.UTF8String;
     const metasequoia::PersonalDictionaryEditResult result =
-        metasequoia::edit_personal_dictionary(MetasequoiaCurrentDictionaryPaths(), previous, replacement);
+        metasequoia::edit_personal_dictionary(MetasequoiaCurrentDictionaryPaths(), previous, replacement, requestID);
     if (!result.success)
     {
         if (error != nullptr)
         {
-            *error = ErrorWithMessage(result.error, 2);
+            metasequoia::apple::PersonalDictionaryError(error, result.error);
         }
         return NO;
     }
@@ -186,7 +181,7 @@ NSString *MetasequoiaPersonalDictionaryKindKeyHint(MetasequoiaPersonalDictionary
     {
         if (error != nullptr)
         {
-            *error = ErrorWithMessage(validation.error, 3);
+            metasequoia::apple::PersonalDictionaryError(error, validation.error);
         }
         return NO;
     }
