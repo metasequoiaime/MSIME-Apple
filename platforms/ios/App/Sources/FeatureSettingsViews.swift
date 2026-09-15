@@ -70,6 +70,12 @@ struct DictionarySettingsView: View {
   private var learningEnabled = false
   @AppStorage(CandidateGlossPreference.key, store: CandidateGlossPreference.defaults)
   private var candidateGlossEnabled = false
+  @AppStorage(CandidateTranslationPreference.primaryKey, store: CandidateTranslationPreference.defaults)
+  private var translationPrimary = 0
+  @AppStorage(CandidateTranslationPreference.secondaryKey, store: CandidateTranslationPreference.defaults)
+  private var translationSecondary = -1
+  @AppStorage(CandidateTranslationPreference.onlineKey, store: CandidateTranslationPreference.defaults)
+  private var translationOnline = true
   @AppStorage(FrequencyAdjustmentPreference.modeKey, store: KeyboardFeedbackPreference.defaults)
   private var frequencyMode = FrequencyAdjustmentMode.promote.rawValue
   @AppStorage(FrequencyAdjustmentPreference.triggerCountKey, store: KeyboardFeedbackPreference.defaults)
@@ -106,6 +112,23 @@ struct DictionarySettingsView: View {
         .disabled(!learningEnabled || frequencyMode != FrequencyAdjustmentMode.linear.rawValue)
         Toggle("显示英文释义", isOn: $candidateGlossEnabled)
           .accessibilityIdentifier("candidateGlossToggle")
+        if candidateGlossEnabled {
+          Picker("第一种语言", selection: $translationPrimary) {
+            ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
+              Text(language.title).tag(index)
+            }
+          }.accessibilityIdentifier("candidateTranslationPrimaryPicker")
+          Picker("第二种语言", selection: $translationSecondary) {
+            Text("不显示").tag(-1)
+            ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
+              Text(language.title).tag(index)
+            }
+          }.accessibilityIdentifier("candidateTranslationSecondaryPicker")
+          Toggle("联网补充释义", isOn: $translationOnline)
+            .accessibilityIdentifier("candidateTranslationOnline")
+          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选发给水杉账号的翻译接口，需要允许键盘完全访问。")
+            .font(.footnote).foregroundStyle(.secondary)
+        }
       } header: {
         Text("输入习惯")
       } footer: {

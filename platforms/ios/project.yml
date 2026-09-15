@@ -73,6 +73,7 @@ targets:
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
     dependencies:
       - target: MSIMEKeyboardExtension
+      - sdk: Security.framework
   MSIMEKeyboardExtension:
     type: app-extension
     platform: iOS
@@ -96,6 +97,10 @@ targets:
           - KeyboardServiceFallback.swift
       - path: SharedUI
       - path: ../../shared/backend/BackendAccountClient.swift
+      - path: ../../shared/backend/BackendChatClient.swift
+      - path: ../../shared/backend/BackendAccountSession.swift
+      - path: ../../shared/backend/BackendAnonymousAccount.swift
+      - path: ../../shared/backend/BackendLocalStore.swift
       - path: ../../shared/backend/BackendSnapshotClient.swift
       - path: App/Services/KeyboardAIService.swift
       - path: KeyboardExtension/Sources/KeyboardServiceFallback.swift
@@ -119,6 +124,8 @@ targets:
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
+    dependencies:
+      - sdk: Security.framework
   MSIMEKeyboardTestHost:
     type: application
     platform: iOS
@@ -176,6 +183,7 @@ targets:
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
     dependencies:
       - target: MSIMEKeyboardTestHost
+      - sdk: Security.framework
   MSIMEServiceTests:
     type: bundle.unit-test
     platform: iOS
@@ -208,6 +216,8 @@ targets:
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
+    dependencies:
+      - sdk: Security.framework
   MSIMESharedTests:
     type: bundle.unit-test
     platform: iOS
@@ -254,6 +264,7 @@ targets:
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
     dependencies:
       - target: MSIMEKeyboardTestHost
+      - sdk: Security.framework
   MSIMEDoubaoTransport:
     type: framework
     platform: iOS

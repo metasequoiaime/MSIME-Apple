@@ -142,14 +142,19 @@ final class KeyboardCandidatePanelView: UIView {
     var configuration = UIButton.Configuration.plain()
     configuration.title = text
     if !annotation.text.isEmpty {
-      configuration.attributedTitle = AttributedString(
-        text, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .body),
-        ])) + AttributedString(
-          "  " + annotation.text, attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.lineBreakMode = .byTruncatingTail
+      var title = AttributedString(text, attributes: AttributeContainer([
+        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      ]))
+      let lines = annotation.text.split(separator: "\n", omittingEmptySubsequences: false)
+      for line in lines {
+        title += AttributedString("\n" + String(line), attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
+      configuration.attributedTitle = title
     }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
@@ -162,6 +167,7 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
+    chip.titleLabel?.numberOfLines = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"
