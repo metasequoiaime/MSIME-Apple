@@ -26,11 +26,12 @@ typedef struct KeyHandlerEditSessionDTO
 {
     KeyHandlerEditSessionDTO(TfEditCookie tFEC, _In_ ITfContext *pTfContext, UINT virualCode, WCHAR inputChar,
                              KEYSTROKE_FUNCTION arrowKeyFunction, uint64_t pipeRequestId,
-                             const std::wstring &sessionPrefetchedText)
+                             const std::wstring &sessionPrefetchedText, UINT scanCode = 0)
     {
         ec = tFEC;
         pContext = pTfContext;
         code = virualCode;
+        scan = scanCode;
         wch = inputChar;
         arrowKey = arrowKeyFunction;
         requestId = pipeRequestId;
@@ -40,6 +41,7 @@ typedef struct KeyHandlerEditSessionDTO
     TfEditCookie ec;
     ITfContext *pContext;
     UINT code;
+    UINT scan;
     WCHAR wch;
     KEYSTROKE_FUNCTION arrowKey;
     uint64_t requestId;
@@ -54,7 +56,8 @@ inline ClientKeyEvent client_key_event(const KeyHandlerEditSessionDTO &dto,
     // The TSF edit session does not always retain the original LPARAM. Keep
     // the boundary explicit: callers that observed a scan code can preserve
     // it, while legacy paths remain ABI-compatible with zero.
-    return {lease, dto.code, scan_code, modifiers, static_cast<char16_t>(dto.wch), ui_less};
+    return {lease, dto.code, scan_code != 0 ? scan_code : dto.scan, modifiers,
+            static_cast<char16_t>(dto.wch), ui_less};
 }
 
 class CKeyStateCategory
