@@ -3562,6 +3562,10 @@ mod tests {
         // Typing statistics used to be gated on an Android user-agent match.
         assert_eq!(windows["value"]["typing_statistics"], true);
 
+        let macos = capabilities("macos");
+        assert_eq!(macos["value"]["restart_input_method"], true);
+        assert_eq!(macos["value"]["candidate_follow_cursor"], true);
+
         let android = capabilities("android");
         assert_eq!(android["value"]["panel_windows"], false);
         assert_eq!(android["value"]["window_chrome"], false);

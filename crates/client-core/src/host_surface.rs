@@ -132,8 +132,13 @@ impl HostCapabilities {
         HostCapabilities {
             platform,
             // Linux restarts IBus; Windows sends a request to the supervised
-            // native Server over its session-less auxiliary pipe.
-            restart_input_method: matches!(platform, HostPlatform::Windows | HostPlatform::Linux),
+            // native Server over its session-less auxiliary pipe; macOS starts
+            // a fresh bundle instance with --reregister-input-source so
+            // InputMethodKit can discover and enable the current source.
+            restart_input_method: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Linux | HostPlatform::Macos
+            ),
             panel_windows: platform.is_desktop(),
             // IBus keeps a session-wide mode; the other hosts track it per application.
             // Windows keeps a cross-application CN/EN authority now, so the
@@ -602,6 +607,7 @@ mod tests {
         // Windows positions its own card, so pinning it is a real choice there.
         assert!(windows.candidate_follow_cursor);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(macos.restart_input_method);
         assert!(macos.voice_capture_devices);
         assert!(
             macos.floating_toolbar
