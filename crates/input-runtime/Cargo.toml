@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+libc = "0.2"
 msime-engine-bridge = { path = "../engine-bridge" }
 msime-client-core = { path = "../client-core" }
 serde.workspace = true

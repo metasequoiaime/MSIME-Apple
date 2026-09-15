@@ -609,6 +609,29 @@ fn read_voice_provider_line(
 
 #[cfg(unix)]
 impl UnixSocketProvider {
+    /// Provider services are user-owned processes reached through an
+    /// owner-only runtime directory. Check the filesystem endpoint before
+    /// connecting so a configuration cannot redirect requests to a symlink,
+    /// a non-socket path, or a socket owned by a different user. Comparing
+    /// the socket owner with its private parent matches the provider startup
+    /// contract without a second platform-specific uid API.
+    fn connect(&self) -> Option<UnixStream> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let parent = self.path.parent()?;
+        let parent_metadata = std::fs::symlink_metadata(parent).ok()?;
+        let socket_metadata = std::fs::symlink_metadata(&self.path).ok()?;
+        if parent_metadata.uid() != libc::geteuid()
+            || !parent_metadata.file_type().is_dir()
+            || parent_metadata.mode() & 0o077 != 0
+            || !socket_metadata.file_type().is_socket()
+            || socket_metadata.uid() != parent_metadata.uid()
+        {
+            return None;
+        }
+        UnixStream::connect(&self.path).ok()
+    }
+
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
@@ -635,7 +658,7 @@ impl UnixSocketProvider {
             } else {
                 std::time::Duration::from_millis(500)
             };
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
@@ -731,7 +754,7 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
@@ -811,7 +834,7 @@ impl UnixSocketProvider {
         if request.len() > 16_384 {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         let line = exchange_panel_request(
             &mut stream,
             &request,
@@ -843,7 +866,7 @@ impl UnixSocketProvider {
         if request.len() > 262_144 {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         let line = exchange_panel_request(
             &mut stream,
             &request,
@@ -880,7 +903,7 @@ impl UnixSocketProvider {
         if request.len() > 16_384 {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         let line = exchange_panel_request(
             &mut stream,
             &request,
@@ -995,7 +1018,7 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
@@ -1100,9 +1123,9 @@ impl UnixSocketProvider {
         if generation == 0 {
             return false;
         }
-        let mut stream = match UnixStream::connect(&self.path) {
-            Ok(stream) => stream,
-            Err(_) => return false,
+        let mut stream = match self.connect() {
+            Some(stream) => stream,
+            None => return false,
         };
         if stream
             .set_write_timeout(Some(std::time::Duration::from_millis(250)))
@@ -1129,9 +1152,9 @@ impl UnixSocketProvider {
         if generation == 0 {
             return false;
         }
-        let mut stream = match UnixStream::connect(&self.path) {
-            Ok(stream) => stream,
-            Err(_) => return false,
+        let mut stream = match self.connect() {
+            Some(stream) => stream,
+            None => return false,
         };
         if stream
             .set_write_timeout(Some(std::time::Duration::from_millis(250)))
@@ -1163,7 +1186,7 @@ impl UnixSocketProvider {
         if encoded.len() > 65_536 {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         let line = exchange_panel_request(
             &mut stream,
             &encoded,
@@ -1186,7 +1209,7 @@ impl UnixSocketProvider {
         if encoded.len() > 65_536 {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let mut stream = self.connect()?;
         let line = exchange_panel_request(
             &mut stream,
             &encoded,
@@ -2051,6 +2074,8 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
     use std::os::unix::net::UnixListener;
     use std::time::Duration;
     struct Fixture {
@@ -2064,6 +2089,29 @@ mod tests {
         text: String,
         snapshot_fails: bool,
         balanced_openings: Vec<u8>,
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_connect_rejects_untrusted_filesystem_endpoints() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("provider.sock");
+        std::fs::write(&socket, b"synthetic").unwrap();
+        assert!(UnixSocketProvider::new(&socket).connect().is_none());
+        std::fs::remove_file(&socket).unwrap();
+
+        let target = root.path().join("target.sock");
+        let listener = UnixListener::bind(&target).unwrap();
+        let alias = root.path().join("alias.sock");
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        assert!(UnixSocketProvider::new(&alias).connect().is_none());
+        drop(listener);
+
+        let socket = root.path().join("private.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(UnixSocketProvider::new(&socket).connect().is_none());
+        drop(listener);
     }
 
     #[cfg(unix)]
