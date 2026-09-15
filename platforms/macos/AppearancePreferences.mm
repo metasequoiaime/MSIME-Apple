@@ -108,6 +108,7 @@ static BOOL ValidFuzzyPinyinRules(id value) {
 }
 static NSString *const CloudCandidatesKey = @"MSIMEClientCloudCandidates";
 static NSString *const CandidateTranslationsKey = @"MSIMEClientCandidateTranslations";
+static NSString *const CandidateEnglishGlossKey = @"MSIMEClientCandidateEnglishGloss";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
@@ -189,6 +190,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSButton *_cloudCandidatesButton;
     NSNumber *_sharedCandidateTranslations;
     NSButton *_candidateTranslationsButton;
+    NSNumber *_sharedCandidateEnglishGloss;
+    NSButton *_candidateEnglishGlossButton;
     id _sharedTransposition;
     id _sharedNeighbor;
     NSNumber *_sharedQuanpinHelpcode;
@@ -347,6 +350,8 @@ static BOOL ValidToolbarFontSize(id value) {
         merged[@"cloud_candidates"] = @(self.cloudCandidates);
     if ([_defaults objectForKey:CandidateTranslationsKey] != nil)
         merged[@"candidate_translations"] = @(self.candidateTranslations);
+    if ([_defaults objectForKey:CandidateEnglishGlossKey] != nil)
+        merged[@"candidate_english_gloss"] = @(self.candidateEnglishGloss);
     if ([_defaults objectForKey:CharacterSetShortcutKey] != nil) {
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -640,6 +645,8 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
 - (BOOL)candidateTranslations { if (_sharedCandidateTranslations) return _sharedCandidateTranslations.boolValue; return [_defaults objectForKey:CandidateTranslationsKey] == nil ? YES : [_defaults boolForKey:CandidateTranslationsKey]; }
 - (void)setCandidateTranslations:(BOOL)value { _sharedCandidateTranslations = nil; [_defaults setBool:value forKey:CandidateTranslationsKey]; [self preferencesChanged]; }
+- (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
+- (void)setCandidateEnglishGloss:(BOOL)value { _sharedCandidateEnglishGloss = nil; [_defaults setBool:value forKey:CandidateEnglishGlossKey]; [self preferencesChanged]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
 - (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
@@ -775,6 +782,8 @@ static BOOL ValidToolbarFontSize(id value) {
     if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id translations = preferences[@"candidate_translations"];
     if (LocalModeBoolean(translations)) _sharedCandidateTranslations = translations;
+    id englishGloss = preferences[@"candidate_english_gloss"];
+    if (LocalModeBoolean(englishGloss)) _sharedCandidateEnglishGloss = englishGloss;
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
@@ -1276,6 +1285,7 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     _cloudCandidatesButton.state = self.cloudCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateTranslationsButton.state = self.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateEnglishGlossButton.state = self.candidateEnglishGloss ? NSControlStateValueOn : NSControlStateValueOff;
     _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinHelpcodeButton.state = self.shuangpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSButton *button in _localModeButtons)
@@ -1519,6 +1529,7 @@ static BOOL ValidToolbarFontSize(id value) {
     _fuzzyPinyinButton = [NSButton checkboxWithTitle:@"启用模糊音" target:self action:@selector(fuzzyPinyinChanged:)];
     _cloudCandidatesButton = [NSButton checkboxWithTitle:@"启用云候选（将查询发送至 Google 输入工具）" target:self action:@selector(cloudCandidatesChanged:)];
     _candidateTranslationsButton = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(candidateTranslationsChanged:)];
+    _candidateEnglishGlossButton = [NSButton checkboxWithTitle:@"显示离线英文释义" target:self action:@selector(candidateEnglishGlossChanged:)];
     _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
     _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
@@ -1572,6 +1583,7 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"工具栏字号"], _toolbarFontSizeButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
+        @[[NSTextField labelWithString:@"候选释义"], _candidateEnglishGlossButton],
         @[[NSTextField labelWithString:@"AI 联想"], [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)]],
         @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
@@ -1674,6 +1686,7 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)frequencyStepChanged:(NSPopUpButton *)sender { self.frequencyLinearStep = sender.indexOfSelectedItem + 1; }
 - (void)cloudCandidatesChanged:(NSButton *)sender { self.cloudCandidates = sender.state == NSControlStateValueOn; }
 - (void)candidateTranslationsChanged:(NSButton *)sender { self.candidateTranslations = sender.state == NSControlStateValueOn; }
+- (void)candidateEnglishGlossChanged:(NSButton *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }

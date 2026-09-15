@@ -693,7 +693,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (NSDictionary *)currentGlossRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
-        (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+        (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
+        (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
     if (_glossTargetLanguage && ![_glossTargetLanguage isEqual:@"en"]) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
     if (!query || ![query[@"target_language"] isEqual:@"en"]) return nil;
@@ -909,7 +910,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
-        [self cancelCandidateTranslations];
+        [self cancelCustomTranslations];
+        [self cancelAITranslations];
+        if (!_appearance.candidateEnglishGloss) [self cancelCandidateGloss];
+    }
+    if (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) {
         NSDictionary *view = [_session viewWithError:nil];
         if (view) {
             NSDictionary *cleared = [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
@@ -2001,10 +2006,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults))
         [self finishVoiceInputForDisable];
     BOOL translationChanged = NO;
+    BOOL candidateTranslationsEnabled = _appearance.candidateTranslations;
+    BOOL candidateEnglishGlossEnabled = _appearance.candidateEnglishGloss;
     id glossEnabled = preferences[@"candidate_translations"];
     if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
         translationChanged = ![_glossEnabled isEqual:glossEnabled];
         _glossEnabled = glossEnabled;
+        candidateTranslationsEnabled = [glossEnabled boolValue];
+    }
+    id englishGlossEnabled = preferences[@"candidate_english_gloss"];
+    if ([englishGlossEnabled isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)englishGlossEnabled) == CFBooleanGetTypeID()) {
+        translationChanged |= candidateEnglishGlossEnabled != [englishGlossEnabled boolValue];
+        candidateEnglishGlossEnabled = [englishGlossEnabled boolValue];
     }
     id target = preferences[@"translation_target_language"];
     if ([@[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"] containsObject:target]) {
@@ -2030,9 +2044,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _niuTransConfig = [niuTrans copy];
     }
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
-        [self cancelCandidateTranslations];
+        [self cancelCustomTranslations];
+        [self cancelAITranslations];
+        if (!candidateEnglishGlossEnabled) [self cancelCandidateGloss];
         NSDictionary *view = [_session viewWithError:nil];
-        if (view) [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+        if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view)
+            [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     }
     id pageSize = preferences[@"candidate_page_size"];
     if ([pageSize isKindOfClass:NSNumber.class] &&

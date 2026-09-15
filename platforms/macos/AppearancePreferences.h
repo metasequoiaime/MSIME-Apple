@@ -68,6 +68,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (void)setFuzzyPinyinRule:(NSString *)rule enabled:(BOOL)enabled;
 @property(nonatomic) BOOL cloudCandidates;
 @property(nonatomic) BOOL candidateTranslations;
+/// Offline Engine glossary lookup; independent from online candidate translation providers.
+@property(nonatomic) BOOL candidateEnglishGloss;
 @property(nonatomic) BOOL autocorrectTransposition;
 @property(nonatomic) BOOL autocorrectNeighbor;
 // Legacy fallback for both schemes; setting it explicitly still sets both.
