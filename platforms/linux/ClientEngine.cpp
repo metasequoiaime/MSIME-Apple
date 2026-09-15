@@ -3651,7 +3651,10 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled)
         return;
-      if (s.rendered_session != s.session || !s.rendered_candidates.is_array())
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
         return;
       for (const auto &candidate : s.rendered_candidates) {
         const auto &id = candidate.at("id");
@@ -3697,7 +3700,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled ||
           s.rendered_session != s.session || !s.rendered_view.is_object() ||
-          !s.rendered_view.value("nine_key", false))
+          !s.rendered_view.value("nine_key", false) ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
         return;
       const auto spellings = s.rendered_view.value("nine_key_spellings", Json::array());
       if (!spellings.is_array())
@@ -5082,7 +5087,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const auto &candidates = s.rendered_candidates;
     const auto index = maintenance_candidate_slot;
     if (!index || s.rendered_session != s.session || !candidates.is_array() ||
-        *index >= candidates.size())
+        *index >= candidates.size() || !s.rendered_view.is_object() ||
+        s.rendered_view.value("generation", uint64_t{0}) !=
+            s.view.value("generation", uint64_t{0}))
       return FALSE;
     const auto &candidate = candidates.at(*index);
     if (!candidate.is_object() || !candidate.contains("id"))
