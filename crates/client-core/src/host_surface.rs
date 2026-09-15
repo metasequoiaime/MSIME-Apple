@@ -180,10 +180,7 @@ impl HostCapabilities {
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
-            panel_shortcuts: matches!(
-                platform,
-                HostPlatform::Linux | HostPlatform::Windows
-            ),
+            panel_shortcuts: matches!(platform, HostPlatform::Linux | HostPlatform::Windows),
             number_row_selection: platform == HostPlatform::Linux,
             voice_capture_devices: matches!(
                 platform,
@@ -207,7 +204,10 @@ impl HostCapabilities {
             ),
             // macOS CandidatePanel tracks the current insertion rect just like
             // the Windows candidate window; expose the shared toggle there.
-            candidate_follow_cursor: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
+            candidate_follow_cursor: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos
+            ),
         }
     }
 }

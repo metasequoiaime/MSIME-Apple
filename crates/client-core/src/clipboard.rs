@@ -16,10 +16,13 @@ pub const MAX_MOBILE_TEXT_BYTES: usize = 40_000;
 pub fn normalize_text(text: &str) -> String {
     let text = text.trim_end_matches(['\0', '\r']);
     let mut units = 0;
-    let end = text.char_indices().find_map(|(index, character)| {
-        units += character.len_utf16();
-        (units > MAX_TEXT_UTF16_UNITS).then_some(index)
-    }).unwrap_or(text.len());
+    let end = text
+        .char_indices()
+        .find_map(|(index, character)| {
+            units += character.len_utf16();
+            (units > MAX_TEXT_UTF16_UNITS).then_some(index)
+        })
+        .unwrap_or(text.len());
     text[..end].to_owned()
 }
 // JSON may escape every input byte as six ASCII bytes. Structured records add

@@ -1723,7 +1723,8 @@ impl PreferencesStore {
         // enabled opts every fuzzy rule in once. The marker is separate from
         // the rule set so intentionally clearing every rule does not reseed
         // on a later disable/enable cycle.
-        if preferences.fuzzy_pinyin.enabled && !current.preferences.fuzzy_pinyin.enabled
+        if preferences.fuzzy_pinyin.enabled
+            && !current.preferences.fuzzy_pinyin.enabled
             && !current.preferences.fuzzy_pinyin.seeded
         {
             preferences.fuzzy_pinyin.rules = [
@@ -1862,10 +1863,7 @@ mod tests {
                 },
                 ..Preferences::default()
             };
-            assert!(
-                preferences.validate().is_ok(),
-                "{provider} should polish"
-            );
+            assert!(preferences.validate().is_ok(), "{provider} should polish");
         }
         // Saving a provider no backend implements is refused rather than stored.
         for rejected in ["local_whisper", "cloud", "", "DOUBAO"] {
@@ -1950,11 +1948,9 @@ mod tests {
         assert!(defaults.wubi_code_hint_enabled());
         let legacy = serde_json::to_value(&defaults).unwrap();
         assert!(!legacy.as_object().unwrap().contains_key("wubi_code_hint"));
-        assert!(
-            serde_json::from_value::<Preferences>(legacy)
-                .unwrap()
-                .wubi_code_hint_enabled()
-        );
+        assert!(serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_code_hint_enabled());
 
         let disabled = Preferences {
             wubi_code_hint: Some(false),
@@ -3425,7 +3421,10 @@ mod tests {
             let mut invalid = defaults.clone();
             invalid.niutrans.app_id = app_id;
             invalid.niutrans.apikey = apikey;
-            assert!(matches!(invalid.validate(), Err(PreferencesError::InvalidNiuTrans)));
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidNiuTrans)
+            ));
         }
     }
 

@@ -9,7 +9,6 @@ pub trait VoiceTransport {
     fn cancel(&mut self, generation: u64) -> Result<(), Self::Error>;
 }
 
-
 #[derive(Debug, Default)]
 pub struct VoiceSessionState {
     generation: u64,

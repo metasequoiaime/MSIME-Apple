@@ -133,7 +133,12 @@ pub fn chat_completion_http_request(
         .tokens
         .get(&config.provider)
         .filter(usable)
-        .or_else(|| origin.as_deref().and_then(|key| config.tokens.get(key)).filter(usable))
+        .or_else(|| {
+            origin
+                .as_deref()
+                .and_then(|key| config.tokens.get(key))
+                .filter(usable)
+        })
         .map(String::as_str)
         .unwrap_or(&config.token)
         .trim();
@@ -427,9 +432,10 @@ mod tests {
         origin_only.token = String::new();
         origin_only.provider = "deepseek".into();
         origin_only.endpoint = "https://api.deepseek.com/chat/completions".into();
-        origin_only
-            .tokens
-            .insert("https://api.deepseek.com:443".into(), "synthetic-origin".into());
+        origin_only.tokens.insert(
+            "https://api.deepseek.com:443".into(),
+            "synthetic-origin".into(),
+        );
         assert_eq!(
             descriptor(&origin_only)["headers"]["Authorization"],
             "Bearer synthetic-origin"
@@ -458,9 +464,10 @@ mod tests {
         // An origin key recorded for a different endpoint is not accepted.
         let mut mismatched = origin_only.clone();
         mismatched.tokens.clear();
-        mismatched
-            .tokens
-            .insert("https://api.openai.com:443".into(), "synthetic-other".into());
+        mismatched.tokens.insert(
+            "https://api.openai.com:443".into(),
+            "synthetic-other".into(),
+        );
         assert!(matches!(
             chat_completion_http_request(&mismatched, &request),
             Err(AiError::InvalidConfiguration)

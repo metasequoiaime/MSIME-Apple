@@ -469,9 +469,7 @@ mod tests {
         // The defect: a user with more than a page of pinyin words who selects
         // 五笔 saw an empty page 1, because the client filtered a page it had
         // already fetched instead of the server selecting the right rows.
-        let rows: Vec<(bool, &str)> = (0..250)
-            .map(|index| (index % 50 == 0, "wq"))
-            .collect();
+        let rows: Vec<(bool, &str)> = (0..250).map(|index| (index % 50 == 0, "wq")).collect();
         let mut selector = PageSelector::new(0, 5);
         let mut taken = 0;
         for (is_wubi, key) in &rows {
@@ -544,16 +542,26 @@ mod tests {
         assert_eq!(
             report.first_failures,
             vec![
-                ImportFailure { line: 2, issue: ImportIssue::ColumnCount },
-                ImportFailure { line: 3, issue: ImportIssue::Rejected },
+                ImportFailure {
+                    line: 2,
+                    issue: ImportIssue::ColumnCount
+                },
+                ImportFailure {
+                    line: 3,
+                    issue: ImportIssue::Rejected
+                },
             ]
         );
     }
 
     #[test]
     fn rejections_respect_the_reporting_cap() {
-        let mut report = parse_ok(ImportKind::Pinyin, "standard", "你好	ni'hao
-");
+        let mut report = parse_ok(
+            ImportKind::Pinyin,
+            "standard",
+            "你好	ni'hao
+",
+        );
         let lines: Vec<usize> = (1..=REPORTED_FAILURES + 4).collect();
         report.record_rejected(&lines);
         // Every rejection is counted...
@@ -578,7 +586,6 @@ mod tests {
         assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
     }
 
-
     #[test]
     fn the_code_prefix_is_case_insensitive_and_starts_at_the_key() {
         assert!(dictionary_row_matches(true, "wq", "w"));
@@ -592,7 +599,6 @@ mod tests {
         assert!(!dictionary_row_matches(false, "wq", "wq"));
     }
 }
-
 
 /// Server-side paging for the dictionary browser.
 ///
@@ -661,6 +667,5 @@ pub fn dictionary_row_matches(kind_matches: bool, key: &str, prefix: &str) -> bo
     if key.len() < prefix.len() {
         return false;
     }
-    key.as_bytes()[..prefix.len()]
-        .eq_ignore_ascii_case(prefix.as_bytes())
+    key.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
 }

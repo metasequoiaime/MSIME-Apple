@@ -493,7 +493,8 @@ fn inspect_snapshot_record(
             if kind == "entry"
                 && (id.is_empty()
                     || id.len() > 128
-                    || id.bytes()
+                    || id
+                        .bytes()
                         .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r')))
             {
                 return Err(AccountError::Invalid);
@@ -781,7 +782,9 @@ fn snapshot_response_without_account(mut value: Value) -> Result<Value, super::C
 }
 
 fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
-    let Ok(mut pending) = previews.lock() else { return };
+    let Ok(mut pending) = previews.lock() else {
+        return;
+    };
     for item in pending.drain().map(|(_, item)| item) {
         let _ = fs::remove_file(item.path);
     }
@@ -805,7 +808,9 @@ async fn dictionary_snapshot_preview(
         }
         let profile = session.profile()?;
         let path = directory.join(format!("download-{token}.ndjson"));
-        let result = session.dictionary_snapshot_to_file(&path).and_then(|_| inspect_snapshot(&path));
+        let result = session
+            .dictionary_snapshot_to_file(&path)
+            .and_then(|_| inspect_snapshot(&path));
         match result {
             Ok(metadata) => Ok((profile.user.id, path, metadata)),
             Err(error) => {
@@ -819,11 +824,23 @@ async fn dictionary_snapshot_preview(
     .map_err(|error| super::CommandError { code: error.code() })?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
-        let old = pending.drain().map(|(_, item)| item.path).collect::<Vec<_>>();
-        pending.insert(token.clone(), PendingSnapshot { account_id, path, metadata: metadata.clone() });
+        let old = pending
+            .drain()
+            .map(|(_, item)| item.path)
+            .collect::<Vec<_>>();
+        pending.insert(
+            token.clone(),
+            PendingSnapshot {
+                account_id,
+                path,
+                metadata: metadata.clone(),
+            },
+        );
         old
     };
-    for path in old { let _ = fs::remove_file(path); }
+    for path in old {
+        let _ = fs::remove_file(path);
+    }
     Ok(serde_json::json!({
         "previewToken": token,
         "snapshot": metadata,
@@ -834,10 +851,19 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, super::CommandError> {
-    let parsed = Uuid::parse_str(&token).map_err(|_| super::CommandError { code: "snapshot_invalid" })?;
+    let parsed = Uuid::parse_str(&token).map_err(|_| super::CommandError {
+        code: "snapshot_invalid",
+    })?;
     let pending = {
-        let mut previews = state.snapshot_previews.lock().map_err(|_| snapshot_command_error())?;
-        previews.remove(&parsed.to_string()).ok_or_else(|| super::CommandError { code: "snapshot_invalid" })?
+        let mut previews = state
+            .snapshot_previews
+            .lock()
+            .map_err(|_| snapshot_command_error())?;
+        previews
+            .remove(&parsed.to_string())
+            .ok_or_else(|| super::CommandError {
+                code: "snapshot_invalid",
+            })?
     };
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
@@ -924,10 +950,12 @@ async fn dictionary_snapshot_restore_preview(
             .and_then(|metadata| {
                 session
                     .dictionary_catalog(DictionaryKind::Quick, "", 0, "pinyin", "xiaohe")
-                    .map(|page| serde_json::json!({
-                        "snapshot": metadata,
-                        "expectedRevision": page.revision,
-                    }))
+                    .map(|page| {
+                        serde_json::json!({
+                            "snapshot": metadata,
+                            "expectedRevision": page.revision,
+                        })
+                    })
             });
         let _ = fs::remove_file(&path);
         result
@@ -1001,9 +1029,14 @@ async fn dictionary_snapshot_cancel(
     .map_err(|error| super::CommandError { code: error.code() })?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
-        pending.drain().map(|(_, item)| item.path).collect::<Vec<_>>()
+        pending
+            .drain()
+            .map(|(_, item)| item.path)
+            .collect::<Vec<_>>()
     };
-    for path in old { let _ = fs::remove_file(path); }
+    for path in old {
+        let _ = fs::remove_file(path);
+    }
     let result = tauri::async_runtime::spawn_blocking(move || {
         platform
             .run_mobile_plugin::<Value>("cancelSnapshot", CancelSnapshotRequest { account_id })
@@ -1453,7 +1486,9 @@ fn resource_scope(value: &str) -> Result<CommunityResourceScope, super::CommandE
         "" => Ok(CommunityResourceScope::All),
         "mine" => Ok(CommunityResourceScope::Mine),
         "saved" => Ok(CommunityResourceScope::Saved),
-        _ => Err(super::CommandError { code: "community_invalid" }),
+        _ => Err(super::CommandError {
+            code: "community_invalid",
+        }),
     }
 }
 
@@ -1468,7 +1503,9 @@ where
     let service = Arc::clone(&state.resources);
     tauri::async_runtime::spawn_blocking(move || operation(&service))
         .await
-        .map_err(|_| super::CommandError { code: "community_unavailable" })?
+        .map_err(|_| super::CommandError {
+            code: "community_unavailable",
+        })?
         .map_err(community_error)
 }
 
@@ -1481,7 +1518,10 @@ pub async fn community_resource_list(
     offset: usize,
 ) -> Result<CommunityResourcePage, super::CommandError> {
     let scope = resource_scope(&scope)?;
-    resource_call(state, move |service| service.list(kind, scope, &search, offset)).await
+    resource_call(state, move |service| {
+        service.list(kind, scope, &search, offset)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1489,7 +1529,9 @@ pub async fn community_resource_detail(
     state: State<'_, AccountState>,
     id: String,
 ) -> Result<CommunityResource, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     resource_call(state, move |service| service.detail(id)).await
 }
 
@@ -1503,8 +1545,13 @@ pub async fn community_resource_publish(
     content: CommunityResourceContent,
     revision: u32,
 ) -> Result<CommunityResourcePublication, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
-    resource_call(state, move |service| service.publish(id, kind, &name, &description, &content, revision)).await
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    resource_call(state, move |service| {
+        service.publish(id, kind, &name, &description, &content, revision)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1513,7 +1560,9 @@ pub async fn community_resource_apply(
     id: String,
     resource_revision: u32,
 ) -> Result<CommunityResourceApplication, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     resource_call(state, move |service| service.apply(id, resource_revision)).await
 }
 
@@ -1523,7 +1572,9 @@ pub async fn community_resource_save(
     id: String,
     saved: bool,
 ) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     resource_call(state, move |service| service.save(id, saved)).await
 }
 
@@ -1533,7 +1584,9 @@ pub async fn community_resource_rate(
     id: String,
     stars: u8,
 ) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     resource_call(state, move |service| service.rate(id, stars)).await
 }
 
@@ -1542,7 +1595,9 @@ pub async fn community_resource_unpublish(
     state: State<'_, AccountState>,
     id: String,
 ) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     resource_call(state, move |service| service.delete(id)).await
 }
 
@@ -1554,7 +1609,9 @@ pub async fn community_resource_store_reply(
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.save_reply(item))
         .await
-        .map_err(|_| super::CommandError { code: "community_storage" })?
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
         .map_err(resource_library_error)
 }
 
@@ -1563,11 +1620,15 @@ pub async fn community_resource_remove_reply(
     library: State<'_, CommunityResourceLibraryStore>,
     id: String,
 ) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError { code: "community_invalid" })?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.remove(id))
         .await
-        .map_err(|_| super::CommandError { code: "community_storage" })?
+        .map_err(|_| super::CommandError {
+            code: "community_storage",
+        })?
         .map_err(resource_library_error)
 }
 
@@ -1870,12 +1931,13 @@ pub async fn cloud_clipboard_request(
             .await
         }
         "set_enabled" => {
-            let enabled = action
-                .get("enabled")
-                .and_then(Value::as_bool)
-                .ok_or(super::CommandError {
-                    code: "invalid_cloud_clipboard",
-                })?;
+            let enabled =
+                action
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or(super::CommandError {
+                        code: "invalid_cloud_clipboard",
+                    })?;
             call(state, move |session| {
                 session
                     .set_clipboard_enabled(enabled)
@@ -2141,9 +2203,11 @@ pub async fn cloud_dictionary_request(
         }
         CloudDictionaryRequest::FixedPositions { context, offset } => {
             call(state, move |session| {
-                session.fixed_positions(&context, offset).and_then(|result| {
-                    serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                })
+                session
+                    .fixed_positions(&context, offset)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
             })
             .await
         }
@@ -2227,7 +2291,10 @@ pub async fn app_icon_set(
     state: State<'_, AccountState>,
     style: String,
 ) -> Result<AppIconResponse, super::CommandError> {
-    if !matches!(style.as_str(), "classic" | "forest" | "sky" | "dusk" | "vermilion") {
+    if !matches!(
+        style.as_str(),
+        "classic" | "forest" | "sky" | "dusk" | "vermilion"
+    ) {
         return Err(super::CommandError {
             code: "invalid_app_icon",
         });
@@ -2696,7 +2763,9 @@ pub async fn account_preferences_upload(
         session.put_preferences(&merged)
     })
     .await
-    .map_err(|_| super::CommandError { code: "account_unavailable" })?
+    .map_err(|_| super::CommandError {
+        code: "account_unavailable",
+    })?
     .map_err(|error| super::CommandError { code: error.code() })
 }
 
@@ -2721,6 +2790,8 @@ pub async fn account_preferences_apply(
         Ok::<(), AccountError>(())
     })
     .await
-    .map_err(|_| super::CommandError { code: "account_unavailable" })?
+    .map_err(|_| super::CommandError {
+        code: "account_unavailable",
+    })?
     .map_err(|error| super::CommandError { code: error.code() })
 }
