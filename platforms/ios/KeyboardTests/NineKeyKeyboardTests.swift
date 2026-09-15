@@ -737,6 +737,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     } as? UIButton)
   }
 
+  func testLetterFacesAreUppercaseUntilEnglishTakesOver() throws {
+    // Chinese and Japanese romanization use uppercase faces as a visual convention. The engine
+    // still receives lowercase input, and English alone lets Shift determine what is inserted.
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .japanese] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(
+        x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
+      controller.view.layoutIfNeeded()
+
+      let a = try XCTUnwrap(
+        descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
+      XCTAssertEqual(a.configuration?.title, "A", "\(scheme) should draw uppercase letter faces")
+      XCTAssertEqual(a.accessibilityLabel, "字母 A", "The pinyin face is not an uppercase keystroke")
+
+      a.sendActions(for: .primaryActionTriggered)
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
+
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "a", "English should return to lowercase")
+
+      try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "A", "English Shift should uppercase the face")
+      XCTAssertEqual(a.accessibilityLabel, "大写 A", "English Shift should be announced as uppercase")
+    }
+  }
+
   func testShortcutsYieldToCandidatesWithoutMovingKeys() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousScript = ChineseOutputPreference.usesTraditional
