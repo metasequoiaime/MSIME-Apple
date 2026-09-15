@@ -145,6 +145,10 @@ class ProjectConfigurationTests(unittest.TestCase):
         podfile = (IOS_ROOT / "Podfile").read_text()
         self.assertIn("pod 'MLKitDigitalInkRecognition', '8.0.0'", podfile)
         self.assertIn("target 'MSIMEKeyboardExtension'", podfile)
+        fallback = (IOS_ROOT / "SharedUI/HandwritingInputViewFallback.swift").read_text()
+        self.assertIn("var onResults: (([String]) -> Void)?", fallback)
+        self.assertIn("func use(at index: Int) -> Bool { false }", fallback)
+        self.assertIn("func commitFirst() -> Bool { false }", fallback)
 
     def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
         roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]

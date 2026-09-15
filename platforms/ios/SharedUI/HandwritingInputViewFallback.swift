@@ -32,9 +32,11 @@ final class HandwritingCanvas: UIView {
 
 final class HandwritingInputView: UIView {
   let canvas = HandwritingCanvas()
+  var onResults: (([String]) -> Void)?
   var canDownload: () -> Bool = { false }
   var onInsert: ((String) -> Void)?
   var onDelete: (() -> Void)?
+  private(set) var results: [String] = []
   var hasInk: Bool { canvas.hasInk }
 
   override init(frame: CGRect) {
@@ -51,6 +53,7 @@ final class HandwritingInputView: UIView {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func activate() { canvas.acceptsInk = true }
   func deactivate() { clear() }
-  func clear() { canvas.clear() }
+  func clear() { results = []; onResults?([]); canvas.clear() }
+  @discardableResult func use(at index: Int) -> Bool { false }
   func commitFirst() -> Bool { false }
 }
