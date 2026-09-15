@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.widget.Toast;
 import java.io.File;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -19,6 +20,8 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final int REQUEST_RECOGNITION = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.client.voice.LANGUAGE";
     private static final String STATE_LAUNCHED = "recognizer_launched";
+    private static volatile WeakReference<VoiceRecognitionActivity> active =
+        new WeakReference<>(null);
 
     public static boolean available(Context context) {
         return recognitionIntent("").resolveActivity(context.getPackageManager()) != null;
@@ -33,6 +36,7 @@ public final class VoiceRecognitionActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        active = new WeakReference<>(this);
         if (state != null && state.getBoolean(STATE_LAUNCHED, false)) return;
         Intent recognition = recognitionIntent(getIntent().getStringExtra(EXTRA_LANGUAGE));
         if (recognition.resolveActivity(getPackageManager()) == null) {
@@ -59,6 +63,17 @@ public final class VoiceRecognitionActivity extends Activity {
             if (results != null && !results.isEmpty()) saveResult(results.get(0));
         }
         finish();
+    }
+
+    /** Stops the platform recognizer launched for the shared Tauri voice panel. */
+    public static void cancelActive() {
+        VoiceRecognitionActivity activity = active.get();
+        if (activity != null) activity.runOnUiThread(activity::finish);
+    }
+
+    @Override protected void onDestroy() {
+        if (active.get() == this) active = new WeakReference<>(null);
+        super.onDestroy();
     }
 
     private void saveResult(String text) {

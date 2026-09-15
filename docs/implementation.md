@@ -16,6 +16,10 @@
 
 ## 当前证据
 
+### Android Tauri 语音面板原生插件接入
+
+Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React/Tauri 语音面板通过 Android 系统 `RecognizerIntent` 使用设备语音识别服务；录音仍由系统服务持有，识别文本经有界的应用私有 handoff 文件交给隔离的 `:ime` 进程。`recognize_voice`、`stop_voice`、`cancel_voice` 和 `send_voice_text` 均已接入 Android 专用路径，避免误走 Unix socket，并保留请求代号、取消、过期、NUL 和长度校验。已通过 Rust 格式检查、移动插件单元测试、桌面 TypeScript 类型检查和 Android host smoke；Android 原生 Gradle/设备识别器及真实编辑器插入仍需设备产品验证。
+
 ### macOS Emoji 面板主题覆盖（next42）
 
 共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
