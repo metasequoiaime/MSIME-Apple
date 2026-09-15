@@ -575,17 +575,12 @@ int wmain(int argc, wchar_t **argv) {
       return global == "light" ||
              (global == "system" && !system_prefers_dark());
     }());
-    auto toolbar_light = std::make_shared<std::atomic<bool>>([&] {
+    auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("toolbar_theme", std::string("follow"));
-      if (theme == "light")
-        return true;
-      if (theme == "dark")
-        return false;
       // "follow" defers to the global theme, and that in turn to Windows.
       const auto global = stored.value("theme", std::string("dark"));
-      return global == "light" ||
-             (global == "system" && !system_prefers_dark());
+      return surface_theme_mode(theme, global);
     }());
     auto voice_light = std::make_shared<std::atomic<bool>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
@@ -623,7 +618,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
          toolbar_enabled, follow_cursor, voice_light, candidate_fonts,
-         toolbar_light, menu_light, mode_scope_global, tsf_config, candidate_layout,
+         toolbar_theme, menu_light, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
          tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -659,12 +654,8 @@ int wmain(int argc, wchar_t **argv) {
             const auto theme =
                 preferences.value("toolbar_theme", std::string("follow"));
             const auto global = preferences.value("theme", std::string("dark"));
-            toolbar_light->store(
-                theme == "light" ||
-                    (theme != "dark" &&
-                     (global == "light" ||
-                      (global == "system" && !system_prefers_dark()))),
-                std::memory_order_release);
+            toolbar_theme->store(surface_theme_mode(theme, global),
+                                 std::memory_order_release);
           }
           // 语音面板主题: follow / dark / light. The overlay has had the setter
           // all along, but nothing read the preference, so it was always dark.
@@ -932,13 +923,15 @@ int wmain(int argc, wchar_t **argv) {
     bool candidate_horizontal_applied = config.horizontal_candidates;
     std::string candidate_skin_applied = config.skin_id;
     uint64_t candidate_theme_check_at = 0;
+    bool system_dark = system_prefers_dark();
     SkinResourceRevision candidate_skin_revision;
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     // The toolbar draws from the skin's own accent, not the card's overrides.
-    bool toolbar_dark_applied = !toolbar_light->load(std::memory_order_acquire);
+    bool toolbar_dark_applied = !surface_theme_is_light(
+        toolbar_theme->load(std::memory_order_acquire), system_dark);
     std::string toolbar_skin_applied = config.skin_id;
     toolbar.set_palette(
         toolbar_palette(config.skin_id, toolbar_dark_applied));
@@ -1219,12 +1212,13 @@ int wmain(int argc, wchar_t **argv) {
       if (candidate_theme_dirty || candidate_horizontal != candidate_horizontal_applied ||
           theme_now >= candidate_theme_check_at) {
         candidate_theme_check_at = theme_now + 500;
+        system_dark = system_prefers_dark();
         const auto selected_skin = current_candidate_theme.value(
             "candidate_skin", candidate_skin_applied);
         const bool skin_resources_changed = candidate_skin_revision.changed(
             config.skin_directory, selected_skin);
-        const bool dark = candidate_theme_dark(current_candidate_theme,
-                                                system_prefers_dark());
+        const bool dark =
+            candidate_theme_dark(current_candidate_theme, system_dark);
         if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
           auto theme_config = config;
@@ -1262,7 +1256,8 @@ int wmain(int argc, wchar_t **argv) {
         menu_skin_applied = candidate_skin_applied;
         tray.set_palette(candidate_builtin_palette(menu_skin_applied, dark));
       }
-      if (const bool dark = !toolbar_light->load(std::memory_order_acquire);
+      if (const bool dark = !surface_theme_is_light(
+              toolbar_theme->load(std::memory_order_acquire), system_dark);
           dark != toolbar_dark_applied || toolbar_skin_applied != candidate_skin_applied) {
         toolbar_dark_applied = dark;
         toolbar_skin_applied = candidate_skin_applied;
