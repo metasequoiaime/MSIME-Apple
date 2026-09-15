@@ -949,6 +949,35 @@ test("macOS does not expose Windows or Linux diagnostic switches", async () => {
 
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
+test("mobile hosts use Apple-style primary navigation and retain secondary settings", async () => {
+  const host: HostCapabilities = {
+    platform: "ios", restart_input_method: false, panel_windows: false, ime_mode_scope: false,
+    typing_statistics: true, fuzzy_pinyin: false, system_fonts: false, window_chrome: false,
+    floating_toolbar: false, floating_toolbar_appearance: false, floating_toolbar_components: false,
+    mode_switch_shortcuts: false, panel_shortcuts: false, voice_capture_devices: false,
+    candidate_font_controls: false, candidate_row_colors: false, candidate_selection_appearance: false,
+    candidate_follow_cursor: false,
+  };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host,
+    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+    typingStatistics: { load: vi.fn().mockResolvedValue({ availability: "neverWritten", statistics: { enabled: false, total: 0, days: {}, detail: {} } }), setEnabled: vi.fn(), reset: vi.fn() },
+    account: { status: vi.fn().mockResolvedValue({ available: false }), providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }), requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(), deleteAccount: vi.fn(), clearExpired: vi.fn() },
+    communitySkins: { list: vi.fn(), detail: vi.fn(), download: vi.fn(), rate: vi.fn(), publish: vi.fn(), unpublish: vi.fn(), finishTrial: vi.fn() },
+    communityResources: { list: vi.fn(), detail: vi.fn(), publish: vi.fn(), apply: vi.fn(), save: vi.fn(), rate: vi.fn(), unpublish: vi.fn(), storeReply: vi.fn(), removeReply: vi.fn() },
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const primary = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(primary).getByRole("button", { name: "键盘" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "社区" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "账号" })).toBeTruthy();
+  const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+  expect(Array.from(more.options).map(option => option.text)).toContain("输入");
+  fireEvent.change(more, { target: { value: "input" } });
+  expect(more.value).toBe("input");
+  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+});
+
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
