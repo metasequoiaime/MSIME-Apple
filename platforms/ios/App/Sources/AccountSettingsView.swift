@@ -22,7 +22,7 @@ struct AccountSettingsView: View {
         }.accessibilityIdentifier("accountAppIcon")
       }
 
-      Section("我的创作") {
+      Section("创作") {
         NavigationLink(destination: CustomSkinEditorView()) {
           HStack(spacing: 12) {
             accountIcon("paintbrush.pointed.fill", color: MetasequoiaTheme.accent)
@@ -35,7 +35,7 @@ struct AccountSettingsView: View {
       }
 
       if signedIn {
-        Section("我发布的作品") {
+        Section("社区") {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
             Label("我发布的皮肤", systemImage: "paintpalette")
           }.accessibilityIdentifier("accountPublishedSkins")
@@ -45,7 +45,7 @@ struct AccountSettingsView: View {
             }
           }
         }
-        Section("我的收藏") {
+        Section("收藏") {
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
               Label("收藏的\(kind.title)", systemImage: "bookmark")
@@ -55,7 +55,7 @@ struct AccountSettingsView: View {
       }
 
       if signedIn {
-        Section("云端数据") {
+        Section("云端") {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
             Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
           }.accessibilityIdentifier("accountSettingsSync")
@@ -71,7 +71,7 @@ struct AccountSettingsView: View {
         }
       }
 
-        Section("了解水杉") {
+      Section("关于") {
           NavigationLink(destination: DesktopDownloadView()) {
             Label("电脑版下载", systemImage: "desktopcomputer")
           }.accessibilityIdentifier("desktopDownloadLink")
@@ -84,15 +84,13 @@ struct AccountSettingsView: View {
         Button { replayOnboarding = true } label: {
           Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
         }.accessibilityIdentifier("replayOnboardingLink")
-      }
-      Section {
-        Label("本地数据与云端作品", systemImage: "lock.shield")
-          .font(.subheadline)
+      } footer: {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
-          .font(.caption).foregroundStyle(.secondary)
       }
     }
     .navigationTitle("我的")
+    .scrollContentBackground(.hidden)
+    .background(MetasequoiaTheme.canvas)
     .task { designs = CustomSkinLibrary.designs }
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
