@@ -24,6 +24,7 @@ static_assert(TsfFocusLeaseFrame{}.size() == 32);
 class TsfFocusLeaseFrameAssembler final {
 public:
   constexpr bool append(const std::uint8_t *data, std::size_t size) {
+    if (size != 0 && data == nullptr) return false;
     if (size > TsfFocusLeaseFrame{}.size() - filled_) return false;
     for (std::size_t i = 0; i != size; ++i) frame_[filled_ + i] = data[i];
     filled_ += size;

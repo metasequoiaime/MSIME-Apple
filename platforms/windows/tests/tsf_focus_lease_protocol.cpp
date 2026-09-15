@@ -38,6 +38,9 @@ int main() {
                                                                             0, 7, 11, 19});
   msime::windows::TsfFocusLeaseFrameAssembler assembler;
   assert(!assembler.complete() && assembler.size() == 0);
+  assert(assembler.append(nullptr, 0));
+  assert(!assembler.append(nullptr, 1));
+  assert(assembler.size() == 0);
   assert(assembler.append(complete_frame.data(), 1));
   assert(assembler.size() == 1 && !assembler.complete());
   assert(assembler.append(complete_frame.data() + 1, complete_frame.size() - 1));
