@@ -98,7 +98,7 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 ## 下一步
 
-继续 Windows 的原生回复路径选择、生产 Server 对监听/握手的装配与注册路由接入，以及实际 TSF DLL 消费、断管恢复和 x86/x64 编辑器验证。当前 `KeyResult.transition` 是内部共享结果，不是新的 IPC 线格式；不能将 JSON 直接发送给现有 DLL，也未完成全部输入路径的端到端回复映射。候选 HWND、设置自动重读、打包和安装同样未完成，不替换旧产品。CI 保持关闭，Windows 优先于 macOS、iOS、Linux。
+固定帧回复桥接、production Server 监听/握手装配、注册路由及 voice control 双端点已接入；`KeyResult.transition` 仍只是内部共享结果，最终发送继续通过 `ReplyCodec` 生成既有 TSF 帧。剩余工作是 Windows 原生 TSF/DLL 消费、断管恢复、x86/x64 编辑器验证、候选 HWND、设置自动重读、打包和安装。CI 保持关闭，Windows 优先于 macOS、iOS、Linux。
 
 ## 管道 I/O 与进程身份绑定
 
@@ -234,11 +234,11 @@ SessionWorkers 为 1–64 个固定连接槽位预建 I/O worker，每槽最多�
 
 submit 供外部控制线程消费已协商的登记通知，先检查 MainTransport.current；取消可能等待有限时间的在途写入，不得直接放进要求非阻塞的 PipeIntake 回调或输入/gate 回调。原生控制器还需提供有界登记通知入口。request_stop 标记停止、关闭活动和待替换票据以取消读取；stop 从外部线程串行 join，不能从输入队列或自身 worker 调用。依赖的传输、Gate、输入队列和处理器须活到 stop 返回；正常退出顺序是停止接纳、取消/join 连接循环、停止输入队列，再释放传输服务。输入队列故障被循环观察到时会停止其余槽位；全部连接空闲时仍需宿主监控输入队列/服务状态并主动取消，不能依靠空闲读取自行发现故障。
 
-本机测试组合实际 SessionWorkers、SessionPump、InputQueue 和真实会话，使用可取消的空闲传输验证并发读取上限、重复登记、容量拒绝、重连线程复用、连续替换合并、旧关闭隔离与并发 stop。`main.cpp` 现已用 `WindowsServer` 装配 production/preview 管道、`production_key_handler()` 与偏好发布回调；仍未执行 Windows 原生组合，也未完成实际 TSF/UI 编辑器交互与安装验收。
+本机测试组合实际 SessionWorkers、SessionPump、InputQueue 和真实会话，使用可取消的空闲传输验证并发读取上限、重复登记、容量拒绝、重连线程复用、连续替换合并、旧关闭隔离与并发 stop。`main.cpp` 已用 `WindowsServer` 装配 production/preview 管道、`production_key_handler()`、偏好发布回调及 voice control listener；仍未执行 Windows 原生组合，也未完成实际 TSF/UI 编辑器交互与安装验收。
 
 ### 原生服务装配与故障监控
 
-WindowsServer 现在组合 RegistrationInbox、PipeService、PipeMainTransport 和 SessionController。构造需要显式管道名、能力掩码、共享宿主选项及 KeyHandler/EventHandler，会真正启动指定名称的管道，但不注册 TSF 或修改输入源；本阶段未启动生产名称。登记收件箱先于监听器构造，Main 握手通知只复制 ticket 入有界队列，满队列/关闭返回 false，由 PipeIntake 注销匹配登记；反向管道就绪不启动 Main 读取。构造失败时按成员依赖顺序释放已启动资源。
+WindowsServer 现在组合 RegistrationInbox、PipeService、PipeMainTransport 和 SessionController。构造需要显式管道名、能力掩码、共享宿主选项及 KeyHandler/EventHandler，会真正启动指定名称的管道；production 入口已传入生产管道名称。登记收件箱先于监听器构造，Main 握手通知只复制 ticket 入有界队列，满队列/关闭返回 false，由 PipeIntake 注销匹配登记；反向管道就绪不启动 Main 读取。构造失败时按成员依赖顺序释放已启动资源。
 
 SessionController 持有输入队列、连接 worker 和独立控制线程，消费登记通知时由管理器再次验证票据。无通知时默认每 100ms 检查服务、输入队列和连接管理器状态，因此全部客户端空闲也能触发故障退出。request_stop 只置位并关闭/唤醒收件箱，可从输入回调调用；实际取消与 join 留给控制线程：停止服务接纳和握手、关闭 Registry 端点、join 连接循环，再停止输入队列。stop 由外部调用并等待整个顺序结束，禁止从自身控制线程或输入线程 join。故障仅暴露分类，不记录原始异常、输入或路径。
 
