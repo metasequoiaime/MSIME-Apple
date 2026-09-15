@@ -321,10 +321,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios\n", project)
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard\n", project)
-        self.assertIn("deploymentTarget:\n    iOS: \"15.5\"", project)
+        self.assertIn("deploymentTarget:\n    iOS: \"17.0\"", project)
         # The Podfile states the same floor, and the pods are compiled against whatever it says. The
         # two drifting apart builds the dependencies for a different iOS than the app declares.
-        self.assertIn("platform :ios, '15.5'", (IOS_ROOT / "Podfile").read_text())
+        self.assertIn("platform :ios, '17.0'", (IOS_ROOT / "Podfile").read_text())
+        # post_install 会把每个 pod 的目标版本重写一遍,漏了它,pod 仍按自己的默认值编。
+        self.assertIn("['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'", (IOS_ROOT / "Podfile").read_text())
 
     def test_testflight_archive_uses_distribution_profiles(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()

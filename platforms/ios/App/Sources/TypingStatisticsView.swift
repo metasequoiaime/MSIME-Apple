@@ -1,13 +1,6 @@
 import SwiftUI
 
-private struct StatisticsSlice: Identifiable {
-  let id: String
-  let title: String
-  let count: Int
-  let color: Color
-  /// 这一类自己的图标。原来每行前面都是同一个小圆点,只有颜色不同 —— 十几行看下来分不出谁是谁,得逐行读字。
-  let symbol: String
-}
+private typealias StatisticsSlice = StatisticsChart.Slice
 
 /// 每一类配一个图标。名字是查出来的意思,不是装饰:九键是九宫格,双拼是两个键,五笔是笔画,手写是笔,语音是波形。
 private enum StatisticsSymbol {
@@ -147,19 +140,19 @@ struct TypingStatisticsView: View {
             Button("返回累计") { selectedDay = nil }
           }
         } header: { Text("每日趋势 · 近 \(Self.trendDays) 天") }
-          footer: { Text("点按柱形查看当天的分类与占比。") }
+          footer: { Text("折线是近 30 天的走势，方块是近 12 周每天的量；点一个方块只看那一天的分类与占比。") }
       case .kind:
         Section {
-          distribution(characterSlices)
+          distribution(characterSlices, chart: .pie)
         } header: { Text("字符类型") }
       case .mode:
         Section {
-          distribution(languageSlices)
+          distribution(languageSlices, chart: .donut)
         } header: { Text("语言模式") }
           footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
       case .scheme:
         Section {
-          distribution(sourceSlices)
+          distribution(sourceSlices, chart: .rank)
         } header: { Text("输入方案") }
           footer: { Text("拼音方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。") }
       }
@@ -210,53 +203,49 @@ struct TypingStatisticsView: View {
     } message: { Text("累计字数、分类和每日记录将被删除，无法恢复。") }
   }
 
+  /// 热力图看的是「哪些天在打字」,要看出习惯得比折线的窗口长 —— 三十天铺出来只有四五列,和折线说的是同一件事。
+  private static let heatmapDays = 84
+  private var heatmapDates: [Date] {
+    (0..<Self.heatmapDays).reversed().compactMap {
+      Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
+    }
+  }
+
   private var trendChart: some View {
-    let maximum = max(1, dates.map { statistics.count(on: $0) }.max() ?? 1)
-    return VStack(alignment: .leading, spacing: 8) {
-      Text("最高 \(maximum == 1 && dates.allSatisfy { statistics.count(on: $0) == 0 } ? 0 : maximum) 字符 / 天")
-        .font(.caption).foregroundStyle(.secondary)
-      // 三十根柱子并排,每根只有几个点宽:数字标在头上会挤成一团,圆角也要小一号。
-      HStack(alignment: .bottom, spacing: 3) {
-        ForEach(dates, id: \.self) { date in
-          let count = statistics.count(on: date)
-          Button { selectedDay = selectedDay == date ? nil : date } label: {
-            VStack(spacing: 4) {
-              RoundedRectangle(cornerRadius: 2)
-                .fill(selectedDay == date ? Color.orange : MetasequoiaTheme.forest.opacity(selectedDay == nil ? 0.85 : 0.4))
-                .frame(height: max(2, 120 * Double(count) / Double(maximum)))
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).contentShape(Rectangle())
-          }.buttonStyle(.plain)
-            .accessibilityLabel(date.formatted(.dateTime.month().day()))
-            .accessibilityValue("\(count) 字符")
-            .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(date))")
-        }
-      }.frame(height: 145)
-      HStack {
-        Text(dates.first ?? Date(), format: .dateTime.month().day())
-        Spacer()
-        Text(dates.last ?? Date(), format: .dateTime.month().day())
-      }.font(.caption).foregroundStyle(.secondary)
+    let days = dates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
+    let heat = heatmapDates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
+    let maximum = days.map(\.count).max() ?? 0
+    return VStack(alignment: .leading, spacing: 14) {
+      Text("最高 \(maximum) 字符 / 天").font(.caption).foregroundStyle(.secondary)
+      StatisticsTrendChart(days: days, selected: selectedDay,
+                           accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
+        .animation(.easeOut(duration: 0.7), value: revealed)
+      // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
+      Text("近 \(Self.heatmapDays / 7) 周").font(.caption).foregroundStyle(.secondary)
+      StatisticsHeatmap(days: heat, selected: selectedDay, accent: MetasequoiaTheme.forest) { date in
+        selectedDay = selectedDay == date ? nil : date
+      }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
   }
 
-  private func distribution(_ slices: [StatisticsSlice]) -> some View {
+  /// 一块分布 = 一张图 + 一份图例。图形按这一块回答的问题选,图例给准确数字。
+  private func distribution(_ slices: [StatisticsSlice], chart: DistributionChart) -> some View {
     let total = slices.reduce(0) { $0 + $1.count }
     let visible = slices.filter { $0.count > 0 || $0.id != "unknown" }
-    return VStack(spacing: 12) {
-      GeometryReader { geometry in
-        HStack(spacing: 2) {
-          ForEach(slices.filter { $0.count > 0 }) { slice in
-            // 占比条从零展开。数字直接跳到位看不出是「一条在按比例分」,长出来才看得见谁占了多少。
-            Capsule().fill(slice.color)
-              .frame(width: revealed ? geometry.size.width * Double(slice.count) / Double(max(1, total)) : 0)
-          }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-          .background(Color.secondary.opacity(0.12)).clipShape(Capsule())
-      }.frame(height: 18).accessibilityHidden(true)
-      if total == 0 { Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary) }
+    return VStack(spacing: 14) {
+      switch chart {
+      case .pie:
+        StatisticsPieChart(slices: slices, progress: revealed ? 1 : 0)
+      case .donut:
+        StatisticsDonutChart(slices: slices, total: total, progress: revealed ? 1 : 0)
+      case .rank:
+        StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
+      }
+      if total == 0, chart != .rank {
+        Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary)
+      }
       ForEach(Array(visible.enumerated()), id: \.element.id) { index, slice in
         HStack(spacing: 10) {
-          // 图标带一块自己的底色:同色的圆点十几个排下来,分辨全靠读字。
           Image(systemName: slice.symbol)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(slice.color)
@@ -264,7 +253,6 @@ struct TypingStatisticsView: View {
             .background(slice.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
             .scaleEffect(revealed ? 1 : 0.6)
             .opacity(revealed ? 1 : 0)
-            // 一行比一行晚一点,眼睛跟着从上往下扫一遍。
             .animation(.spring(response: 0.42, dampingFraction: 0.72).delay(Double(index) * 0.03), value: revealed)
           Text(slice.title).font(.subheadline)
           Spacer()
@@ -274,8 +262,11 @@ struct TypingStatisticsView: View {
         }.accessibilityElement(children: .combine)
       }
     }.padding(.vertical, 8)
-    .animation(.easeOut(duration: 0.5), value: revealed)
+    .animation(.easeOut(duration: 0.6), value: revealed)
   }
+
+  /// 这一块用哪种图。
+  private enum DistributionChart { case pie, donut, rank }
 
   private func metric(_ title: String, count: Int, identifier: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
