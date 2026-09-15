@@ -164,14 +164,15 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   if (!input_enabled_)
     return std::nullopt;
   // Do not fetch a full snapshot for keys that cannot use these bindings.
-  auto action = navigation_action(packet, bindings, false);
+  auto action = navigation_action(packet, bindings, false, false);
   if (!action)
     return std::nullopt;
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  action = navigation_action(packet, bindings,
-                             current.at("local_mode") == "unicode");
+  const auto local_mode = current.at("local_mode").get<std::string>();
+  action = navigation_action(packet, bindings, local_mode == "unicode",
+                              local_mode == "japanese");
   if (!action)
     return std::nullopt;
   auto result = action->command
