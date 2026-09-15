@@ -1940,15 +1940,34 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
 }
 
 #[cfg(target_os = "linux")]
+struct PanelFocusRelease {
+    windows: Vec<tauri::WebviewWindow>,
+}
+
+#[cfg(target_os = "linux")]
+impl PanelFocusRelease {
+    fn restore(self) {
+        // Showing a window does not request focus; this restores a panel that
+        // was temporarily hidden for virtual-keyboard injection without
+        // stealing the caret back from the external editor.
+        for window in self.windows {
+            let _ = window.show();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn release_panel_focus(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
-) -> Result<(), HostActionError> {
+) -> Result<PanelFocusRelease, HostActionError> {
     if !matches!(
         target,
         PanelInputTarget::Wayland | PanelInputTarget::Ydotool
     ) {
-        return Ok(());
+        return Ok(PanelFocusRelease {
+            windows: Vec::new(),
+        });
     }
     let windows: Vec<_> = [
         "handwriting-panel",
@@ -1970,14 +1989,39 @@ fn release_panel_focus(
     if focused {
         // Hide every editable panel so the compositor cannot focus another one.
         // The screen keyboard never accepts focus and stays available for typing.
+        let mut hidden = Vec::new();
         for window in windows {
-            window.hide().map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
+            let visible = window.is_visible().unwrap_or(false);
+            if let Err(_) = window.hide() {
+                for hidden_window in hidden {
+                    let _ = hidden_window.show();
+                }
+                return Err(HostActionError {
+                    code: "unavailable",
+                });
+            }
+            if visible {
+                hidden.push(window);
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
+        return Ok(PanelFocusRelease { windows: hidden });
     }
-    Ok(())
+    Ok(PanelFocusRelease {
+        windows: Vec::new(),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn with_panel_focus_released<T>(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+    send: impl FnOnce() -> Result<T, HostActionError>,
+) -> Result<T, HostActionError> {
+    let release = release_panel_focus(app, target)?;
+    let result = send();
+    release.restore();
+    result
 }
 
 #[cfg(target_os = "linux")]
@@ -2046,13 +2090,11 @@ fn send_panel_key(
         let mut command_args = Vec::with_capacity(args.len() + 1);
         command_args.push("key".to_owned());
         command_args.extend(args);
-        release_panel_focus(app, &target)?;
-        return run_ydotool(&command_args);
+        return with_panel_focus_released(app, &target, || run_ydotool(&command_args));
     }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
-    release_panel_focus(app, &target)?;
     let mut args = Vec::new();
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
@@ -2069,7 +2111,7 @@ fn send_panel_key(
         args.extend(["-M".to_owned(), "shift".to_owned()]);
     }
     args.extend(["-k".to_owned(), key.to_owned()]);
-    run_wtype(&target, &args)
+    with_panel_focus_released(app, &target, || run_wtype(&target, &args))
 }
 
 #[cfg(target_os = "linux")]
@@ -2093,51 +2135,52 @@ fn send_panel_text_to_target(
         std::thread::sleep(std::time::Duration::from_millis(30));
         return send_panel_ctrl_v(app, target);
     }
-    release_panel_focus(app, target)?;
-    if let PanelInputTarget::X11(window) = target {
-        // Use focused XTEST input for applications that reject XSendEvent.
-        // --file - reads stdin, keeping the text out of process arguments.
-        return linux_process::write_input(
-            "xdotool",
-            &[
-                "windowactivate",
-                "--sync",
-                window.as_str(),
-                "type",
-                "--delay",
-                "0",
-                "--file",
-                "-",
-            ],
-            text.as_bytes(),
-            std::time::Duration::from_secs(3),
-        )
-        .then_some(())
-        .ok_or(HostActionError {
+    with_panel_focus_released(app, target, || {
+        if let PanelInputTarget::X11(window) = target {
+            // Use focused XTEST input for applications that reject XSendEvent.
+            // --file - reads stdin, keeping the text out of process arguments.
+            return linux_process::write_input(
+                "xdotool",
+                &[
+                    "windowactivate",
+                    "--sync",
+                    window.as_str(),
+                    "type",
+                    "--delay",
+                    "0",
+                    "--file",
+                    "-",
+                ],
+                text.as_bytes(),
+                std::time::Duration::from_secs(3),
+            )
+            .then_some(())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
+        }
+        let sent = if matches!(target, PanelInputTarget::Ydotool) {
+            // ydotool may hold each ASCII key for 20ms even with key-delay=0.
+            // Allow that per-character work while keeping stalls bounded.
+            let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
+            linux_process::write_input(
+                "ydotool",
+                &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
+                text.as_bytes(),
+                timeout,
+            )
+        } else {
+            focus_wtype_target(target)?;
+            linux_process::write_input(
+                "wtype",
+                &["-"],
+                text.as_bytes(),
+                std::time::Duration::from_secs(3),
+            )
+        };
+        sent.then_some(()).ok_or(HostActionError {
             code: "unavailable",
-        });
-    }
-    let sent = if matches!(target, PanelInputTarget::Ydotool) {
-        // ydotool may hold each ASCII key for 20ms even with key-delay=0.
-        // Allow that per-character work while keeping stalls bounded.
-        let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
-        linux_process::write_input(
-            "ydotool",
-            &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
-            text.as_bytes(),
-            timeout,
-        )
-    } else {
-        focus_wtype_target(target)?;
-        linux_process::write_input(
-            "wtype",
-            &["-"],
-            text.as_bytes(),
-            std::time::Duration::from_secs(3),
-        )
-    };
-    sent.then_some(()).ok_or(HostActionError {
-        code: "unavailable",
+        })
     })
 }
 
@@ -2202,28 +2245,29 @@ fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
-    release_panel_focus(app, target)?;
-    if let PanelInputTarget::X11(window) = target {
-        return send_x11_panel_key(window, "ctrl+v");
-    }
-    if let PanelInputTarget::Ydotool = target {
-        return run_ydotool(&[
-            "key".to_owned(),
-            "29:1".to_owned(),
-            "47:1".to_owned(),
-            "47:0".to_owned(),
-            "29:0".to_owned(),
-        ]);
-    }
-    run_wtype(
-        target,
-        &[
-            "-M".to_owned(),
-            "ctrl".to_owned(),
-            "-k".to_owned(),
-            "v".to_owned(),
-        ],
-    )
+    with_panel_focus_released(app, target, || {
+        if let PanelInputTarget::X11(window) = target {
+            return send_x11_panel_key(window, "ctrl+v");
+        }
+        if let PanelInputTarget::Ydotool = target {
+            return run_ydotool(&[
+                "key".to_owned(),
+                "29:1".to_owned(),
+                "47:1".to_owned(),
+                "47:0".to_owned(),
+                "29:0".to_owned(),
+            ]);
+        }
+        run_wtype(
+            target,
+            &[
+                "-M".to_owned(),
+                "ctrl".to_owned(),
+                "-k".to_owned(),
+                "v".to_owned(),
+            ],
+        )
+    })
 }
 
 #[cfg(target_os = "linux")]
