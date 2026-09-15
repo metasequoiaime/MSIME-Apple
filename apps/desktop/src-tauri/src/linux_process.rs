@@ -1,6 +1,8 @@
 //! Bounded, silent output capture for Linux session tools.
 use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -8,6 +10,16 @@ use std::time::{Duration, Instant};
 /// The child is always reaped so a timed-out helper cannot remain attached to
 /// the desktop command that launched it.
 pub fn run_status(program: &str, arguments: &[&str], timeout: Duration) -> bool {
+    let arguments: Vec<&OsStr> = arguments.iter().map(|argument| OsStr::new(argument)).collect();
+    run_status_os(OsStr::new(program), &arguments, timeout)
+}
+
+/// Run a command with one path argument without requiring the path to be UTF-8.
+pub fn run_status_path(program: &str, argument: &Path, timeout: Duration) -> bool {
+    run_status_os(OsStr::new(program), &[argument.as_os_str()], timeout)
+}
+
+fn run_status_os(program: &OsStr, arguments: &[&OsStr], timeout: Duration) -> bool {
     let Ok(mut child) = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
@@ -185,6 +197,22 @@ mod tests {
             "/bin/sh",
             &["-c", "sleep 1"],
             Duration::from_millis(20)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_status_path_accepts_non_utf8_paths() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(OsString::from_vec(vec![b's', b'y', b'n', 0x80]));
+        std::fs::create_dir(&path).unwrap();
+        assert!(super::run_status_path(
+            "/bin/ls",
+            &path,
+            Duration::from_secs(1)
         ));
     }
 }

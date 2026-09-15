@@ -24,12 +24,9 @@ pub fn open(root: &Path) -> Result<(), &'static str> {
 fn launch_directory(directory: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        let path = directory
-            .to_str()
-            .ok_or_else(|| std::io::Error::other("directory path is not valid UTF-8"))?;
-        return if crate::linux_process::run_status(
+        return if crate::linux_process::run_status_path(
             "xdg-open",
-            &[path],
+            directory,
             std::time::Duration::from_secs(3),
         ) {
             Ok(())
