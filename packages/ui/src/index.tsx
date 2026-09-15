@@ -1460,8 +1460,14 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
   const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
-  const mobileSecondaryPages = availablePages.filter(item => !mobilePrimaryPageIds.includes(item.id));
+  // Physical-keyboard shortcuts, helper-code switches, and a desktop floating
+  // toolbar have no mobile surface in the Apple/Android hosts. Keep them in the
+  // desktop sidebar while preventing dead-end entries in the mobile picker.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = ["helpcode", "shortcuts", "floating-toolbar"];
+  const mobileSecondaryPages = availablePages.filter(item =>
+    !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id));
   const selectPage = (next: SettingsPageId) => {
+    if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
     setPage(next);
     if (mobilePlatform && typeof window !== "undefined") {
@@ -1473,8 +1479,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     if (next === "community") setCommunityDestination("all");
   };
   useEffect(() => {
-    if (!availablePages.some(item => item.id === page)) setPage("appearance");
-  }, [availablePages, page]);
+    const pageAvailable = availablePages.some(item => item.id === page)
+      && (!mobilePlatform || !mobileHiddenPageIds.includes(page));
+    if (!pageAvailable) setPage(mobilePlatform && client.home ? "home" : "appearance");
+  }, [availablePages, client.home, mobilePlatform, page]);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const apply = () => {
