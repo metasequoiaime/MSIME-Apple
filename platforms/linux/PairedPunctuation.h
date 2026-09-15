@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -87,6 +88,25 @@ inline std::optional<std::string> paired_closing_for_key(char key,
     case '>': return std::string("〉");
     default: return std::nullopt;
   }
+}
+
+// Spreadsheet cells on Linux cannot reliably preserve the caret move used by
+// paired punctuation.  IBus supplies the focused client name, so keep the
+// exclusion narrow to applications whose executable identifies as a
+// spreadsheet.  LibreOffice's shared soffice.bin name is intentionally not
+// included because it also hosts Writer and other editors.
+inline bool paired_punctuation_excluded_client(std::string_view client) {
+  const auto slash = client.find_last_of("/\\");
+  client = client.substr(slash == std::string_view::npos ? 0 : slash + 1);
+  std::string normalized;
+  normalized.reserve(client.size());
+  for (const unsigned char value : client)
+    normalized.push_back(static_cast<char>(std::tolower(value)));
+  return normalized == "scalc" || normalized == "scalc.bin" ||
+         normalized == "libreoffice-calc" || normalized == "gnumeric" ||
+         normalized == "org.gnome.gnumeric" ||
+         normalized == "calligrasheets" ||
+         normalized == "org.kde.calligrasheets";
 }
 
 }  // namespace msime::linux_host
