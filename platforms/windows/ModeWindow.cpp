@@ -183,9 +183,16 @@ void ModeWindow::paint() {
                                  palette_.border_width);
     std::wstring text = labels[i];
     text += !current ? L" ?" : (active ? L" \u2713" : L"");
+    // The active cell is filled with palette_.selected, and the green skins
+    // set accent to that very colour - wechat uses 0x07C160 for both - so
+    // drawing the label in the accent painted it in exactly the fill and the
+    // whole label disappeared. Resolve it the way the candidate card resolves
+    // its highlighted row: selected_text when the skin named one, otherwise
+    // the normal text colour.
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
                      rounded.rect,
-                     brush(active ? palette_.accent : palette_.text));
+                     brush(candidate_row_text_color(palette_, palette_.text,
+                                                    active, false)));
   }
   const HRESULT drawn = target->EndDraw();
   if (drawn == D2DERR_RECREATE_TARGET) {
