@@ -160,9 +160,10 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
                                  std::optional<bool> dark_theme,
-                                 bool horizontal, bool show_preedit,
-                                 Page page, bool mouse_wheel)
+                                 bool horizontal, bool show_preedit, Page page,
+                                 Rendered rendered, bool mouse_wheel)
     : reader_(std::move(reader)), click_(std::move(click)), page_(std::move(page)),
+      rendered_(std::move(rendered)),
       font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
       palette_(dark_theme.value_or(false) ? CandidatePalette{}
@@ -694,6 +695,8 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate drawing failed");
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
+  if (rendered_)
+    rendered_(*painted_);
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!click_ || !painted_ || !IsWindowVisible(window_))

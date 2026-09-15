@@ -30,6 +30,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+if ($TargetVersion -notmatch '^[0-9][0-9A-Za-z.+-]*$') {
+    throw "Invalid installer version: $TargetVersion"
+}
+
 function Test-PackageTestArtifact {
     param([Parameter(Mandatory)][string]$BaseName)
     # Client CMake tests use windows-*, alongside the legacy test conventions.

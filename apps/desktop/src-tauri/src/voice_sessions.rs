@@ -83,7 +83,10 @@ impl VoiceSessions {
         if request_id.is_some_and(|id| id != active.request_id) {
             return None;
         }
-        active.cancelled.store(true, Ordering::Relaxed);
+        // The worker observes this flag with Acquire before emitting updates
+        // or accepting a provider result. Publish the cancellation so the
+        // generation gate is reliable on weakly ordered platforms as well.
+        active.cancelled.store(true, Ordering::Release);
         state.active.take()
     }
 }

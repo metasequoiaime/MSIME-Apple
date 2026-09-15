@@ -31,6 +31,9 @@ public:
   std::optional<CandidatePresentation> candidate_view() {
     return controller_->candidate_view();
   }
+  void candidate_rendered(const FocusLease &lease, uint64_t generation) {
+    controller_->candidate_rendered(lease, generation);
+  }
   std::optional<ModePresentation> mode_view() { return controller_->mode_view(); }
   bool mode_active() { return controller_->mode_active(); }
   bool focus_current(const FocusLease &lease) {

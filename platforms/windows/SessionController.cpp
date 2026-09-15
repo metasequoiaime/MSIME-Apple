@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "CandidateRenderSync.h"
 #include "ReplyCodec.h"
 #include "UiSelectionDelivery.h"
 
@@ -137,8 +138,17 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
         shown->lease.token != lease.token ||
         !same_ticket(shown->lease.transport, lease.transport))
       return SelectionRequestResult::Rejected;
+    if (should_wait_for_candidate_render(0, generation, false, shown->visible))
+      (void)candidates_.wait_rendered(
+          lease, generation,
+          std::chrono::milliseconds(candidate_render_wait_max_ms));
+    // Re-read after the receipt; the page may have changed while painting.
+    const auto painted = candidate_view();
+    if (!painted || painted->session != session ||
+        painted->generation != generation)
+      return SelectionRequestResult::Rejected;
     bool found = false;
-    for (const auto &candidate : shown->candidates)
+    for (const auto &candidate : painted->candidates)
       if (candidate.index == index && candidate.session == session &&
           candidate.generation == generation)
         found = true;
@@ -174,8 +184,8 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
           FanyImeNamedpipeData packet{};
           packet.client_id = lease.transport.client;
           packet.event_type = FanyImePipeEventType::KeyEvent;
-          packet.point[0] = shown->x;
-          packet.point[1] = shown->y;
+          packet.point[0] = painted->x;
+          packet.point[1] = painted->y;
           candidates_.delivered(lease, *pending, packet);
           if (presentation_.delivered)
             presentation_.delivered(lease, *pending, packet);
