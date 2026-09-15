@@ -3,6 +3,18 @@
 
 #include <cassert>
 
+@interface CursorProbeButton : MSIMECandidateButton
+@property(nonatomic, strong) NSCursor *capturedCursor;
+@property(nonatomic) NSRect capturedRect;
+@end
+@implementation CursorProbeButton
+- (void)addCursorRect:(NSRect)rect cursor:(NSCursor *)cursor
+{
+    self.capturedRect = rect;
+    self.capturedCursor = cursor;
+}
+@end
+
 int main()
 {
     @autoreleasepool
@@ -17,6 +29,10 @@ int main()
         assert(button.candidateHovered);
         [button mouseExited:(NSEvent *)[NSNull null]];
         assert(!button.candidateHovered);
+        CursorProbeButton *cursorButton = [[CursorProbeButton alloc] initWithFrame:NSMakeRect(3, 4, 160, 36)];
+        [cursorButton resetCursorRects];
+        assert(NSEqualRects(cursorButton.capturedRect, cursorButton.bounds));
+        assert(cursorButton.capturedCursor == NSCursor.pointingHandCursor);
         puts("Candidate hover tracking passed");
     }
     return 0;
