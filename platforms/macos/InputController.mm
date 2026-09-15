@@ -351,6 +351,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
+    NSDictionary *_voiceThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
     MSIMECloudCandidateRequest *_cloudRequest;
@@ -1146,7 +1147,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_voiceService.active) [_voiceService cancelWithError:nil];
     [_voiceAudioMuter restore]; [self voiceCaptureDidEnd];
     if (!_activeClient) return;
-    if (!_voiceOverlay) _voiceOverlay = [MSIMEVoiceWaveOverlay new];
+    if (!_voiceOverlay) {
+        _voiceOverlay = [MSIMEVoiceWaveOverlay new];
+        [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
+    }
     [_voiceOverlay showFailure:failure];
 }
 - (void)cancelDoubaoVoiceInput {
@@ -1540,7 +1544,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
     if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
-    if (!_voiceOverlay) _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
+    if (!_voiceOverlay) {
+        _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
+        [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
+    }
     if (_httpVoiceRequest) { [self finishHTTPVoiceInput]; return; }
     if (_doubaoVoiceRequest) { [self finishDoubaoVoiceInput]; return; }
     if (_liveVoiceToken) { [self finishLiveVoiceInput]; return; }
@@ -1840,6 +1847,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    if ([preferences isKindOfClass:NSDictionary.class]) {
+        _voiceThemePreferences = [preferences copy];
+        if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
+    }
     if (MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults))
         _voicePermissionToken = nil;
     if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults))

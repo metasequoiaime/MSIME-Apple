@@ -19,6 +19,14 @@ int main(int argc, char **argv) {
         assert(!panel.canBecomeMainWindow);
         assert(panel.contentView != nil);
         assert(!panel.isVisible);
+        [panel applyThemePreferences:@{@"theme": @"light", @"voice_theme": @"dark"}];
+        assert(!panel.isLightTheme && panel.appearance != nil);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"light"}];
+        assert(panel.isLightTheme && panel.appearance != nil);
+        [panel applyThemePreferences:@{@"theme": @"system", @"voice_theme": @"follow"}];
+        assert(panel.appearance == nil);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"invalid"}];
+        assert(!panel.isLightTheme && panel.appearance != nil);
         __block NSUInteger cancels = 0, confirms = 0;
         panel.actionHandler = ^(BOOL cancel) { if (cancel) ++cancels; else ++confirms; };
         [panel setListening:YES];

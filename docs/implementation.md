@@ -728,6 +728,12 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
 
+### macOS 语音波形面板主题覆盖（next44）
+
+原生 `MSIMEVoiceWaveOverlay` 现消费共享 `voice_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局；全局为 `system` 时清除窗口外观，让 AppKit 的有效外观决定波形、状态、转写预览和确认/取消按钮配色。偏好热更新会应用到已存在的面板，尚未创建的面板也会在首次显示时采用最新快照，不触碰录音、识别、润色或 Engine 提交状态。
+
+`voice-wave-overlay` CTest 覆盖显式覆盖、跟随、系统和非法值回退，并继续验证面板非激活、动作按钮、转写上限、失败提示和异步电平边界；真实系统外观切换、麦克风权限、网络服务与安装后编辑器验收仍待执行。
+
 ### macOS 悬浮输入工具栏
 
 新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
