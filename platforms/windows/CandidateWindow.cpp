@@ -873,15 +873,29 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       case WM_ERASEBKGND:
         return 1;
+      case WM_POWERBROADCAST:
+        if (wparam != PBT_APMRESUMEAUTOMATIC &&
+            wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)
+          break;
+        [[fallthrough]];
       case WM_DISPLAYCHANGE:
-      case WM_SETTINGCHANGE:
+      case WM_DWMCOMPOSITIONCHANGED:
       case WM_DPICHANGED:
+        // Composition surfaces keep both the display device and the DPI they
+        // were created with. A topology change, DWM restart or system resume
+        // can invalidate that device, while a high-to-low DPI move can leave
+        // the old surface large enough to bypass EnsureForComposition's size
+        // rebuild. Recreate it before the next frame in every case.
+        self->device_.DiscardTarget();
+        [[fallthrough]];
+      case WM_SETTINGCHANGE:
         // The next refresh recomputes from the authenticated caret anchor;
         // do not recursively reposition from inside SetWindowPos's callback.
         self->shown_.reset();
         self->painted_.reset();
         self->pressed_.reset();
-        return 0;
+        self->hovered_.reset();
+        return message == WM_POWERBROADCAST ? TRUE : 0;
       case WM_PAINT:
         self->paint();
         return 0;
