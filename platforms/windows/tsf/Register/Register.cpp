@@ -156,7 +156,7 @@ BOOL RegisterCategories()
 
 BOOL UnregisterCategories()
 {
-    ITfCategoryMgr *pCategoryMgr = S_OK;
+    ITfCategoryMgr *pCategoryMgr = nullptr;
     HRESULT hr = S_OK;
 
     hr = CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void **)&pCategoryMgr);
@@ -165,20 +165,21 @@ BOOL UnregisterCategories()
         return FALSE;
     }
 
-    // for each (GUID guid in SupportCategories)
+    // Cleanup is best-effort across the entire category set. Retain any
+    // failure for DllUnregisterServer without leaving later categories behind.
+    BOOL complete = TRUE;
     for (const auto &guid : SupportCategories)
     {
         hr = pCategoryMgr->UnregisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
         if (FAILED(hr))
         {
-            pCategoryMgr->Release();
-            return FALSE;
+            complete = FALSE;
         }
     }
 
     pCategoryMgr->Release();
 
-    return TRUE;
+    return complete;
 }
 
 //+---------------------------------------------------------------------------
