@@ -15,6 +15,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #include "CandidateSkin.h"
 #include "FrequencyAdjustmentPreference.h"
 #include "FloatingToolbarPreferences.h"
+#include "LocalInputModePreferences.h"
 #include "HelpcodeSchemaPreference.h"
 #include "InputControllerKeyRouting.h"
 #include "InputBehaviorPreferences.h"
@@ -23,6 +24,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #import "CandidateSkinAppearance.h"
 #import "CandidateSkinPreviewView.h"
 #import "DictionaryInstaller.h"
+#import "PersonalDictionaryView.h"
 #import "SkinSettingsView.h"
 #import "UpdateController.h"
 #import "VoiceSettings.h"
@@ -99,6 +101,27 @@ namespace
 {
 constexpr CGFloat kWindowWidth = 980.0;
 constexpr CGFloat kWindowHeight = 800.0;
+// 页面下标既是 _preferencePages 的下标,也是侧栏按钮的 tag。写成具名常量,不要再用 count - 1 去指
+// 「最后一页」:语音输入和反馈都当过最后一页,后加的那个把先来的挤掉,于是「提交反馈…」打开的是语音
+// 输入页,而且编译器一声不吭。
+enum : NSInteger
+{
+    kGeneralPageIndex = 0,
+    kAppearancePageIndex,
+    kSkinPageIndex,
+    kDataPageIndex,
+    kAboutPageIndex,
+    kWubiPageIndex,
+    kHelpcodePageIndex,
+    kShortcutsPageIndex,
+    kFloatingPageIndex,
+    kAccountPageIndex,
+    kHelpPageIndex,
+    kFeedbackPageIndex,
+    kVoicePageIndex,
+    kUtilitiesPageIndex,
+};
+
 NSString *const kSchemePreferenceKey = @"MetasequoiaImeInputScheme";
 NSString *const kShuangpinSchemaPreferenceKey = @"MetasequoiaImeShuangpinSchema";
 NSString *const kAutocorrectPreferenceKey = @"MetasequoiaImeQuanpinAutocorrect";
@@ -217,6 +240,21 @@ NSView *CardHeader(NSString *title)
         [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
     ]];
     return row;
+}
+
+// 四个地方要把按钮画成链接:反馈、官网、开源许可、隐私政策。前两个原本各自抄了一遍同样的八行,再抄
+// 两遍不如就地收成一个函数。
+void LinkifyButton(NSButton *button, NSString *accessibilityLabel)
+{
+    button.bezelStyle = NSBezelStyleInline;
+    button.accessibilityLabel = accessibilityLabel;
+    button.contentTintColor = [NSColor linkColor];
+    button.attributedTitle = [[NSAttributedString alloc]
+        initWithString:button.title
+            attributes:@{
+                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
+                NSForegroundColorAttributeName : [NSColor linkColor],
+            }];
 }
 
 NSBox *CardSeparator()
@@ -341,6 +379,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_quanpinHelpcodeHintsButton;
     NSButton *_shuangpinHelpcodeHintsButton;
     NSButton *_localInputModesButton;
+    NSPopUpButton *_shuangpinPreeditButton;
+    MetasequoiaPersonalDictionaryView *_personalDictionaryView;
+    NSArray<NSButton *> *_localInputModeItemButtons;
     NSPopUpButton *_quanpinHelpcodeSchemaButton;
     NSPopUpButton *_shuangpinHelpcodeSchemaButton;
     NSButton *_chinesePunctuationButton;
@@ -1161,21 +1202,22 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [navigation setCustomSpacing:30.0 afterView:brandRow];
     // 下标即 _preferencePages 的下标,也是按钮的 tag。这里只排显示顺序,按 tag 定位的代码不受影响。
     NSArray<NSString *> *labels = @[
-        @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号",
-        @"帮助", @"反馈", @"语音输入"
+        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
+        @"反馈", @"语音输入", @"实用功能"
     ];
     NSArray<NSString *> *symbols = @[
         @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
-        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic"
+        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic",
+        @"wand.and.stars"
     ];
     // 分组写成嵌套数组,而不是一串下标加一句注释解释它们为什么这样排 —— 上一版就是那样,于是外观和
     // 皮肤隔着五项、帮助和反馈被悬浮工具栏劈开,谁也看不出原本想分组。组间多留一点间距,让分组在界面
     // 上也看得见。五笔不在其中:它是「输入」页里的子页,靠页内按钮进出。
     NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
-        @[ @0, @6, @7, @12 ], // 输入 · 辅助码 · 快捷键 · 语音输入
-        @[ @1, @2, @8 ],      // 外观 · 皮肤 · 悬浮工具栏
-        @[ @3, @9 ],          // 词库 · 账号
-        @[ @10, @11, @4 ],    // 帮助 · 反馈 · 关于与更新
+        @[ @0, @6, @7, @13, @12 ], // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
+        @[ @1, @2, @8 ],           // 外观 · 皮肤 · 悬浮工具栏
+        @[ @3, @9 ],               // 词库 · 账号
+        @[ @10, @11, @4 ],         // 帮助 · 反馈 · 关于
     ];
     NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
     for (NSArray<NSNumber *> *group in navigationGroups)
@@ -1796,6 +1838,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _followCaretSwitch.action = @selector(advancedAppearanceChanged:);
     _followCaretSwitch.accessibilityLabel = @"候选窗口跟随光标";
     _followCaretSwitch.toolTip = @"关闭后保持本次组合首次出现的位置，直到候选窗口消失。";
+    // 双拼预编辑显示原始按键还是拼音分词。引擎一直有 shuangpin_preedit_uses_raw,macOS 从来没读过它,
+    // 于是所有人都吃默认的「原始按键」。
+    _shuangpinPreeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_shuangpinPreeditButton addItemsWithTitles:@[ @"原始按键", @"拼音分词" ]];
+    _shuangpinPreeditButton.target = self;
+    _shuangpinPreeditButton.action = @selector(shuangpinPreeditChanged:);
+    _shuangpinPreeditButton.accessibilityLabel = @"双拼预编辑";
+    _shuangpinPreeditButton.toolTip = @"仅在双拼方案下生效。「拼音分词」把敲下的字母还原成完整拼音再显示。";
+
     _themeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_themeButton addItemsWithTitles:@[ @"跟随系统", @"浅色", @"深色" ]];
     _themeButton.target = self;
@@ -1857,7 +1908,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     floatingItemsCard.accessibilityLabel = @"悬浮状态栏显示项卡片";
     NSView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
         _candidatePreview, appearanceCard, CardWithViews(@[ PreferenceRow(@"主题模式", _themeButton) ], 0),
-        CardWithViews(@[ PreferenceRow(@"候选项排列方式", _candidatePanelStyleButton) ], 0)
+        CardWithViews(
+            @[
+                PreferenceRow(@"候选项排列方式", _candidatePanelStyleButton), CardSeparator(),
+                PreferenceRow(@"双拼预编辑", _shuangpinPreeditButton)
+            ],
+            0)
     ]);
     appearancePage.accessibilityLabel = @"外观设置页";
     NSView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。",
@@ -1880,12 +1936,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                                          target:self
                                                          action:@selector(schemeHelpcodeChanged:)];
     _shuangpinHelpcodeHintsButton.identifier = @"shuangpinHelpcodeHints";
-    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式（Shift+U/T/K/J）"
+    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式"
                                                   target:self
                                                   action:@selector(localInputModesChanged:)];
-    _localInputModesButton.toolTip =
-        @"未组词时按 Shift+U 输入 Unicode 码点，Shift+T 输入日期时间，Shift+K 输入快捷短语，Shift+J 超级简拼。"
-        @"关闭时这些组合照常输入大写字母。";
+    _localInputModesButton.accessibilityLabel = @"启用本地输入模式";
+    _localInputModesButton.toolTip = @"未组词时按 Shift 加下面这些字母进入对应模式。关闭时这些组合照常输入大写字母。";
     NSArray<NSString *> *helpcodeSchemeTitles = @[ @"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤" ];
     _quanpinHelpcodeSchemaButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_quanpinHelpcodeSchemaButton addItemsWithTitles:helpcodeSchemeTitles];
@@ -1947,7 +2002,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         @[
             _candidateLearningButton, PreferenceRow(@"调频方式", _frequencyModeButton),
             PreferenceRow(@"触发频次", _frequencyTriggerCountButton),
-            PreferenceRow(@"线性调频步长", _frequencyLinearStepButton), _localInputModesButton
+            PreferenceRow(@"线性调频步长", _frequencyLinearStepButton)
         ],
         9.0);
     NSBox *dictionaryCard = CardWithViews(@[ _statusLabel ], 0.0);
@@ -1962,9 +2017,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     ]);
     generalPage.accessibilityLabel = @"键盘输入设置页";
     resetCard.accessibilityLabel = @"数据与隐私卡片";
-    NSView *dataPage =
-        PreferencesPage(@"词库与数据", @"管理候选学习、辅助码与本机词库状态。",
-                        @[ SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"数据与隐私"), resetCard ]);
+    // 用户词库以前只能靠打字积累、靠「清除学习数据」整片抹掉,单条看不到也改不了 —— 引擎的
+    // personal_dictionary API 一直在,只是 macOS 这边从没接过。
+    _personalDictionaryView = [[MetasequoiaPersonalDictionaryView alloc] initWithFrame:NSZeroRect];
+    NSBox *personalDictionaryCard = CardWithViews(@[ _personalDictionaryView ], 0.0);
+    personalDictionaryCard.accessibilityLabel = @"用户词库卡片";
+    NSView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
+        SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"用户词库"), personalDictionaryCard,
+        SectionLabel(@"数据与隐私"), resetCard
+    ]);
     dataPage.accessibilityLabel = @"词库与数据设置页";
 
     _versionLabel = [NSTextField labelWithString:@"开发构建"];
@@ -1983,28 +2044,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
     // 跳本地的反馈页,不再直接开浏览器 —— 那一页会把版本和系统信息一起备好。
     NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showFeedback:)];
-    feedbackButton.bezelStyle = NSBezelStyleInline;
-    feedbackButton.accessibilityLabel = @"提交反馈";
-    feedbackButton.contentTintColor = [NSColor linkColor];
-    feedbackButton.attributedTitle = [[NSAttributedString alloc]
-        initWithString:feedbackButton.title
-            attributes:@{
-                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
-                NSForegroundColorAttributeName : [NSColor linkColor],
-            }];
+    LinkifyButton(feedbackButton, @"提交反馈");
 
     NSButton *productWebsiteButton = [NSButton buttonWithTitle:@"访问 msime.app"
                                                         target:self
                                                         action:@selector(openWebsite:)];
-    productWebsiteButton.bezelStyle = NSBezelStyleInline;
-    productWebsiteButton.accessibilityLabel = @"访问水杉官网";
-    productWebsiteButton.contentTintColor = [NSColor linkColor];
-    productWebsiteButton.attributedTitle = [[NSAttributedString alloc]
-        initWithString:productWebsiteButton.title
-            attributes:@{
-                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
-                NSForegroundColorAttributeName : [NSColor linkColor],
-            }];
+    LinkifyButton(productWebsiteButton, @"访问水杉官网");
 
     NSBox *updateCard = CardWithViews(
         @[
@@ -2021,10 +2066,62 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     updatesLinksCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSView *updatesPage =
-        PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
-                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), updatesLinksCard ]);
-    updatesPage.accessibilityLabel = @"更新与反馈设置页";
+
+    // 这一页的侧栏标签一直叫「关于」,页面却叫「更新与反馈」,内容里也没有一样「关于」该有的东西:
+    // 没有图标、没有版权、没有开源许可、没有隐私政策 —— 仓库里 licenses/ 三份 LICENSE 和 PRIVACY.md
+    // 在应用内一处都没被引用过。
+    NSImageView *aboutIcon = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    aboutIcon.image = [NSApp applicationIconImage];
+    aboutIcon.imageScaling = NSImageScaleProportionallyUpOrDown;
+    aboutIcon.accessibilityLabel = @"水杉输入法图标";
+    [aboutIcon.widthAnchor constraintEqualToConstant:64.0].active = YES;
+    [aboutIcon.heightAnchor constraintEqualToConstant:64.0].active = YES;
+    NSTextField *aboutName = [NSTextField labelWithString:@"水杉输入法"];
+    aboutName.font = [NSFont systemFontOfSize:17.0 weight:NSFontWeightSemibold];
+    NSTextField *aboutTagline = [NSTextField labelWithString:@"为 macOS 打造的开源中文输入法。"];
+    aboutTagline.textColor = [NSColor secondaryLabelColor];
+    NSStackView *aboutText = [NSStackView stackViewWithViews:@[ aboutName, aboutTagline ]];
+    aboutText.orientation = NSUserInterfaceLayoutOrientationVertical;
+    aboutText.alignment = NSLayoutAttributeLeading;
+    aboutText.spacing = 4.0;
+    NSStackView *aboutIdentity = [NSStackView stackViewWithViews:@[ aboutIcon, aboutText ]];
+    aboutIdentity.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    aboutIdentity.alignment = NSLayoutAttributeCenterY;
+    aboutIdentity.spacing = 16.0;
+    NSBox *aboutIdentityCard = CardWithViews(@[ aboutIdentity ], 0.0);
+    aboutIdentityCard.accessibilityLabel = @"关于标识卡片";
+
+    // 许可全文随 app 一起打包在 Resources/Licenses/,不是只在仓库里 —— 所以这里开本地那一份,而不是
+    // 把人送去 GitHub 看一个可能和装着的这个版本对不上的目录。
+    NSButton *licensesButton = [NSButton buttonWithTitle:@"查看许可全文"
+                                                  target:self
+                                                  action:@selector(openOpenSourceLicenses:)];
+    LinkifyButton(licensesButton, @"查看开源许可");
+    NSButton *privacyButton = [NSButton buttonWithTitle:@"查看隐私政策"
+                                                 target:self
+                                                 action:@selector(openPrivacyPolicy:)];
+    LinkifyButton(privacyButton, @"查看隐私政策");
+    NSTextField *licenseLabel = [NSTextField labelWithString:@"GPL-3.0"];
+    licenseLabel.textColor = [NSColor secondaryLabelColor];
+    licenseLabel.alignment = NSTextAlignmentRight;
+    licenseLabel.accessibilityLabel = @"授权协议";
+    NSTextField *copyrightLabel = [NSTextField labelWithString:@"© 2026 Metasequoia IME"];
+    copyrightLabel.textColor = [NSColor secondaryLabelColor];
+    copyrightLabel.alignment = NSTextAlignmentRight;
+    copyrightLabel.accessibilityLabel = @"版权";
+    NSBox *legalCard = CardWithViews(
+        @[
+            PreferenceRow(@"授权协议", licenseLabel), PreferenceRow(@"第三方组件", licensesButton),
+            PreferenceRow(@"隐私政策", privacyButton), PreferenceRow(@"版权", copyrightLabel)
+        ],
+        4.0);
+    legalCard.accessibilityLabel = @"法务信息卡片";
+
+    NSView *updatesPage = PreferencesPage(@"关于", @"版本、更新，以及水杉输入法用到的开源组件与隐私说明。", @[
+        aboutIdentityCard, SectionLabel(@"软件更新"), updateCard, SectionLabel(@"许可与隐私"), legalCard,
+        SectionLabel(@"反馈与帮助"), updatesLinksCard
+    ]);
+    updatesPage.accessibilityLabel = @"关于设置页";
 
     // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
     // top of a panel, for a view that is plain SwiftUI and hosts inline perfectly well.
@@ -2035,9 +2132,35 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[ accountPaneView ]);
     accountPage.accessibilityLabel = @"账号设置页";
 
+    // 本地输入模式逐项开关。引擎的 LocalModeOptions 八项各自独立,以前这里只有一个总开关,想只要快捷
+    // 短语、不要日期时间是做不到的。emoji、颜文字、临时日语没有列出来:它们分别要 others.db 和
+    // dict_japanese.dat,这个 bundle 不打包,列出来也只能是永远失败的开关。
+    NSMutableArray<NSButton *> *localModeButtons = [NSMutableArray array];
+    NSMutableArray<NSView *> *localModeRows = [NSMutableArray array];
+    for (NSString *item in MetasequoiaLocalInputModeKeys())
+    {
+        NSButton *button = [NSButton checkboxWithTitle:MetasequoiaLocalInputModeTitle(item)
+                                                target:self
+                                                action:@selector(localInputModeItemChanged:)];
+        button.identifier = item;
+        button.accessibilityLabel = MetasequoiaLocalInputModeTitle(item);
+        button.toolTip = MetasequoiaLocalInputModeHint(item);
+        [localModeButtons addObject:button];
+        [localModeRows addObject:button];
+    }
+    _localInputModeItemButtons = localModeButtons;
+    NSBox *localModeMasterCard = CardWithViews(@[ _localInputModesButton ], 0.0);
+    localModeMasterCard.accessibilityLabel = @"本地输入模式卡片";
+    NSBox *localModeItemsCard = CardWithViews(localModeRows, 8.0);
+    localModeItemsCard.accessibilityLabel = @"本地输入模式项目卡片";
+    NSView *utilitiesPage =
+        PreferencesPage(@"实用功能", @"未组词时用 Shift 加一个字母，临时切到另一种输入方式。",
+                        @[ localModeMasterCard, SectionLabel(@"启用这些模式"), localModeItemsCard ]);
+    utilitiesPage.accessibilityLabel = @"实用功能设置页";
+
     _preferencePages = @[
         generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage, helpcodePage, shortcutsPage,
-        floatingPage, accountPage, helpPage, feedbackPage, voicePage
+        floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage
     ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
@@ -2080,7 +2203,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         [closeButton.widthAnchor constraintGreaterThanOrEqualToConstant:80.0],
     ]];
     // 开在侧栏第一项上。开在第二项(外观)而第一项是别的,看起来像是窗口没能恢复上次的位置。
-    [self showPreferencesPageAtIndex:0 navigationIndex:0];
+    [self showPreferencesPageAtIndex:kGeneralPageIndex navigationIndex:kGeneralPageIndex];
     [self refreshUpdateControls];
     return self;
 }
@@ -2090,7 +2213,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     (void)sender;
     // 跳到账号页,不再另开一个窗。The sign-in is right here now; opening a second panel over the
     // preferences window to reach it was the whole complaint.
-    const NSInteger accountIndex = 9;
+    const NSInteger accountIndex = kAccountPageIndex;
     [self showPreferencesPageAtIndex:accountIndex navigationIndex:accountIndex];
     MSIMEAccountPaneAttach(self.window);
 }
@@ -2136,8 +2259,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         const BOOL selected = index == pageIndex;
         _preferencePages[index].hidden = !selected;
     }
+    if (pageIndex == kDataPageIndex)
+    {
+        // 每次切过来都重读:窗口是常驻的,打字新造的词不重读就永远不出现在列表里。
+        [_personalDictionaryView reload];
+    }
     // 账号视图靠宿主窗口当登录的 presentationAnchor,嵌进来之后它自己没有 window 可指。
-    if (pageIndex == 9)
+    if (pageIndex == kAccountPageIndex)
     {
         MSIMEAccountPaneAttach(self.window);
     }
@@ -2156,13 +2284,44 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     (void)sender;
     [self refreshControls];
-    [self showPreferencesPageAtIndex:5 navigationIndex:0];
+    [self showPreferencesPageAtIndex:kWubiPageIndex navigationIndex:kGeneralPageIndex];
 }
 
 - (void)backToKeyboardInput:(id)sender
 {
     (void)sender;
-    [self showPreferencesPageAtIndex:0 navigationIndex:0];
+    [self showPreferencesPageAtIndex:kGeneralPageIndex navigationIndex:kGeneralPageIndex];
+}
+
+- (void)openOpenSourceLicenses:(id)sender
+{
+    (void)sender;
+    // 打开装着的这一份汇总声明。它列的是这个 bundle 实际包含的组件,和 Resources/Licenses/ 里逐份的
+    // 全文一起发布;GitHub 上那个目录属于仓库,不保证和用户装的版本是同一批。
+    NSURL *notices = [NSBundle.mainBundle URLForResource:@"THIRD_PARTY_NOTICES"
+                                           withExtension:@"txt"
+                                            subdirectory:@"Licenses"];
+    if (notices != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:notices];
+        return;
+    }
+    // 独立跑设置(--show-settings 之外的测试宿主)时 bundle 里没有这份资源,退回仓库。
+    NSURL *fallback = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple"];
+    if (fallback != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:fallback];
+    }
+}
+
+- (void)openPrivacyPolicy:(id)sender
+{
+    (void)sender;
+    NSURL *privacy = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple/blob/main/PRIVACY.md"];
+    if (privacy != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:privacy];
+    }
 }
 
 - (void)openWebsite:(id)sender
@@ -2187,8 +2346,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)showVoiceInput:(id)sender
 {
     (void)sender;
-    const NSInteger voiceIndex = static_cast<NSInteger>(_preferencePages.count) - 1;
-    [self showPreferencesPageAtIndex:voiceIndex navigationIndex:voiceIndex];
+    [self showPreferencesPageAtIndex:kVoicePageIndex navigationIndex:kVoicePageIndex];
 }
 
 // 云端和本地各自只显示自己要的那几项。原来是把不相关的字段置灰留在原地,读起来像「这些也要填,
@@ -2254,8 +2412,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)showFeedback:(id)sender
 {
     (void)sender;
-    const NSInteger feedbackIndex = static_cast<NSInteger>(_preferencePages.count) - 1;
-    [self showPreferencesPageAtIndex:feedbackIndex navigationIndex:feedbackIndex];
+    [self showPreferencesPageAtIndex:kFeedbackPageIndex navigationIndex:kFeedbackPageIndex];
 }
 
 // 版本、系统、机型、当前方案 —— 这四项决定一个报告能不能复现,而它们恰好都是用户不知道要附的。
@@ -2441,6 +2598,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _localInputModesButton.state = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _localInputModeItemButtons)
+    {
+        button.state =
+            MetasequoiaLocalInputModeEnabled(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateLocalInputModeControlsEnabled];
+    [_shuangpinPreeditButton selectItemAtIndex:MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES) ? 0 : 1];
     [_quanpinHelpcodeSchemaButton
         selectItemAtIndex:[MetasequoiaPreferencesWindowController storedQuanpinHelpcodeSchema]];
     [_shuangpinHelpcodeSchemaButton
@@ -2581,6 +2745,30 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setLocalInputModesEnabled:button.state == NSControlStateValueOn];
     [self refreshControls];
+}
+
+- (void)shuangpinPreeditChanged:(id)sender
+{
+    NSPopUpButton *button = (NSPopUpButton *)sender;
+    MetasequoiaSetInputBehavior(@"shuangpinPreeditRaw", button.indexOfSelectedItem == 0 ? 1 : 0);
+    [self refreshControls];
+}
+
+- (void)localInputModeItemChanged:(id)sender
+{
+    NSButton *button = (NSButton *)sender;
+    MetasequoiaSetLocalInputModeEnabled(button.identifier, button.state == NSControlStateValueOn);
+    [self refreshControls];
+}
+
+- (void)updateLocalInputModeControlsEnabled
+{
+    // 总开关关着的时候,逐项开关还可点是在问一个不成立的问题。
+    const BOOL enabled = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled];
+    for (NSButton *button in _localInputModeItemButtons)
+    {
+        button.enabled = enabled;
+    }
 }
 
 - (void)schemeHelpcodeChanged:(NSButton *)sender

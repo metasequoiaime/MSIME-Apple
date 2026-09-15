@@ -22,6 +22,7 @@ extern "C" void MSIMEEnsureAnonymousAccount(void);
 #include "FrequencyAdjustmentPreference.h"
 #include "HelpcodeSchemaPreference.h"
 #include "InputSchemePreference.h"
+#include "LocalInputModePreferences.h"
 #include "WubiCommitPolicy.h"
 #import "PreferencesWindowController.h"
 #import "VoiceInputService.h"
@@ -83,6 +84,8 @@ struct SessionPreferences
     bool wubiMixedPinyinEnabled;
     bool mixedEnglish;
     size_t englishMinimumPrefix;
+    // 双拼预编辑显示原始按键还是拼音分词。只在双拼下有意义,但读法和别的偏好一样无条件。
+    bool shuangpinPreeditUsesRaw;
 };
 
 SessionPreferences ReadSessionPreferences()
@@ -119,6 +122,7 @@ SessionPreferences ReadSessionPreferences()
         [MetasequoiaPreferencesWindowController storedWubiMixedPinyinEnabled] == YES,
         MetasequoiaInputInteger(@"mixedEnglish", 0, 0, 1) != 0,
         static_cast<size_t>(MetasequoiaInputInteger(@"englishMinimumPrefix", 2, 1, 10)),
+        MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES) == YES,
     };
 }
 
@@ -144,7 +148,16 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
            options.frequency.trigger_count == preferences.frequency.trigger_count &&
            options.frequency.linear_step == preferences.frequency.linear_step &&
            options.english.mixed_candidates == preferences.mixedEnglish &&
-           options.english.minimum_prefix == preferences.englishMinimumPrefix;
+           options.english.minimum_prefix == preferences.englishMinimumPrefix &&
+           options.shuangpin_preedit_uses_raw == preferences.shuangpinPreeditUsesRaw;
+}
+
+bool LocalModeOptionsMatch(const metasequoia::LocalModeOptions &left, const metasequoia::LocalModeOptions &right)
+{
+    return left.unicode == right.unicode && left.date_time == right.date_time &&
+           left.quick_phrase == right.quick_phrase && left.emoji == right.emoji && left.kaomoji == right.kaomoji &&
+           left.super_jianpin == right.super_jianpin && left.temporary_english == right.temporary_english &&
+           left.temporary_japanese == right.temporary_japanese;
 }
 } // namespace
 
@@ -234,6 +247,12 @@ static NSHashTable *LiveDictionaryControllers()
                                                  selector:@selector(prepareForLearnedDataReset:)
                                                      name:MetasequoiaWillResetLearnedDataNotification
                                                    object:nil];
+        // 设置窗多数时候就在这个进程里(输入菜单那条路),但 open-settings.sh 会另起一个。那时清空学习
+        // 数据或改用户词库的是另一个进程,只听本地通知的话这边会抱着旧缓存继续答出已经被删掉的词。
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                          selector:@selector(prepareForLearnedDataReset:)
+                                                              name:MetasequoiaWillResetLearnedDataNotification
+                                                            object:nil];
         for (NSNotificationName notificationName in @[
                  MetasequoiaFloatingToolbarDidChangeNotification,
                  @"MetasequoiaChinesePunctuationDidChangeNotification",
@@ -401,8 +420,11 @@ static NSHashTable *LiveDictionaryControllers()
     const bool helpcodeSchemaMatches = _activeHelpcodeSchema == preferences.helpcodeSchema;
     _activeHelpcodeSchema = preferences.helpcodeSchema;
     _localInputModesEnabled = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled];
+    // 整族比一遍,不能只比 unicode 那一项:逐项开关之后,「只关掉快捷短语」会让这个守卫认为什么都没变,
+    // 会话不重建,改了等于没改。
+    const metasequoia::LocalModeOptions desiredLocalModes = [self localInputModeOptions];
     if (_session != nullptr && helpcodeSchemaMatches && SessionMatchesPreferences(_sessionOptions, preferences) &&
-        _sessionOptions.local_modes.unicode == _localInputModesEnabled)
+        LocalModeOptionsMatch(_sessionOptions.local_modes, desiredLocalModes))
     {
         return;
     }
@@ -423,7 +445,8 @@ static NSHashTable *LiveDictionaryControllers()
     options.english.mixed_candidates = preferences.mixedEnglish;
     options.english.minimum_prefix = preferences.englishMinimumPrefix;
     options.wubi.mixed_pinyin = preferences.wubiMixedPinyinEnabled;
-    options.local_modes = [self localInputModeOptions];
+    options.shuangpin_preedit_uses_raw = preferences.shuangpinPreeditUsesRaw;
+    options.local_modes = desiredLocalModes;
     _session = std::make_unique<metasequoia::Session>(options);
     _sessionOptions = options;
     _sessionSnapshot = _session->snapshot();
@@ -439,22 +462,25 @@ static NSHashTable *LiveDictionaryControllers()
     [_shuangpinKeymapPanel orderOut:nil];
 }
 
-// The engine enables every local input mode by default, but this bundle ships only msime.db. Emoji
-// and kaomoji read others.db, temporary English reads english.db and temporary Japanese reads
-// dict_japanese.dat, none of which are fetched, so those four could only ever fail. The remaining
-// four need nothing beyond what is here: Unicode parses its own input, date and time has a built-in
-// provider, quick phrases live in msime.db's quick_parases table, and super jianpin uses the pinyin
-// tables. Turning the whole family off by preference keeps Shift+letter inserting a capital.
+// The engine enables every local input mode by default; what this bundle ships decides which of them
+// can actually answer. Unicode parses its own input, date and time has a built-in provider, quick
+// phrases live in msime.db's quick_parases table, super jianpin uses the pinyin tables, and
+// temporary English reads english.db — which ships alongside msime.db and is the same dictionary the
+// mixed English candidates already query. Emoji and kaomoji need others.db and temporary Japanese
+// needs dict_japanese.dat; neither is fetched, so those three could only ever fail.
+//
+// 每一项还各有一个偏好开关,总开关关掉整族 —— 那时 Shift+字母 照常输入大写字母。
 - (metasequoia::LocalModeOptions)localInputModeOptions
 {
     metasequoia::LocalModeOptions options;
-    options.unicode = _localInputModesEnabled;
-    options.date_time = _localInputModesEnabled;
-    options.quick_phrase = _localInputModesEnabled;
-    options.super_jianpin = _localInputModesEnabled;
+    const BOOL family = _localInputModesEnabled;
+    options.unicode = family && MetasequoiaLocalInputModeEnabled(@"localModeUnicode");
+    options.date_time = family && MetasequoiaLocalInputModeEnabled(@"localModeDateTime");
+    options.quick_phrase = family && MetasequoiaLocalInputModeEnabled(@"localModeQuickPhrase");
+    options.super_jianpin = family && MetasequoiaLocalInputModeEnabled(@"localModeSuperJianpin");
+    options.temporary_english = family && MetasequoiaLocalInputModeEnabled(@"localModeTemporaryEnglish");
     options.emoji = false;
     options.kaomoji = false;
-    options.temporary_english = false;
     options.temporary_japanese = false;
     return options;
 }
