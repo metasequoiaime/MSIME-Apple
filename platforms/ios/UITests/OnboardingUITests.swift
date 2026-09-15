@@ -65,6 +65,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
     XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountProfileCard"].exists)
     XCTAssertTrue(app.buttons["accountLocalDesigns"].exists)
   }
 

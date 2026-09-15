@@ -22,7 +22,7 @@ struct AccountSettingsView: View {
         }.accessibilityIdentifier("accountAppIcon")
       }
 
-      Section("我的创作") {
+      Section("创作") {
         NavigationLink(destination: CustomSkinEditorView()) {
           HStack(spacing: 12) {
             accountIcon("paintbrush.pointed.fill", color: MetasequoiaTheme.accent)
@@ -35,27 +35,7 @@ struct AccountSettingsView: View {
       }
 
       if signedIn {
-        Section("我发布的作品") {
-          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            Label("我发布的皮肤", systemImage: "paintpalette")
-          }.accessibilityIdentifier("accountPublishedSkins")
-          ForEach(CommunityResourceKind.allCases) { kind in
-            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
-              Label("我发布的\(kind.title)", systemImage: kind.icon)
-            }
-          }
-        }
-        Section("我的收藏") {
-          ForEach(CommunityResourceKind.allCases) { kind in
-            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
-              Label("收藏的\(kind.title)", systemImage: "bookmark")
-            }
-          }
-        }
-      }
-
-      if signedIn {
-        Section("云端数据") {
+        Section("云端") {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
             Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
           }.accessibilityIdentifier("accountSettingsSync")
@@ -69,9 +49,27 @@ struct AccountSettingsView: View {
             Label("云剪贴板", systemImage: "doc.on.clipboard")
           }.accessibilityIdentifier("accountCloudClipboard")
         }
+
+        Section("社区") {
+          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
+            Label("我发布的皮肤", systemImage: "paintpalette")
+          }.accessibilityIdentifier("accountPublishedSkins")
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
+              Label("我发布的\(kind.title)", systemImage: kind.icon)
+            }
+          }
+        }
+        Section("收藏") {
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
+              Label("收藏的\(kind.title)", systemImage: "bookmark")
+            }
+          }
+        }
       }
 
-        Section("了解水杉") {
+      Section("关于") {
           NavigationLink(destination: DesktopDownloadView()) {
             Label("电脑版下载", systemImage: "desktopcomputer")
           }.accessibilityIdentifier("desktopDownloadLink")
@@ -84,15 +82,12 @@ struct AccountSettingsView: View {
         Button { replayOnboarding = true } label: {
           Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
         }.accessibilityIdentifier("replayOnboardingLink")
-      }
-      Section {
-        Label("本地数据与云端作品", systemImage: "lock.shield")
-          .font(.subheadline)
+      } footer: {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
-          .font(.caption).foregroundStyle(.secondary)
       }
     }
     .navigationTitle("我的")
+    .background(MetasequoiaTheme.canvas)
     .task { designs = CustomSkinLibrary.designs }
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
@@ -126,26 +121,25 @@ struct AppleAccountSection: View {
 
   var body: some View {
     Section {
-      HStack(spacing: 14) {
-        Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
-          .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
-        VStack(alignment: .leading, spacing: 5) {
-          Text(signedIn ? displayName : "欢迎来到水杉")
-            .font(.title3.bold())
-          Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
-            .font(.subheadline).foregroundStyle(.secondary)
-        }
-      }.padding(.vertical, 10)
-      if signedIn {
-        Button { editProfile = true } label: {
-          HStack {
-            Label("个人资料", systemImage: "person.text.rectangle")
-            Spacer()
-            Text("查看与编辑")
+      Button { if signedIn { editProfile = true } } label: {
+        HStack(spacing: 14) {
+          Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
+            .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
+          VStack(alignment: .leading, spacing: 5) {
+            Text(signedIn ? displayName : "欢迎来到水杉")
+              .font(.title3.bold())
+            Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
               .font(.subheadline).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
           }
-        }.accessibilityIdentifier("editAccountProfile")
+          Spacer()
+          if signedIn { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary) }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .padding(.vertical, 10)
+      .accessibilityIdentifier("accountProfileCard")
+      if signedIn {
         Menu("账号") {
           Button("退出登录") { run { try await api.logout(); signedIn = false; await prepareLogin() } }
           Button("退出所有设备") { confirmLogoutAll = true }
