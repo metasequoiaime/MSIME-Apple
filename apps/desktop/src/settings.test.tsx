@@ -530,6 +530,24 @@ test("input parity controls persist cloud, translation and punctuation settings"
   });
 });
 
+test("Android candidate translations persist an optional second language", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save,
+    host: { platform: "android" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect(secondary.value).toBe("");
+  fireEvent.change(secondary, { target: { value: "ja" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    translation_secondary_language: "ja",
+  }));
+});
+
 test("frequency values above the upstream dropdown range remain visible", async () => {
   const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };

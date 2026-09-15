@@ -1735,6 +1735,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
        let index = CandidateTranslationPreference.languages.firstIndex(where: { $0.code == target.uppercased() }) {
       CandidateTranslationPreference.primaryIndex = index
     }
+    if let secondary = preferences["translation_secondary_language"] as? String {
+      let index = CandidateTranslationPreference.languages.firstIndex {
+        $0.code == secondary.uppercased()
+      } ?? -1
+      CandidateTranslationPreference.secondaryIndex = index
+    } else if preferences.keys.contains("translation_secondary_language") {
+      CandidateTranslationPreference.secondaryIndex = -1
+    }
     var skinChanged = false
     var customSkinChanged = false
     let rawSkin = preferences["touch_keyboard_skin"] as? String

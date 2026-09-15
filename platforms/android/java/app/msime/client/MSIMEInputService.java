@@ -135,7 +135,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
     private boolean candidateTranslationsEnabled;
-    private String candidateTranslationTarget = "en";
+    private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     private CandidateTranslationStore candidateTranslationStore;
     private boolean wubiCodeHint = true;
     private boolean wubiMixedPinyin;
@@ -592,7 +592,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossResources = "";
         candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
-        candidateTranslationTarget = "en";
+        candidateTranslationTargets = java.util.List.of("en");
         if (candidateTranslationStore != null) candidateTranslationStore.clear();
         wubiCodeHint = true;
         wubiMixedPinyin = false;
@@ -818,18 +818,25 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyCandidateTranslationPreference(JSONObject preferences) {
         boolean nextEnabled = preferences == null
             || preferences.optBoolean("candidate_translations", true);
-        String nextTarget = preferences == null ? "en"
-            : preferences.optString("translation_target_language", "en")
-                .toLowerCase(java.util.Locale.ROOT);
-        if (!java.util.Set.of("en", "fr", "ja", "es", "ru", "de", "ko").contains(nextTarget))
-            nextTarget = "en";
+        java.util.List<String> nextTargets = translationTargetsFrom(preferences);
         if (candidateTranslationsEnabled != nextEnabled
-                || !candidateTranslationTarget.equals(nextTarget)) {
+                || !candidateTranslationTargets.equals(nextTargets)) {
             if (candidateTranslationStore != null) candidateTranslationStore.clear();
             invalidateCandidateGlosses();
         }
         candidateTranslationsEnabled = nextEnabled;
-        candidateTranslationTarget = nextTarget;
+        candidateTranslationTargets = nextTargets;
+    }
+
+    private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
+        String primary = preferences == null ? "en"
+            : preferences.optString("translation_target_language", "en");
+        String secondary = "";
+        if (preferences != null) {
+            Object value = preferences.opt("translation_secondary_language");
+            if (value instanceof String) secondary = (String) value;
+        }
+        return CandidateTranslationPolicy.targets(primary, secondary);
     }
 
     private void applyWubiCodeHintPreference(JSONObject preferences) {
@@ -886,7 +893,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
-        String previousTranslationTarget = candidateTranslationTarget;
+        java.util.List<String> previousTranslationTargets = candidateTranslationTargets;
         boolean previousWubiCodeHint = wubiCodeHint;
         boolean previousWubiMixedPinyin = wubiMixedPinyin;
         KeyboardScheme previousScheme = selectedScheme;
@@ -908,7 +915,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidateTranslations != candidateTranslationsEnabled
-                || !previousTranslationTarget.equals(candidateTranslationTarget)
+                || !previousTranslationTargets.equals(candidateTranslationTargets)
                 || previousWubiCodeHint != wubiCodeHint
                 || previousWubiMixedPinyin != wubiMixedPinyin
                 || previousScheme != selectedScheme
@@ -942,10 +949,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
-        String nextTranslationTarget = preferences.optString("translation_target_language", "en")
-            .toLowerCase(java.util.Locale.ROOT);
-        if (!java.util.Set.of("en", "fr", "ja", "es", "ru", "de", "ko").contains(nextTranslationTarget))
-            nextTranslationTarget = "en";
+        java.util.List<String> nextTranslationTargets = translationTargetsFrom(preferences);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
@@ -977,12 +981,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
         if (candidateTranslationsEnabled != nextCandidateTranslations
-                || !candidateTranslationTarget.equals(nextTranslationTarget)) {
+                || !candidateTranslationTargets.equals(nextTranslationTargets)) {
             if (candidateTranslationStore != null) candidateTranslationStore.clear();
             invalidateCandidateGlosses();
         }
         candidateTranslationsEnabled = nextCandidateTranslations;
-        candidateTranslationTarget = nextTranslationTarget;
+        candidateTranslationTargets = nextTranslationTargets;
         wubiCodeHint = nextWubiCodeHint;
         wubiMixedPinyin = nextWubiMixedPinyin;
         JSONObject nextView = result.getJSONObject("view");
@@ -1112,7 +1116,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) words.add(candidate.optString("text", ""));
         }
-        candidateTranslationStore.refresh(words, candidateTranslationTarget, generation);
+        candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
     }
 
     private void applyCandidateTranslations(long generation) {
@@ -1125,8 +1129,13 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate == null) continue;
             String text = candidate.optString("text", "");
-            String translation = candidateTranslationStore.gloss(text, candidateTranslationTarget);
-            if (translation != null && !translation.isEmpty()) {
+            java.util.ArrayList<String> glosses = new java.util.ArrayList<>();
+            for (String target : candidateTranslationTargets) {
+                String translation = candidateTranslationStore.gloss(text, target);
+                if (translation != null && !translation.isEmpty()) glosses.add(translation);
+            }
+            String translation = CandidateTranslationPolicy.joinGlosses(glosses);
+            if (!translation.isEmpty()) {
                 try { translations.put(new JSONObject().put("text", text).put("translation", translation)); }
                 catch (JSONException ignored) { return; }
             }
@@ -1143,6 +1152,21 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | RuntimeException | LinkageError ignored) {
             // Online translations are optional display state.
         }
+    }
+
+    private int candidateGlossLineCount() {
+        return candidateTranslationsEnabled ? candidateTranslationTargets.size() : 0;
+    }
+
+    private void updateCandidateViewportHeight() {
+        if (candidateViewport == null) return;
+        android.view.ViewGroup.LayoutParams params = candidateViewport.getLayoutParams();
+        if (params == null) return;
+        int height = pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP
+            + Math.max(0, candidateGlossLineCount() - 1) * 16);
+        if (params.height == height) return;
+        params.height = height;
+        candidateViewport.setLayoutParams(params);
     }
 
     private void showDiagnostic(String value) {
@@ -4079,6 +4103,8 @@ public final class MSIMEInputService extends InputMethodService {
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         button.setText(candidateLabel("", text, annotation, highlighted));
+        button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
+        button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleButton(button, false);
@@ -4102,6 +4128,8 @@ public final class MSIMEInputService extends InputMethodService {
         String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
         button.setText(candidateLabel("", text, annotation, highlighted));
+        button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
+        button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         styleButton(button, false);
         button.setSelected(highlighted);
@@ -5562,6 +5590,7 @@ public final class MSIMEInputService extends InputMethodService {
             shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         if (candidateViewport != null)
             candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+        updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             scriptShortcutButton.setVisibility(View.GONE);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");

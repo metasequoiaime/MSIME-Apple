@@ -53,14 +53,24 @@ public final class CandidateTranslationStore {
     }
 
     public void refresh(List<String> words, String target, long generation) {
+        refresh(words, target == null ? List.of() : List.of(target), generation);
+    }
+
+    public void refresh(List<String> words, List<String> targets, long generation) {
         cancel();
-        if (words == null || target == null || target.isEmpty()) return;
+        if (words == null || targets == null || targets.isEmpty()) return;
+        ArrayList<String> requestedTargets = new ArrayList<>();
+        for (String target : targets) {
+            if (target != null && !target.isEmpty() && !requestedTargets.contains(target))
+                requestedTargets.add(target);
+        }
+        if (requestedTargets.isEmpty()) return;
         ArrayList<String> wanted = new ArrayList<>();
         for (String word : words) {
             if (translatable(word) && !wanted.contains(word)) wanted.add(word);
         }
         if (wanted.isEmpty()) return;
-        pending = () -> send(wanted, target, generation);
+        pending = () -> send(wanted, requestedTargets, generation);
         main.postDelayed(pending, QUIET_INTERVAL_MILLIS);
     }
 
@@ -75,21 +85,31 @@ public final class CandidateTranslationStore {
         signature = null;
     }
 
-    private void send(List<String> words, String target, long generation) {
+    private void send(List<String> words, List<String> targets, long generation) {
         pending = null;
-        ArrayList<String> missing = new ArrayList<>();
-        for (String word : words) if (!cache.containsKey(key(target, word))) missing.add(word);
-        if (missing.isEmpty()) return;
-        String stamp = target + "|" + generation + "|" + String.join("|", missing);
+        String stamp = String.join(",", targets) + "|" + generation + "|" + String.join("|", words);
         if (stamp.equals(signature)) return;
+        Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
+        for (String target : targets) {
+            ArrayList<String> missing = new ArrayList<>();
+            for (String word : words) {
+                if (!cache.containsKey(key(target, word))) missing.add(word);
+            }
+            if (!missing.isEmpty()) requests.put(target, missing);
+        }
+        if (requests.isEmpty()) return;
         signature = stamp;
         try {
             worker.execute(() -> {
-                try {
-                    List<String> values = service.translate(missing, target);
-                    main.post(() -> absorb(target, generation, missing, values));
-                } catch (Exception ignored) {
-                    // Optional display data must never disturb input or expose response text.
+                for (Map.Entry<String, ArrayList<String>> request : requests.entrySet()) {
+                    String target = request.getKey();
+                    ArrayList<String> missing = request.getValue();
+                    try {
+                        List<String> values = service.translate(missing, target);
+                        main.post(() -> absorb(target, generation, missing, values));
+                    } catch (Exception ignored) {
+                        // Optional display data must never disturb input or expose response text.
+                    }
                 }
             });
         } catch (RuntimeException ignored) {

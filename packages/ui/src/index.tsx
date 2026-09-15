@@ -229,6 +229,8 @@ export type Preferences = {
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
+  /** Optional second candidate-translation language; null/absent keeps one gloss row. */
+  translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
@@ -521,6 +523,7 @@ const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count:
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; mouse_wheel?: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
 const translationLanguages: [NonNullable<Preferences["translation_target_language"]>, string][] = [["en", "英语"], ["fr", "法语"], ["ja", "日语"], ["es", "西班牙语"], ["ru", "俄语"], ["de", "德语"], ["ko", "韩语"]];
+const translationSecondaryLanguages: ["" | NonNullable<Preferences["translation_target_language"]>, string][] = [["", "不显示第二种语言"], ...translationLanguages];
 const defaultWordCharacter = { enabled: true, keys: "brackets" as const };
 const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equal", "- / ="], ["comma_period", ", / ."], ["brackets", "[ / ]"], ["tab", "Shift+Tab / Tab"], ["page_up_down", "PageUp / PageDown"], ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"], ["arrows", "上 / 下（移动候选项）"]];
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
@@ -1308,6 +1311,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const candidateTranslations = draft?.candidate_translations ?? true;
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
+  const translationSecondaryLanguage = draft?.translation_secondary_language ?? "";
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
   const systemVoice = macosPlatform && voiceInput.asr_provider === "system";
   const doubaoAuthMode = voiceInput.doubao_auth_mode || (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
@@ -1786,6 +1790,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {(androidPlatform || iosPlatform) && <>
+            <div className="input-option-divider" />
+            <label className="section-header"><span className="section-title">第二种语言<small>候选词下方可同时显示第二种释义</small></span><select aria-label="候选翻译第二种语言" disabled={!candidateTranslations} value={translationSecondaryLanguage} onChange={event => setDraft({ ...draft, translation_secondary_language: event.target.value === "" ? null : event.target.value as Preferences["translation_target_language"] })}>{translationSecondaryLanguages.map(([value, label]) => <option key={value || "none"} value={value}>{label}</option>)}</select></label>
+          </>}
           {androidPlatform && <p className="input-setting-description">Android 使用已登录的 MSIME 在线服务处理候选翻译；凭据保存在系统安全存储中，不会进入此设置页。</p>}
         </div>
         {!androidPlatform && <>

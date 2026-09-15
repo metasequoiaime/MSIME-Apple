@@ -520,6 +520,10 @@ pub struct Preferences {
     pub candidate_english_gloss: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
+    /// Optional second language for mobile candidate glosses. `None` preserves the
+    /// legacy single-language behavior and is omitted from serialized snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_secondary_language: Option<TranslationTargetLanguage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1140,6 +1144,7 @@ impl Default for Preferences {
             candidate_translations: true,
             candidate_english_gloss: false,
             translation_target_language: TranslationTargetLanguage::default(),
+            translation_secondary_language: None,
         }
     }
 }
@@ -1965,6 +1970,32 @@ mod tests {
                 .unwrap()
                 .candidate_english_gloss
         );
+    }
+
+    #[test]
+    fn secondary_candidate_translation_language_is_optional_and_round_trips() {
+        let defaults = Preferences::default();
+        let serialized = serde_json::to_value(&defaults).unwrap();
+        assert!(!serialized
+            .as_object()
+            .unwrap()
+            .contains_key("translation_secondary_language"));
+        let mut enabled = defaults;
+        enabled.translation_secondary_language = Some(TranslationTargetLanguage::Ja);
+        let encoded = serde_json::to_string(&enabled).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Preferences>(&encoded)
+                .unwrap()
+                .translation_secondary_language,
+            Some(TranslationTargetLanguage::Ja)
+        );
+        let mut legacy_value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        legacy_value
+            .as_object_mut()
+            .unwrap()
+            .remove("translation_secondary_language");
+        let legacy = serde_json::from_value::<Preferences>(legacy_value).unwrap();
+        assert_eq!(legacy.translation_secondary_language, None);
     }
 
     #[test]
