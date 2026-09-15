@@ -12,6 +12,7 @@
 #import "DictionaryWindowController.h"
 #import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
+#import "InputMenu.h"
 #import "PreferencesWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "DesktopInputSession.h"
@@ -352,6 +353,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
+    NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
     MSIMECloudCandidateRequest *_cloudRequest;
@@ -865,6 +867,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
@@ -1849,6 +1852,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
     if ([preferences isKindOfClass:NSDictionary.class]) {
         _voiceThemePreferences = [preferences copy];
+        _menuThemePreferences = [preferences copy];
         if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
     }
     if (MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults))

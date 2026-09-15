@@ -619,6 +619,11 @@ target_compile_options(voice-wave-overlay-test PRIVATE -fobjc-arc -Wall -Wextra 
 target_link_libraries(voice-wave-overlay-test PRIVATE "-framework Cocoa")
 add_test(NAME voice-wave-overlay COMMAND voice-wave-overlay-test)
 
+add_executable(input-menu-test tests/InputMenuTests.mm)
+target_compile_options(input-menu-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(input-menu-test PRIVATE "-framework Cocoa")
+add_test(NAME input-menu COMMAND input-menu-test)
+
 add_executable(voice-audio-muter-test tests/VoiceAudioMuterTest.mm VoiceAudioMuter.mm)
 target_compile_options(voice-audio-muter-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-audio-muter-test PRIVATE "-framework Foundation" "-framework CoreAudio")

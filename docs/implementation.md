@@ -734,6 +734,12 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 `voice-wave-overlay` CTest 覆盖显式覆盖、跟随、系统和非法值回退，并继续验证面板非激活、动作按钮、转写上限、失败提示和异步电平边界；真实系统外观切换、麦克风权限、网络服务与安装后编辑器验收仍待执行。
 
+### macOS 输入法菜单主题覆盖（next45）
+
+macOS `MSIMEInputController` 生成的 IMK 原生输入菜单现消费共享 `menu_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，`system` 清除 `NSMenu.appearance` 交给 AppKit；非法或缺失的表面值回退到全局，非法全局值保持深色安全默认。菜单仍按每次 IMK 请求新建，主题变更不会改动菜单动作、快捷键、输入模式或 Engine 状态。
+
+`InputMenuTests` 新增四种优先级/回退断言，并继续验证中英文、简繁输出、字符面板、更新、设置和语音入口。该切片只验证 AppKit 菜单对象与主题属性，不宣称系统输入源安装后菜单逐像素、辅助功能或多显示器验收。
+
 ### macOS 悬浮输入工具栏
 
 新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
