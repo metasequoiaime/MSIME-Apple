@@ -2179,6 +2179,23 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
         }
     }
+    // Match Windows VK_DECIMAL and Linux keypad punctuation: the keypad
+    // decimal key is a literal ASCII period, even when Chinese punctuation is
+    // enabled. With a composition, the shared runtime appends it after the
+    // highlighted commit; while idle, emit the literal mark directly.
+    if (msime::mac::IsKeypadDecimal(event.keyCode) &&
+        !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                 NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
+        NSDictionary *transition = [_session punctuationASCII:'.' error:nil];
+        if (transition) {
+            [self apply:transition];
+            if ([transition[@"handled"] boolValue]) return YES;
+        }
+        [(id<MSIMETextClient>)sender insertText:@"." replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], @".",
+                                    MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
+        return YES;
+    }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;

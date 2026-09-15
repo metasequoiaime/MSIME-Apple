@@ -59,6 +59,11 @@ constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
     }
 }
 
+constexpr bool IsKeypadDecimal(unsigned short keyCode)
+{
+    return keyCode == 65; // kVK_ANSI_KeypadDecimal
+}
+
 constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, char character)
 {
     return (scheme == 3 || temporaryJapanese) && (character == '-' || character == '=');

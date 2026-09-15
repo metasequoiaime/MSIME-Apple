@@ -24,6 +24,7 @@ int main() {
     require(msime::mac::PhysicalCandidateDigitSlot(18) == 0 && msime::mac::PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(83) == 0 && msime::mac::PhysicalCandidateDigitSlot(92) == 8, "keypad digit mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(82) == -1 && msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
+    require(msime::mac::IsKeypadDecimal(65) && !msime::mac::IsKeypadDecimal(0), "keypad decimal mapping");
     using msime::mac::CandidateWheelAction;
     require(msime::mac::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
     require(msime::mac::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");

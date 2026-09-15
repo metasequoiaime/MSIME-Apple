@@ -68,6 +68,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
+@property(nonatomic) NSUInteger punctuationASCIICalls;
+@property(nonatomic) uint8_t lastPunctuationASCII;
+@property(nonatomic, copy) NSDictionary *punctuationASCIITransition;
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
 @property(nonatomic) NSUInteger focusCalls;
@@ -152,6 +155,12 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastASCII = ascii;
     self.lastShift = shift;
     return self.nextTransition;
+}
+- (NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
+    (void)error;
+    ++self.punctuationASCIICalls;
+    self.lastPunctuationASCII = ascii;
+    return self.punctuationASCIITransition ?: self.nextTransition;
 }
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
@@ -1040,6 +1049,39 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     client.committed = nil;
     assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
     assert(client.committed == nil && control.state == NSControlStateValueOff);
+}
+
+static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.insertions = [NSMutableArray array];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"."
+                                      isARepeat:NO keyCode:65];
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"候选.",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([controller handleEvent:key client:client]);
+    assert(session.punctuationASCIICalls == 1 && session.lastPunctuationASCII == '.' && session.asciiCalls == 0);
+    assert([client.committed isEqual:@"候选."]);
+
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"view": @{ @"focused": @YES,
+        @"editing_text": @"", @"candidates": @[] } };
+    client.committed = nil;
+    [client.insertions removeAllObjects];
+    assert([controller handleEvent:key client:client]);
+    assert(session.punctuationASCIICalls == 2 && [client.committed isEqual:@"."]);
+    assert([client.insertions isEqual:@[@"."]]);
+
+    NSEvent *modified = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+        modifierFlags:NSEventModifierFlagControl timestamp:0 windowNumber:0 context:nil characters:@"."
+        charactersIgnoringModifiers:@"." isARepeat:NO keyCode:65];
+    assert(![controller handleEvent:modified client:client]);
+    assert(session.punctuationASCIICalls == 2);
 }
 
 static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
@@ -3673,6 +3715,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
+        TestKeypadDecimal(appearance);
         TestScreenKeyboardShortcut(appearance);
         TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);
