@@ -35,6 +35,13 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
+         englishCandidateMode:(BOOL)englishCandidateMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
              japaneseInputMode:(BOOL)japaneseInputMode
                       capsLock:(BOOL)capsLock
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled

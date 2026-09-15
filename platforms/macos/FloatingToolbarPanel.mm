@@ -515,6 +515,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
     [self updateEnglishInputMode:englishInputMode
+             englishCandidateMode:NO
               japaneseInputMode:NO
                        capsLock:NO
               chinesePunctuationEnabled:chinesePunctuationEnabled
@@ -529,9 +530,27 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
-    NSString *inputModeTitle = capsLock ? @"A" : (englishInputMode ? @"英" : (japaneseInputMode ? @"日" : @"中"));
+    [self updateEnglishInputMode:englishInputMode
+             englishCandidateMode:NO
+              japaneseInputMode:japaneseInputMode
+                       capsLock:capsLock
+              chinesePunctuationEnabled:chinesePunctuationEnabled
+                       fullWidthEnabled:fullWidthEnabled
+        traditionalChineseOutputEnabled:traditionalChineseOutputEnabled];
+}
+
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+         englishCandidateMode:(BOOL)englishCandidateMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
+{
+    NSString *inputModeTitle = capsLock ? @"A" :
+        (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (japaneseInputMode ? @"日" : @"中")));
     _inputModeButton.title = inputModeTitle;
-    _inputModeButton.accessibilityLabel = englishInputMode ? @"切换到中文输入" : @"切换到英文输入";
+    _inputModeButton.accessibilityLabel = englishInputMode || englishCandidateMode ? @"切换到中文输入" : @"切换到英文输入";
     _punctuationButton.title = chinesePunctuationEnabled ? @"。" : @".";
     _punctuationButton.accessibilityLabel = chinesePunctuationEnabled ? @"切换到西文标点" : @"切换到中文标点";
     _fullWidthButton.title = fullWidthEnabled ? @"全" : @"半";

@@ -893,8 +893,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)refreshFloatingToolbarState {
     if (!_toolbar || !_appearance) return;
+    const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
     const BOOL japaneseInputMode = [_view[@"scheme"] integerValue] == 3;
     [_toolbar updateEnglishInputMode:_appearance.englishMode
+             englishCandidateMode:englishCandidateMode
                    japaneseInputMode:japaneseInputMode
                             capsLock:_capsLock
               chinesePunctuationEnabled:_appearance.chinesePunctuation
@@ -2088,7 +2090,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [super deactivateServer:sender];
 }
 
-- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self setEnglishInputMode:!_appearance.englishMode]; }
+- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    if (!_appearance.englishMode && [_view[@"dedicated_english"] isEqual:@YES]) [self setDedicatedEnglishInputMode:NO];
+    else [self setEnglishInputMode:!_appearance.englishMode];
+}
 - (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
     [self ensureAppearance];

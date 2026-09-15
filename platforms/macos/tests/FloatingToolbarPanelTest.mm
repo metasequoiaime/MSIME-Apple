@@ -254,6 +254,14 @@ int main() {
                          fullWidthEnabled:NO
           traditionalChineseOutputEnabled:NO];
         assert([inputMode.title isEqualToString:@"英"]);
+        [panel updateEnglishInputMode:NO
+                 englishCandidateMode:YES
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"En"]);
 
         FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
         panel.toolbarDelegate = delegate;
