@@ -10,6 +10,22 @@ struct ClientFocusLease {
     std::uint64_t token = 0;
 };
 
+constexpr ClientFocusLease client_focus_lease(std::uint64_t client,
+                                              std::uint64_t epoch,
+                                              std::uint64_t token) {
+    return {client, epoch, token};
+}
+
+constexpr bool valid_client_focus_lease(const ClientFocusLease &lease) {
+    return lease.client != 0 && lease.epoch != 0 && lease.token != 0;
+}
+
+constexpr bool same_client_focus_lease(const ClientFocusLease &left,
+                                       const ClientFocusLease &right) {
+    return left.client == right.client && left.epoch == right.epoch &&
+           left.token == right.token;
+}
+
 struct ClientKeyEvent {
     ClientFocusLease lease;
     std::uint32_t virtual_key = 0;
