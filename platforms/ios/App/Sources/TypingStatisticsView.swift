@@ -58,8 +58,27 @@ struct TypingStatisticsView: View {
     }
   }
 
-  /// 趋势画多少天。原来这里有个 7 / 30 / 累计 的切换,而分类那几块其实只想看累计 —— 一个开关同时管两件事,结果两件都得迁就它。
-  private static let trendDays = 30
+  /// 趋势最多画多少天。引擎那边每日明细就保留 366 天,再往前没有数据可画。
+  ///
+  /// 原来固定三十天:一个月看不出「这个月比上个月多」,而数据本来就攒着一年。有多少画多少 —— 没有记录时退回三十天,免得开一屏空白的年历。
+  private static let trendDayLimit = 366
+  private static let trendDayFloor = 30
+  /// 实际要画的天数:从最早那条记录到今天,上限一年。
+  private var trendDays: Int {
+    guard let earliest = statistics.days.keys.min(),
+          let date = Self.dayKeyFormatter.date(from: earliest)
+    else { return Self.trendDayFloor }
+    let start = Calendar.current.startOfDay(for: date)
+    let span = Calendar.current.dateComponents([.day], from: start, to: Calendar.current.startOfDay(for: Date())).day ?? 0
+    return min(Self.trendDayLimit, max(Self.trendDayFloor, span + 1))
+  }
+  private static let dayKeyFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+  }()
   private let store = TypingStatisticsStore()
   private let colors: [Color] = [.teal, .blue, .indigo, .orange, .pink, .purple, .brown, .gray]
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
@@ -81,7 +100,7 @@ struct TypingStatisticsView: View {
     }
   }
   private var dates: [Date] {
-    (0..<Self.trendDays).reversed().compactMap {
+    (0..<trendDays).reversed().compactMap {
       Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
     }
   }
@@ -139,8 +158,8 @@ struct TypingStatisticsView: View {
           if selectedDay != nil {
             Button("返回累计") { selectedDay = nil }
           }
-        } header: { Text("每日趋势 · 近 \(Self.trendDays) 天") }
-          footer: { Text("折线是近 30 天的走势，方块是近 12 周每天的量；点一个方块只看那一天的分类与占比。") }
+        } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
+          footer: { Text("有多少记录画多少，最多一年。方块每天一格、一列一周，可以左右拖；点一个方块只看那一天的分类与占比。") }
       case .kind:
         Section {
           distribution(characterSlices, chart: .pie)
@@ -203,17 +222,9 @@ struct TypingStatisticsView: View {
     } message: { Text("累计字数、分类和每日记录将被删除，无法恢复。") }
   }
 
-  /// 热力图看的是「哪些天在打字」,要看出习惯得比折线的窗口长 —— 三十天铺出来只有四五列,和折线说的是同一件事。
-  private static let heatmapDays = 84
-  private var heatmapDates: [Date] {
-    (0..<Self.heatmapDays).reversed().compactMap {
-      Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
-    }
-  }
-
   private var trendChart: some View {
     let days = dates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
-    let heat = heatmapDates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
+
     let maximum = days.map(\.count).max() ?? 0
     return VStack(alignment: .leading, spacing: 14) {
       Text("最高 \(maximum) 字符 / 天").font(.caption).foregroundStyle(.secondary)
@@ -221,8 +232,8 @@ struct TypingStatisticsView: View {
                            accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
         .animation(.easeOut(duration: 0.7), value: revealed)
       // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
-      Text("近 \(Self.heatmapDays / 7) 周").font(.caption).foregroundStyle(.secondary)
-      StatisticsHeatmap(days: heat, selected: selectedDay, accent: MetasequoiaTheme.forest) { date in
+      Text("每天一格，一列一周").font(.caption).foregroundStyle(.secondary)
+      StatisticsHeatmap(days: days, selected: selectedDay, accent: MetasequoiaTheme.forest) { date in
         selectedDay = selectedDay == date ? nil : date
       }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")

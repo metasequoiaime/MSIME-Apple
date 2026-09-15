@@ -32,26 +32,50 @@ struct StatisticsTrendChart: View {
   /// 进场时从左往右画出来。
   let progress: Double
 
+  /// 窗口长到几个月时,每天一个点画出来是一片锯齿 —— 看得见每天的起伏,看不出这个月比上个月多。日值退成淡淡的面积,趋势交给七日均线。
+  private var isLongRange: Bool { days.count > 120 }
+  private var average: [StatisticsChart.Day] {
+    days.enumerated().map { index, day in
+      let window = days[max(0, index - 6)...index]
+      return StatisticsChart.Day(date: day.date, count: window.reduce(0) { $0 + $1.count } / window.count)
+    }
+  }
+
   var body: some View {
-    Chart(days) { day in
-      AreaMark(x: .value("日期", day.date), y: .value("字符", day.count))
-        .interpolationMethod(.catmullRom)
-        .foregroundStyle(.linearGradient(colors: [accent.opacity(0.35), accent.opacity(0.02)],
-                                         startPoint: .top, endPoint: .bottom))
-      LineMark(x: .value("日期", day.date), y: .value("字符", day.count))
-        .interpolationMethod(.catmullRom)
-        .foregroundStyle(accent)
-        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
-      if let selected, Calendar.current.isDate(day.date, inSameDayAs: selected) {
+    Chart {
+      ForEach(days) { day in
+        AreaMark(x: .value("日期", day.date), y: .value("字符", day.count))
+          .interpolationMethod(.catmullRom)
+          .foregroundStyle(.linearGradient(
+            colors: [accent.opacity(isLongRange ? 0.18 : 0.35), accent.opacity(0.02)],
+            startPoint: .top, endPoint: .bottom))
+      }
+      ForEach(isLongRange ? average : days) { day in
+        LineMark(x: .value("日期", day.date), y: .value("字符", day.count))
+          .interpolationMethod(.catmullRom)
+          .foregroundStyle(accent)
+          .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+      }
+      if let selected, let day = days.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selected) }) {
         PointMark(x: .value("日期", day.date), y: .value("字符", day.count))
           .foregroundStyle(.orange)
           .symbolSize(90)
       }
     }
-    .chartXAxis { AxisMarks(values: .stride(by: .day, count: 7)) { value in
-      AxisGridLine()
-      AxisValueLabel(format: .dateTime.month().day())
-    } }
+    .chartXAxis {
+      // 窗口可能是三十天也可能是一年:短的按周标日期,长的按月标月份,否则标签挤成一条黑线。
+      if days.count > 120 {
+        AxisMarks(values: .stride(by: .month)) { _ in
+          AxisGridLine()
+          AxisValueLabel(format: .dateTime.month())
+        }
+      } else {
+        AxisMarks(values: .stride(by: .day, count: 7)) { _ in
+          AxisGridLine()
+          AxisValueLabel(format: .dateTime.month().day())
+        }
+      }
+    }
     .chartYAxis { AxisMarks(position: .trailing) }
     // 折线从左往右画出来:一整条直接出现,看不出它是按时间排的。
     .mask(alignment: .leading) {
@@ -80,26 +104,33 @@ struct StatisticsHeatmap: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .top, spacing: 4) {
-        ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-          VStack(spacing: 4) {
-            ForEach(week) { day in
-              let level = Double(day.count) / Double(maximum)
-              Button { onSelect(day.date) } label: {
-                RoundedRectangle(cornerRadius: 3)
-                  .fill(day.count == 0 ? Color.secondary.opacity(0.12) : accent.opacity(0.25 + 0.75 * level))
-                  .frame(height: 16)
-                  .overlay(
+      // 一年是五十多列。格子跟着屏宽缩就点不着了,所以固定大小、横向滚动,打开时停在最近那几周。
+      ScrollViewReader { proxy in
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(alignment: .top, spacing: 4) {
+            ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
+              VStack(spacing: 4) {
+                ForEach(week) { day in
+                  let level = Double(day.count) / Double(maximum)
+                  Button { onSelect(day.date) } label: {
                     RoundedRectangle(cornerRadius: 3)
-                      .strokeBorder(Color.orange, lineWidth: isSelected(day.date) ? 2 : 0))
-              }
-              .buttonStyle(.plain)
-              .accessibilityLabel(day.date.formatted(.dateTime.month().day()))
-              .accessibilityValue("\(day.count) 字符")
-              .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(day.date))")
+                      .fill(day.count == 0 ? Color.secondary.opacity(0.12) : accent.opacity(0.25 + 0.75 * level))
+                      .frame(width: 16, height: 16)
+                      .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                          .strokeBorder(Color.orange, lineWidth: isSelected(day.date) ? 2 : 0))
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityLabel(day.date.formatted(.dateTime.month().day()))
+                  .accessibilityValue("\(day.count) 字符")
+                  .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(day.date))")
+                }
+              }.id(index)
             }
           }
         }
+        .disablingScrollEdgeEffects()
+        .onAppear { proxy.scrollTo(weeks.count - 1, anchor: .trailing) }
       }
       HStack(spacing: 5) {
         Text("少").font(.caption2).foregroundStyle(.secondary)
