@@ -91,6 +91,12 @@ int main() {
       const auto text = frame_text(tsf_config_frames(config)[7]);
       require(text.size() == 1 && text[0] == static_cast<wchar_t>(L'0' + lock));
     }
+    // Defensive normalization keeps malformed persisted values within the
+    // three-state TIP contract instead of emitting an invalid compartment.
+    for (uint8_t lock : {static_cast<uint8_t>(3), static_cast<uint8_t>(255)}) {
+      config.punctuation_lock = lock;
+      require(frame_text(tsf_config_frames(config)[7]) == L"0");
+    }
 
     std::cout << "TSF config frames: every setting the TIP reads is encoded\n";
   } catch (const std::exception &failure) {
