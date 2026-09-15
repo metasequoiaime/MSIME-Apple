@@ -2633,10 +2633,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"候选操作"];
     menu.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
     [menu addItem:item(@"置顶", 0)];
     NSMenuItem *fixed = [[NSMenuItem alloc] initWithTitle:@"固定排位" action:nil keyEquivalent:@""];
     NSMenu *positions = [[NSMenu alloc] initWithTitle:@"固定排位"];
     positions.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(positions, _menuThemePreferences ?: @{});
     for (NSInteger position = 1; position <= 5; ++position)
         [positions addItem:item([NSString stringWithFormat:@"第 %ld 位", (long)position], 10 + position)];
     [positions addItem:NSMenuItem.separatorItem];

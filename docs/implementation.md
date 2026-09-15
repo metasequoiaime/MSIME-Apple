@@ -738,7 +738,7 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 macOS `MSIMEInputController` 生成的 IMK 原生输入菜单现消费共享 `menu_theme`。显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，`system` 清除 `NSMenu.appearance` 交给 AppKit；非法或缺失的表面值回退到全局，非法全局值保持深色安全默认。菜单仍按每次 IMK 请求新建，主题变更不会改动菜单动作、快捷键、输入模式或 Engine 状态。
 
-`InputMenuTests` 新增四种优先级/回退断言，并继续验证中英文、简繁输出、字符面板、更新、设置和语音入口。该切片只验证 AppKit 菜单对象与主题属性，不宣称系统输入源安装后菜单逐像素、辅助功能或多显示器验收。
+`InputMenuTests` 新增四种优先级/回退断言，并继续验证中英文、简繁输出、字符面板、更新、设置和语音入口。候选右键菜单复用同一主题解析 helper，避免 `menu_theme` 只影响主菜单。该切片只验证 AppKit 菜单对象与主题属性，不宣称系统输入源安装后菜单逐像素、辅助功能或多显示器验收。
 
 ### macOS 悬浮输入工具栏
 
