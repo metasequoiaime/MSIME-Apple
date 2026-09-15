@@ -943,7 +943,9 @@ class Handler(socketserver.StreamRequestHandler):
                 self.wfile.flush()
                 return
             generation = query["generation"]
-            if type(generation) is not int or not 0 <= generation < 2**64:
+            # Generation zero is the inactive sentinel used by the host. A
+            # control or stream carrying it cannot identify a live lease.
+            if type(generation) is not int or not 0 < generation < 2**64:
                 return
             key = (pid, generation)
             if kind in ("voice_stop", "voice_cancel"):
