@@ -63,6 +63,11 @@ int main() {
     config.microsoft_shuangpin = true;
     frames = tsf_config_frames(config);
     require(frame_text(frames[1]) == L"0"); // smart punctuation off
+    config.smart_punctuation_repeat_to_chinese = false;
+    frames = tsf_config_frames(config);
+    require(frame_text(frames[2]) == L"0"); // repeated punctuation conversion off
+    config.smart_punctuation_repeat_to_chinese = true;
+    require(frame_text(tsf_config_frames(config)[2]) == L"1");
     require(frame_text(frames[3]) == L"1"); // paired punctuation on
     require(frame_text(frames[4]) == L"1"); // Microsoft shuangpin on
 
