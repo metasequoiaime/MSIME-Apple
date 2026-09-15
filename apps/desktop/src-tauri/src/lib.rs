@@ -1420,10 +1420,7 @@ fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
         const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
-        let payload: Vec<u8> = "RestartServer"
-            .encode_utf16()
-            .flat_map(|unit| unit.to_le_bytes())
-            .collect();
+        let payload = windows_restart_payload();
         for attempt in 0..5 {
             match fs::OpenOptions::new().write(true).open(PIPE_NAME) {
                 Ok(mut pipe) => {
@@ -1467,6 +1464,13 @@ fn restart_input_method() -> Result<(), HostActionError> {
                 code: "unavailable",
             })
     }
+}
+
+fn windows_restart_payload() -> Vec<u8> {
+    "RestartServer"
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
@@ -5163,6 +5167,17 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_restart_payload_is_exact_utf16_without_terminator() {
+        let payload = super::windows_restart_payload();
+        let expected: Vec<u8> = "RestartServer"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        assert_eq!(payload, expected);
+        assert_eq!(payload.len(), "RestartServer".encode_utf16().count() * 2);
+    }
+
     #[test]
     fn external_links_require_clean_https_urls() {
         for url in [
