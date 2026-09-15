@@ -1,5 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#import "../../shared/apple/TextClient.h"
 #include "CandidateSkin.h"
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
@@ -25,6 +26,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
+/// Shared inline composition display: raw keys, formatted pinyin, or hidden.
+@property(nonatomic, readonly) MSIMEInlinePreeditStyle inlinePreeditStyle;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic, copy) NSString *fontFamily;
 /// Optional leading face for Latin glyphs in the candidate cascade.
