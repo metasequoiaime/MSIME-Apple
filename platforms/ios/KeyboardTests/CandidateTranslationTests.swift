@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 private struct StubTranslationService: CandidateTranslationService, Sendable {
   let answers: [String: [String: String]]
@@ -52,4 +53,47 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertNil(store.gloss(word: "你好", code: "EN"))
     XCTAssertNil(store.gloss(word: "中国", code: "EN"))
   }
+
+  func testGlossRowsOnlyReserveSpaceWhenTheyCanBeFilled() {
+    let defaults = CandidateGlossPreference.defaults
+    let previousGloss = defaults.object(forKey: CandidateGlossPreference.key)
+    let previousSecondary = defaults.object(forKey: CandidateTranslationPreference.secondaryKey)
+    defer {
+      if let previousGloss { defaults.set(previousGloss, forKey: CandidateGlossPreference.key) }
+      else { defaults.removeObject(forKey: CandidateGlossPreference.key) }
+      if let previousSecondary { defaults.set(previousSecondary, forKey: CandidateTranslationPreference.secondaryKey) }
+      else { defaults.removeObject(forKey: CandidateTranslationPreference.secondaryKey) }
+    }
+    CandidateGlossPreference.enabled = false
+    CandidateTranslationPreference.secondaryIndex = -1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 0)
+    CandidateGlossPreference.enabled = true
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1)
+    CandidateTranslationPreference.secondaryIndex = 1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1)
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 2)
+  }
+
+  func testExpandedPanelChipFitsItsWidestAnnotationLine() {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["您好", "你好"], preedit: "nhao",
+      annotations: [
+        KeyboardCandidateAnnotation(text: "hello; how do you do", accessibilityDescription: "英文释义：hello; how do you do"),
+        .none,
+      ], display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+    let chip = panel.subviews
+      .flatMap { descendants($0) }
+      .compactMap { $0 as? UIButton }
+      .first { $0.accessibilityIdentifier == "panelCandidate-1" }
+    XCTAssertNotNil(chip)
+    let gloss = NSAttributedString(string: "hello; how do you do",
+                                   attributes: [.font: UIFont.preferredFont(forTextStyle: .caption2)])
+    XCTAssertGreaterThanOrEqual(chip?.bounds.width ?? 0, gloss.size().width)
+  }
+}
+
+private func descendants(_ view: UIView) -> [UIView] {
+  [view] + view.subviews.flatMap(descendants)
 }

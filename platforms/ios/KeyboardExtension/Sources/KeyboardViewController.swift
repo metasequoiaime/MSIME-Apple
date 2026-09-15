@@ -172,14 +172,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static func candidateStripHeight(glossLines: Int) -> CGFloat {
     compositionRowHeight + candidateRowHeight + glossHeight(lines: glossLines)
   }
-  static func configuredGlossLines() -> Int {
-    guard CandidateGlossPreference.enabled else { return 0 }
-    return CandidateTranslationPreference.secondary == nil ? 1 : 2
-  }
   /// Height reserved below the candidate row for composition and configured gloss lines.
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
   static var stripExtraHeight: CGFloat {
-    compositionRowHeight + glossHeight(lines: configuredGlossLines())
+    compositionRowHeight + glossHeight(lines: configuredGlossLines(fullAccess: false))
+  }
+
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
+    !CandidateTranslationPreference.needsNetwork(language)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+  }
+
+  static func configuredGlossLines(fullAccess: Bool) -> Int {
+    guard CandidateGlossPreference.enabled else { return 0 }
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    if let secondary = CandidateTranslationPreference.secondary,
+       canFillGloss(secondary, fullAccess: fullAccess) {
+      lines += 1
+    }
+    return lines
   }
   private var glossLineCount = 0
   private var candidateStripHeightConstraint: NSLayoutConstraint?
@@ -218,9 +229,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    glossLineCount = Self.configuredGlossLines()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
+    glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -1424,8 +1435,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyCandidateGlossLayout()
   }
 
+  private func currentGlossLines() -> Int {
+    Self.configuredGlossLines(fullAccess: hasFullAccess)
+  }
+
   private func applyCandidateGlossLayout() {
-    let lines = Self.configuredGlossLines()
+    let lines = currentGlossLines()
     guard lines != glossLineCount else { return }
     glossLineCount = lines
     candidateStripHeightConstraint?.constant = Self.candidateStripHeight(glossLines: lines)
@@ -2313,7 +2328,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
-    if !CandidateTranslationPreference.needsNetwork(language), !offline.isEmpty, offline != word { return offline }
+    if !CandidateTranslationPreference.needsNetwork(language), !inputScheme.isJapanese,
+       !offline.isEmpty, offline != word { return offline }
     guard CandidateTranslationPreference.onlineEnabled else { return nil }
     return translations.gloss(word: word, code: language.code)
   }
