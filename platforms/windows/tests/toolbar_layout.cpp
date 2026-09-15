@@ -8,40 +8,61 @@ using namespace msime::windows;
 namespace {
 bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
 
-// The shipped icon size has to reproduce the geometry that was hard-coded
-// before, or every existing user's toolbar changes size on upgrade.
-void default_size_is_unchanged() {
+// The shipped geometry, pinned. The struct's defaults are what an
+// out-of-range icon size falls back to, so they have to agree with what the
+// shipped size actually produces or the fallback bar is a different shape
+// from the real one.
+void shipped_size_matches_the_struct_defaults() {
   const auto metrics = toolbar_metrics(24.0, false);
-  assert(near(metrics.cell, 72.0));
+  const ToolbarMetrics fallback;
+  assert(near(metrics.cell, 48.0));
   assert(near(metrics.height, 52.0));
   assert(near(metrics.handle, 8.0));
-  // Ten buttons at the old 16 + 72 * n.
-  assert(near(toolbar_content_width(10, metrics), 736.0));
-  assert(near(toolbar_content_width(3, metrics), 232.0));
+  assert(near(metrics.cell, fallback.cell));
+  assert(near(metrics.height, fallback.height));
+  // Eight buttons - the shipped set - at 16 + 48 * n.
+  assert(near(toolbar_content_width(8, metrics), 400.0));
+  assert(near(toolbar_content_width(3, metrics), 160.0));
+}
+
+// What the user sees as the gap between two buttons is the cell minus the
+// glyph in it. Three icon widths per cell left two thirds of the bar empty and
+// read as scattered marks rather than a row of controls; the pitch was cut to
+// two. Bounded on both sides: below roughly 1.5 the hover pills touch and the
+// icons run together, above 2.5 the spacing is back to where it started.
+void the_gap_around_an_icon_stays_proportionate() {
+  for (double size : {12.0, 16.0, 24.0, 48.0, 64.0}) {
+    const auto metrics = toolbar_metrics(size, false);
+    const double padding = metrics.cell - size; // Both sides together.
+    assert(padding > size * 0.4);
+    assert(padding < size * 1.5);
+  }
 }
 
 // The gap this closes: the icon size setting used to change only the glyph,
 // leaving it in a cell that never grew.
 void bar_follows_icon_size() {
+  const auto shipped = toolbar_metrics(24.0, false);
   const auto small_icons = toolbar_metrics(16.0, false);
   const auto large = toolbar_metrics(32.0, false);
-  assert(small_icons.cell < 72.0);
-  assert(large.cell > 72.0);
-  assert(small_icons.height < 52.0);
-  assert(large.height > 52.0);
+  assert(small_icons.cell < shipped.cell);
+  assert(large.cell > shipped.cell);
+  assert(small_icons.height < shipped.height);
+  assert(large.height > shipped.height);
   // A bar of the same button count is strictly wider with larger icons.
   assert(toolbar_content_width(5, large) > toolbar_content_width(5, small_icons));
 }
 
 // An implausible size must not produce a degenerate or enormous window.
 void out_of_range_size_keeps_shipped_geometry() {
+  const ToolbarMetrics shipped;
   for (double size : {0.0, -12.0, 4.0, 1e9}) {
     const auto metrics = toolbar_metrics(size, false);
-    assert(near(metrics.cell, 72.0));
-    assert(near(metrics.height, 52.0));
+    assert(near(metrics.cell, shipped.cell));
+    assert(near(metrics.height, shipped.height));
   }
   const auto nan_size = toolbar_metrics(std::nan(""), false);
-  assert(near(nan_size.cell, 72.0));
+  assert(near(nan_size.cell, shipped.cell));
 }
 
 // The point of the shared helper: drawing, hover and click all ask the same
@@ -164,7 +185,8 @@ void buttons_fit_within_the_bar() {
 } // namespace
 
 int main() {
-  default_size_is_unchanged();
+  shipped_size_matches_the_struct_defaults();
+  the_gap_around_an_icon_stays_proportionate();
   bar_follows_icon_size();
   out_of_range_size_keeps_shipped_geometry();
   hit_testing_agrees_with_the_drawn_cells();

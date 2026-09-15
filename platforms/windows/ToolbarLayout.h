@@ -25,9 +25,9 @@ inline ToolbarShadow toolbar_shadow(bool enabled) {
 
 // Floating toolbar geometry, in device independent pixels.
 //
-// The cell pitch and bar height used to be the literals 72 and 52, repeated at
-// five call sites - the window sizing, the drawing loop, the hover hit and the
-// click hit. Two consequences. The icon size setting only changed the glyph
+// The cell pitch and bar height used to be literals repeated at five call
+// sites - the window sizing, the drawing loop, the hover hit and the click
+// hit. Two consequences. The icon size setting only changed the glyph
 // while the cell it sat in stayed the same size, so a larger icon crowded its
 // cell instead of enlarging the bar. And four copies of the same arithmetic is
 // four chances for the highlight and the click to disagree about which button
@@ -37,7 +37,7 @@ inline ToolbarShadow toolbar_shadow(bool enabled) {
 // offsets every drawn coordinate, so a hit test that forgot it would select
 // the button to the left of the one lit up.
 struct ToolbarMetrics {
-  double cell = 72.0;
+  double cell = 48.0;
   // The bar itself, excluding the shadow margin.
   double height = 52.0;
   // The drag strip on the left; the only part of the window that drags.
@@ -47,15 +47,24 @@ struct ToolbarMetrics {
   ToolbarShadow shadow;
 };
 
-// Derived from the configured icon size. The shipped default of 24 reproduces
-// the previous fixed 72 x 52 bar exactly, so the bar does not change size for
-// a user who never touched the setting.
+// Derived from the configured icon size.
+//
+// The pitch was three times the icon: a 24 DIP glyph centred in a 72 DIP cell,
+// which is 24 DIP of empty bar between one icon and the next. At that spacing
+// the buttons read as scattered marks rather than a row of controls. Two icon
+// widths puts 12 DIP either side of the glyph - still a comfortable click
+// target, and the hover pill it draws is very close to square.
+//
+// The height is deliberately left alone. It is what the icon sits in
+// vertically and what the bar's rounded corners are cut from; shrinking it
+// with the pitch would have made the bar thinner as well as shorter, which is
+// not what was too loose.
 inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow = true) {
   ToolbarMetrics metrics;
   metrics.shadow = toolbar_shadow(shadow);
   if (!(font_size >= 8.0) || !(font_size <= 64.0))
     return metrics; // Out of range: keep the shipped geometry.
-  metrics.cell = font_size * 3.0;
+  metrics.cell = font_size * 2.0;
   metrics.height = font_size * 2.0 + 4.0;
   metrics.icon_top = metrics.height / 6.5;
   metrics.icon_bottom = metrics.height - metrics.icon_top;
