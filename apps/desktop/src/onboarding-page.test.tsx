@@ -45,6 +45,16 @@ test("exposes Android system settings and input method picker actions", async ()
   await waitFor(() => expect(actions.showInputMethodPicker).toHaveBeenCalledOnce());
 });
 
+test("adapts the setup step for iOS keyboard settings", async () => {
+  const actions = makeActions({ platform: "ios" });
+  render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始设置" }));
+  await screen.findByRole("heading", { name: "启用键盘" });
+  expect(screen.getByRole("heading", { name: "添加水杉键盘" })).toBeTruthy();
+  expect(screen.getByText(/通用 → 键盘 → 键盘/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "选择输入法" })).toBeNull();
+});
+
 test("passes the nine-key choice when onboarding is completed", async () => {
   const onComplete = vi.fn().mockResolvedValue(undefined);
   render(<WelcomeFlowPage actions={makeActions()} onComplete={onComplete} />);

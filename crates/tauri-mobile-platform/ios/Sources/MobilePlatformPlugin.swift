@@ -1,4 +1,5 @@
 import AVFoundation
+import AuthenticationServices
 import Foundation
 import Darwin
 import Security
@@ -11,6 +12,11 @@ private struct SetAppIconArgs: Decodable {
 
 private struct SaveAccountSessionArgs: Decodable {
   let value: String
+}
+
+private struct AppleSignInArgs: Decodable {
+  let challengeId: String
+  let nonce: String
 }
 
 private struct CopyTextArgs: Decodable {
@@ -156,6 +162,31 @@ private final class IOSVoiceTranscriptionSession {
 private final class IOSVoiceTranscriptionService {
   private static let maximumAudioBytes = 2_100_000
   private var active: IOSVoiceTranscriptionSession?
+  private var backgroundObserver: NSObjectProtocol?
+
+  init() {
+    backgroundObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.cancelForBackground()
+    }
+  }
+
+  deinit {
+    if let backgroundObserver {
+      NotificationCenter.default.removeObserver(backgroundObserver)
+    }
+  }
+
+  /// A settings app can be suspended while recording or waiting for a network
+  /// response. Cancel the native session at the process lifecycle boundary so
+  /// microphone capture, temporary audio and pending provider requests do not
+  /// outlive the visible app. The shared panel receives the normal cancellation
+  /// error and can be reopened without a stale busy state.
+  private func cancelForBackground() {
+    guard let session = active else { return }
+    cancel(requestId: session.args.requestId)
+  }
 
   private func valid(_ args: VoiceTranscriptionArgs) -> Bool {
     let endpoint = args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -641,11 +672,61 @@ private struct AccountSessionKeychain {
   }
 }
 
+/// Keeps the native Apple authorization delegate alive while a Tauri invoke is
+/// pending. The identity token is resolved directly to Rust and never exposed
+/// to the WebView.
+private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
+    ASAuthorizationControllerPresentationContextProviding {
+  let invoke: Invoke
+  let challengeId: String
+  private let finish: () -> Void
+
+  init(invoke: Invoke, challengeId: String, finish: @escaping () -> Void) {
+    self.invoke = invoke
+    self.challengeId = challengeId
+    self.finish = finish
+  }
+
+  func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    return scenes.flatMap(\.windows).first(where: \.isKeyWindow)
+      ?? scenes.first?.windows.first ?? UIWindow()
+  }
+
+  func authorizationController(controller: ASAuthorizationController,
+                               didCompleteWithAuthorization authorization: ASAuthorization) {
+    defer { finish() }
+    guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+          credential.state == challengeId,
+          let data = credential.identityToken,
+          let token = String(data: data, encoding: .utf8),
+          !token.isEmpty,
+          token.utf8.count <= 16 * 1024,
+          !token.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+      invoke.reject("apple_sign_in", code: "apple_sign_in")
+      return
+    }
+    invoke.resolve(["credential": token])
+  }
+
+  func authorizationController(controller: ASAuthorizationController,
+                               didCompleteWithError error: Error) {
+    finish()
+    if let authorizationError = error as? ASAuthorizationError,
+       authorizationError.code == .canceled {
+      invoke.reject("account_cancelled", code: "account_cancelled")
+    } else {
+      invoke.reject("apple_sign_in", code: "apple_sign_in")
+    }
+  }
+}
+
 final class MobilePlatformPlugin: Plugin {
   private let accountSession = AccountSessionKeychain()
   private let keyboardPreferences = IOSKeyboardPreferenceStore()
   private let voiceHandoff = VoiceTextHandoffWriter()
   private let voiceTranscription = IOSVoiceTranscriptionService()
+  private var appleSignIn: AppleSignInCoordinator?
 
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
@@ -765,6 +846,42 @@ final class MobilePlatformPlugin: Plugin {
       invoke.resolve()
     } catch {
       invoke.reject("secure_storage", code: "secure_storage")
+    }
+  }
+
+  @objc public func signInWithApple(_ invoke: Invoke) {
+    let args: AppleSignInArgs
+    do {
+      args = try invoke.parseArgs(AppleSignInArgs.self)
+    } catch {
+      invoke.reject("invalid_apple_sign_in", code: "invalid_apple_sign_in")
+      return
+    }
+    guard !args.challengeId.isEmpty, args.challengeId.utf8.count <= 256,
+          !args.challengeId.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          !args.nonce.isEmpty, args.nonce.utf8.count <= 4096,
+          !args.nonce.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+      invoke.reject("invalid_apple_sign_in", code: "invalid_apple_sign_in")
+      return
+    }
+    onMain { [weak self] in
+      guard let self else { return }
+      guard self.appleSignIn == nil else {
+        invoke.reject("busy", code: "busy")
+        return
+      }
+      let request = ASAuthorizationAppleIDProvider().createRequest()
+      request.requestedScopes = []
+      request.nonce = args.nonce
+      request.state = args.challengeId
+      let coordinator = AppleSignInCoordinator(invoke: invoke, challengeId: args.challengeId) { [weak self] in
+        self?.appleSignIn = nil
+      }
+      self.appleSignIn = coordinator
+      let controller = ASAuthorizationController(authorizationRequests: [request])
+      controller.delegate = coordinator
+      controller.presentationContextProvider = coordinator
+      controller.performRequests()
     }
   }
 

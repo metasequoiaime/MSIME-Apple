@@ -50,6 +50,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     label: "app.msime.ios.candidate-gloss", qos: .utility)
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
+  private let translations = CandidateTranslationStore()
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private weak var compositionContainer: UIView?
@@ -92,6 +93,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var microsoftFinalKey: UIButton?
   private var letterRowViews: [UIView] = []
   private var symbolRowViews: [UIView] = []
+  // Symbol keys show the punctuation they actually emit in Chinese mode.
+  private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
   private var layoutToggleButton: UIButton?
   private weak var shiftButton: UIButton?
   private weak var enterButton: UIButton?
@@ -165,6 +168,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // Not private: the height assertions derive from it rather than restating the sum.
   static let compositionRowHeight: CGFloat = 32
   private static let candidateStripHeight: CGFloat = compositionRowHeight + 38
+  private static let candidateRowHeight: CGFloat = 38
+  static let glossLineHeight: CGFloat = 14
+  static func glossHeight(lines: Int) -> CGFloat { CGFloat(max(lines, 0)) * glossLineHeight }
+  static func candidateStripHeight(glossLines: Int) -> CGFloat {
+    compositionRowHeight + candidateRowHeight + glossHeight(lines: glossLines)
+  }
+  /// Height reserved below the candidate row for composition and configured gloss lines.
+  /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
+  static var stripExtraHeight: CGFloat {
+    compositionRowHeight + glossHeight(lines: configuredGlossLines(fullAccess: false))
+  }
+
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
+    !CandidateTranslationPreference.needsNetwork(language)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+  }
+
+  static func configuredGlossLines(fullAccess: Bool) -> Int {
+    guard CandidateGlossPreference.enabled else { return 0 }
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    if let secondary = CandidateTranslationPreference.secondary,
+       canFillGloss(secondary, fullAccess: fullAccess) {
+      lines += 1
+    }
+    return lines
+  }
+  private var glossLineCount = 0
+  private var candidateStripHeightConstraint: NSLayoutConstraint?
 
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
@@ -194,13 +225,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ["(", ")", "[", "]", "<", ">", "\\", "-", "_", "="],
   ]
 
+  /// Chinese punctuation faces copied from the Engine's punctuation contract.
+  ///
+  /// The key input remains ASCII so the Engine owns paired punctuation and smart punctuation;
+  /// only the visible face changes. English and local-input modes keep the literal ASCII face.
+  static let chineseSymbolFaces: [String: String] = [
+    ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
+    "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
+    "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
+  ]
+
   override func loadView() {
     inputView = KeyboardInputView(frame: .zero, inputViewStyle: .keyboard)
   }
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
+    glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -214,7 +257,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       skinBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     installKeyboard()
-    let height = view.heightAnchor.constraint(equalToConstant: 260 + Self.compositionRowHeight)
+    let height = view.heightAnchor.constraint(equalToConstant:
+      260 + Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
+        + CGFloat(KeyboardLayoutPreference.heightAdjustment))
     height.priority = .init(999)
     height.identifier = "keyboardHeight"
     height.isActive = true
@@ -232,6 +277,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    // UIKit may publish the document identifier and keyboard type one run-loop turn after the
+    // extension appears. Refresh the first frame once those host traits are available.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      // Do not let a delayed proxy callback cancel text typed between appearance and this turn.
+      // The next keyboard activation retries synchronization if the host withheld its identifier.
+      guard !self.hasComposition else { return }
+      self.synchronizeInputContext()
+      self.synchronizeInputSchemePreference()
+      self.updateLanguageModeButton()
+      self.updateLetterCaseControls()
+      self.updateCandidateStrip(preedit: self.visiblePreedit, candidates: self.visibleCandidates)
+    }
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
@@ -266,10 +324,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.reloadSharedPreferences { [weak self] loaded in
       guard let self, loaded else { return }
       self.synchronizeSharedTouchPreferences()
+      self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
     }
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
+    translations.cancel()
     renderCandidateStrip()
     scheduleCandidateGlosses()
     applyKeyboardSkin()
@@ -314,6 +374,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     snapshotWorker.stop()
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
+    translations.cancel()
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -625,8 +686,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }, for: .primaryActionTriggered)
     installShortcutBar(in: container)
 
+    let stripHeight = container.heightAnchor.constraint(
+      equalToConstant: Self.candidateStripHeight(glossLines: glossLineCount))
+    candidateStripHeightConstraint = stripHeight
     NSLayoutConstraint.activate([
-      container.heightAnchor.constraint(equalToConstant: Self.candidateStripHeight),
+      stripHeight,
       compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
       compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
       compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
@@ -687,6 +751,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
       usesTraditionalOutput.toggle()
       ChineseOutputPreference.usesTraditional = usesTraditionalOutput
+      _ = session.setTraditionalChineseOutput(usesTraditionalOutput)
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
@@ -952,10 +1017,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func makeSymbolRow(_ symbols: [String]) -> UIStackView {
     let row = makeRow()
     for symbol in symbols {
-      row.addArrangedSubview(
-        makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
+      let key = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
           self?.handleSymbol(symbol)
-        })
+        }
+      if let chinese = Self.chineseSymbolFaces[symbol] {
+        symbolKeyFaces.append((key, symbol, chinese))
+      }
+      row.addArrangedSubview(key)
     }
     return row
   }
@@ -1396,6 +1464,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       _ = session.setFuzzyPinyinRules(fuzzyRules)
     }
     session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
+    applyCandidateGlossLayout()
+  }
+
+  private func currentGlossLines() -> Int {
+    Self.configuredGlossLines(fullAccess: hasFullAccess)
+  }
+
+  private func applyCandidateGlossLayout() {
+    let lines = currentGlossLines()
+    guard lines != glossLineCount else { return }
+    glossLineCount = lines
+    candidateStripHeightConstraint?.constant = Self.candidateStripHeight(glossLines: lines)
+    updatePreferredKeyboardHeight()
+    renderCandidateStrip()
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
@@ -1410,7 +1492,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  private func selectInputScheme(_ scheme: ChineseInputScheme) {
+  private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
     guard InputSchemePreference.enabledSchemes.contains(scheme) else { return }
     if scheme == inputScheme {
       if scheme == .thoughtfulReply { synchronizeReplyKeyboard() }
@@ -1422,6 +1504,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     inputScheme = scheme
     let snapshot = applyInputScheme()
     InputSchemePreference.scheme = scheme
+    if persistShared {
+      _ = session.setTouchKeyboardScheme(scheme, enabledSchemes: InputSchemePreference.enabledSchemes)
+    }
     showsSymbols = false
     updateSchemeButton()
     updateLanguageModeButton()
@@ -1652,6 +1737,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateGlossRequestedGeneration = nil
       visibleCandidateGlosses = []
     }
+    if let translationsEnabled = preferences["candidate_translations"] as? Bool {
+      CandidateTranslationPreference.onlineEnabled = translationsEnabled
+    }
+    if let traditional = preferences["traditional_chinese_output"] as? Bool,
+       traditional != ChineseOutputPreference.usesTraditional {
+      ChineseOutputPreference.usesTraditional = traditional
+    }
+    if let target = preferences["translation_target_language"] as? String,
+       let index = CandidateTranslationPreference.languages.firstIndex(where: { $0.code == target.uppercased() }) {
+      CandidateTranslationPreference.primaryIndex = index
+    }
+    if let secondary = preferences["translation_secondary_language"] as? String {
+      let index = CandidateTranslationPreference.languages.firstIndex {
+        $0.code == secondary.uppercased()
+      } ?? -1
+      CandidateTranslationPreference.secondaryIndex = index
+    } else if preferences.keys.contains("translation_secondary_language") {
+      CandidateTranslationPreference.secondaryIndex = -1
+    }
     var skinChanged = false
     var customSkinChanged = false
     let rawSkin = preferences["touch_keyboard_skin"] as? String
@@ -1697,13 +1801,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       selectedScheme = (schemes["selected"] as? String).flatMap(Self.sharedInputScheme)
     }
     if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
-      selectInputScheme(selectedScheme)
+      selectInputScheme(selectedScheme, persistShared: false)
     }
     if skinChanged || customSkinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()
     updateShortcutButtons()
     updatePreferredKeyboardHeight()
     scheduleCandidateGlosses()
+    renderCandidateStrip()
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
@@ -1744,7 +1849,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let panel = KeyboardCandidatePanelView(
         candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
         annotations: snapshot.entries.map {
-          candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+          candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text,
+                                   typed: snapshot.preedit)
         },
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         onSelect: { [weak self] index in
@@ -1971,6 +2077,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana }
+    // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
+    // input send the literal ASCII key value, so their labels must follow their insertion path.
+    let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode
+    for face in symbolKeyFaces {
+      let title = sendsChinesePunctuation ? face.chinese : face.ascii
+      guard face.key.configuration?.title != title else { continue }
+      face.key.configuration?.title = title
+      face.key.accessibilityLabel = "符号 \(title)"
+    }
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
@@ -2208,6 +2323,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateGlosses = candidateGlosses
     visibleCandidatePageCount = candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
+    requestCandidateTranslations()
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -2244,21 +2360,54 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
     let code = visibleCandidateCodes.indices.contains(index) ? visibleCandidateCodes[index] : ""
-    let gloss = visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : ""
-    return candidateAnnotation(code: code, gloss: gloss, typed: visiblePreedit)
+    let hint = wubiCodeHint(code: code, typed: visiblePreedit)
+    return hint.isEmpty ? .none : KeyboardCandidateAnnotation(
+      text: hint, accessibilityDescription: "还需输入 \(hint)")
   }
 
-  private func candidateAnnotation(
-    code: String, gloss: String, typed: String
-  ) -> KeyboardCandidateAnnotation {
+  private func candidateGlosses(at index: Int) -> [String] {
+    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
+    return glosses(word: visibleCandidates[index], offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+  }
+
+  private func glosses(word: String, offline: String) -> [String] {
+    var lines: [String] = []
+    if let value = gloss(word: word, language: CandidateTranslationPreference.primary, offline: offline) { lines.append(value) }
+    if let secondary = CandidateTranslationPreference.secondary,
+       let value = gloss(word: word, language: secondary, offline: "") { lines.append(value) }
+    return lines
+  }
+
+  private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
+    gloss(word: word, language: language,
+          offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+  }
+
+  private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
+    if !CandidateTranslationPreference.needsNetwork(language), !inputScheme.isJapanese,
+       !offline.isEmpty, offline != word { return offline }
+    guard CandidateTranslationPreference.onlineEnabled else { return nil }
+    return translations.gloss(word: word, code: language.code)
+  }
+
+  private func candidatePanelAnnotation(code: String, gloss: String, word: String,
+                                        typed: String) -> KeyboardCandidateAnnotation {
     let hint = wubiCodeHint(code: code, typed: typed)
-    if !hint.isEmpty {
-      return KeyboardCandidateAnnotation(
-        text: hint, accessibilityDescription: "还需输入 \(hint)")
-    }
-    guard CandidateGlossPreference.enabled, !gloss.isEmpty else { return .none }
-    return KeyboardCandidateAnnotation(
-      text: gloss, accessibilityDescription: "英文释义：\(gloss)")
+    let lines = glosses(word: word, offline: gloss)
+    let text = ([hint] + lines).filter { !$0.isEmpty }.joined(separator: "\n")
+    guard !text.isEmpty else { return .none }
+    let description = ([hint.isEmpty ? "" : "还需输入 \(hint)", lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
+      .filter { !$0.isEmpty }.joined(separator: "，")
+    return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
+  }
+
+  private func requestCandidateTranslations() {
+    guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
+          hasFullAccess, !inputScheme.isJapanese, !session.isInLocalMode,
+          !visibleCandidates.isEmpty else { translations.cancel(); return }
+    var codes = [CandidateTranslationPreference.primary.code]
+    if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
+    translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {
@@ -2278,7 +2427,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     panel.updateAnnotations(snapshot.entries.map {
-      candidateAnnotation(code: $0.code, gloss: $0.translation, typed: snapshot.preedit)
+      candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text,
+                               typed: snapshot.preedit)
     })
   }
 
@@ -2360,17 +2510,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
     let display = chineseOutput(candidate)
     let annotation = candidateAnnotation(at: index)
+    let glosses = candidateGlosses(at: index)
     var configuration = UIButton.Configuration.plain()
     configuration.title = display
-    if !annotation.text.isEmpty {
-      configuration.attributedTitle = AttributedString(
-        display, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .body),
-        ])) + AttributedString(
-          "  " + annotation.text, attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
+    if !annotation.text.isEmpty || !glosses.isEmpty {
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.lineBreakMode = .byTruncatingTail
+      var title = AttributedString(display, attributes: AttributeContainer([
+        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      ]))
+      if !annotation.text.isEmpty {
+        title += AttributedString(" " + annotation.text, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
+      for gloss in glosses {
+        title += AttributedString("\n" + gloss, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
+      configuration.attributedTitle = title
     }
     // Candidate chips live in a horizontal scroll view. Keep each title on a
     // single line and let the row scroll to wider candidates instead of
@@ -2397,11 +2558,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
-    button.titleLabel?.numberOfLines = 1
+    button.titleLabel?.numberOfLines = 1 + glosses.count
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
     button.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(display)"
       : "候选词 \(number)：\(display)，\(annotation.accessibilityDescription)"
+    if !glosses.isEmpty { button.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，") }
     button.accessibilityIdentifier = "candidate-\(number)"
     if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
       let revision = candidateRevision
@@ -2528,7 +2690,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ?? (traitCollection.verticalSizeClass == .compact)
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
-    let extra = Self.compositionRowHeight
+    let extra = Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
     // Handwriting shares the candidate strip and therefore the common portrait height. Landscape
     // keeps a small allowance so the writing canvas remains usable in the shorter keyboard.
     let height: CGFloat = handwriting.isHidden || !landscape
@@ -2570,20 +2732,40 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let picker = KeyboardLayoutPickerView(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
+      height: KeyboardLayoutPreference.heightAdjustment,
       voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled,
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
         self?.applyLayoutPreferences()
+        self?.persistTouchKeyboardGeometry()
       },
       onRowSpacing: { [weak self] spacing in
         KeyboardLayoutPreference.rowSpacing = spacing
         self?.applyLayoutPreferences()
+        self?.persistTouchKeyboardGeometry()
+      },
+      onHeight: { [weak self] adjustment in
+        KeyboardLayoutPreference.heightAdjustment = adjustment
+        self?.sharedKeyboardHeightAdjustment = CGFloat(adjustment)
+        self?.updatePreferredKeyboardHeight()
+        self?.persistTouchKeyboardGeometry()
       },
       // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
       // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
       onVoice: { [weak self] enabled in
         KeyboardLayoutPreference.voiceShortcutEnabled = enabled
         self?.updateShortcutButtons()
+        self?.persistTouchKeyboardGeometry()
+      },
+      onReset: { [weak self] in
+        guard let self else { return }
+        KeyboardLayoutPreference.resetToDefaults()
+        sharedKeyboardHeightAdjustment = 0
+        applyLayoutPreferences()
+        updatePreferredKeyboardHeight()
+        updateShortcutButtons()
+        _ = session.resetTouchKeyboardGeometry()
+        showLayoutPicker()
       },
       onClose: { [weak self] in
         guard let self else { return }
@@ -2602,6 +2784,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     layoutPicker = picker
     UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  private func persistTouchKeyboardGeometry() {
+    _ = session.setTouchKeyboardGeometry(
+      keySpacing: KeyboardLayoutPreference.keySpacing,
+      rowSpacing: KeyboardLayoutPreference.rowSpacing,
+      heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
+      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
   }
 
   private func showMorePicker() {
@@ -2688,6 +2878,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let picker = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected, onSelect: { [weak self] skin in
       guard let self else { return }
       KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      _ = session.setTouchKeyboardSkin(skin)
       closeKeyboardPicker()
       applyKeyboardSkin()
       playInputClick()

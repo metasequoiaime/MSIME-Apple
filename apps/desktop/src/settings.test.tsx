@@ -92,19 +92,19 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
-test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
+test("offline candidate gloss is host-enabled, defaults on and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
+  expect(toggle.checked).toBe(true);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    candidate_english_gloss: true,
+    candidate_english_gloss: false,
   });
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -133,11 +133,11 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
+  expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: true }));
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: false }));
 });
 
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
@@ -512,7 +512,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("english");
+  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("chinese");
   fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
   fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });
@@ -528,6 +528,62 @@ test("input parity controls persist cloud, translation and punctuation settings"
     smart_punctuation: false,
     punctuation_lock: "english",
   });
+});
+
+test("Android candidate translations persist an optional second language", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save,
+    host: { platform: "android" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect(secondary.value).toBe("");
+  fireEvent.change(secondary, { target: { value: "ja" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    translation_secondary_language: "ja",
+  }));
+});
+
+test("mobile translation languages stay editable for offline English glosses", async () => {
+  const snapshot: Snapshot = { ...initial, preferences: {
+    ...initial.preferences, candidate_translations: false, candidate_english_gloss: true,
+  } };
+  render(<SettingsPage client={{
+    load: async () => snapshot,
+    save: vi.fn(),
+    host: { platform: "android" } as HostCapabilities,
+    candidateEnglishGloss: true,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const primary = screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement;
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect([...primary.options].map(option => option.value)).not.toContain("ru");
+  expect([...secondary.options].map(option => option.value)).not.toContain("ru");
+  expect(primary.disabled).toBe(false);
+  expect(secondary.disabled).toBe(false);
+  fireEvent.click(screen.getByRole("checkbox", { name: "显示英文释义" }));
+  expect(primary.disabled).toBe(true);
+  expect(secondary.disabled).toBe(true);
+});
+
+test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
+  const legacy: Snapshot = { ...initial, preferences: {
+    ...initial.preferences, translation_target_language: "ru", translation_secondary_language: "ru",
+  } };
+  const client = { load: async () => legacy, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  const first = render(<SettingsPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
+  expect((screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
+  first.unmount();
+  render(<SettingsPage client={{ ...client, load: async () => initial }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect([...((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).options)]
+    .map(option => option.value)).not.toContain("ru");
 });
 
 test("frequency values above the upstream dropdown range remain visible", async () => {
@@ -892,6 +948,105 @@ test("macOS does not expose Windows or Linux diagnostic switches", async () => {
 });
 
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
+
+test("mobile hosts use Apple-style primary navigation and retain secondary settings", async () => {
+  const host: HostCapabilities = {
+    platform: "ios", restart_input_method: false, panel_windows: false, ime_mode_scope: false,
+    typing_statistics: true, fuzzy_pinyin: false, system_fonts: false, window_chrome: false,
+    floating_toolbar: false, floating_toolbar_appearance: false, floating_toolbar_components: false,
+    mode_switch_shortcuts: false, panel_shortcuts: false, voice_capture_devices: false,
+    candidate_font_controls: false, candidate_row_colors: false, candidate_selection_appearance: false,
+    candidate_follow_cursor: false,
+  };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host,
+    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+    typingStatistics: { load: vi.fn().mockResolvedValue({ availability: "neverWritten", statistics: { enabled: false, total: 0, days: {}, detail: {} } }), setEnabled: vi.fn(), reset: vi.fn() },
+    account: { status: vi.fn().mockResolvedValue({ available: false }), providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }), requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(), deleteAccount: vi.fn(), clearExpired: vi.fn() },
+    communitySkins: { list: vi.fn(), detail: vi.fn(), download: vi.fn(), rate: vi.fn(), publish: vi.fn(), unpublish: vi.fn(), finishTrial: vi.fn() },
+    communityResources: { list: vi.fn(), detail: vi.fn(), publish: vi.fn(), apply: vi.fn(), save: vi.fn(), rate: vi.fn(), unpublish: vi.fn(), storeReply: vi.fn(), removeReply: vi.fn() },
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const primary = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(primary).getByRole("button", { name: "键盘" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "社区" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
+  expect(within(primary).getByRole("button", { name: "账号" })).toBeTruthy();
+  const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+  expect(Array.from(more.options).map(option => option.text)).toContain("输入");
+  fireEvent.change(more, { target: { value: "input" } });
+  expect(more.value).toBe("input");
+  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+});
+
+test("mobile settings pages follow the WebView back stack", async () => {
+  const previous = window.history.state;
+  window.history.replaceState(null, "");
+  try {
+    render(<SettingsPage client={{
+      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+      host: { platform: "ios" } as HostCapabilities,
+      home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+    }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    const more = screen.getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+    fireEvent.change(more, { target: { value: "input" } });
+    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "input" }));
+    act(() => {
+      const state = { msimeSettings: true, page: "appearance" };
+      window.history.replaceState(state, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    });
+    expect(await screen.findByRole("heading", { name: "外观" })).toBeTruthy();
+  } finally {
+    window.history.replaceState(previous, "");
+  }
+});
+
+test("mobile settings reload shared preferences after returning to foreground", async () => {
+  let hidden = false;
+  vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+  const load = vi.fn().mockResolvedValue(initial);
+  render(<SettingsPage client={{
+    load, save: vi.fn(), host: { platform: "android" } as HostCapabilities,
+    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(load).toHaveBeenCalledTimes(1);
+  hidden = true;
+  fireEvent(document, new Event("visibilitychange"));
+  hidden = false;
+  fireEvent(document, new Event("visibilitychange"));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+});
+
+test("mobile account deep links participate in the back stack", async () => {
+  const previous = window.history.state;
+  window.history.replaceState(null, "");
+  try {
+    render(<SettingsPage client={{
+      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+      host: { platform: "ios" } as HostCapabilities,
+      account: {
+        status: vi.fn().mockResolvedValue({ available: false }),
+        providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
+        requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(),
+        deleteAccount: vi.fn(), clearExpired: vi.fn(),
+      },
+    }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    fireEvent.click(screen.getByRole("button", { name: "账号" }));
+    fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
+    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "about" }));
+    act(() => {
+      const state = { msimeSettings: true, page: "account" };
+      window.history.replaceState(state, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    });
+    expect(await screen.findByRole("heading", { name: "我的" })).toBeTruthy();
+  } finally {
+    window.history.replaceState(previous, "");
+  }
+});
 
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };

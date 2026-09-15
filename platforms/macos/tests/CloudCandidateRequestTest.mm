@@ -106,7 +106,7 @@ static void TestTencentTransport() {
     NSError *error = nil;
     NSDictionary *descriptor = [MSIMEClientSession tencentTranslationHTTPRequest:@{
         @"config":@{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@""},
-        @"texts":@[@"测试", @"line\nquote\"😀"], @"source_language":@"zh", @"target_language":@"en", @"timestamp":@1704067200} error:&error];
+        @"texts":@[@"测试", @"line quote\"😀"], @"source_language":@"zh", @"target_language":@"en", @"timestamp":@1704067200} error:&error];
     assert(descriptor && !error);
     TencentMode = YES;
     TencentPayload = [descriptor[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding];

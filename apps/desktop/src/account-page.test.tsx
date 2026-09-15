@@ -80,6 +80,32 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   await waitFor(() => expect(client.logout).toHaveBeenCalledWith(true));
 });
 
+test("profile card opens the shared editor and copies the complete account ID", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(screen.getByRole("dialog", { name: "编辑个人资料" })).not.toBeNull();
+  expect(screen.getByText("加入水杉")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "#FIXTUR" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("fixture-user-id"));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  expect(screen.queryByRole("dialog", { name: "编辑个人资料" })).toBeNull();
+});
+
+test("iOS Apple sign-in stays behind the native account client boundary", async () => {
+  const appleLogin = vi.fn().mockResolvedValue({ user });
+  const client = account({
+    providers: vi.fn().mockResolvedValue({ email: false, phone: false, apple: true }),
+    appleLogin,
+  });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "使用 Apple 登录" }));
+  await waitFor(() => expect(appleLogin).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/token|nonce/i)).toBeNull();
+});
+
 test("account deletion requires its destructive confirmation", async () => {
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} />);
@@ -123,6 +149,34 @@ test("logged-in accounts expose local designs and every community collection", a
     ["published-skins"], ["published-dictionary"], ["published-reply"],
     ["saved-dictionary"], ["saved-reply"],
   ]);
+});
+
+test("logged-in mobile accounts expose direct cloud dictionary and clipboard entries", async () => {
+  const openCloudDictionary = vi.fn();
+  const openCloudClipboard = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} onOpenCloudDictionary={openCloudDictionary} onOpenCloudClipboard={openCloudClipboard} />);
+  fireEvent.click(await screen.findByRole("button", { name: "云词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  expect(openCloudDictionary).toHaveBeenCalledTimes(1);
+  expect(openCloudClipboard).toHaveBeenCalledTimes(1);
+});
+
+test("mobile accounts expose about and desktop download actions while signed out", async () => {
+  const openAbout = vi.fn();
+  const openDesktopDownload = vi.fn();
+  render(<AccountPage client={account()} onOpenAbout={openAbout} onOpenDesktopDownload={openDesktopDownload} />);
+  fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
+  fireEvent.click(screen.getByRole("button", { name: "电脑版下载" }));
+  expect(openAbout).toHaveBeenCalledTimes(1);
+  expect(openDesktopDownload).toHaveBeenCalledTimes(1);
+});
+
+test("mobile accounts can replay the onboarding flow without account state", async () => {
+  const replayOnboarding = vi.fn();
+  render(<AccountPage client={account()} onReplayOnboarding={replayOnboarding} />);
+  fireEvent.click(await screen.findByRole("button", { name: "重新查看新手引导" }));
+  expect(replayOnboarding).toHaveBeenCalledTimes(1);
 });
 
 test("local designs remain available without an account", async () => {

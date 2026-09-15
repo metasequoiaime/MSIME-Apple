@@ -95,6 +95,7 @@ int main() {
         MSIMEOpenDesktopRouteWithContext(@"emoji", options,
             @{@"MSIME_CLIENT_PANEL_SESSION":@"synthetic-session", @"MSIME_CLIENT_HOST_OPTIONS":@"ignored"},
             workspace, ^(NSRunningApplication *application) {
+                (void)application;
                 assert(NSThread.isMainThread);
                 assert(application.processIdentifier == NSRunningApplication.currentApplication.processIdentifier);
                 authorized = YES;

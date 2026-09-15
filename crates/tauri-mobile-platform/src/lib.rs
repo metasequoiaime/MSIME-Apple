@@ -5,13 +5,97 @@ use serde_json::Value;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::Runtime;
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use tauri::plugin::PluginHandle;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use tauri::Manager;
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_msime_mobile_platform);
+
+#[cfg(target_os = "android")]
+#[derive(Clone)]
+pub struct AndroidVoicePlatform<R: Runtime>(PluginHandle<R>);
+
+#[cfg(target_os = "android")]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AndroidVoiceRequest<'a> {
+    request_id: &'a str,
+    language: &'a str,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Clone, Debug, Deserialize)]
+struct AndroidVoiceResponse {
+    text: String,
+}
+
+#[cfg(any(target_os = "android", test))]
+fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
+    !request_id.is_empty()
+        && request_id.len() <= 64
+        && request_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        && !language.is_empty()
+        && language.len() <= 64
+        && !language.chars().any(char::is_control)
+}
+
+#[cfg(target_os = "android")]
+impl<R: Runtime> AndroidVoicePlatform<R> {
+    pub async fn recognize_voice(&self, request_id: &str, language: &str) -> Result<String, ()> {
+        if !valid_android_voice_request(request_id, language) {
+            return Err(());
+        }
+        let response = self
+            .0
+            .run_mobile_plugin_async::<AndroidVoiceResponse>(
+                "recognizeVoice",
+                AndroidVoiceRequest {
+                    request_id,
+                    language,
+                },
+            )
+            .await
+            .map_err(|_| ())?;
+        if response.text.chars().count() > 10_000 || response.text.contains('\0') {
+            return Err(());
+        }
+        Ok(response.text)
+    }
+
+    pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
+        if !valid_android_voice_request(request_id, "und") {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("stopVoice", serde_json::json!({ "requestId": request_id }))
+            .map_err(|_| ())
+    }
+
+    pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
+        if request_id.is_some_and(|value| !valid_android_voice_request(value, "und")) {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin(
+                "cancelVoice",
+                serde_json::json!({ "requestId": request_id }),
+            )
+            .map_err(|_| ())
+    }
+
+    pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
+        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("saveVoiceText", serde_json::json!({ "text": text }))
+            .map_err(|_| ())
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -210,6 +294,21 @@ struct AccountSessionRequest<'a> {
 
 #[cfg(target_os = "ios")]
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppleSignInRequest<'a> {
+    challenge_id: &'a str,
+    nonce: &'a str,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppleSignInResponse {
+    credential: String,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
 struct CopyTextRequest<'a> {
     text: &'a str,
 }
@@ -373,6 +472,34 @@ impl<R: Runtime> MobilePlatform<R> {
         self.0.run_mobile_plugin("clearSession", ()).map_err(|_| ())
     }
 
+    pub async fn sign_in_with_apple(&self, challenge_id: &str, nonce: &str) -> Result<String, ()> {
+        if challenge_id.is_empty()
+            || challenge_id.len() > 256
+            || challenge_id.chars().any(char::is_control)
+            || nonce.is_empty()
+            || nonce.len() > 4096
+            || nonce.chars().any(char::is_control)
+        {
+            return Err(());
+        }
+        let response = self
+            .0
+            .run_mobile_plugin_async::<AppleSignInResponse>(
+                "signInWithApple",
+                AppleSignInRequest {
+                    challenge_id,
+                    nonce,
+                },
+            )
+            .await
+            .map_err(|_| ())?;
+        (!response.credential.is_empty()
+            && response.credential.len() <= 16 * 1024
+            && !response.credential.chars().any(char::is_control))
+        .then_some(response.credential)
+        .ok_or(())
+    }
+
     pub fn copy_text(&self, text: &str) -> Result<(), ()> {
         if !is_valid_ios_clipboard_text(text) {
             return Err(());
@@ -460,7 +587,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 let handle = api.register_ios_plugin(init_plugin_msime_mobile_platform)?;
                 app.manage(MobilePlatform(handle));
             }
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(target_os = "android")]
+            {
+                let handle = api.register_android_plugin("app.msime.client", "VoicePlugin")?;
+                app.manage(AndroidVoicePlatform(handle));
+            }
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             let _ = (app, api);
             Ok(())
         })
@@ -471,9 +603,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
-        migrated_account_session_payload, IosKeyboardPreferences, IosVoiceRequestHeader,
-        IosVoiceTranscriptionRequest, IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
-        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
+        migrated_account_session_payload, valid_android_voice_request, IosKeyboardPreferences,
+        IosVoiceRequestHeader, IosVoiceTranscriptionRequest, IosVoiceTranscriptionResponse,
+        MAX_ACCOUNT_SESSION_BYTES, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -484,6 +616,18 @@ mod tests {
         }
         for style in ["", "Classic", "unknown", "../AppIcon"] {
             assert!(!is_supported_app_icon_style(style));
+        }
+    }
+
+    #[test]
+    fn android_voice_requests_use_bounded_platform_arguments() {
+        assert!(valid_android_voice_request("fixture-1", "zh-CN"));
+        let long_value = "x".repeat(65);
+        for request_id in ["", "request_id", long_value.as_str()] {
+            assert!(!valid_android_voice_request(request_id, "zh-CN"));
+        }
+        for language in ["", "zh\nCN", long_value.as_str()] {
+            assert!(!valid_android_voice_request("fixture-1", language));
         }
     }
 

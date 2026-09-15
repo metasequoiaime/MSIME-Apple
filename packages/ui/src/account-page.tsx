@@ -9,6 +9,7 @@ export type AccountUser = {
 export type AccountProviders = {
   email: boolean;
   phone: boolean;
+  apple?: boolean;
 };
 
 export type AccountChallenge = {
@@ -57,6 +58,8 @@ export interface AccountClient {
   providers(): Promise<AccountProviders>;
   requestCode(provider: "email" | "phone", target: string): Promise<AccountChallenge>;
   login(challengeId: string, code: string): Promise<{ user?: AccountUser | null }>;
+  /** iOS performs the nonce and AuthenticationServices exchange natively. */
+  appleLogin?: () => Promise<{ user?: AccountUser | null }>;
   profile(): Promise<AccountProfile>;
   rename(displayName: string): Promise<AccountProfile>;
   logout(all: boolean): Promise<void>;
@@ -96,6 +99,7 @@ function preferredName(user: AccountUser): string {
 }
 
 function providerName(provider: string): string {
+  if (provider === "apple") return "Apple";
   if (provider === "email") return "邮箱";
   if (provider === "phone" || provider === "sms") return "手机号";
   return provider;
@@ -260,13 +264,18 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  onOpenCloudDictionary?: () => void;
+  onOpenCloudClipboard?: () => void;
+  onOpenAbout?: () => void;
+  onOpenDesktopDownload?: () => void;
+  onReplayOnboarding?: () => void;
 }) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
@@ -281,16 +290,26 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
     onOpenPublishedSkins={onOpenPublishedSkins}
     onOpenLocalDesigns={onOpenLocalDesigns}
     onOpenCommunity={onOpenCommunity}
+    onOpenCloudDictionary={onOpenCloudDictionary}
+    onOpenCloudClipboard={onOpenCloudClipboard}
+    onOpenAbout={onOpenAbout}
+    onOpenDesktopDownload={onOpenDesktopDownload}
+    onReplayOnboarding={onReplayOnboarding}
   />;
 }
 
-function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  onOpenCloudDictionary?: () => void;
+  onOpenCloudClipboard?: () => void;
+  onOpenAbout?: () => void;
+  onOpenDesktopDownload?: () => void;
+  onReplayOnboarding?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -308,6 +327,8 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   const [now, setNow] = useState(() => Date.now());
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [copiedAccountId, setCopiedAccountId] = useState(false);
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);
@@ -437,6 +458,14 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
     setNotice("昵称已更新。");
   });
 
+  const copyAccountId = () => {
+    if (!user || !navigator.clipboard?.writeText) return;
+    void navigator.clipboard.writeText(user.id).then(() => {
+      setCopiedAccountId(true);
+      window.setTimeout(() => setCopiedAccountId(false), 1800);
+    }).catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+  };
+
   const openPublishedSkins = onOpenCommunity
     ? () => onOpenCommunity("published-skins")
     : onOpenPublishedSkins;
@@ -445,18 +474,29 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
 
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expired = Boolean(challenge) && expiresAt <= now;
-  const enabledProviders = Number(providers.email) + Number(providers.phone);
+  const enabledProviders = Number(providers.email) + Number(providers.phone) + Number(providers.apple === true);
+
+  const signInWithApple = () => void perform(async () => {
+    if (!client.appleLogin) throw { code: "account_unavailable" };
+    const result = await client.appleLogin();
+    if (!result.user) throw { code: "account_unavailable" };
+    setUser(result.user);
+    await loadProfile();
+    setNotice("登录成功。");
+  });
 
   return <div className="account-page">
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
-    <section className="section account-hero">
+    <button type="button" className="section account-hero account-profile-card" disabled={!user || busy}
+      aria-label={user ? "编辑个人资料" : undefined} onClick={() => user && setEditingProfile(true)}>
       <div className="account-avatar" aria-hidden="true">{user ? preferredName(user).slice(0, 1) : "杉"}</div>
       <div>
         <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
         <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
       </div>
-    </section>
+      {user && <span className="account-profile-card-chevron" aria-hidden="true">›</span>}
+    </button>
     {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
     {onOpenLocalDesigns && <section className="section account-community-actions">
       <div><h2>我的设计</h2><p>保存在本机的键盘皮肤，不会因登录账号而上传。</p></div>
@@ -481,6 +521,27 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
           <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
         </dl>
       </section>
+      {editingProfile && <div className="account-modal-backdrop" role="presentation" onMouseDown={event => {
+        if (event.target === event.currentTarget && !busy) setEditingProfile(false);
+      }}>
+        <section className="account-modal" role="dialog" aria-modal="true" aria-label="编辑个人资料">
+          <div className="account-modal-heading"><h2>编辑资料</h2><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>关闭</button></div>
+          <div className="account-profile-preview"><div className="account-avatar" aria-hidden="true">{preferredName(user).slice(0, 1)}</div><strong>{name.trim() || "你的昵称"}</strong></div>
+          <label>社区昵称
+            <input aria-label="编辑社区昵称" maxLength={64} value={name} disabled={busy} onChange={event => setName(event.target.value)} />
+          </label>
+          <p className="account-muted">昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+          <dl className="account-details">
+            <div><dt>账号 ID</dt><dd><button type="button" className="account-copy-id" onClick={copyAccountId}>{copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}</button></dd></div>
+            <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
+            <div><dt>加入水杉</dt><dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd></div>
+          </dl>
+          <div className="account-inline-actions"><button type="button" className="account-primary" disabled={busy || name.trim() === user.displayName} onClick={() => {
+            rename();
+            setEditingProfile(false);
+          }}>保存修改</button><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>取消</button></div>
+        </section>
+      </div>}
       <section className="section account-actions">
         <h2>账号</h2>
         <div>
@@ -502,6 +563,11 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         </div>}
       </section>
       {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
+      {(onOpenCloudDictionary || onOpenCloudClipboard) && <section className="section account-community-actions">
+        <div><h2>云端</h2><p>访问账号中的云词库和云剪贴板。</p></div>
+        {onOpenCloudDictionary && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudDictionary}>云词库</button>}
+        {onOpenCloudClipboard && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudClipboard}>云剪贴板</button>}
+      </section>}
       {(openPublishedSkins || onOpenCommunity) && <section className="section account-community-actions">
         <div><h2>我的社区作品</h2><p>管理你公开发布或收藏的社区作品。</p></div>
         {openPublishedSkins && <button type="button" className="secondary" disabled={busy} onClick={openPublishedSkins}>我发布的皮肤</button>}
@@ -516,6 +582,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>
       {!channel ? <>
         <div className="account-provider-actions">
+          {providers.apple && client.appleLogin && <button type="button" className="account-primary" disabled={busy} onClick={signInWithApple}>使用 Apple 登录</button>}
           {providers.email && <button type="button" className="account-primary" onClick={() => chooseChannel("email")}>邮箱登录</button>}
           {providers.phone && <button type="button" className="account-primary" onClick={() => chooseChannel("phone")}>手机号登录</button>}
         </div>
@@ -545,6 +612,16 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         </div>}
         <p className="account-muted">验证码只用于本次登录，请勿向他人透露。</p>
       </>}
+    </section>}
+    {(onOpenAbout || onOpenDesktopDownload) && <section className="section account-community-actions account-about-actions">
+      <div><h2>关于</h2><p>查看水杉版本信息、开源说明和其他平台下载指南。</p></div>
+      <div className="account-inline-actions">
+        {onOpenAbout && <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>关于水杉</button>}
+        {onOpenDesktopDownload && <button type="button" className="secondary" disabled={busy} onClick={onOpenDesktopDownload}>电脑版下载</button>}
+      </div>
+    </section>}
+    {onReplayOnboarding && <section className="section account-about-actions">
+      <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>重新查看新手引导</button>
     </section>}
     <section className="section account-privacy">
       <h2>本地数据与云端作品</h2>

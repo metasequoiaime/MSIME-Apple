@@ -204,20 +204,16 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
     XCTAssertTrue(app.buttons["keyboardLayoutLink"].exists)
-    XCTAssertFalse(app.buttons["aiSettingsLink"].exists)
+    XCTAssertTrue(app.buttons["dictionarySettingsLink"].exists)
+    XCTAssertTrue(app.buttons["aiSettingsLink"].exists)
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
+    XCTAssertFalse(app.buttons["keyboardSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .deleteOnSuccess; add(shot)
-    openKeyboardSettingsIfNeeded(app)
-    XCTAssertTrue(app.navigationBars["键盘设置"].waitForExistence(timeout: 5))
     app.buttons["aiSettingsLink"].tap()
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
-    app.navigationBars.buttons.firstMatch.tap()
-    for _ in 0..<3 {
-      if app.buttons["homeThoughtfulReply"].isHittable { break }
-      app.swipeUp()
-    }
-    app.buttons["homeThoughtfulReply"].tap()
+    app.buttons["keyboardTryoutLink"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     app.navigationBars.buttons.firstMatch.tap()
@@ -226,8 +222,6 @@ final class OnboardingUITests: XCTestCase {
       app.swipeDown()
     }
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertEqual(app.buttons["inputScheme_thoughtfulReply"].value as? String, "已选择")
-    app.buttons["inputScheme_quanpin"].tap()
   }
 
   @MainActor
@@ -250,10 +244,9 @@ final class OnboardingUITests: XCTestCase {
 
   @MainActor
   private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
-    let settings = app.buttons["keyboardSettingsLink"]
-    guard settings.exists else { return }
-    for _ in 0..<4 { if settings.isHittable { break }; app.swipeUp() }
-    settings.tap()
+    let entry = app.buttons["aiSettingsLink"]
+    guard entry.exists else { return }
+    for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
   }
 
   @MainActor

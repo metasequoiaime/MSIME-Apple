@@ -81,12 +81,14 @@ impl From<AccountUser> for UserResponse {
 pub struct ProvidersResponse {
     email: bool,
     phone: bool,
+    apple: bool,
 }
 
 fn providers_response(providers: std::collections::HashMap<String, bool>) -> ProvidersResponse {
     ProvidersResponse {
         email: providers.get("email") == Some(&true),
         phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+        apple: providers.get("apple") == Some(&true),
     }
 }
 
@@ -324,6 +326,38 @@ pub async fn account_login(
     call(state, move |session| {
         session
             .sign_in(&challenge_id, &code)
+            .map(|user| StatusResponse {
+                user: Some(user.into()),
+            })
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_apple_login(
+    state: State<'_, AccountState>,
+) -> Result<StatusResponse, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let challenge = tauri::async_runtime::spawn_blocking(move || session.request_code("apple", ""))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "account_unavailable",
+        })?
+        .map_err(|error| super::CommandError { code: error.code() })?;
+    let nonce = challenge.nonce.ok_or(super::CommandError {
+        code: "apple_sign_in",
+    })?;
+    let credential = state
+        .platform
+        .sign_in_with_apple(&challenge.challenge_id, &nonce)
+        .await
+        .map_err(|_| super::CommandError {
+            code: "apple_sign_in",
+        })?;
+    call(state, move |session| {
+        session
+            .sign_in_apple(&challenge.challenge_id, &credential)
             .map(|user| StatusResponse {
                 user: Some(user.into()),
             })
