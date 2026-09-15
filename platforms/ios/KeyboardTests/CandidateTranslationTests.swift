@@ -278,6 +278,23 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertTrue(plain.candidateMenuElements(at: 0).isEmpty, "关着释义时长按没有东西可给")
   }
 
+  func testTheExpandedPanelAnswersALongPressToo() throws {
+    // 展开之后长按没反应:面板自己建格子,从来没给它们挂过菜单,而候选条那一份挂了。
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥嚎"], hints: ["", ""], glosses: [["hello"], []], preedit: "nihao",
+      display: { $0 },
+      menuElements: { _ in [UIAction(title: "hello") { _ in }] },
+      onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+
+    let chip = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    // 菜单等展开时才建 —— 面板一次能铺出三百多个格子。所以这里只能看到占位,内容由候选条那条测试覆盖。
+    XCTAssertTrue(chip.menu?.children.first is UIDeferredMenuElement, "格子要挂上长按菜单")
+    XCTAssertFalse(chip.showsMenuAsPrimaryAction, "轻点仍然是上屏,菜单走长按")
+  }
+
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
     XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
     XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")

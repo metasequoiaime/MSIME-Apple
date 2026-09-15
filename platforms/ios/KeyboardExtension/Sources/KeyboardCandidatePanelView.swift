@@ -13,17 +13,21 @@ final class KeyboardCandidatePanelView: UIView {
   private let glosses: [[String]]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
+  /// 长按这个候选给什么。和候选条共用一份 —— 那边长按能拿到译文,展开之后不该就没有了。
+  private let menuElements: (Int) -> [UIMenuElement]
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], hints: [String] = [], glosses: [[String]] = [], preedit: String,
        display: @escaping (String) -> String,
+       menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
     self.hints = hints
     self.glosses = glosses
     self.display = display
+    self.menuElements = menuElements
     self.onSelect = onSelect
     super.init(frame: .zero)
     accessibilityIdentifier = "candidatePanel"
@@ -209,6 +213,12 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
+    // 和候选条一样,菜单等展开时才建 —— 面板一次可以铺出三百多个格子,每个都先建一遍菜单太贵。
+    chip.menu = UIMenu(children: [
+      UIDeferredMenuElement.uncached { [weak self] completion in
+        completion(self?.menuElements(index) ?? [])
+      }
+    ])
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"

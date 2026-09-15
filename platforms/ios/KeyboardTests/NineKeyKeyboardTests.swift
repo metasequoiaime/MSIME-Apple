@@ -1046,6 +1046,46 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "九键 65 应当给出 ok:\(chips)")
   }
 
+  func testSymbolKeyOpensAPanelInsteadOfAMenu() throws {
+    // 「符」原来是一颗弹菜单的键:盖住键盘、要瞄要滑、一次只给一个。
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    let key = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityLabel == "符号" } as? UIButton)
+    XCTAssertNil(key.menu, "这颗键不再弹菜单")
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+
+    key.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    XCTAssertEqual(panel.bounds.size, controller.view.bounds.size, "面板整块盖住键盘区")
+    for identifier in ["symbolCategory_0", "symbolCategory_3", "closeSymbolPanel", "symbolLockKey", "symbolDeleteKey"] {
+      XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+
+    // 分类切过去,网格跟着换。
+    let network = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolCategory_3" } as? UIButton)
+    network.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_http://" })
+
+    // 没锁就是打一个回键盘。
+    let symbol = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_@" } as? UIButton)
+    symbol.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

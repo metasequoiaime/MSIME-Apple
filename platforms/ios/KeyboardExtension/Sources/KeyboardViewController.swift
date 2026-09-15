@@ -57,6 +57,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
   private var emojiPicker: KeyboardEmojiPickerView?
+  private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
   // 九键网格的按键。按 123 时同一批键改显数字,而不是换成 26 键那排符号。
   private struct NineKeyGridKey {
@@ -1174,13 +1175,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "常用符号") {}
-    nineKeySymbolsButton.menu = UIMenu(children: [
-      "，", "。", "？", "！", "、", "；", "：", "……", "——", "（", "）", "“", "”", "《", "》", "@",
-    ].map { symbol in
-      UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
-    })
-    nineKeySymbolsButton.showsMenuAsPrimaryAction = true
+    // 这颗键原来弹一列十六个标点的菜单:盖住键盘、要瞄要滑、一次只给一个。现在换成整块符号面板,跟别家输入法一样。
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
+      self?.showSymbolPanel()
+    }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
     row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
@@ -1877,6 +1875,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       hints: visibleCandidates.indices.map { wubiCodeHint(at: $0) },
       glosses: visibleCandidates.indices.map { candidateGlosses(at: $0) }, preedit: visiblePreedit,
       display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+      menuElements: { [weak self] index in self?.candidateMenuElements(at: index) ?? [] },
       onSelect: { [weak self] index in
         guard let self else { return }
         closeKeyboardPicker()
@@ -2812,6 +2811,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShortcutButtons()
   }
 
+  /// 符号面板。和表情面板一样整块盖住键盘区,不是弹窗。
+  private func showSymbolPanel() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    playInputClick()
+    // 符号不是当前拼音的候选,组字留着会让两者按错误的顺序上屏 —— 和表情面板同一个道理。
+    render(session.finishComposition())
+    let panel = KeyboardSymbolPanelView(onInsert: { [weak self] symbol in
+      self?.playInputClick()
+      self?.insertOwnText(symbol, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    panel.accessibilityViewIsModal = true
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel)
+    NSLayoutConstraint.activate([
+      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    symbolPanel = panel
+    UIAccessibility.post(notification: .screenChanged, argument: panel)
+  }
+
   private func showEmojiPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2980,6 +3005,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       picker.removeFromSuperview()
       morePicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+    }
+    if let panel = symbolPanel {
+      panel.removeFromSuperview()
+      symbolPanel = nil
+      UIAccessibility.post(notification: .screenChanged, argument: nineKeySymbolsButton)
     }
     if let picker = emojiPicker {
       picker.removeFromSuperview()
