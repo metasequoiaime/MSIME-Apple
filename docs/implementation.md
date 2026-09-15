@@ -16,6 +16,10 @@
 
 ## 当前证据
 
+### 移动端统计年度热力图（2026-09-16）
+
+Android/iOS 共享统计页的“趋势”分段新增年度日历热力图：按自然周排列最近 53 周，未记录日期显示最浅级别，未来日期留空，支持横向滚动、强度图例和点选日期后联动分类/模式/方案统计。热力图复用现有每日明细和 366 天保留策略，不保存输入内容；新增组件回归覆盖移动端渲染与点选范围切换。移动端 UI 定向测试 6 项、TypeScript 类型检查和 Vite 生产构建通过；构建仍只有既有 chunk size warning。未执行 iOS/Android 真机、签名或系统宿主验证，不能据此声称原生平台接入完成。
+
 ### macOS Emoji 面板主题覆盖（next42）
 
 共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
