@@ -32,7 +32,12 @@ impl PanelState {
 
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
     route
-        .filter(|route| matches!(route, SurfaceRoute::Emoji | SurfaceRoute::Handwriting))?
+        .filter(|route| {
+            matches!(
+                route,
+                SurfaceRoute::Emoji | SurfaceRoute::Handwriting | SurfaceRoute::Voice
+            )
+        })?
         .panel()
 }
 
@@ -253,6 +258,20 @@ mod tests {
         assert_eq!(startup_panel(route).unwrap().label, "emoji-panel");
         assert!(startup_panel(Some(SurfaceRoute::Keyboard)).is_none());
         assert!(startup_panel(SurfaceRoute::parse("settings:input").ok()).is_none());
+    }
+    #[test]
+    fn voice_startup_uses_shared_route_and_hides_only_settings() {
+        let route = SurfaceRoute::parse("voice").ok();
+        let mut windows = vec![tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            visible: true,
+            focus: true,
+            ..Default::default()
+        }];
+        prepare_windows(&mut windows, route);
+        assert!(!windows[0].visible && !windows[0].focus);
+        assert_eq!(startup_panel(route).unwrap().label, "voice-panel");
+        assert!(super::super::macos_cloud_clipboard::startup_panel(route).is_none());
     }
     #[test]
     fn close_and_submit_have_an_exclusive_lifecycle() {
