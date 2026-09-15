@@ -135,6 +135,29 @@ function StatisticsHeatmap({ days, selectedDay, onSelect }: { days: Record<strin
   </div>;
 }
 
+function StatisticsTrendLine({ days, counts, selectedDay }: { days: { key: string; label: string }[]; counts: Record<string, number>; selectedDay: string | null }) {
+  const values = days.map(day => counts[day.key] ?? 0);
+  const lineValues = days.length > 120 ? values.map((_, index) => {
+    const start = Math.max(0, index - 6);
+    const window = values.slice(start, index + 1);
+    return window.reduce((total, value) => total + value, 0) / window.length;
+  }) : values;
+  const maximum = Math.max(1, ...values, ...lineValues);
+  const point = (value: number, index: number) => `${index / Math.max(1, days.length - 1) * 100},${96 - value / maximum * 88}`;
+  const line = lineValues.map(point).join(" ");
+  const area = `0,100 ${values.map(point).join(" ")} 100,100`;
+  const selectedIndex = selectedDay ? days.findIndex(day => day.key === selectedDay) : -1;
+  const selectedValue = selectedIndex >= 0 ? values[selectedIndex] : 0;
+  return <div className="statistics-line-chart" role="img" aria-label={days.length > 120 ? "每日输入趋势折线图，显示七日均线" : "每日输入趋势折线图"}>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="statistics-trend-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="currentColor" stopOpacity=".34" /><stop offset="1" stopColor="currentColor" stopOpacity=".03" /></linearGradient></defs>
+      <polygon points={area} fill="url(#statistics-trend-area)" />
+      <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      {selectedIndex >= 0 && <circle cx={selectedIndex / Math.max(1, days.length - 1) * 100} cy={96 - selectedValue / maximum * 88} r="2.2" vectorEffect="non-scaling-stroke" />}
+    </svg>
+  </div>;
+}
+
 type DistributionVariant = "bar" | "pie" | "donut" | "rank";
 
 function chartGradient(slices: Slice[], total: number): string {
@@ -260,17 +283,17 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
     {(!mobile || mobileTab === "trend") && <section className="section statistics-trend" aria-labelledby="statistics-trend-title">
       <h2 id="statistics-trend-title">每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${mobile ? trendDays.length : period === 0 ? 30 : period} 天`}</h2>
       <p>最高 {maximum === 1 && trendDays.every(day => !statistics.days[day.key]) ? 0 : maximum.toLocaleString("zh-CN")} 字符 / 天</p>
-      <div className={`statistics-bars statistics-bars-${trendDays.length}`}>
+      {mobile ? <StatisticsTrendLine days={trendDays} counts={statistics.days} selectedDay={selectedDay} /> : <div className={`statistics-bars statistics-bars-${trendDays.length}`}>
         {trendDays.map(day => {
           const count = statistics.days[day.key] ?? 0;
           return <button type="button" key={day.key} title={`${day.label}：${count} 字符`} aria-label={`${day.label}，${count} 字符`} aria-pressed={selectedDay === day.key} onClick={() => setSelectedDay(current => current === day.key ? null : day.key)}>
             {trendDays.length === 7 && <span>{count}</span>}<i style={{ height: `${Math.max(2, count / maximum * 100)}%` }} />
           </button>;
         })}
-      </div>
+      </div>}
       <div className="statistics-axis"><span>{trendDays[0]?.label}</span><span>{trendDays.at(-1)?.label}</span></div>
       {mobile && <><p className="statistics-heatmap-caption">每天一格，一列一周</p><StatisticsHeatmap days={statistics.days} selectedDay={selectedDay} onSelect={key => setSelectedDay(current => current === key ? null : key)} /></>}
-      <p className="statistics-footer-note">点按柱形查看当天的分类与占比。</p>
+      <p className="statistics-footer-note">{mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}</p>
       {selectedDay && <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>返回整个时间范围</button>}
     </section>}
     {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />}
