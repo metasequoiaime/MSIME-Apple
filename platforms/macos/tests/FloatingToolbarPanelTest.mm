@@ -66,6 +66,12 @@ int main() {
         assert(!MetasequoiaFloatingToolbarShouldShow(NO, YES, NO));
         assert(!MetasequoiaFloatingToolbarShouldShow(YES, NO, NO));
         assert(!MetasequoiaFloatingToolbarShouldShow(YES, YES, YES));
+        const CGRect display = CGRectMake(-1440.0, 0.0, 1440.0, 900.0);
+        assert(MetasequoiaWindowCoversDisplay(display, display));
+        assert(MetasequoiaWindowCoversDisplay(CGRectMake(-1441.0, -1.0, 1442.0, 902.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectMake(-1440.0, 22.0, 1440.0, 878.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectMake(-720.0, 0.0, 1440.0, 900.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectZero, display));
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
