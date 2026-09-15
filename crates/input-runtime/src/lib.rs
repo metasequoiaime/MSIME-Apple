@@ -1030,8 +1030,16 @@ impl UnixSocketProvider {
         loop {
             let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-            if let Some(event_generation) = value.get("generation").and_then(Value::as_u64) {
-                if event_generation != generation {
+            // Explicit stream events belong to the request generation. Keep
+            // the documented bare terminal response from pre-stream
+            // providers, but do not let a typed event omit its binding.
+            let event_generation = value.get("generation").and_then(Value::as_u64);
+            if event_generation != Some(generation) {
+                // Keep compatibility with pre-stream providers, which return
+                // a bare {"text": ...} terminal object, but require a binding
+                // for every explicitly typed stream event.
+                let typed_event = value.get("type").is_some() || value.get("event").is_some();
+                if typed_event || event_generation.is_some() {
                     return None;
                 }
             }
@@ -2188,6 +2196,38 @@ mod tests {
                 translation: "translated".into(),
             }]
         );
+        server.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn voice_provider_rejects_events_without_generation_binding() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("voice.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufRead::read_line(
+                &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+                &mut request,
+            )
+            .unwrap();
+            std::io::Write::write_all(&mut stream, br#"{"text":"stale","type":"final"}"#).unwrap();
+            std::io::Write::write_all(&mut stream, b"\n").unwrap();
+        });
+        let provider = UnixSocketProvider::new(socket);
+        assert!(provider
+            .voice_stream_with_options_feedback(
+                "zh-cn",
+                7,
+                &Value::Null,
+                None,
+                &mut |_, _| {},
+                None,
+                None,
+            )
+            .is_none());
         server.join().unwrap();
     }
     impl InputEngine for Fixture {
