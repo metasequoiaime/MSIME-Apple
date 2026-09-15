@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <utility>
 
 using namespace msime::windows;
 namespace {
@@ -102,6 +103,21 @@ int main() {
       window.refresh();
       require(GetUpdateRect(window.handle(), nullptr, FALSE));
       UpdateWindow(window.handle());
+      // Display-device lifecycle changes must bypass the unchanged-frame fast
+      // path. In production they also discard the cached composition target,
+      // so a stale DPI or device is never presented after the next refresh.
+      for (const auto &[message, wparam] : {
+               std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_DWMCOMPOSITIONCHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
+                                       PBT_APMRESUMEAUTOMATIC},
+           }) {
+        SendMessageW(window.handle(), message, wparam, 0);
+        window.refresh();
+        require(GetUpdateRect(window.handle(), nullptr, FALSE));
+        UpdateWindow(window.handle());
+        require(!window.failed());
+      }
       value.reset();
       InvalidateRect(window.handle(), nullptr, FALSE);
       UpdateWindow(window.handle());
