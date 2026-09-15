@@ -36,6 +36,7 @@ static const GUID SupportCategories[] = {
 BOOL RegisterProfiles()
 {
     HRESULT hr = S_FALSE;
+    size_t lenOfDesc = 0;
 
     ITfInputProcessorProfileMgr *pITfInputProcessorProfileMgr = nullptr;
     hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, NULL, CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfileMgr,
@@ -54,7 +55,6 @@ BOOL RegisterProfiles()
     }
     achIconFile[cchA] = '\0';
 
-    size_t lenOfDesc = 0;
     hr = StringCchLength(TEXTSERVICE_DESC, STRSAFE_MAX_CCH, &lenOfDesc);
     if (hr != S_OK)
     {
@@ -98,7 +98,7 @@ BOOL UnregisterProfiles()
 
     hr = pITfInputProcessorProfileMgr->UnregisterProfile(Global::MetasequoiaIMECLSID, TEXTSERVICE_LANGID,
                                                          Global::MetasequoiaIMEGuidProfile, 0);
-    if (FAILED(hr) && hr != TF_E_PROFILE_NOT_FOUND)
+    if (FAILED(hr))
     {
         goto Exit;
     }
@@ -109,7 +109,7 @@ Exit:
         pITfInputProcessorProfileMgr->Release();
     }
 
-    return SUCCEEDED(hr) || hr == TF_E_PROFILE_NOT_FOUND ? TRUE : FALSE;
+    return hr == S_OK ? TRUE : FALSE;
 }
 
 //+---------------------------------------------------------------------------
