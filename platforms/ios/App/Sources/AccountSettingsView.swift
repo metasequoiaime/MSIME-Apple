@@ -126,26 +126,25 @@ struct AppleAccountSection: View {
 
   var body: some View {
     Section {
-      HStack(spacing: 14) {
-        Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
-          .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
-        VStack(alignment: .leading, spacing: 5) {
-          Text(signedIn ? displayName : "欢迎来到水杉")
-            .font(.title3.bold())
-          Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
-            .font(.subheadline).foregroundStyle(.secondary)
-        }
-      }.padding(.vertical, 10)
-      if signedIn {
-        Button { editProfile = true } label: {
-          HStack {
-            Label("个人资料", systemImage: "person.text.rectangle")
-            Spacer()
-            Text("查看与编辑")
+      Button { if signedIn { editProfile = true } } label: {
+        HStack(spacing: 14) {
+          Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
+            .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
+          VStack(alignment: .leading, spacing: 5) {
+            Text(signedIn ? displayName : "欢迎来到水杉")
+              .font(.title3.bold())
+            Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
               .font(.subheadline).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
           }
-        }.accessibilityIdentifier("editAccountProfile")
+          Spacer()
+          if signedIn { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary) }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .padding(.vertical, 10)
+      .accessibilityIdentifier("accountProfileCard")
+      if signedIn {
         Menu("账号") {
           Button("退出登录") { run { try await api.logout(); signedIn = false; await prepareLogin() } }
           Button("退出所有设备") { confirmLogoutAll = true }
