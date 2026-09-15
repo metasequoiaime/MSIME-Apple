@@ -28,6 +28,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut enabled = Session::new(&options)?;
         enabled.character(letter, true)?;
         assert_eq!(enabled.snapshot()?.local_mode, name);
+        if letter == b'U' {
+            for digit in b"4e2d" {
+                enabled.character(*digit, false)?;
+            }
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert_eq!(committed.commit, "中");
+        }
         let mut disabled = options.clone();
         match index {
             0 => disabled.local_unicode = false,
