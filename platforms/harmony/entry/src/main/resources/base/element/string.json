@@ -19,6 +19,14 @@
     {
       "name": "vibrate_permission_reason",
       "value": "按键振动需要振动权限"
+    },
+    {
+      "name": "entry_ability_desc",
+      "value": "水杉输入法的设置"
+    },
+    {
+      "name": "entry_ability_label",
+      "value": "水杉输入法"
     }
   ]
 }

@@ -24,6 +24,8 @@ import { NineKeyLayout, NineKey } from './NineKeyLayout';
 import { SpaceCursorMovement } from './SpaceCursorMovement';
 import { EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE } from './EmojiCatalogModel';
 import { KeyboardLog, describeError } from './KeyboardLog';
+import { KeyboardFormFactor } from './KeyboardFormFactor';
+import { DesktopSurface } from './DesktopSurface';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError
 } from './ClipboardHistoryStore';
@@ -173,6 +175,8 @@ struct KeyboardView {
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
   @State english: boolean = false;
+  /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
+  @State desktop: DesktopSurface = DesktopSurface.NONE;
   @State symbols: boolean = false;
   @State nineKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
@@ -210,6 +214,12 @@ struct KeyboardView {
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
+    KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
+      this.desktop = surface;
+      if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
+        this.loadEmoji(this.emojiGroup);
+      }
+    };
     this.settings = KeyboardSession.shared.preferences();
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -511,7 +521,10 @@ struct KeyboardView {
    */
   private offeredSchemes(): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter((candidate: SchemeDefinition): boolean =>
-      candidate.id !== 'THOUGHTFUL_REPLY');
+      candidate.id !== 'THOUGHTFUL_REPLY'
+      // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
+      // touch screen has. On a machine with a physical keyboard every letter already has a key.
+      && !(KeyboardFormFactor.isDesktop() && candidate.touchKeyboardLayout === 'nine_key'));
   }
 
   /**
@@ -695,7 +708,10 @@ struct KeyboardView {
       // below it shifts when one starts. Idle it names the keyboard, the way the iOS strip does;
       // composing it shows the spelling; and a diagnostic takes it over while it lasts.
       Row() {
-        if (this.editing.length === 0 && this.diagnostic.length === 0) {
+        // The pill names the keyboard while it sits there idle, which a candidate window never does:
+        // it is only ever on screen mid-composition, so the line always has a spelling to show.
+        if (this.editing.length === 0 && this.diagnostic.length === 0
+            && !KeyboardFormFactor.isDesktop()) {
           Text(this.title())
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
             .fontColor(this.skin.accent)
@@ -723,10 +739,12 @@ struct KeyboardView {
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
       // The shortcut bar stands in for the candidates rather than sitting beside them: one row, two
-      // jobs, which is how iOS arranges it and why the composition line above stays reserved.
+      // jobs, which is how iOS arranges it and why the composition line above stays reserved. A
+      // candidate window has no idle state to fill, and the surfaces those icons open are reached
+      // from the app on a machine that has room for it.
       if (this.candidates.length > 0) {
         this.candidateRow()
-      } else {
+      } else if (!KeyboardFormFactor.isDesktop()) {
         this.shortcutBar()
       }
     }
@@ -2039,6 +2057,34 @@ struct KeyboardView {
     Column({ space: this.rowSpacing() }) {
       this.candidateStrip()
 
+      // Where the machine has its own keys the strip is the whole panel, unless the toolbar asked
+      // for one of the surfaces a phone would have reached from a key face. Drawing a second set of
+      // keys under a physical keyboard uninvited would only take the screen away from what is being
+      // written; drawing them when they were asked for is the whole point of the button.
+      if (!KeyboardFormFactor.isDesktop()) {
+        this.keyFaces()
+      } else if (this.desktop === DesktopSurface.EMOJI) {
+        this.emojiFace()
+      } else if (this.desktop === DesktopSurface.SCREEN_KEYBOARD) {
+        this.keyFaces()
+      }
+    }
+    .width('100%')
+    .padding({
+      left: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
+      right: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
+      top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP,
+      bottom: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
+    })
+  }
+
+  /**
+   * Everything below the strip: whichever surface is open, or the keys themselves.
+   *
+   * Separate from keyboard() because it is drawn only where the machine has no keys of its own.
+   */
+  @Builder
+  keyFaces() {
       if (this.surface === SURFACE_GEOMETRY) {
         this.geometryFace()
       } else if (this.isTools()) {
@@ -2162,14 +2208,5 @@ struct KeyboardView {
         .width('100%')
         .height(this.rowHeight(3))
       }
-
-    }
-    .width('100%')
-    .padding({
-      left: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
-      right: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
-      top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP,
-      bottom: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
-    })
   }
 }
