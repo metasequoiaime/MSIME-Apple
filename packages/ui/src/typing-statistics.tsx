@@ -135,14 +135,44 @@ function StatisticsHeatmap({ days, selectedDay, onSelect }: { days: Record<strin
   </div>;
 }
 
-function Distribution({ title, slices, footer }: { title: string; slices: Slice[]; footer?: string }) {
+type DistributionVariant = "bar" | "pie" | "donut" | "rank";
+
+function chartGradient(slices: Slice[], total: number): string {
+  let cursor = 0;
+  const segments = slices.filter(slice => slice.count > 0).map(slice => {
+    const start = cursor / total * 360;
+    cursor += slice.count;
+    return `${slice.color} ${start}deg ${cursor / total * 360}deg`;
+  });
+  return segments.length ? `conic-gradient(${segments.join(", ")})` : "var(--surface-subtle)";
+}
+
+function ShapeChart({ slices, variant, total }: { slices: Slice[]; variant: Exclude<DistributionVariant, "bar">; total: number }) {
+  if (variant === "rank") {
+    const ranked = slices.filter(slice => slice.count > 0).sort((a, b) => b.count - a.count);
+    const peak = Math.max(1, ...ranked.map(slice => slice.count));
+    return <div className="statistics-rank-chart" role="img" aria-label="输入方案排行">
+      {ranked.length === 0 && <p className="statistics-empty">暂无输入记录</p>}
+      {ranked.map(slice => <div className="statistics-rank-row" key={slice.id}>
+        <span>{slice.title}</span><div className="statistics-rank-track"><i style={{ width: `${slice.count / peak * 100}%`, backgroundColor: slice.color }} /></div><strong>{slice.count.toLocaleString("zh-CN")}</strong>
+      </div>)}
+    </div>;
+  }
+  const label = variant === "pie" ? "字符类型饼图" : "语言模式环形图";
+  return <div className={`statistics-shape-chart statistics-shape-${variant}`} role="img" aria-label={label}>
+    <div className="statistics-shape-graphic" style={{ background: chartGradient(slices, Math.max(1, total)) }} />
+    {variant === "donut" && <div className="statistics-donut-center"><strong>{total.toLocaleString("zh-CN")}</strong><span>字符</span></div>}
+  </div>;
+}
+
+function Distribution({ title, slices, footer, variant = "bar" }: { title: string; slices: Slice[]; footer?: string; variant?: DistributionVariant }) {
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter(slice => slice.count > 0 || slice.id !== "unknown");
   return <section className="section statistics-distribution" aria-labelledby={`statistics-${title}`}>
     <h2 id={`statistics-${title}`}>{title}</h2>
-    <div className="statistics-distribution-bar" aria-hidden="true">
+    {variant === "bar" ? <div className="statistics-distribution-bar" aria-hidden="true">
       {slices.filter(slice => slice.count > 0).map(slice => <span key={slice.id} style={{ backgroundColor: slice.color, width: `${slice.count / Math.max(1, total) * 100}%` }} />)}
-    </div>
+    </div> : <ShapeChart slices={slices} variant={variant} total={total} />}
     {total === 0 && <p className="statistics-empty">暂无输入记录</p>}
     <div className="statistics-legend">
       {visible.map(slice => <div className="statistics-legend-row" key={slice.id} aria-label={`${slice.title} ${slice.count} 字符，${total === 0 ? "无占比" : `${(slice.count / total * 100).toFixed(1)}%`}`}>
@@ -243,9 +273,9 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
       <p className="statistics-footer-note">点按柱形查看当天的分类与占比。</p>
       {selectedDay && <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>返回整个时间范围</button>}
     </section>}
-    {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} />}
-    {(!mobile || mobileTab === "mode") && <Distribution title="语言模式" slices={languageSlices} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />}
-    {(!mobile || mobileTab === "scheme") && <Distribution title="输入方案" slices={sourceSlices} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />}
+    {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />}
+    {(!mobile || mobileTab === "mode") && <Distribution title="语言模式" slices={languageSlices} variant={mobile ? "donut" : "bar"} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />}
+    {(!mobile || mobileTab === "scheme") && <Distribution title="输入方案" slices={sourceSlices} variant={mobile ? "rank" : "bar"} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />}
     <section className="section statistics-controls">
       <label className="section-header"><span className="section-title">记录打字统计<small>关闭后，新提交不会增加统计。</small></span><input aria-label="记录打字统计" className="toggle" type="checkbox" checked={statistics.enabled} disabled={busy} onChange={event => void update(() => client.setEnabled(event.target.checked))} /></label>
       <div className="statistics-control-actions">
