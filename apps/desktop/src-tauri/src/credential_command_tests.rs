@@ -62,6 +62,11 @@ fn desktop_credential_command_routes_all_services_without_a_provider_socket() {
             json!({"provider":"groq"}),
             "请先填写有效的 API Key。",
         ),
+        (
+            "voice.asr",
+            json!({"provider":"doubao"}),
+            "请先填写有效的 API Key。",
+        ),
     ] {
         assert_eq!(
             invoke(service, config),
