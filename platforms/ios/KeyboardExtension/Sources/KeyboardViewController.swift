@@ -171,6 +171,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     CGFloat(max(lines, 0)) * glossLineHeight
   }
 
+  /// 候选栏在候选行之外还占掉的高度:组字行,加上按设置预留的释义行。键盘的高度都是在它之上加出来的,所以断言高度的测试照它写,而不是各自重述一遍这个和。
+  static var stripExtraHeight: CGFloat {
+    compositionRowHeight + glossHeight(lines: configuredGlossLines())
+  }
+
   /// 设置里配了几条释义。总开关关着就是零 —— 那时语言选了什么都不显示,也不会有任何请求。
   static func configuredGlossLines() -> Int {
     guard CandidateGlossPreference.enabled else { return 0 }

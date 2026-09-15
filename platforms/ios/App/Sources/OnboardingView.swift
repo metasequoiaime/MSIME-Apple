@@ -50,7 +50,7 @@ struct InputSettingsView: View {
   @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
   private var wubiCodeHint = true
   @AppStorage(CandidateGlossPreference.enabledKey, store: CandidateGlossPreference.defaults)
-  private var candidateGloss = false
+  private var candidateGloss = true
   @AppStorage(CandidateTranslationPreference.primaryKey, store: CandidateTranslationPreference.defaults)
   private var translationPrimary = 0
   @AppStorage(CandidateTranslationPreference.secondaryKey, store: CandidateTranslationPreference.defaults)
