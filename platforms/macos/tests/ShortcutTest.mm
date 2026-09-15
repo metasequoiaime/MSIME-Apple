@@ -3534,6 +3534,27 @@ int main(int argc, char **argv) {
         CGFloat verticalHeight = layoutPanel.frame.size.height;
         MSIMECandidateButton *clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
         assert(clickCandidate);
+        // Keyboard selection is tied to the button identities in the rendered
+        // panel, not a newer controller snapshot that AppKit has not painted.
+        NSEvent *(^candidateKey)(unsigned short, NSString *) = ^NSEvent *(unsigned short code, NSString *characters) {
+            return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+        };
+        NSUInteger selectedCallsBeforeKeyboard = session.selectCalls;
+        assert([controller handleEvent:candidateKey(18, @"1") client:client]);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        assert([controller handleEvent:candidateKey(20, @"3") client:client]);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        NSMutableDictionary *unpaintedView = [pageView mutableCopy];
+        unpaintedView[@"generation"] = @99;
+        [controller setValue:unpaintedView forKey:@"view"];
+        assert([controller handleEvent:candidateKey(18, @"1") client:client]);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        assert([controller handleEvent:candidateKey(49, @" ") client:client]);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1);
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        assert([controller handleEvent:candidateKey(49, @" ") client:client]);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 2 && session.selectedGeneration == 2 && session.selectedIndex == 0);
         const NSEventModifierFlags deleteModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
         NSEvent *(^deleteEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short code, NSEventModifierFlags modifiers, BOOL repeat) {
             return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:modifiers timestamp:0 windowNumber:0 context:nil characters:@"!" charactersIgnoringModifiers:@"!" isARepeat:repeat keyCode:code];
@@ -3545,6 +3566,7 @@ int main(int argc, char **argv) {
             [deleteCandidates addObject:@{@"id":@{@"session":@1, @"generation":@2, @"index":@(40 + slot)}, @"text":@"合成测试"}];
         deleteView[@"candidates"] = deleteCandidates;
         [controller setValue:deleteView forKey:@"view"];
+        [controller renderCandidates];
         for (NSUInteger slot = 0; slot < 8; ++slot) {
             unsigned short code = [digitCodes[slot] unsignedShortValue];
             NSUInteger calls = session.maintenanceCalls;
@@ -3561,13 +3583,18 @@ int main(int argc, char **argv) {
             assert(MSIMECandidateDeletionSlot(deleteEvent(code.unsignedShortValue, deleteModifiers, NO)) == NSNotFound);
         NSUInteger deletionCalls = session.maintenanceCalls;
         for (id invalid in @[NSNull.null, @{}, @{@"id":@{@"session":@1, @"generation":@99, @"index":@0}}]) {
-            deleteView[@"candidates"] = @[invalid];
-            [controller setValue:deleteView forKey:@"view"];
+            NSMutableDictionary *invalidView = [deleteView mutableCopy];
+            invalidView[@"generation"] = @99;
+            invalidView[@"candidates"] = @[invalid];
+            [controller setValue:invalidView forKey:@"view"];
             assert([controller handleEvent:deleteEvent(18, deleteModifiers, NO) client:client]);
         }
         [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
         assert([controller handleEvent:deleteEvent(28, deleteModifiers, NO) client:client]); // Empty slot.
         assert(session.maintenanceCalls == deletionCalls && session.lastCommand == UINT32_MAX);
+        clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        assert(clickCandidate);
         NSMenu *candidateMenu = clickCandidate.menu;
         NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1];
         assert([clickCandidate menuForEvent:rightClick] == candidateMenu);
