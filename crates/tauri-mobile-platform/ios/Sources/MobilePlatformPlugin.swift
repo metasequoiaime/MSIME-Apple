@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Darwin
 import Security
@@ -18,6 +19,307 @@ private struct CopyTextArgs: Decodable {
 
 private struct SaveVoiceTextArgs: Decodable {
   let text: String
+}
+
+private struct VoiceTranscriptionArgs: Decodable {
+  let requestId: String
+  let provider: String
+  let endpoint: String
+  let model: String
+  let token: String
+}
+
+private struct VoiceControlArgs: Decodable {
+  let requestId: String?
+}
+
+private struct VoicePluginFailure: Error {
+  let code: String
+}
+
+private final class VoiceTranscriptionTransport: NSObject, URLSessionDataDelegate,
+    URLSessionTaskDelegate {
+  private static let maximumResponseBytes = 1024 * 1024
+  private var session: URLSession?
+  private var task: URLSessionDataTask?
+  private var response: HTTPURLResponse?
+  private var body = Data()
+  private var completed = false
+  private var completion: ((Result<String, VoicePluginFailure>) -> Void)?
+
+  init(request: URLRequest, completion: @escaping (Result<String, VoicePluginFailure>) -> Void) {
+    self.completion = completion
+    super.init()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+    configuration.urlCache = nil
+    let session = URLSession(configuration: configuration, delegate: self,
+      delegateQueue: OperationQueue.main)
+    self.session = session
+    let task = session.dataTask(with: request)
+    self.task = task
+    task.resume()
+  }
+
+  func cancel() {
+    task?.cancel()
+    session?.invalidateAndCancel()
+    completion = nil
+  }
+
+  private func finish(_ result: Result<String, VoicePluginFailure>) {
+    guard !completed else { return }
+    completed = true
+    let completion = completion
+    self.completion = nil
+    task = nil
+    session?.finishTasksAndInvalidate()
+    session = nil
+    completion?(result)
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                  didReceive response: URLResponse,
+                  completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    guard let http = response as? HTTPURLResponse,
+          (200..<300).contains(http.statusCode),
+          response.expectedContentLength <= Int64(Self.maximumResponseBytes) else {
+      completionHandler(.cancel)
+      finish(.failure(VoicePluginFailure(code: "voice_service")))
+      return
+    }
+    self.response = http
+    completionHandler(.allow)
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                  didReceive data: Data) {
+    guard data.count <= Self.maximumResponseBytes,
+          body.count <= Self.maximumResponseBytes - data.count else {
+      dataTask.cancel()
+      finish(.failure(VoicePluginFailure(code: "voice_response")))
+      return
+    }
+    body.append(data)
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask,
+                  didCompleteWithError error: Error?) {
+    guard !completed else { return }
+    guard error == nil, response != nil,
+          let document = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+          let text = document["text"] as? String,
+          text.count <= 10_000,
+          !text.unicodeScalars.contains(where: { $0.value == 0 }) else {
+      finish(.failure(VoicePluginFailure(code: "voice_response")))
+      return
+    }
+    finish(.success(text))
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask,
+                  willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest,
+                  completionHandler: @escaping (URLRequest?) -> Void) {
+    completionHandler(nil)
+  }
+}
+
+private final class IOSVoiceTranscriptionSession {
+  let args: VoiceTranscriptionArgs
+  let invoke: Invoke
+  var recorder: AVAudioRecorder?
+  var file: URL?
+  var timeout: DispatchWorkItem?
+  var transport: VoiceTranscriptionTransport?
+  var stopRequested = false
+
+  init(args: VoiceTranscriptionArgs, invoke: Invoke) {
+    self.args = args
+    self.invoke = invoke
+  }
+}
+
+/// Native recording boundary for the Tauri settings host. The keyboard extension
+/// never links this service and never receives provider credentials.
+private final class IOSVoiceTranscriptionService {
+  private static let maximumAudioBytes = 2_100_000
+  private var active: IOSVoiceTranscriptionSession?
+
+  private func valid(_ args: VoiceTranscriptionArgs) -> Bool {
+    let endpoint = args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    let model = args.model.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !args.requestId.isEmpty, args.requestId.utf8.count <= 64,
+          args.requestId.utf8.allSatisfy({ byte in
+            (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) ||
+              (byte >= 97 && byte <= 122) || byte == 45
+          }),
+          ["openai", "siliconflow", "groq"].contains(args.provider),
+          !model.isEmpty, model.utf8.count <= 512,
+          !model.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          args.token.utf8.count <= 16 * 1024,
+          !args.token.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          endpoint.utf8.count <= 2_048,
+          let components = URLComponents(string: endpoint),
+          components.scheme?.lowercased() == "https", components.host?.isEmpty == false,
+          components.user == nil, components.password == nil, components.fragment == nil else {
+      return false
+    }
+    return true
+  }
+
+  func start(_ args: VoiceTranscriptionArgs, invoke: Invoke) {
+    guard valid(args) else {
+      invoke.reject("invalid_voice", code: "invalid_voice")
+      return
+    }
+    guard active == nil else {
+      invoke.reject("busy", code: "busy")
+      return
+    }
+    let session = IOSVoiceTranscriptionSession(args: args, invoke: invoke)
+    active = session
+    AVAudioSession.sharedInstance().requestRecordPermission { [weak self, weak session] granted in
+      DispatchQueue.main.async {
+        guard let self, let session, self.active === session else { return }
+        guard granted else {
+          self.fail(session, code: "microphone_permission")
+          return
+        }
+        self.beginRecording(session)
+      }
+    }
+  }
+
+  func stop(requestId: String?) {
+    guard let session = active,
+          requestId == nil || requestId == session.args.requestId else { return }
+    session.stopRequested = true
+    if session.recorder != nil {
+      finishRecording(session)
+    }
+  }
+
+  func cancel(requestId: String?) {
+    guard let session = active,
+          requestId == nil || requestId == session.args.requestId else { return }
+    active = nil
+    cleanUp(session)
+    session.invoke.reject("cancelled", code: "cancelled")
+  }
+
+  private func beginRecording(_ session: IOSVoiceTranscriptionSession) {
+    do {
+      let audioSession = AVAudioSession.sharedInstance()
+      try audioSession.setCategory(.record, mode: .default)
+      try audioSession.setActive(true)
+      let file = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString + ".wav")
+      let recorder = try AVAudioRecorder(url: file, settings: [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 16_000,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+      ])
+      session.file = file
+      session.recorder = recorder
+      guard recorder.prepareToRecord(), recorder.record() else {
+        throw VoicePluginFailure(code: "voice_recording")
+      }
+      let timeout = DispatchWorkItem { [weak self, weak session] in
+        guard let self, let session, self.active === session else { return }
+        self.finishRecording(session)
+      }
+      session.timeout = timeout
+      DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: timeout)
+      if session.stopRequested {
+        finishRecording(session)
+      }
+    } catch {
+      fail(session, code: "voice_recording")
+    }
+  }
+
+  private func finishRecording(_ session: IOSVoiceTranscriptionSession) {
+    guard active === session, session.transport == nil else { return }
+    session.timeout?.cancel()
+    session.timeout = nil
+    session.recorder?.stop()
+    session.recorder = nil
+    try? AVAudioSession.sharedInstance().setActive(false,
+      options: .notifyOthersOnDeactivation)
+    guard let file = session.file else { return }
+    session.file = nil
+    let audio = try? Data(contentsOf: file, options: .mappedIfSafe)
+    try? FileManager.default.removeItem(at: file)
+    guard let audio, audio.count >= 44, audio.count <= Self.maximumAudioBytes,
+          let request = transcriptionRequest(session.args, audio: audio) else {
+      fail(session, code: "voice_recording")
+      return
+    }
+    session.transport = VoiceTranscriptionTransport(request: request) {
+      [weak self, weak session] result in
+      guard let self, let session, self.active === session else { return }
+      self.active = nil
+      session.transport = nil
+      switch result {
+      case .success(let text): session.invoke.resolve(["text": text])
+      case .failure(let failure):
+        session.invoke.reject(failure.code, code: failure.code)
+      }
+    }
+  }
+
+  private func transcriptionRequest(_ args: VoiceTranscriptionArgs, audio: Data) -> URLRequest? {
+    let endpoint = args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = URL(string: endpoint) else { return nil }
+    let boundary = "MSIME-\(UUID().uuidString)"
+    var body = Data()
+    func append(_ value: String) { body.append(Data(value.utf8)) }
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\n")
+    append("Content-Type: audio/wav\r\n\r\n")
+    body.append(audio)
+    append("\r\n--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+    append(args.model.trimmingCharacters(in: .whitespacesAndNewlines))
+    append("\r\n--\(boundary)--\r\n")
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 60
+    request.httpBody = body
+    request.setValue("multipart/form-data; boundary=\(boundary)",
+      forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    if !args.token.isEmpty {
+      request.setValue("Bearer \(args.token)", forHTTPHeaderField: "Authorization")
+    }
+    return request
+  }
+
+  private func fail(_ session: IOSVoiceTranscriptionSession, code: String) {
+    guard active === session else { return }
+    active = nil
+    cleanUp(session)
+    session.invoke.reject(code, code: code)
+  }
+
+  private func cleanUp(_ session: IOSVoiceTranscriptionSession) {
+    session.timeout?.cancel()
+    session.timeout = nil
+    session.transport?.cancel()
+    session.transport = nil
+    session.recorder?.stop()
+    session.recorder = nil
+    if let file = session.file {
+      try? FileManager.default.removeItem(at: file)
+    }
+    session.file = nil
+    try? AVAudioSession.sharedInstance().setActive(false,
+      options: .notifyOthersOnDeactivation)
+  }
 }
 
 private struct VoiceTextHandoff: Encodable {
@@ -271,6 +573,7 @@ final class MobilePlatformPlugin: Plugin {
   private let accountSession = AccountSessionKeychain()
   private let keyboardPreferences = IOSKeyboardPreferenceStore()
   private let voiceHandoff = VoiceTextHandoffWriter()
+  private let voiceTranscription = IOSVoiceTranscriptionService()
 
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
@@ -419,6 +722,45 @@ final class MobilePlatformPlugin: Plugin {
       invoke.resolve()
     } catch {
       invoke.reject("voice_handoff", code: "voice_handoff")
+    }
+  }
+
+  @objc public func recognizeVoice(_ invoke: Invoke) {
+    let args: VoiceTranscriptionArgs
+    do {
+      args = try invoke.parseArgs(VoiceTranscriptionArgs.self)
+    } catch {
+      invoke.reject("invalid_voice", code: "invalid_voice")
+      return
+    }
+    onMain { [self] in voiceTranscription.start(args, invoke: invoke) }
+  }
+
+  @objc public func stopVoice(_ invoke: Invoke) {
+    let args: VoiceControlArgs
+    do {
+      args = try invoke.parseArgs(VoiceControlArgs.self)
+    } catch {
+      invoke.reject("invalid_voice", code: "invalid_voice")
+      return
+    }
+    onMain { [self] in
+      voiceTranscription.stop(requestId: args.requestId)
+      invoke.resolve()
+    }
+  }
+
+  @objc public func cancelVoice(_ invoke: Invoke) {
+    let args: VoiceControlArgs
+    do {
+      args = try invoke.parseArgs(VoiceControlArgs.self)
+    } catch {
+      invoke.reject("invalid_voice", code: "invalid_voice")
+      return
+    }
+    onMain { [self] in
+      voiceTranscription.cancel(requestId: args.requestId)
+      invoke.resolve()
     }
   }
 

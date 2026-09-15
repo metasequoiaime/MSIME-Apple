@@ -39,7 +39,7 @@ use msime_client_core::preferences::{
 use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 #[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::MobilePlatform;
+use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -66,7 +66,7 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 mod skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 mod voice_output;
-#[cfg(any(unix, target_os = "windows"))]
+#[cfg(any(all(unix, not(target_os = "ios")), target_os = "windows"))]
 mod voice_sessions;
 #[cfg(windows)]
 mod windows_voice;
@@ -2751,6 +2751,75 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
+#[cfg(any(target_os = "ios", test))]
+#[derive(Debug, PartialEq, Eq)]
+struct IosVoiceProviderConfiguration {
+    provider: String,
+    endpoint: String,
+    model: String,
+    token: String,
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_voice_provider_configuration(
+    preferences: &Preferences,
+) -> Result<IosVoiceProviderConfiguration, HostActionError> {
+    let voice = &preferences.voice_input;
+    let (default_endpoint, default_model) = match voice.asr_provider.as_str() {
+        "openai" => (
+            "https://api.openai.com/v1/audio/transcriptions",
+            "whisper-1",
+        ),
+        "siliconflow" => (
+            "https://api.siliconflow.cn/v1/audio/transcriptions",
+            "FunAudioLLM/SenseVoiceSmall",
+        ),
+        "groq" => (
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            "whisper-large-v3-turbo",
+        ),
+        _ => {
+            return Err(HostActionError {
+                code: "unsupported_voice",
+            });
+        }
+    };
+    let endpoint = match voice.asr_endpoint.trim() {
+        "" => default_endpoint,
+        value => value,
+    };
+    let model = match voice.asr_model.trim() {
+        "" => default_model,
+        value => value,
+    };
+    let token = match voice.asr_token.trim() {
+        "" => voice
+            .asr_tokens
+            .get(&voice.asr_provider)
+            .map(String::as_str)
+            .unwrap_or("")
+            .trim(),
+        value => value,
+    };
+    if endpoint.len() > 2_048
+        || model.len() > 512
+        || token.len() > 16 * 1024
+        || endpoint.chars().any(char::is_control)
+        || model.chars().any(char::is_control)
+        || token.chars().any(char::is_control)
+    {
+        return Err(HostActionError {
+            code: "invalid_voice",
+        });
+    }
+    Ok(IosVoiceProviderConfiguration {
+        provider: voice.asr_provider.clone(),
+        endpoint: endpoint.to_owned(),
+        model: model.to_owned(),
+        token: token.to_owned(),
+    })
+}
+
 #[cfg(any(unix, windows))]
 #[derive(serde::Serialize, Clone)]
 struct VoiceRecognitionUpdate {
@@ -2764,7 +2833,7 @@ struct VoiceRecognitionUpdate {
     level: Option<f32>,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     let mut end = value.len().min(max_bytes);
     while !value.is_char_boundary(end) {
@@ -2773,7 +2842,7 @@ fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     &value[..end]
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
@@ -2866,7 +2935,7 @@ fn discover_session_provider(filename: &str) -> Option<PathBuf> {
         })
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "ios")))]
 fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
     document
         .get("voice_provider_socket")
@@ -2890,6 +2959,8 @@ async fn recognize_voice(
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     #[cfg(windows)]
     let _ = (&runtime, &store);
+    #[cfg(target_os = "ios")]
+    let _ = &runtime;
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store);
     if request.request_id.is_empty()
@@ -2910,7 +2981,7 @@ async fn recognize_voice(
     {
         windows_voice::recognize(app, request).await
     }
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "ios")))]
     {
         let runtime = runtime.inner().clone();
         let store = store.inner().clone();
@@ -3018,6 +3089,47 @@ async fn recognize_voice(
             })?;
         Ok(VoiceRecognitionResult { text })
     }
+    #[cfg(target_os = "ios")]
+    {
+        let store = store.inner().clone();
+        let configuration = tauri::async_runtime::spawn_blocking(move || {
+            let snapshot = store.load().map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+            ios_voice_provider_configuration(&snapshot.preferences)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })??;
+        let request_id = request.request_id;
+        let _ = app.emit(
+            "voice-update",
+            VoiceRecognitionUpdate {
+                text: String::new(),
+                request_id: request_id.clone(),
+                final_result: false,
+                phase: Some("recording".into()),
+                level: None,
+            },
+        );
+        let platform = app.state::<MobilePlatform<tauri::Wry>>().inner().clone();
+        let response = platform
+            .recognize_voice(IosVoiceTranscriptionRequest {
+                request_id,
+                provider: configuration.provider,
+                endpoint: configuration.endpoint,
+                model: configuration.model,
+                token: configuration.token,
+            })
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        Ok(VoiceRecognitionResult {
+            text: response.text,
+        })
+    }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (request, runtime);
@@ -3029,7 +3141,26 @@ async fn recognize_voice(
 
 #[tauri::command]
 fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActionError> {
-    #[cfg(unix)]
+    #[cfg(target_os = "ios")]
+    {
+        app.state::<MobilePlatform<tauri::Wry>>()
+            .stop_voice(&request_id)
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        let _ = app.emit(
+            "voice-update",
+            VoiceRecognitionUpdate {
+                text: String::new(),
+                request_id,
+                final_result: false,
+                phase: Some("recognizing".into()),
+                level: None,
+            },
+        );
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "ios")))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let Some(session) = sessions.active(&request_id) else {
@@ -3052,7 +3183,15 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
 
 #[tauri::command]
 fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(), HostActionError> {
-    #[cfg(unix)]
+    #[cfg(target_os = "ios")]
+    {
+        app.state::<MobilePlatform<tauri::Wry>>()
+            .cancel_voice(request_id.as_deref())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    }
+    #[cfg(all(unix, not(target_os = "ios")))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let Some(session) = sessions.cancel(request_id.as_deref()) else {
@@ -4568,7 +4707,7 @@ pub fn run() {
                     });
                 }
             }
-            #[cfg(unix)]
+            #[cfg(all(unix, not(target_os = "ios")))]
             app.manage(voice_sessions::VoiceSessions::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
@@ -4997,6 +5136,47 @@ mod tests {
             std::path::Path::new("/unused/state"),
         )
         .is_err());
+    }
+
+    #[test]
+    fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
+        let mut preferences = msime_client_core::preferences::Preferences::default();
+        preferences.voice_input.asr_provider = "openai".into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_model.clear();
+        preferences.voice_input.asr_token = "synthetic-current".into();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("openai".into(), "synthetic-stale".into());
+        let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, "openai");
+        assert_eq!(
+            configuration.endpoint,
+            "https://api.openai.com/v1/audio/transcriptions"
+        );
+        assert_eq!(configuration.model, "whisper-1");
+        assert_eq!(configuration.token, "synthetic-current");
+
+        preferences.voice_input.asr_provider = "groq".into();
+        preferences.voice_input.asr_endpoint = "https://fixture.invalid/transcribe".into();
+        preferences.voice_input.asr_model = "fixture-model".into();
+        preferences.voice_input.asr_token.clear();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("groq".into(), "synthetic-slot".into());
+        let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
+        assert_eq!(configuration.model, "fixture-model");
+        assert_eq!(configuration.token, "synthetic-slot");
+    }
+
+    #[test]
+    fn ios_voice_batch_configuration_rejects_doubao_until_websocket_support_lands() {
+        let preferences = msime_client_core::preferences::Preferences::default();
+        let error = super::ios_voice_provider_configuration(&preferences).unwrap_err();
+        assert_eq!(error.code, "unsupported_voice");
     }
 
     #[test]

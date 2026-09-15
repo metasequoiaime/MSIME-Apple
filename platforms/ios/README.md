@@ -1,8 +1,10 @@
 # iOS App 与键盘扩展
 
-`MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。语音录制由 App 的 Swift `AVAudioEngine` 宿主管理，键盘扩展不直接使用桌面音频采集桥接。
+`MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。
 
 共享 Tauri/React 设置宿主生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 16 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
+
+共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后才把有界录音以 multipart 上传到当前 `PreferencesStore` 中选择的 OpenAI、SiliconFlow 或 Groq HTTPS 批量转写接口。请求禁止重定向，并限制接口、模型、token、音频、响应体和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider token 只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。Doubao 的 WebSocket 协议尚未接入这一原生链路，保留为后续独立迁移切片。
 
 Tauri App 现直接依赖并嵌入既有 `MSIMEKeyboardExtension` target。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 仍使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。既有 `MSIMEClient.xcodeproj` 暂时保留为原生测试和剩余 SwiftUI 设置页面的构建入口，后续页面迁移不再建立第二份键盘实现。
 

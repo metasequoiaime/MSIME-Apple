@@ -23,6 +23,14 @@ pub struct AppIconInfo {
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_ENDPOINT_BYTES: usize = 2_048;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_MODEL_BYTES: usize = 512;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_TOKEN_BYTES: usize = 16 * 1024;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_TEXT_CHARS: usize = 10_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +43,52 @@ pub struct IosKeyboardPreferences {
     pub dictionary_learning: bool,
     pub keyboard_skin: String,
     pub custom_keyboard_skin: Option<String>,
+}
+
+#[cfg(any(target_os = "ios", test))]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IosVoiceTranscriptionRequest {
+    pub request_id: String,
+    pub provider: String,
+    pub endpoint: String,
+    pub model: String,
+    pub token: String,
+}
+
+#[cfg(any(target_os = "ios", test))]
+impl IosVoiceTranscriptionRequest {
+    pub fn is_valid(&self) -> bool {
+        !self.request_id.is_empty()
+            && self.request_id.len() <= 64
+            && self
+                .request_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && matches!(self.provider.as_str(), "openai" | "siliconflow" | "groq")
+            && self.endpoint.starts_with("https://")
+            && self.endpoint.len() <= MAX_IOS_VOICE_ENDPOINT_BYTES
+            && !self.endpoint.chars().any(char::is_control)
+            && !self.model.trim().is_empty()
+            && self.model.len() <= MAX_IOS_VOICE_MODEL_BYTES
+            && !self.model.chars().any(char::is_control)
+            && self.token.len() <= MAX_IOS_VOICE_TOKEN_BYTES
+            && !self.token.chars().any(char::is_control)
+    }
+}
+
+#[cfg(any(target_os = "ios", test))]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IosVoiceTranscriptionResponse {
+    pub text: String,
+}
+
+#[cfg(any(target_os = "ios", test))]
+impl IosVoiceTranscriptionResponse {
+    fn is_valid(&self) -> bool {
+        self.text.chars().count() <= MAX_IOS_VOICE_TEXT_CHARS && !self.text.contains('\0')
+    }
 }
 
 impl IosKeyboardPreferences {
@@ -108,6 +162,13 @@ struct CopyTextRequest<'a> {
 #[derive(Serialize)]
 struct SaveVoiceTextRequest<'a> {
     text: &'a str,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceControlRequest<'a> {
+    request_id: Option<&'a str>,
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -274,6 +335,44 @@ impl<R: Runtime> MobilePlatform<R> {
             .map_err(|_| ())
     }
 
+    pub async fn recognize_voice(
+        &self,
+        request: IosVoiceTranscriptionRequest,
+    ) -> Result<IosVoiceTranscriptionResponse, ()> {
+        if !request.is_valid() {
+            return Err(());
+        }
+        let response = self
+            .0
+            .run_mobile_plugin_async::<IosVoiceTranscriptionResponse>("recognizeVoice", request)
+            .await
+            .map_err(|_| ())?;
+        response.is_valid().then_some(response).ok_or(())
+    }
+
+    pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
+        if request_id.is_empty() || request_id.len() > 64 {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin(
+                "stopVoice",
+                VoiceControlRequest {
+                    request_id: Some(request_id),
+                },
+            )
+            .map_err(|_| ())
+    }
+
+    pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
+        if request_id.is_some_and(|value| value.is_empty() || value.len() > 64) {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("cancelVoice", VoiceControlRequest { request_id })
+            .map_err(|_| ())
+    }
+
     pub fn load_keyboard_preferences(&self) -> Result<IosKeyboardPreferences, ()> {
         let preferences = self
             .0
@@ -316,8 +415,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
-        migrated_account_session_payload, IosKeyboardPreferences, MAX_ACCOUNT_SESSION_BYTES,
-        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS,
+        migrated_account_session_payload, IosKeyboardPreferences, IosVoiceTranscriptionRequest,
+        IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
+        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -329,6 +429,58 @@ mod tests {
         for style in ["", "Classic", "unknown", "../AppIcon"] {
             assert!(!is_supported_app_icon_style(style));
         }
+    }
+
+    #[test]
+    fn ios_voice_requests_accept_only_bounded_batch_providers() {
+        let request = IosVoiceTranscriptionRequest {
+            request_id: "fixture-request-1".into(),
+            provider: "openai".into(),
+            endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
+            model: "fixture-model".into(),
+            token: "synthetic-token".into(),
+        };
+        assert!(request.is_valid());
+        for provider in ["openai", "siliconflow", "groq"] {
+            assert!(IosVoiceTranscriptionRequest {
+                provider: provider.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
+        for provider in ["doubao", "system", "custom", ""] {
+            assert!(!IosVoiceTranscriptionRequest {
+                provider: provider.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
+        assert!(!IosVoiceTranscriptionRequest {
+            endpoint: "http://fixture.invalid/transcriptions".into(),
+            ..request.clone()
+        }
+        .is_valid());
+        assert!(!IosVoiceTranscriptionRequest {
+            model: "fixture\nmodel".into(),
+            ..request
+        }
+        .is_valid());
+    }
+
+    #[test]
+    fn ios_voice_responses_reject_unbounded_or_nul_text() {
+        assert!(IosVoiceTranscriptionResponse {
+            text: "fixture result".into()
+        }
+        .is_valid());
+        assert!(!IosVoiceTranscriptionResponse {
+            text: "x".repeat(MAX_IOS_VOICE_TEXT_CHARS + 1)
+        }
+        .is_valid());
+        assert!(!IosVoiceTranscriptionResponse {
+            text: "fixture\0result".into()
+        }
+        .is_valid());
     }
 
     #[test]
