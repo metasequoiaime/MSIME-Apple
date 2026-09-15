@@ -54,6 +54,61 @@
 #include "WubiCommitPolicy.h"
 #include "PairedPunctuation.h"
 #include "PairedPunctuation.h"
+#include "TypingStatistics.h"
+
+static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("app.msime.client.typing-statistics", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
+
+static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msime::mac::TypingSource source) {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath ||
+        ![text isKindOfClass:NSString.class] || text.length == 0) return;
+    NSDateComponents *components = [NSCalendar.currentCalendar components:NSCalendarUnitYear | NSCalendarUnitMonth |
+        NSCalendarUnitDay fromDate:NSDate.date];
+    NSString *day = [NSString stringWithFormat:@"%04ld-%02ld-%02ld", (long)components.year,
+        (long)components.month, (long)components.day];
+    const std::string_view sourceID = msime::mac::TypingSourceId(source);
+    NSString *sourceString = [[NSString alloc] initWithBytes:sourceID.data() length:sourceID.size()
+                                                     encoding:NSUTF8StringEncoding];
+    if (!sourceString) return;
+    NSDictionary *request = @{ @"directory": directory, @"action": @{
+        @"operation": @"record", @"text": text,
+        @"source": sourceString,
+        @"day": day } };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!data || data.length > 65536) return;
+    dispatch_async(MSIMETypingStatisticsQueue(), ^{
+        char *response = msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length);
+        if (response) msime_client_string_free(response);
+        // Statistics are best effort and must never affect text commitment. The response is
+        // intentionally discarded because it can contain no useful UI state and must not log input.
+    });
+}
+
+static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, NSDictionary *view,
+                                                          NSDictionary *hostOptions, BOOL englishMode) {
+    NSDictionary *effectiveContext = [context isKindOfClass:NSDictionary.class] ? context : view;
+    NSNumber *scheme = effectiveContext[@"scheme"];
+    if (![scheme isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)scheme) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)scheme)) return msime::mac::TypingSource::Unknown;
+    NSString *localMode = effectiveContext[@"local_mode"];
+    if (![localMode isKindOfClass:NSString.class]) localMode = @"none";
+    NSNumber *nineKey = view[@"nine_key"];
+    BOOL dedicatedEnglish = [view[@"dedicated_english"] boolValue] || englishMode;
+    NSDictionary *preferences = [hostOptions[@"preferences"] isKindOfClass:NSDictionary.class] ? hostOptions[@"preferences"] : @{};
+    NSString *profile = view[@"shuangpin_profile"];
+    if (![profile isKindOfClass:NSString.class]) profile = preferences[@"shuangpin_profile"];
+    if (![profile isKindOfClass:NSString.class]) profile = @"xiaohe";
+    return msime::mac::ResolveTypingSource(scheme.intValue, [nineKey boolValue], dedicatedEnglish,
+        localMode.UTF8String ?: "none", profile.UTF8String ?: "xiaohe");
+}
+
+static NSDictionary *MSIMEStatisticsHostOptions(MSIMEClientSession *session) {
+    return [session respondsToSelector:@selector(hostOptions)] ? session.hostOptions : @{};
+}
 
 static BOOL MSIMEScriptConversionApplies(id value) {
     if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
@@ -290,6 +345,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _skinShowsSelectedBar;
     BOOL _focusPending;
     msime::mac::PairedPunctuationTracker _pairedPunctuation;
+    NSNumber *_typingSourceOverride;
     MSIMEModifierTap _modifierTap;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
@@ -1650,6 +1706,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         BOOL committed = NO;
         @try { [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)]; committed = YES; }
         @catch (NSException *) { /* Never log input or client exception details. */ }
+        if (committed) MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"],
+                                                    toolText, msime::mac::TypingSource::Local);
         if (_desktopEmojiCompletion) {
             MSIMEPanelTextCompletion completion = _desktopEmojiCompletion;
             _desktopEmojiCompletion = nil;
@@ -1675,7 +1733,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)handwritingCandidateSelected:(NSNotification *)notification {
     NSString *text = notification.userInfo[@"text"];
     if (![text isKindOfClass:NSString.class] || text.length == 0 || !_activeClient) return;
-    [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+    @try {
+        [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+        MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"],
+                                    text, msime::mac::TypingSource::Handwriting);
+    } @catch (NSException *) { /* Never log input or client exception details. */ }
 }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
@@ -2108,6 +2170,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                                                     NSEventModifierFlagOption, NSEventModifierFlagCommand)) {
             NSRange selected = [(id<MSIMETextClient>)sender selectedRange];
             [(id<MSIMETextClient>)sender insertText:typed replacementRange:NSMakeRange(selected.location, 1)];
+            MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], typed,
+                                        MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
             return YES;
         }
     }
@@ -2152,7 +2216,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         ![_view[@"editing_text"] length] && event.characters.length == 1 &&
         msime::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], event.modifierFlags)) {
         const unichar converted = msime::mac::FullWidthCharacter([event.characters characterAtIndex:0]);
-        [(id<MSIMETextClient>)sender insertText:[NSString stringWithCharacters:&converted length:1] replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        NSString *fullWidthText = [NSString stringWithCharacters:&converted length:1];
+        [(id<MSIMETextClient>)sender insertText:fullWidthText replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], fullWidthText,
+                                    MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
         return YES;
     }
     return NO;
@@ -2171,13 +2238,21 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)applyVoiceResult:(NSDictionary *)transition route:(const MSIMEVoiceCommitRoute &)route {
     NSString *text = transition[@"commit"];
     if ([route.mode isEqual:@"tsf"] || ![text isKindOfClass:NSString.class] || !text.length) {
-        [self apply:transition]; return;
+        _typingSourceOverride = @(static_cast<NSInteger>(msime::mac::TypingSource::Voice));
+        [self apply:transition];
+        _typingSourceOverride = nil;
+        return;
     }
     if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]))
         text = MSIMEChineseOutputString(text, YES);
     if ([self postVoiceText:text route:route] == MSIMEVoiceCommitOutcome::unavailable) {
-        [self apply:transition]; return;
+        _typingSourceOverride = @(static_cast<NSInteger>(msime::mac::TypingSource::Voice));
+        [self apply:transition];
+        _typingSourceOverride = nil;
+        return;
     }
+    MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"], text,
+                                msime::mac::TypingSource::Voice);
     NSMutableDictionary *remaining = [transition mutableCopy];
     [remaining removeObjectForKey:@"commit"];
     [self apply:remaining];
@@ -2185,6 +2260,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
+    const auto sourceOverride = _typingSourceOverride
+        ? static_cast<msime::mac::TypingSource>(_typingSourceOverride.integerValue)
+        : msime::mac::TypingSource::Unknown;
+    _typingSourceOverride = nil;
+    NSDictionary *previousView = _view;
     NSString *commitForTracking = transition[@"commit"];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
         static NSArray<NSArray<NSString *> *> *pairs;
@@ -2200,6 +2280,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         displayTransition = converted;
     }
     MSIMEApplyTransition(displayTransition, (id<MSIMETextClient>)_activeClient);
+    if ([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length]) {
+        const auto source = sourceOverride == msime::mac::TypingSource::Unknown
+            ? MSIMEResolveTypingSource(transition[@"commit_context"], previousView, MSIMEStatisticsHostOptions(_session), _appearance.englishMode)
+            : sourceOverride;
+        MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
+                                    displayTransition[@"commit"], source);
+    }
     _view = transition[@"view"];
     [self renderCandidates];
     [self synchronizeCloudCandidates];
