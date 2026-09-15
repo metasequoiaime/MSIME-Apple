@@ -71,6 +71,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger punctuationASCIICalls;
 @property(nonatomic) uint8_t lastPunctuationASCII;
 @property(nonatomic, copy) NSDictionary *punctuationASCIITransition;
+@property(nonatomic) NSUInteger enginePunctuationCalls;
+@property(nonatomic) uint8_t lastEnginePunctuation;
+@property(nonatomic, copy) NSDictionary *enginePunctuationTransition;
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
 @property(nonatomic) NSUInteger focusCalls;
@@ -162,6 +165,12 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastPunctuationASCII = ascii;
     return self.punctuationASCIITransition ?: self.nextTransition;
 }
+- (NSDictionary *)punctuation:(uint8_t)ascii error:(NSError **)error {
+    (void)error;
+    ++self.enginePunctuationCalls;
+    self.lastEnginePunctuation = ascii;
+    return self.enginePunctuationTransition ?: self.nextTransition;
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
@@ -237,6 +246,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+}
+
+static NSEvent *KeypadKey(unsigned short code, NSString *characters, NSEventModifierFlags flags, BOOL repeat) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
 }
 
 @interface HiddenKeymapPanel : MSIMEShuangpinKeymapPanel
@@ -1082,6 +1095,53 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
         charactersIgnoringModifiers:@"." isARepeat:NO keyCode:65];
     assert(![controller handleEvent:modified client:client]);
     assert(session.punctuationASCIICalls == 2);
+}
+
+static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.insertions = [NSMutableArray array];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    appearance.englishMode = NO;
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+
+    NSArray *operators = @[
+        @[@67, @"*"], @[@69, @"+"], @[@75, @"/"], @[@78, @"-"],
+        @[@81, @"="], @[@95, @","]
+    ];
+    NSUInteger expectedCalls = 0;
+    for (NSArray *entry in operators) {
+        const unsigned short keyCode = [entry[0] unsignedShortValue];
+        const uint8_t mark = (uint8_t)[entry[1] characterAtIndex:0];
+        session.enginePunctuationTransition = @{ @"handled": @YES, @"commit": entry[1],
+            @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+        session.punctuationASCIITransition = nil;
+        client.committed = nil;
+        assert([controller handleEvent:KeypadKey(keyCode, entry[1], 0, NO) client:client]);
+        assert(++expectedCalls == session.enginePunctuationCalls && session.lastEnginePunctuation == mark);
+        assert(session.punctuationASCIICalls == 0 && session.asciiCalls == 0);
+        assert([client.committed isEqual:entry[1]]);
+    }
+
+    // Any active composition uses the literal route, including keypad '-'
+    // and '=', so the main-row paging bindings cannot intercept them.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"nihao",
+        @"candidates": @[@{ @"highlighted": @YES }] } forKey:@"view"];
+    session.enginePunctuationTransition = nil;
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"候选-",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    client.committed = nil;
+    assert([controller handleEvent:KeypadKey(78, @"-", 0, NO) client:client]);
+    assert(session.punctuationASCIICalls == 1 && session.lastPunctuationASCII == '-');
+    assert(session.enginePunctuationCalls == expectedCalls && [client.committed isEqual:@"候选-"]);
+
+    const NSUInteger asciiCalls = session.punctuationASCIICalls;
+    const NSUInteger engineCalls = session.enginePunctuationCalls;
+    assert(![controller handleEvent:KeypadKey(69, @"+", NSEventModifierFlagControl, NO) client:client]);
+    assert(session.punctuationASCIICalls == asciiCalls && session.enginePunctuationCalls == engineCalls);
 }
 
 static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
@@ -3716,6 +3776,7 @@ int main(int argc, char **argv) {
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
         TestKeypadDecimal(appearance);
+        TestKeypadOperators(appearance);
         TestScreenKeyboardShortcut(appearance);
         TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);

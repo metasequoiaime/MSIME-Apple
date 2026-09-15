@@ -2179,22 +2179,35 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
         }
     }
-    // Match Windows VK_DECIMAL and Linux keypad punctuation: the keypad
-    // decimal key is a literal ASCII period, even when Chinese punctuation is
-    // enabled. With a composition, the shared runtime appends it after the
-    // highlighted commit; while idle, emit the literal mark directly.
-    if (msime::mac::IsKeypadDecimal(event.keyCode) &&
+    // Match Windows keypad punctuation and Linux's physical keypad route.
+    // Decimal always remains ASCII '.', while arithmetic/separator keys use
+    // the Engine punctuation policy when idle. With a composition, every
+    // keypad mark finishes the highlighted candidate and appends its literal
+    // ASCII byte. Physical routing keeps '-' and '=' out of main-row paging.
+    const char keypadPunctuation = msime::mac::KeypadPunctuation(event.keyCode);
+    if (keypadPunctuation &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
-        NSDictionary *transition = [_session punctuationASCII:'.' error:nil];
+        const BOOL hasComposition = [_view[@"editing_text"] length] ||
+            ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+        NSDictionary *transition = hasComposition || keypadPunctuation == '.'
+            ? [_session punctuationASCII:(uint8_t)keypadPunctuation error:nil]
+            : [_session punctuation:(uint8_t)keypadPunctuation error:nil];
         if (transition) {
             [self apply:transition];
             if ([transition[@"handled"] boolValue]) return YES;
         }
-        [(id<MSIMETextClient>)sender insertText:@"." replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-        MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], @".",
-                                    MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
-        return YES;
+        if (keypadPunctuation == '.') {
+            NSString *text = @".";
+            [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+            MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
+                                        MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
+            return YES;
+        }
+        // A normal punctuation transition can be unhandled in an English or
+        // local mode. Leave that key to the host rather than reinterpreting it
+        // as the main-row '-'/'=' candidate navigation shortcut.
+        return [transition[@"handled"] boolValue];
     }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];

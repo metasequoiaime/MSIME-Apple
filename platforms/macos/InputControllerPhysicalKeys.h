@@ -64,6 +64,24 @@ constexpr bool IsKeypadDecimal(unsigned short keyCode)
     return keyCode == 65; // kVK_ANSI_KeypadDecimal
 }
 
+// Physical macOS keypad punctuation.  Keep this independent of the active
+// keyboard layout so keypad operators cannot fall into the main-row paging
+// shortcuts (notably '-' and '=').
+constexpr char KeypadPunctuation(unsigned short keyCode)
+{
+    switch (keyCode)
+    {
+    case 65: return '.'; // kVK_ANSI_KeypadDecimal
+    case 67: return '*'; // kVK_ANSI_KeypadMultiply
+    case 69: return '+'; // kVK_ANSI_KeypadPlus
+    case 75: return '/'; // kVK_ANSI_KeypadDivide
+    case 78: return '-'; // kVK_ANSI_KeypadMinus
+    case 81: return '='; // kVK_ANSI_KeypadEquals
+    case 95: return ','; // kVK_JIS_KeypadComma / keypad separator
+    default: return '\0';
+    }
+}
+
 constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, char character)
 {
     return (scheme == 3 || temporaryJapanese) && (character == '-' || character == '=');

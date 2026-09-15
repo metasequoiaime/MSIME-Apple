@@ -25,6 +25,12 @@ int main() {
     require(msime::mac::PhysicalCandidateDigitSlot(83) == 0 && msime::mac::PhysicalCandidateDigitSlot(92) == 8, "keypad digit mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(82) == -1 && msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
     require(msime::mac::IsKeypadDecimal(65) && !msime::mac::IsKeypadDecimal(0), "keypad decimal mapping");
+    require(msime::mac::KeypadPunctuation(65) == '.' && msime::mac::KeypadPunctuation(67) == '*' &&
+                msime::mac::KeypadPunctuation(69) == '+' && msime::mac::KeypadPunctuation(75) == '/' &&
+                msime::mac::KeypadPunctuation(78) == '-' && msime::mac::KeypadPunctuation(81) == '=' &&
+                msime::mac::KeypadPunctuation(95) == ',', "keypad punctuation mapping");
+    require(msime::mac::KeypadPunctuation(82) == '\0' && msime::mac::KeypadPunctuation(0) == '\0',
+            "non-punctuation keypad codes rejected");
     using msime::mac::CandidateWheelAction;
     require(msime::mac::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
     require(msime::mac::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");
