@@ -68,8 +68,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
       # Cheap and runs before the build so a formatting slip fails in seconds rather than after the
       # full compile. Formatting is architecture independent, so only one leg checks it. Same
       # pinned formatter version as MSIME-Linux and MSIME-Engine.
@@ -95,6 +93,9 @@ jobs:
       # CI stayed green, because CI never ran it under that interpreter.
       - name: Check the tooling parses under the stock macOS interpreter
         run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
+      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Validate the product lock
         run: |
           python3 scripts/check-dictionary-contract.py
@@ -138,8 +139,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
           persist-credentials: false
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
@@ -198,8 +197,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
       - name: Install project generator
         run: |
           brew install boost fmt spdlog nlohmann-json xcodegen
@@ -209,6 +206,9 @@ jobs:
           pod --version
       - name: Test shared account transport and session lifecycle
         run: swift test --package-path shared/backend
+      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Validate keyboard configuration
         run: |
           python3 platforms/ios/tests/ProjectConfigurationTests.py

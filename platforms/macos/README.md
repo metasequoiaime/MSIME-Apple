@@ -7,7 +7,7 @@ This directory contains the released InputMethodKit frontend for Metasequoia IME
 - `scripts/` owns macOS build, install, uninstall, signing-mode, packaging, appcast, and release helpers.
 - `tests/` owns macOS routing, UI-controller, installation, packaging, and release-automation coverage.
 
-The repository root remains the CMake source directory because it integrates the shared engine submodule and common legal/version metadata. Build and install from the repository root:
+The repository root remains the CMake source directory because it integrates the shared engine archive and common legal/version metadata. Build and install from the repository root:
 
 ```sh
 ./platforms/macos/scripts/build.sh

@@ -106,8 +106,10 @@ class ProductLockTests(unittest.TestCase):
     def test_the_dictionary_source_is_not_a_gitlink(self):
         # Re-adding it as a submodule would restore a second, unsynchronised home for the pin, and
         # that pin is what MSIME-Linux#47 caught attesting to the wrong commit.
-        self.assertNotIn("dict", lock.SUBMODULES)
-        self.assertNotIn("vendor/MetasequoiaImeDict", (ROOT / ".gitmodules").read_text())
+        self.assertNotEqual(lock.ENGINE_PATH, "vendor/MetasequoiaImeDict")
+        gitmodules = ROOT / ".gitmodules"
+        if gitmodules.exists():
+            self.assertNotIn("vendor/MetasequoiaImeDict", gitmodules.read_text())
 
     def tagged_repository(self, directory, tag, annotated):
         """A real repository, because the bug this guards lives in the ls-remote invocation.
@@ -189,29 +191,31 @@ class ProductLockTests(unittest.TestCase):
                 with self.subTest(tag=tag), self.assertRaises(ValueError):
                     lock.download_assets(tag, Path(temporary))
 
-    def test_the_manifest_records_the_gitlinks_this_checkout_actually_carries(self):
+    def test_the_manifest_records_the_engine_this_build_actually_used(self):
         commit = "1" * 40
+        pin = json.loads((ROOT / "engine-lock.json").read_text())
         record = lock.manifest(ROOT, commit, ROOT / "product-lock.json", self.data)
         self.assertEqual(record["source"]["commit"], commit)
         self.assertEqual(record["dictionary"], self.data["dictionary"])
         self.assertEqual(record["lock_sha256"], lock.sha256(ROOT / "product-lock.json"))
-        self.assertEqual(set(record["submodules"]), set(lock.SUBMODULES))
-        for name, (repository, path) in lock.SUBMODULES.items():
-            entry = record["submodules"][name]
-            self.assertEqual(entry["repository"], repository)
-            self.assertEqual(entry["path"], path)
-            expected = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", f"HEAD:{path}"], text=True)
-            self.assertEqual(entry["commit"], expected.strip())
+        entry = record["dependencies"]["engine"]
+        self.assertEqual(entry["repository"], pin["repository"])
+        self.assertEqual(entry["path"], lock.ENGINE_PATH)
+        self.assertEqual(entry["commit"], pin["commit"])
+        self.assertEqual(entry["archive_sha256"], pin["sha256"])
 
     def test_a_mutable_source_commit_is_rejected(self):
         for commit in ("main", "HEAD", "abc123", "a" * 40 + "\n"):
             with self.subTest(commit=commit), self.assertRaises(ValueError):
                 lock.manifest(ROOT, commit, ROOT / "product-lock.json", self.data)
 
-    def test_a_path_that_stopped_being_a_gitlink_is_rejected(self):
-        with mock.patch.object(lock, "git", return_value="100644 blob " + "0" * 40 + "\tvendor/x"):
-            with self.assertRaises(ValueError):
-                lock.gitlinks(ROOT)
+    def test_an_engine_pin_that_is_not_an_immutable_verified_archive_is_rejected(self):
+        for pin in ({"repository": "x", "commit": "main", "sha256": "0" * 64}, {"repository": "x", "commit": "0" * 40, "sha256": "latest"}):
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / "engine-lock.json").write_text(json.dumps(pin))
+                with self.subTest(pin=pin), self.assertRaises(ValueError):
+                    lock.engine(directory)
 
     def test_the_lock_on_disk_is_the_one_the_scripts_accept(self):
         data = json.loads((ROOT / "product-lock.json").read_text())

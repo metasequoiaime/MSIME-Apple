@@ -857,31 +857,56 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testStatisticsChartsAndPeriodSelection() {
+  func testStatisticsTabsAndDaySelection() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.tabBars.buttons["统计"].tap()
-    let period = app.segmentedControls["statisticsPeriod"]
-    XCTAssertTrue(period.waitForExistence(timeout: 5))
-    period.buttons["30 天"].tap()
-    period.buttons["累计"].tap()
-    period.buttons["7 天"].tap()
+    // 原来这里是 7 天 / 30 天 / 累计;时间切换撤了,三块内容改成标签轮流占这一屏。
+    let tabs = app.segmentedControls["statisticsTab"]
+    XCTAssertTrue(tabs.waitForExistence(timeout: 5))
     let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
     XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
     day.tap()
-    XCTAssertTrue(app.buttons["返回整个时间范围"].exists)
-    app.buttons["返回整个时间范围"].tap()
-    let top = XCTAttachment(screenshot: app.screenshot())
-    top.name = "统计趋势与字符分布"
-    top.lifetime = .deleteOnSuccess
-    add(top)
-    app.swipeUp()
-    app.swipeUp()
-    let detail = XCTAttachment(screenshot: app.screenshot())
-    detail.name = "统计语言与输入方案"
-    detail.lifetime = .deleteOnSuccess
-    add(detail)
+    XCTAssertTrue(app.buttons["返回累计"].exists)
+    app.buttons["返回累计"].tap()
+    let trend = XCTAttachment(screenshot: app.screenshot())
+    trend.name = "统计趋势"
+    trend.lifetime = .keepAlways
+    add(trend)
+
+    tabs.buttons["类型"].tap()
+    XCTAssertFalse(day.exists, "切到类型之后趋势那一块就不在了")
+    let kind = XCTAttachment(screenshot: app.screenshot())
+    kind.name = "统计字符类型"
+    kind.lifetime = .keepAlways
+    add(kind)
+
+    tabs.buttons["模式"].tap()
+    let mode = XCTAttachment(screenshot: app.screenshot())
+    mode.name = "统计语言模式"
+    mode.lifetime = .keepAlways
+    add(mode)
+
+    tabs.buttons["方案"].tap()
+    let scheme = XCTAttachment(screenshot: app.screenshot())
+    scheme.name = "统计输入方案"
+    scheme.lifetime = .keepAlways
+    add(scheme)
+
+    tabs.buttons["趋势"].tap()
+    XCTAssertTrue(day.waitForExistence(timeout: 3), "切回趋势要能看到柱形")
+
+    // 开关、刷新、清空从每一屏底下挪进了右上角的菜单。
+    XCTAssertFalse(app.switches["typingStatisticsEnabled"].exists)
+    app.buttons["statisticsMenu"].tap()
+    XCTAssertTrue(app.buttons["typingStatisticsEnabled"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["resetTypingStatistics"].exists)
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "统计菜单"
+    menu.lifetime = .keepAlways
+    add(menu)
+    app.buttons["刷新统计"].tap()
   }
 
   @MainActor

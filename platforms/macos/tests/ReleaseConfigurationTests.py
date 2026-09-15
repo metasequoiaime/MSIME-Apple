@@ -962,19 +962,66 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("The keyboard provisioning profile must include group.app.msime.ios", workflow)
         self.assertIn("IOS_TESTFLIGHT_ENABLED", workflow)
 
-    def test_dependabot_tracks_actions_and_expected_submodule_branches(self):
+    def test_nothing_in_the_tree_is_a_git_submodule(self):
         dependabot = (PROJECT_ROOT / ".github/dependabot.yml").read_text()
+
         self.assertEqual(dependabot.count('package-ecosystem: "github-actions"'), 1)
-        # Assert each ecosystem's own interval rather than a total count: counting means changing
-        # either schedule fails on an arithmetic mismatch that says nothing about which one moved.
         actions_block = dependabot.split('package-ecosystem: "github-actions"', 1)[1].split("- package-ecosystem:", 1)[0]
         self.assertIn('interval: "monthly"', actions_block)
         self.assertEqual(dependabot.count('prefix: "chore(deps)"'), 1)
-        # The dictionary is deliberately not a submodule. Vendoring the sources meant rebuilding
-        # MSIME-Dict's pipeline here and shipping whatever revision the pin happened to hold, which
-        # is how the personal data in quick_phrases.txt stayed in shipped builds for two days after
-        # it was replaced upstream (MSIME-Windows#74). It is downloaded from a pinned, checksummed
-        # release instead; re-adding it as a submodule would reintroduce that drift.
+        # Nothing is vendored through a gitlink any more, so the ecosystem would watch an empty set while reading as though the Engine were still tracked. The Engine moves through engine-update.yml instead, and the dictionary through product-lock.json.
+        self.assertNotIn('package-ecosystem: "gitsubmodule"', dependabot)
+        # The dictionary is deliberately not a submodule. Vendoring the sources meant rebuilding MSIME-Dict's pipeline here and shipping whatever revision the pin happened to hold, which is how the personal data in quick_phrases.txt stayed in shipped builds for two days after it was replaced upstream (MSIME-Windows#74). It is downloaded from a pinned, checksummed release instead; re-adding it as a submodule would reintroduce that drift.
+        self.assertFalse((PROJECT_ROOT / ".gitmodules").exists())
+        for workflow in ("ci.yml", "contracts.yml", "release.yml", "codeql.yml"):
+            body = (PROJECT_ROOT / ".github/workflows" / workflow).read_text()
+            self.assertNotIn("submodules:", body, f"{workflow} still asks the checkout for submodules")
+
+    def test_engine_is_fetched_from_a_locked_verified_archive(self):
+        lock = json.loads((PROJECT_ROOT / "engine-lock.json").read_text())
+        source = (PROJECT_ROOT / "scripts/fetch_engine.py").read_text()
+
+        self.assertEqual(lock["repository"], "metasequoiaime/MSIME-Engine")
+        # A branch or a tag would let two builds of the same commit ship different engines.
+        self.assertRegex(lock["commit"], r"\A[0-9a-f]{40}\Z")
+        self.assertEqual(lock["archive"], f"https://github.com/{lock['repository']}/archive/{lock['commit']}.tar.gz")
+        self.assertRegex(lock["sha256"], r"\A[0-9a-f]{64}\Z")
+        self.assertIn("if digest != entry[\"sha256\"]", source)
+
+        # A GitHub source archive leaves every submodule as an empty directory, and a tarball carries no gitlinks to say which commit belonged there. So each of the Engine's own dependencies has to be locked and unpacked separately -- and the set has to be complete, because a missing one does not fail the download, it fails the build: #480 shipped a lock without them and the Engine's CMake stopped at the absent voice/third_party/miniaudio/miniaudio.h.
+        locked = {entry["path"]: entry for entry in lock["submodules"]}
+        expected = self.engine_submodule_paths()
+        self.assertEqual(sorted(locked), sorted(expected), "engine-lock.json does not lock every Engine submodule")
+        for path, entry in locked.items():
+            self.assertEqual(entry["repository"], expected[path], f"{path} is locked against the wrong repository")
+            self.assertRegex(entry["commit"], r"\A[0-9a-f]{40}\Z")
+            self.assertEqual(entry["archive"], f"https://github.com/{entry['repository']}/archive/{entry['commit']}.tar.gz")
+            self.assertRegex(entry["sha256"], r"\A[0-9a-f]{64}\Z")
+
+        # Every path that needs the Engine has to prepare it, including the jobs that read its files without ever configuring CMake.
+        self.assertIn("scripts/fetch_engine.py", (PROJECT_ROOT / "CMakeLists.txt").read_text())
+        for workflow in ("ci.yml", "contracts.yml", "release.yml", "codeql.yml"):
+            body = (PROJECT_ROOT / ".github/workflows" / workflow).read_text()
+            self.assertIn("run: python3 scripts/fetch_engine.py", body)
+        # The lock is rewritten by a script rather than by hand, so a bump moves the submodule pins with the Engine instead of leaving them on the previous commit.
+        self.assertIn("python3 scripts/relock_engine.py", (PROJECT_ROOT / ".github/workflows/engine-update.yml").read_text())
+
+    def engine_submodule_paths(self):
+        """The Engine's own submodules, read from the .gitmodules its archive ships."""
+        gitmodules = PROJECT_ROOT / "vendor/MetasequoiaImeEngine/.gitmodules"
+        if not gitmodules.exists():
+            self.skipTest("the Engine archive is not prepared")
+        paths, path, url = {}, None, None
+        for line in gitmodules.read_text().splitlines():
+            key, _, value = line.strip().partition("=")
+            if key.strip() == "path":
+                path = value.strip()
+            elif key.strip() == "url":
+                url = re.sub(r"\.git\Z", "", value.strip())
+            if path and url:
+                paths[path] = "/".join(url.split("/")[-2:])
+                path, url = None, None
+        return paths
 
     def test_dictionary_is_fetched_from_a_locked_verified_release(self):
         source = (PROJECT_ROOT / "scripts/fetch_dictionary.py").read_text()

@@ -20,9 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Not recursive: two cases read the Engine's punctuation contract and quanpin header, and the Engine's own submodules are hundreds of megabytes of audio dependencies that nothing here asserts on.
-          submodules: true
           persist-credentials: false
+      # Three cases read the Engine's punctuation contract, its quanpin header and its dictionary product table. The Engine is a locked archive rather than a submodule, so a checkout alone does not bring it.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       # zsh is deliberately not installed. ubuntu-24.04 ships without it, and apt-get update on a runner spent 10m22s refreshing indexes for a step whose tests then ran in 0.042s -- more than this whole job is meant to cost. The two cases that shell out to zsh check macOS release scripts with a #!/bin/zsh shebang, so the macOS job is the honest place for them; the @requires guard skips them here.
       - name: Check the repository contracts
         run: python3 platforms/macos/tests/ReleaseConfigurationTests.py

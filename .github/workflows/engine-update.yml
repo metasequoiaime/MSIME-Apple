@@ -30,16 +30,7 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          archive="https://github.com/metasequoiaime/MSIME-Engine/archive/${commit}.tar.gz"
-          curl --fail --location --silent --show-error "$archive" -o /tmp/engine.tar.gz
-          sha256="$(sha256sum /tmp/engine.tar.gz | cut -d' ' -f1)"
-          python3 - "$commit" "$archive" "$sha256" <<'PY'
-          import json, sys
-          path = "engine-lock.json"
-          data = json.load(open(path))
-          data.update(commit=sys.argv[1], archive=sys.argv[2], sha256=sys.argv[3])
-          open(path, "w").write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-          PY
+          python3 scripts/relock_engine.py "$commit"
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
