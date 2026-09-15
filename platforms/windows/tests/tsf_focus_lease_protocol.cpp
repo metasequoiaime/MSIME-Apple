@@ -12,6 +12,9 @@ int main() {
   const auto frame = encode_tsf_focus_lease(request);
   const auto decoded = msime::windows::decode_tsf_focus_lease(frame);
   assert(valid_tsf_focus_lease_request(decoded));
+  assert(msime::windows::matches_tsf_focus_lease(decoded, 7, 11, 19));
+  assert(!msime::windows::matches_tsf_focus_lease(decoded, 7, 11, 20));
+  assert(!msime::windows::matches_tsf_focus_lease(decoded, 8, 11, 19));
   assert(decoded.client == 7 && decoded.epoch == 11 && decoded.token == 19);
   assert(frame[0] == 0x53 && frame[1] == 0x4c);
   request.version_value = 2;

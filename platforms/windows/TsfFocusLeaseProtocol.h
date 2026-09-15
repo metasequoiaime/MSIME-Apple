@@ -66,4 +66,16 @@ constexpr bool valid_tsf_focus_lease_request(const TsfFocusLeaseRequest &request
          request.reserved == 0 && request.client != 0 && request.epoch != 0 &&
          request.token != 0;
 }
+
+// Authentication gate used after transport identity and registration
+// generation have been resolved by the Server. A syntactically valid frame is
+// not sufficient: every lease component must still match the current owner.
+constexpr bool matches_tsf_focus_lease(const TsfFocusLeaseRequest &request,
+                                       std::uint64_t client,
+                                       std::uint64_t epoch,
+                                       std::uint64_t token) {
+  return valid_tsf_focus_lease_request(request) && client != 0 && epoch != 0 &&
+         token != 0 && request.client == client && request.epoch == epoch &&
+         request.token == token;
+}
 } // namespace msime::windows
