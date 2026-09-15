@@ -14,6 +14,15 @@ static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
            ([defaults objectForKey:key] == nil || [defaults boolForKey:key]);
 }
 
+// macOS always records through CoreAudio. Keep the shared backend explicit so
+// a setting synced from another desktop is never silently reinterpreted here.
+static inline BOOL MSIMEVoiceCaptureBackendSupported(id backend) {
+    if (backend == nil) return YES;
+    if (![backend isKindOfClass:NSString.class]) return NO;
+    return ![(NSString *)backend length] ||
+        [@[@"auto", @"macos"] containsObject:[(NSString *)backend lowercaseString]];
+}
+
 // Adapt shared settings to the legacy native consumers. Missing or malformed
 // fields preserve local values; explicit false and empty strings clear them.
 // Reloading settings must not restart an active recording or emit save events.
@@ -24,7 +33,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"language": @"Language",
         @"asr_provider": @"ASRProvider", @"asr_endpoint": @"ASREndpoint",
         @"asr_model": @"ASRModel", @"asr_token": @"ASRToken",
-        @"capture_device": @"CaptureDevice",
+        @"capture_backend": @"CaptureBackend", @"capture_device": @"CaptureDevice",
         @"commit_mode": @"CommitMode",
         @"asr_app_key": @"DoubaoAppKey", @"asr_resource_id": @"DoubaoResourceID",
         @"doubao_auth_mode": @"DoubaoAuthMode",

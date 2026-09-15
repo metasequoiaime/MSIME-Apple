@@ -12,7 +12,8 @@ int main() {
             @"enabled": @NO, @"hotkey_rctrl_ralt": @YES,
             @"language": @"en-US", @"asr_provider": @"openai",
             @"asr_endpoint": @"https://example.invalid/asr", @"asr_model": @"fixture-model",
-            @"asr_token": @"fixture-only", @"capture_device": @"fixture-device",
+            @"asr_token": @"fixture-only", @"capture_backend": @"macos",
+            @"capture_device": @"fixture-device",
             @"asr_app_key": @"fixture-app", @"asr_resource_id": @"fixture-resource",
             @"doubao_boosting_table_id": @"fixture-table", @"polish_provider": @"groq",
             @"polish_endpoint": @"https://example.invalid/polish", @"polish_model": @"fixture-polish",
@@ -26,6 +27,8 @@ int main() {
         assert(MSIMEApplySharedVoicePreferences(voice, defaults));
         assert(!MSIMEVoiceInputEnabled(defaults));
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);
+        assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureBackend"] isEqual:@"macos"]);
+        assert(MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"]));
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"] isEqual:@"fixture-device"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] isEqual:@"openai"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] isEqual:voice[@"asr_endpoint"]]);
@@ -40,10 +43,15 @@ int main() {
         assert(!MSIMEApplySharedVoicePreferences(nil, defaults));
         assert(!MSIMEApplySharedVoicePreferences(NSNull.null, defaults));
         assert(!MSIMEApplySharedVoicePreferences(@[], defaults));
-        MSIMEApplySharedVoicePreferences(@{@"asr_token": NSNull.null, @"capture_device": @42,
+        MSIMEApplySharedVoicePreferences(@{@"asr_token": NSNull.null, @"capture_backend": @42,
+                                           @"capture_device": @42,
                                            @"polish_enabled": @0, @"polish_text": @1, @"sound_enabled": @"true",
                                            @"enabled": @"true", @"hotkey_rctrl_ralt": @0}, defaults);
         assert([[defaults persistentDomainForName:suite] isEqual:saved]);
+        for (id supported in @[@"", @"auto", @"AUTO", @"macos", @"MACOS"])
+            assert(MSIMEVoiceCaptureBackendSupported(supported));
+        for (id unsupported in @[@"windows", @"pulse", @"pipewire", @"alsa", @42, @[]])
+            assert(!MSIMEVoiceCaptureBackendSupported(unsupported));
         MSIMEApplySharedVoicePreferences(@{@"capture_device": @"", @"asr_token": @"",
                                            @"polish_enabled": @NO, @"polish_text": @NO}, defaults);
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"] isEqual:@""]);
