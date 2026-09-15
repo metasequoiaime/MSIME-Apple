@@ -15,4 +15,6 @@ int main() {
   // Do not reinterpret an old ordinal as a new endpoint or silently clear it.
   // The Engine rejects this id before opening a device.
   assert(voice_capture_selection({{"capture_device", "0"}}).device_id == "0");
+  assert(!voice_capture_selection({{"capture_device", "wasapi\n0061"}}).supported());
+  assert(!voice_capture_selection({{"capture_device", std::string(513, 'x')}}).supported());
 }
