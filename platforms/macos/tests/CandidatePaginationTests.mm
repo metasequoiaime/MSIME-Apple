@@ -26,6 +26,7 @@ static void Require(bool condition, const char *message)
 @property(nonatomic) BOOL hasNextPage;
 @property(nonatomic) BOOL collapsedIdentifiers;
 @property(nonatomic, strong) NSNumber *rejectedEngineIndex;
+@property(nonatomic) NSInteger armedGlossColumn;
 @end
 @implementation RecordingCandidatePanel
 - (void)setAttributes:(NSDictionary *)attributes
@@ -36,6 +37,12 @@ static void Require(bool condition, const char *message)
 {
     self.data = data;
     self.selected = 0;
+}
+// 控制器每次刷新可见候选都会把「待上屏的列」推给候选窗。替身照记,测试才能断言它被夹回了实际存在
+// 的列,而不是停在一个空列上。
+- (void)setArmedGlossColumn:(NSInteger)column
+{
+    _armedGlossColumn = column;
 }
 - (void)show:(IMKCandidatesLocationHint)hint
 {
@@ -119,6 +126,7 @@ static void Require(bool condition, const char *message)
 - (NSString *)testCandidateAtIndex:(NSUInteger)index;
 - (BOOL)testHasComposition;
 - (void)prepareHelpcodeProbe;
+- (void)attachTestGloss:(NSString *)primary secondary:(NSString *)secondary;
 - (void)refreshHelpcodeProbe;
 @end
 @implementation MetasequoiaInputController (PaginationTestFixture)
@@ -138,6 +146,21 @@ static void Require(bool condition, const char *message)
     _candidatePanel = (MetasequoiaCandidatePanel *)panel;
     _session.reset();
     [self reloadSessionFromPreferences];
+}
+// 给当前可见的候选挂上假释义。真实的释义要么查本机词典要么联网,单测两样都没有,但「Tab 选中哪一列、
+// 数字键就上屏哪一列」这件事和释义从哪来无关。
+- (void)attachTestGloss:(NSString *)primary secondary:(NSString *)secondary
+{
+    NSMutableArray<NSAttributedString *> *glossed = [NSMutableArray array];
+    for (NSAttributedString *candidate in _candidateData)
+    {
+        NSAttributedString *entry = MetasequoiaCandidateStringByAddingTranslation(candidate, primary);
+        if (secondary.length > 0)
+            entry = MetasequoiaCandidateStringByAddingSecondaryTranslation(entry, secondary);
+        [glossed addObject:entry];
+    }
+    _candidateData = [glossed copy];
+    [self showCurrentCandidatePage];
 }
 - (BOOL)testHasComposition
 {
@@ -184,6 +207,20 @@ static void Require(bool condition, const char *message)
 }
 @end
 
+static NSEvent *TabEvent(BOOL shift)
+{
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown
+                            location:NSZeroPoint
+                       modifierFlags:shift ? NSEventModifierFlagShift : 0
+                           timestamp:0
+                        windowNumber:0
+                             context:nil
+                          characters:@"\t"
+         charactersIgnoringModifiers:@"\t"
+                           isARepeat:NO
+                             keyCode:kVK_Tab];
+}
+
 static void Press(PaginationTestController *controller, unsigned short code, NSString *text)
 {
     NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
@@ -202,6 +239,37 @@ static void Press(PaginationTestController *controller, unsigned short code, NSS
 
 static void RunTests()
 {
+    {
+        // 没有释义时 Tab 不能被吃掉:很多应用靠它跳字段。这里只断言「没拦截」和「没有点亮任何一列」,
+        // 至于未拦截的键会让组字上屏,那是这个输入法一直以来对所有未处理键的行为,不在这条规则里。
+        PaginationTestController *controller = [[PaginationTestController alloc] init];
+        controller.testClient = [[RecordingInputClient alloc] init];
+        RecordingCandidatePanel *panel = [[RecordingCandidatePanel alloc] init];
+        [controller prepareTestPanel:panel];
+        Require(![controller handleEvent:TabEvent(NO) client:controller.testClient],
+                "Tab was swallowed even though no candidate had a gloss to switch to.");
+        Require(panel.armedGlossColumn == 0, "The panel armed a gloss column that did not exist.");
+    }
+
+    {
+        // 有释义时:Tab 依次点亮目标语言、第二语言,数字键上屏的就是点亮的那一列。
+        PaginationTestController *controller = [[PaginationTestController alloc] init];
+        controller.testClient = [[RecordingInputClient alloc] init];
+        RecordingCandidatePanel *panel = [[RecordingCandidatePanel alloc] init];
+        [controller prepareTestPanel:panel];
+        [controller attachTestGloss:@"apple" secondary:@"りんご"];
+        Require([controller handleEvent:TabEvent(NO) client:controller.testClient] && panel.armedGlossColumn == 1,
+                "Tab did not arm the primary gloss once one was available.");
+        Require([controller handleEvent:TabEvent(NO) client:controller.testClient] && panel.armedGlossColumn == 2,
+                "A second Tab did not arm the secondary gloss.");
+        Require([controller handleEvent:TabEvent(YES) client:controller.testClient] && panel.armedGlossColumn == 1,
+                "Shift+Tab did not step back to the primary gloss.");
+        Press(controller, kVK_ANSI_1, @"1");
+        Require([controller.testClient.committed isEqualToString:@"apple"],
+                "Pressing a digit with a gloss armed did not commit that gloss.");
+        Require(![controller testHasComposition], "Committing a gloss left the composition behind.");
+    }
+
     Require([MetasequoiaInputController conformsToProtocol:@protocol(MetasequoiaFloatingToolbarDelegate)] &&
                 [MetasequoiaInputController conformsToProtocol:@protocol(MetasequoiaCandidatePanelDelegate)],
             "The controller does not support both window delegate contracts.");

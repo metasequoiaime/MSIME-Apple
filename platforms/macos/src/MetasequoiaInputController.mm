@@ -189,6 +189,7 @@ static NSHashTable *LiveDictionaryControllers()
     NSArray *_visibleCandidateData;
     NSUInteger _candidatePageSize;
     NSUInteger _candidateHighlightedIndex;
+    NSInteger _armedGlossColumn;
     NSUInteger _candidatePageStart;
     BOOL _candidateLineIdentifiersCollapsed;
     BOOL _wubiAutoCommitUniqueEnabled;
@@ -385,6 +386,7 @@ static NSHashTable *LiveDictionaryControllers()
     _dictionaryLease.reset();
     _candidateSelection.reset();
     _candidateHighlightedIndex = 0;
+    _armedGlossColumn = 0;
     _candidatePageStart = 0;
     _candidateLineIdentifiersCollapsed = NO;
     _candidateData = @[];
@@ -453,6 +455,7 @@ static NSHashTable *LiveDictionaryControllers()
     _activeHelpcodeKeymap = HelpcodeUtils::load_helpcode_keymap(paths.resources, preferences.helpcodeSchema);
     _candidateSelection.reset();
     _candidateHighlightedIndex = 0;
+    _armedGlossColumn = 0;
     _candidatePageStart = 0;
     _candidateLineIdentifiersCollapsed = NO;
     _candidateData = @[];
@@ -573,6 +576,19 @@ static NSHashTable *LiveDictionaryControllers()
     _candidatePanel.caretRect = caretRect;
     _candidatePanel.preedit = MetasequoiaStringFromUtf8(_sessionSnapshot.preedit);
     [_candidatePanel setCandidateData:_visibleCandidateData];
+    // 释义是异步回来的,翻页和上下移动也会换行。选中的列每次都要夹回这一行真有的那几列,否则会停在
+    // 一个空列上,数字键按下去什么都不上屏。
+    if (_armedGlossColumn > 0)
+    {
+        BOOL hasPrimary = NO;
+        BOOL hasSecondary = NO;
+        [self availableGlossColumnsPrimary:&hasPrimary secondary:&hasSecondary];
+        if ((_armedGlossColumn == 1 && !hasPrimary) || (_armedGlossColumn == 2 && !hasSecondary))
+        {
+            [self setArmedGlossColumn:0];
+        }
+    }
+    [_candidatePanel setArmedGlossColumn:_armedGlossColumn];
     [_candidatePanel show:kIMKLocateCandidatesBelowHint];
     if (count >= 2)
     {
@@ -720,6 +736,15 @@ static NSHashTable *LiveDictionaryControllers()
     if ([self insertGlossForModifiedDigit:event modifiers:modifiers client:sender])
     {
         return YES;
+    }
+    // Tab 切换待上屏的列。没有释义可切时不拦截 —— Tab 在很多应用里是跳字段,吃掉一个什么都没做的
+    // Tab 比不支持还糟。
+    if (event.keyCode == kVK_Tab && (modifiers & ~NSEventModifierFlagShift) == 0)
+    {
+        if ([self cycleArmedGlossColumnBackwards:(modifiers & NSEventModifierFlagShift) != 0])
+        {
+            return YES;
+        }
     }
     if ((modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) != 0)
     {
@@ -890,6 +915,15 @@ static NSHashTable *LiveDictionaryControllers()
         result = _session->command(metasequoia::Command::Cancel);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitCandidate:
+        // 空格和回车上屏的是高亮那一行的「当前列」。Tab 选了释义列,它们就上屏释义 —— 数字键、空格、
+        // 回车必须一致,否则「切换了哪一列」这件事就只对一半的键成立。
+        if (_armedGlossColumn > 0 && _candidateHighlightedIndex >= _candidatePageStart &&
+            [self commitGlossAtVisibleOffset:_candidateHighlightedIndex - _candidatePageStart
+                                      column:_armedGlossColumn
+                                      client:sender])
+        {
+            return YES;
+        }
         result = _candidateSelection.commit(*_session);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitFirstHan:
@@ -953,6 +987,14 @@ static NSHashTable *LiveDictionaryControllers()
                 }
                 else if (character >= '1' && character <= '9')
                 {
+                    // Tab 选了释义列的话,数字上屏的是那一格的释义,不是候选词。
+                    if (_armedGlossColumn > 0 &&
+                        [self commitGlossAtVisibleOffset:static_cast<NSUInteger>(character - '1')
+                                                  column:_armedGlossColumn
+                                                  client:sender])
+                    {
+                        return YES;
+                    }
                     result =
                         _candidateSelection.commit_number(*_session, static_cast<char>(character), _candidatePageSize);
                     if (!result.handled && !_sessionSnapshot.preedit.empty())
@@ -1038,9 +1080,19 @@ static NSHashTable *LiveDictionaryControllers()
     {
         return NO;
     }
+    return [self commitGlossAtVisibleOffset:offset column:wantsSecondary ? 2 : 1 client:sender];
+}
+
+// 把某一格的释义上屏。column 1 是目标语言,2 是第二语言;⌥/⌃数字 和 Tab 选列后按数字走的是同一条路。
+- (BOOL)commitGlossAtVisibleOffset:(NSUInteger)offset column:(NSInteger)column client:(id)sender
+{
+    if (_session == nullptr || column <= 0 || offset >= _visibleCandidateData.count)
+    {
+        return NO;
+    }
     NSAttributedString *candidate = _visibleCandidateData[offset];
-    NSString *gloss = wantsSecondary ? MetasequoiaCandidateSecondaryTranslation(candidate)
-                                     : MetasequoiaCandidateTranslation(candidate);
+    NSString *gloss =
+        column == 2 ? MetasequoiaCandidateSecondaryTranslation(candidate) : MetasequoiaCandidateTranslation(candidate);
     if (gloss.length == 0)
     {
         return NO;
@@ -1050,6 +1102,47 @@ static NSHashTable *LiveDictionaryControllers()
     const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
     const auto cancelled = _session->command(metasequoia::Command::Cancel);
     [self applyResult:cancelled localMode:localMode client:sender];
+    return YES;
+}
+
+// 高亮那一行现在有哪几列可选。释义是异步回来的,所以每次都按当前数据算,不缓存。
+- (void)availableGlossColumnsPrimary:(BOOL *)hasPrimary secondary:(BOOL *)hasSecondary
+{
+    *hasPrimary = NO;
+    *hasSecondary = NO;
+    const NSUInteger offset =
+        _candidateHighlightedIndex >= _candidatePageStart ? _candidateHighlightedIndex - _candidatePageStart : 0;
+    if (offset >= _visibleCandidateData.count)
+    {
+        return;
+    }
+    NSAttributedString *candidate = _visibleCandidateData[offset];
+    *hasPrimary = MetasequoiaCandidateTranslation(candidate).length > 0;
+    *hasSecondary = MetasequoiaCandidateSecondaryTranslation(candidate).length > 0;
+}
+
+- (void)setArmedGlossColumn:(NSInteger)column
+{
+    _armedGlossColumn = column;
+    [_candidatePanel setArmedGlossColumn:column];
+}
+
+// Tab 在「词 / 目标语言 / 第二语言」之间切换待上屏的列,⇧Tab 反向。没有释义时 Tab 不拦截,留给应用。
+- (BOOL)cycleArmedGlossColumnBackwards:(BOOL)backwards
+{
+    if (_session == nullptr || _sessionSnapshot.preedit.empty() || _visibleCandidateData.count == 0)
+    {
+        return NO;
+    }
+    BOOL hasPrimary = NO;
+    BOOL hasSecondary = NO;
+    [self availableGlossColumnsPrimary:&hasPrimary secondary:&hasSecondary];
+    if (!hasPrimary && !hasSecondary)
+    {
+        return NO;
+    }
+    [self setArmedGlossColumn:metasequoia::mac::NextArmedGlossColumn(static_cast<int>(_armedGlossColumn), hasPrimary,
+                                                                     hasSecondary, backwards)];
     return YES;
 }
 
@@ -1715,6 +1808,12 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
         }
     }
     if (index == NSNotFound || index >= _sessionSnapshot.candidates.size())
+    {
+        return;
+    }
+    // 点击也跟随当前列:候选窗已经把那一列画上了下划线,点下去却上屏别的东西说不过去。
+    if (_armedGlossColumn > 0 && index >= _candidatePageStart &&
+        [self commitGlossAtVisibleOffset:index - _candidatePageStart column:_armedGlossColumn client:self.client])
     {
         return;
     }

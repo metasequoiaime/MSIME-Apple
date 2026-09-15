@@ -1571,7 +1571,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                     @"常见词直接用本机词典，不联网、没有延迟。词典没收录的才会去问在线服务，所以生僻字和多字词"
                     @"可能要等半秒左右才出现。"),
             HelpRow(@"需要账号", @"在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。"),
-            HelpRow(@"两种语言", @"可以同时显示两种语言的释义，在输入页的候选翻译里设置。")
+            HelpRow(@"两种语言", @"可以同时显示两种语言的释义，在输入页的候选翻译里设置。"),
+            HelpRow(@"Tab", @"在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。"
+                            @"切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。"),
+            HelpRow(@"Option / Control + 数字", @"不切换，直接上屏那一格的释义："
+                                                @"Option 是目标语言，Control 是第二语言。")
         ],
         10.0);
     NSBox *helpTroubleCard = CardWithViews(
