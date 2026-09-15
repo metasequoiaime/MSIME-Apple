@@ -6,7 +6,7 @@
 
 2026-09-14 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，本轮固定提交 `342e2b6b2cb265ddc56d9d35cae642a4b696d73b`。该提交相对上一记录仅包含已对照的 Windows 功能，未产生新的 Windows 提交。
+- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，固定提交 `30a22e6f3d47adf783e8f038b1dafbd71edbb4f1`。
 - 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `ca663cbf6b7d9a0f95e7a50687489a479ffed04d`。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标仍使用独立 `vendor/MSIME-Engine` gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
@@ -37,7 +37,7 @@
 | API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。仍需逐项核对来源字段与真实服务行为。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary_access.rs` / `dictionary_import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
 | 语音热键、流式/批量 ASR、润色、声音/静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `main.cpp` → `VoiceHotkeyController` / `VoiceInputSession` → Engine 语音模块与 TSF；`VoiceSessionEpoch.h` | Windows Tauri 语音面板与 `recognize_voice` 已接入；全提供方、取消及焦点行为仍需 Windows 原生验证。 |
-| 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` 与共享 `capture_device/capture_backend`；Windows 设置保存稳定端点标识 | 目标已有稳定设备枚举、后端与设备字段保存及 UI 选择器；Engine 采集启动消费设备配置。仍需 Windows 原生设备切换验证，不能把列表测试当作真实录音验证。 |
+| 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` 与共享 `capture_device/capture_backend`；macOS 原生备用设置通过 `MSIMEListVoiceCaptureDevices` 枚举 CoreAudio 输入流并将 UID 传给 `MSIMEVoiceInputService` | macOS 的目标内部断链已补齐：原生备用窗口现在按稳定 UID 选择并保存设备，默认设备置顶，设备消失时保留选择并明确失败；`voice-capture-device` 覆盖过滤、排序及配置失败。真实硬件权限和安装后切换仍待产品级验证。 |
 | 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
 | 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支 | 有调用链；核对布局、修饰键按下/释放、自动重复、焦点恢复及 DPI。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | 有入口；核对历史存储格式、去重/清理、开关同步及点击后目标窗口，不能以普通 SendInput 冒充 TSF 定向提交。 |
@@ -50,7 +50,7 @@
 
 ## 下一批实施顺序
 
-增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish`、批量 ASR 与三类翻译凭据测试均已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限，响应有界且公开错误不携带响应原文。合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务行为验证。上表的明确缺口描述保留为固定目标提交时的状态。
+增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务验证；ASR 与三类翻译凭据测试仍待迁移。上表的明确缺口描述保留为固定目标提交时的状态。
 
 1. **API 凭据测试真实接入**：来源已有独立设置任务队列；目标先复核可共享的提供方测试实现，补 Windows 路径和失败分类。测试只用合成凭据与本地模拟传输，不把真实凭据写入日志。
 2. **Tauri 语音运行链**：明确控制器与输入目标是两个身份。OS 对端认证、有限消息/队列/关闭时限、request ID 与代际、事件与最终结果都必须连起来。Tauri 面板收结果后提交和原生直接提交只能有一个最终提交所有者，防止双重上屏。

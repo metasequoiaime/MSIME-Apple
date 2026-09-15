@@ -52,6 +52,8 @@
 
 原生语音波形面板现消费共享 `voice_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，全局主题为 `system` 时使用 `NSPanel.appearance = nil` 并让 AppKit 重绘跟随系统。波形、状态文字、转写预览和确认/取消按钮同步切换明暗 palette；主题热更新只改变展示，不取消录音、识别或润色请求。`voice-wave-overlay` CTest 覆盖四种解析路径、系统外观回退和原有动作/转写边界。真实麦克风权限、网络服务和已安装输入源验收仍需单独执行。
 
+语音设置的原生备用窗口现提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页仍通过 `list_voice_capture_devices` 提供刷新列表；真实硬件和安装后的权限行为仍需单独验收。
+
 原生输入源主菜单和候选右键菜单共同消费共享 `menu_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，`system` 交给 AppKit；菜单每次创建时读取最近一次偏好快照，不改变候选动作或输入会话状态。
 
 成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启，标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入新宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
