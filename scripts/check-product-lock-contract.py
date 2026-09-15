@@ -7,7 +7,7 @@ engine = root / 'vendor/MetasequoiaImeEngine/contracts/product_lock.py'
 vendored = root / 'scripts/product_lock_shared.py'
 for path in (engine, vendored):
     if not path.is_file():
-        raise SystemExit(f'{path.relative_to(root)} is missing; initialize the Engine submodule')
+        raise SystemExit(f'{path.relative_to(root)} is missing; run python3 scripts/fetch_engine.py')
 if engine.read_bytes() != vendored.read_bytes():
     raise SystemExit('Product-lock shared helper differs from the pinned Engine contract')
 print('Product-lock shared helper matches the pinned Engine contract')

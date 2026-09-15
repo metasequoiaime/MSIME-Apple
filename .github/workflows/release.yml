@@ -327,7 +327,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.target_sha }}
-          submodules: recursive
           fetch-depth: 0
           persist-credentials: false
       - name: Verify release tag provenance
@@ -364,6 +363,8 @@ jobs:
           xcrun notarytool store-credentials metasequoia-notary --keychain "$keychain" --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
       - name: Fetch the locked dictionary
         run: python3 scripts/fetch_dictionary.py
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Configure
         run: cmake -S . -B build -DMETASEQUOIA_BUILD_NUMBER="$METASEQUOIA_BUILD_NUMBER" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)"
       - name: Build

@@ -837,7 +837,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # macOS pulls the engine in with add_subdirectory, so it tracks new engine directories on its own. This target enumerates them by hand, so a directory added upstream silently drops out of the static library and only surfaces as undefined symbols at link time — which is how local_modes broke the keyboard extension.
         engine_root = IOS_ROOT.parents[1] / "vendor/MetasequoiaImeEngine"
         if not (engine_root / "core").is_dir():
-            self.skipTest("engine submodule is not checked out")
+            self.skipTest("the Engine archive is not prepared")
 
         project = (IOS_ROOT / "project.yml").read_text()
         # handwriting 是引擎自带的 zinnia 识别器,iOS 走的是 MLKit Digital Ink。
