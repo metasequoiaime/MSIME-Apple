@@ -4,6 +4,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -27,6 +28,36 @@ def requires(*tools):
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
+    @requires("zsh", "plutil", "/usr/libexec/PlistBuddy")
+    def test_signed_packaging_rejects_apple_signin_before_touching_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / "MetasequoiaIME.app"
+            bundle.mkdir()
+            output = root / "output"
+            output.mkdir()
+            previous = output / "previous.zip"
+            previous.write_bytes(b"previous release")
+            entitlements = root / "VoiceInput.entitlements"
+            environment = os.environ.copy()
+            environment.update({
+                "METASEQUOIA_PROJECT_ROOT": str(PROJECT_ROOT),
+                "METASEQUOIA_VOICE_ENTITLEMENTS": str(entitlements),
+                "METASEQUOIA_REQUIRE_RELEASE_SIGNING": "true",
+                "METASEQUOIA_DEVELOPER_ID_APPLICATION": "Developer ID Application: Test",
+                "METASEQUOIA_DEVELOPER_ID_INSTALLER": "Developer ID Installer: Test",
+                "METASEQUOIA_NOTARY_PROFILE": "test",
+                "METASEQUOIA_RELEASE_ASSET_SUFFIX": "",
+            })
+            for value in (["Default"], [], False):
+                with self.subTest(value=value):
+                    entitlements.write_bytes(plistlib.dumps({"com.apple.developer.applesignin": value}))
+                    result = subprocess.run(["zsh", MACOS_ROOT / "scripts/package_release.sh", "v0.48.6", bundle, output], env=environment, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Developer ID releases cannot use com.apple.developer.applesignin", result.stderr)
+                    self.assertEqual(list(output.iterdir()), [previous])
+                    self.assertEqual(previous.read_bytes(), b"previous release")
+
     def test_shuangpin_beginner_keymap_is_wired_to_the_input_controller(self):
         readme = (PROJECT_ROOT / "README.md").read_text()
         cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
