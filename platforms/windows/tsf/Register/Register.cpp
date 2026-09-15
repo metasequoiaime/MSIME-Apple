@@ -130,11 +130,18 @@ BOOL RegisterCategories()
     for (const auto &guid : SupportCategories)
     {
         hr = pCategoryMgr->RegisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        if (FAILED(hr))
+        {
+            // Do not report success when a later category happened to mask a
+            // failed registration. The caller will roll back the partial set.
+            pCategoryMgr->Release();
+            return FALSE;
+        }
     }
 
     pCategoryMgr->Release();
 
-    return (hr == S_OK);
+    return TRUE;
 }
 
 //+---------------------------------------------------------------------------
