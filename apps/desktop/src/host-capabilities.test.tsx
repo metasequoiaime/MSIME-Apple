@@ -47,7 +47,14 @@ test("host capabilities decide platform-specific settings instead of the user ag
   expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
 });
 
-test("a Windows host does not receive the Linux-only mode scope control", async () => {
+test("a macOS host receives its native mode scope control", async () => {
+  mount({ host: capabilities({ platform: "macos", ime_mode_scope: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByText("按应用分别记忆输入状态，或让所有输入上下文保持同一状态")).toBeTruthy();
+  expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
+});
+
+test("a host without mode scope support does not receive the control", async () => {
   mount({ host: capabilities({ platform: "windows" }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("中英文状态范围")).toBeNull();

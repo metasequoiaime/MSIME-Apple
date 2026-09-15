@@ -140,12 +140,12 @@ impl HostCapabilities {
                 HostPlatform::Windows | HostPlatform::Linux | HostPlatform::Macos
             ),
             panel_windows: platform.is_desktop(),
-            // IBus keeps a session-wide mode; the other hosts track it per application.
-            // Windows keeps a cross-application CN/EN authority now, so the
-            // choice is real there too.
+            // IBus keeps a session-wide mode. Windows keeps a cross-application
+            // CN/EN authority, while macOS switches between its per-application
+            // map and a process-wide authority when a client activates.
             ime_mode_scope: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows
+                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             typing_statistics: true,
             // Every input host consumes the shared fuzzy-pinyin options. The
@@ -608,6 +608,9 @@ mod tests {
         assert!(windows.candidate_follow_cursor);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
         assert!(macos.restart_input_method);
+        // InputMethodKit controllers identify the active application; the
+        // native preference owner selects either that map or its global mode.
+        assert!(macos.ime_mode_scope);
         assert!(macos.voice_capture_devices);
         assert!(
             macos.floating_toolbar
