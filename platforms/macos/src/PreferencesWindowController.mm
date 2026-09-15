@@ -2083,6 +2083,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSBox *aboutIdentityCard = CardWithViews(@[ aboutIdentity ], 0.0);
     aboutIdentityCard.accessibilityLabel = @"关于标识卡片";
 
+    // 许可全文随 app 一起打包在 Resources/Licenses/,不是只在仓库里 —— 所以这里开本地那一份,而不是
+    // 把人送去 GitHub 看一个可能和装着的这个版本对不上的目录。
     NSButton *licensesButton = [NSButton buttonWithTitle:@"查看许可全文"
                                                   target:self
                                                   action:@selector(openOpenSourceLicenses:)];
@@ -2091,17 +2093,17 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                                  target:self
                                                  action:@selector(openPrivacyPolicy:)];
     LinkifyButton(privacyButton, @"查看隐私政策");
-    NSTextField *dependenciesLabel = [NSTextField labelWithString:@"fmt · nlohmann/json · spdlog"];
-    dependenciesLabel.textColor = [NSColor secondaryLabelColor];
-    dependenciesLabel.alignment = NSTextAlignmentRight;
-    dependenciesLabel.accessibilityLabel = @"第三方组件";
+    NSTextField *licenseLabel = [NSTextField labelWithString:@"GPL-3.0"];
+    licenseLabel.textColor = [NSColor secondaryLabelColor];
+    licenseLabel.alignment = NSTextAlignmentRight;
+    licenseLabel.accessibilityLabel = @"授权协议";
     NSTextField *copyrightLabel = [NSTextField labelWithString:@"© 2026 Metasequoia IME"];
     copyrightLabel.textColor = [NSColor secondaryLabelColor];
     copyrightLabel.alignment = NSTextAlignmentRight;
     copyrightLabel.accessibilityLabel = @"版权";
     NSBox *legalCard = CardWithViews(
         @[
-            PreferenceRow(@"第三方组件", dependenciesLabel), PreferenceRow(@"开源许可", licensesButton),
+            PreferenceRow(@"授权协议", licenseLabel), PreferenceRow(@"第三方组件", licensesButton),
             PreferenceRow(@"隐私政策", privacyButton), PreferenceRow(@"版权", copyrightLabel)
         ],
         4.0);
@@ -2281,11 +2283,21 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)openOpenSourceLicenses:(id)sender
 {
     (void)sender;
-    // 许可全文在仓库的 licenses/ 里,没有打进 bundle;指到仓库那一目录,而不是复制一份进来再慢慢过期。
-    NSURL *licenses = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple/tree/main/licenses"];
-    if (licenses != nil)
+    // 打开装着的这一份汇总声明。它列的是这个 bundle 实际包含的组件,和 Resources/Licenses/ 里逐份的
+    // 全文一起发布;GitHub 上那个目录属于仓库,不保证和用户装的版本是同一批。
+    NSURL *notices = [NSBundle.mainBundle URLForResource:@"THIRD_PARTY_NOTICES"
+                                           withExtension:@"txt"
+                                            subdirectory:@"Licenses"];
+    if (notices != nil)
     {
-        [[NSWorkspace sharedWorkspace] openURL:licenses];
+        [[NSWorkspace sharedWorkspace] openURL:notices];
+        return;
+    }
+    // 独立跑设置(--show-settings 之外的测试宿主)时 bundle 里没有这份资源,退回仓库。
+    NSURL *fallback = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple"];
+    if (fallback != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:fallback];
     }
 }
 
