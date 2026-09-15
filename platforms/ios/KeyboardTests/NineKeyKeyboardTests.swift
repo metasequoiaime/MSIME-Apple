@@ -713,6 +713,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(shift.accessibilityValue, "关闭")
   }
 
+  func testShiftEntersHelpcodeWhileComposingShuangpin() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .shuangpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: 390,
+      height: 260 + KeyboardViewController.compositionRowHeight)
+
+    func letterKey(_ letter: String) throws -> UIButton {
+      try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(letter)" || $0.accessibilityLabel == "大写 \(letter)"
+      } as? UIButton)
+    }
+
+    try letterKey("N").sendActions(for: .primaryActionTriggered)
+    try letterKey("I").sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(try button("preeditButton", in: controller).configuration?.title?.isEmpty ?? true)
+
+    let shift = try button("shiftButton", in: controller)
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入")
+    XCTAssertEqual(try letterKey("H").accessibilityLabel, "大写 H")
+
+    try letterKey("H").sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try letterKey("H").accessibilityLabel, "字母 H")
+    XCTAssertEqual(shift.accessibilityValue, "关闭")
+  }
+
   func testPressFeedbackPreservesLayoutAndResetsAfterInterruption() {
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 260))
     let controller = UIViewController()

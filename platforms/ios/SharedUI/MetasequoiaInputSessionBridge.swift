@@ -237,8 +237,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
-  func handleCharacter(_ character: String) -> MetasequoiaInputSnapshot {
-    dispatch { pointer(for: character, shift: false) }
+  func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
+    dispatch { pointer(for: character, shift: shifted) }
   }
 
   func handleCandidateKey(_ character: String) -> MetasequoiaInputSnapshot {

@@ -104,6 +104,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
+  // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
+  // Idle Chinese input keeps the existing shortcut that switches to English capitalization.
+  private var helpcodeCompositionEligible: Bool {
+    !visiblePreedit.isEmpty && !session.isInLocalMode
+      && (inputScheme == .quanpin || usesShuangpin)
+  }
+  private var entersHelpcode: Bool {
+    isChineseMode && letterCaseState != .lowercase && helpcodeCompositionEligible
+  }
   private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && !inputScheme.isJapanese }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
@@ -1095,6 +1104,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         && !("2"..."9").contains(character) && character != "'" {
         return
       }
+      if entersHelpcode, let letter = character.first, letter.isLetter {
+        render(session.handleCharacter(character.uppercased(), shifted: true))
+        if letterCaseState == .shifted {
+          letterCaseState = .lowercase
+          lastShiftTapTime = nil
+          updateLetterCaseControls()
+        }
+        return
+      }
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
@@ -1199,7 +1217,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func toggleLetterCase() {
-    if isChineseMode {
+    if isChineseMode && !helpcodeCompositionEligible {
       toggleInputMode()
       letterCaseState = .lowercase
     }
@@ -1255,10 +1273,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
-    // 拼音和罗马字的键面用大写，切到英文才回小写。键面大小写只是外观，按键仍向 Engine
-    // 发送小写字母；Shift 只属于英文输入，那里大小写才决定实际写入文档。
+    // 拼音和罗马字的键面用大写，切到英文才回小写。键面大小写通常只是外观；组合中的
+    // Shift 通过无障碍标签显示辅码状态，并把下一字母作为大写辅码交给 Engine。
     // 本地模式除外：那里敲入的就是键面上的字面字符，保持小写才不会误导用户。
-    let shifted = !isChineseMode && letterCaseState != .lowercase
+    let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode)
     let usesUppercase = (isChineseMode && !session.isInLocalMode) || shifted
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
