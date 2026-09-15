@@ -262,6 +262,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func commitRaw() -> MetasequoiaInputSnapshot { command(2) }
   func cancel() -> MetasequoiaInputSnapshot { command(3) }
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
+  func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),

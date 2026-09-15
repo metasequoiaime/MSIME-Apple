@@ -352,6 +352,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     japaneseKeys.onSymbol = { [weak self] symbol in self?.handleSymbol(symbol) }
     japaneseKeys.onDelete = { [weak self] in self?.handleBackspace() }
+    japaneseKeys.onVariant = { [weak self] in
+      guard let self, isChineseMode, inputScheme.isJapanese else { return }
+      playInputClick()
+      render(session.cycleKanaVariant())
+    }
     root.addArrangedSubview(japaneseKeys)
     handwriting.isHidden = true
     handwriting.onInsert = { [weak self] text in
@@ -2101,6 +2106,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
+    japaneseKeys?.setComposing(hasComposition)
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,

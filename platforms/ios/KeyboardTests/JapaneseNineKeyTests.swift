@@ -120,5 +120,23 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertEqual(symbols.last, "「")
   }
 
+  func testKanaVariantButtonDelegatesToEngineOnlyWhileComposing() throws {
+    var variantActivations = 0
+    let panel = JapaneseNineKeyView { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    }
+    panel.onVariant = { variantActivations += 1 }
+    let variants = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "japaneseVariants" } as? UIButton)
+    variants.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(variantActivations, 0)
+    panel.setComposing(true)
+    variants.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(variantActivations, 1)
+    panel.setDigits(true)
+    variants.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(variantActivations, 1)
+  }
+
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { nodes($0) } }
 }

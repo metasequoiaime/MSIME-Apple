@@ -36,10 +36,12 @@ final class JapaneseNineKeyView: UIStackView {
   var onInput: ((String) -> Void)?
   var onSymbol: ((String) -> Void)?
   var onDelete: (() -> Void)?
+  var onVariant: (() -> Void)?
   private var rows: [UIStackView] = []
   private var keyButtons: [UIButton] = []
   private var variantsKey: UIButton?
   private var showsDigits = false
+  private var isComposing = false
   private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
   private let flickPreview = KanaFlickPreview()
 
@@ -65,23 +67,18 @@ final class JapaneseNineKeyView: UIStackView {
     addArrangedSubview(side)
     side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
     side.addArrangedSubview(makeKanaKey(9, factory: makeKey))
-    let variants = makeKey("小゛゜", "小假名、浊音和半浊音", {})
+    let variants = makeKey("小゛゜", "小假名、浊音和半浊音", { [weak self] in
+      guard let self else { return }
+      if showsDigits { onSymbol?("（") }
+      else { onVariant?() }
+    })
     variantsKey = variants
     variants.accessibilityIdentifier = "japaneseVariants"
     variants.configuration?.contentInsets = .zero
     variants.titleLabel?.adjustsFontSizeToFitWidth = true
     variants.titleLabel?.minimumScaleFactor = 0.6
-    let groups: [(String, [String], [String])] = [
-      ("小假名", ["ぁ", "ぃ", "ぅ", "ぇ", "ぉ", "ゃ", "ゅ", "ょ", "っ", "ゎ"], ["xa", "xi", "xu", "xe", "xo", "xya", "xyu", "xyo", "xtsu", "xwa"]),
-      ("浊音", ["が", "ぎ", "ぐ", "げ", "ご", "ざ", "じ", "ず", "ぜ", "ぞ", "だ", "ぢ", "づ", "で", "ど", "ば", "び", "ぶ", "べ", "ぼ", "ゔ"], ["ga", "gi", "gu", "ge", "go", "za", "ji", "zu", "ze", "zo", "da", "di", "du", "de", "do", "ba", "bi", "bu", "be", "bo", "vu"]),
-      ("半浊音", ["ぱ", "ぴ", "ぷ", "ぺ", "ぽ"], ["pa", "pi", "pu", "pe", "po"]),
-    ]
-    variants.menu = UIMenu(children: groups.map { title, kana, strokes in
-      UIMenu(title: title, children: zip(kana, strokes).map { label, input in
-        UIAction(title: label) { [weak self] _ in self?.onInput?(input) }
-      })
-    })
-    variants.showsMenuAsPrimaryAction = true
+    variants.isEnabled = false
+    variants.showsMenuAsPrimaryAction = false
     side.addArrangedSubview(variants)
     let delete = makeKey("⌫", "删除", { [weak self] in self?.onDelete?() })
     delete.accessibilityIdentifier = "japaneseDelete"
@@ -151,7 +148,16 @@ final class JapaneseNineKeyView: UIStackView {
       ? UIMenu(children: ["（", "）", "「", "」", "『", "』", "【", "】"].map { symbol in
         UIAction(title: symbol) { [weak self] _ in self?.onSymbol?(symbol) }
       })
-      : variantsKey.menu
+      : nil
+    variantsKey.showsMenuAsPrimaryAction = enabled
+    variantsKey.isEnabled = enabled || isComposing
+  }
+  /// The modifier only has an effect while the Engine has a completed kana at the end of the
+  /// composition. Keeping the key visible but disabled makes that state discoverable without
+  /// allowing a no-op tap to steal the user's input click.
+  func setComposing(_ composing: Bool) {
+    isComposing = composing
+    variantsKey?.isEnabled = showsDigits || composing
   }
   func applyLayout() {
     let layout = KeyboardLayoutPreference.geometry

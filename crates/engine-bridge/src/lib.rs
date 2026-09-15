@@ -947,4 +947,20 @@ mod tests {
         session.set_nine_key_enabled(false).unwrap();
         assert!(!session.snapshot().unwrap().nine_key);
     }
+
+    #[test]
+    fn real_engine_cycles_the_last_japanese_kana_variant() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut value = options(dir.path());
+        value.scheme = 3;
+        let mut session = Session::new(&value).unwrap();
+        for character in b"ka" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(session.snapshot().unwrap().reading, "か");
+        assert!(session.command(Command::CycleKanaVariant).unwrap().handled);
+        assert_eq!(session.snapshot().unwrap().reading, "が");
+        assert!(session.command(Command::CycleKanaVariant).unwrap().handled);
+        assert_eq!(session.snapshot().unwrap().reading, "か");
+    }
 }
