@@ -253,6 +253,20 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         (&active.cache, &staged.cache),
         (&active.dictionaries, &staged.dictionaries),
     ];
+    let backups: Vec<std::path::PathBuf> = pairs
+        .iter()
+        .map(|(current, _)| {
+            let current = Path::new(current.as_str());
+            current.with_file_name(format!(
+                "{}{}",
+                current
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("state"),
+                suffix
+            ))
+        })
+        .collect();
     // Swap each root's contents rather than the root itself.
     //
     // Renaming the roots cannot work on Windows: the maintenance guard holds
@@ -275,6 +289,9 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         for (from, to) in moved.iter().rev() {
             let _ = std::fs::rename(to, from);
         }
+        for backup in &backups {
+            let _ = std::fs::remove_dir_all(backup);
+        }
     };
     // An entry that leads to another root nested below this one is left alone:
     // that root does its own swap, and it holds its own lock file.
@@ -285,14 +302,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     for (index, (current, replacement)) in pairs.iter().enumerate() {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
-        let backup = current.with_file_name(format!(
-            "{}{}",
-            current
-                .file_name()
-                .and_then(|x| x.to_str())
-                .unwrap_or("state"),
-            suffix
-        ));
+        let backup = &backups[index];
         if std::fs::create_dir_all(&backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
@@ -350,16 +360,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             moved.push((path, destination));
         }
     }
-    for (current, _) in pairs {
-        let current = Path::new(current.as_str());
-        let backup = current.with_file_name(format!(
-            "{}{}",
-            current
-                .file_name()
-                .and_then(|x| x.to_str())
-                .unwrap_or("state"),
-            suffix
-        ));
+    for backup in &backups {
         let _ = std::fs::remove_dir_all(backup);
     }
     entries.remove(&handle);

@@ -187,6 +187,19 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
+    let backup_path = |path: &Path| {
+        path.with_file_name(format!(
+            "{}.msime-snapshot-old-123",
+            path.file_name().unwrap().to_string_lossy()
+        ))
+    };
+    for path in [
+        backup_path(&active.join("user")),
+        backup_path(&active.join("cache")),
+        backup_path(&active.join(dictionaries)),
+    ] {
+        assert!(!path.exists());
+    }
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();
     assert_eq!(
