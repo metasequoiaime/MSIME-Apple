@@ -6,7 +6,7 @@
 
 2026-09-14 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，固定提交 `30a22e6f3d47adf783e8f038b1dafbd71edbb4f1`。
+- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，本轮固定提交 `342e2b6b2cb265ddc56d9d35cae642a4b696d73b`。该提交相对上一记录仅包含已对照的 Windows 功能，未产生新的 Windows 提交。
 - 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `ca663cbf6b7d9a0f95e7a50687489a479ffed04d`。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标仍使用独立 `vendor/MSIME-Engine` gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
