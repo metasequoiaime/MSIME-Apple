@@ -975,3 +975,9 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 依据 Apple `HelpView` 的“完整文档（网页）”入口，共享 Tauri 帮助页新增同名外链按钮。按钮只通过宿主注入的 `openExternalUrl` 打开 `https://msime.app/docs/`，不把网页内容嵌入 WebView，也不改变输入、账号或 Engine 状态；宿主未提供外链能力时不显示按钮。桌面与 Android/iOS 共享同一入口，保持平台帮助文案差异。
 
 本地验证通过桌面帮助页定向 Vitest（桌面与 Android 场景）和 TypeScript 类型检查；未执行 iOS/Android 真机浏览器跳转或系统外链策略验收，CI 保持禁用。
+
+### iOS 输入设置手写隐私说明（2026-09-16）
+
+依据 Apple `OnboardingView` 的“手写输入”分组，共享输入设置在 iOS 增加中文模型首次下载、离线识别、笔迹隐私和 Google ML Kit 性能统计说明，并提供“手写 SDK 隐私说明”外链。链接通过宿主注入的 `openExternalUrl` 打开；Android、桌面和 Engine 输入路径不受影响。
+
+本地验证通过 iOS 输入设置定向 Vitest 和 TypeScript 类型检查；未执行键盘扩展首次下载、完全访问权限、网络统计或真机外链验收，CI 保持禁用。

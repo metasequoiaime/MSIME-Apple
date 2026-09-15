@@ -125,13 +125,17 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
 
 test("iOS exposes the shared offline candidate gloss setting", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{
     load: async () => initial,
-    save,
+    save, openExternalUrl,
     host: { platform: "ios" } as HostCapabilities,
     candidateEnglishGloss: true,
   }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.getByText(/首次在键盘中使用手写时下载中文模型/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
