@@ -4,7 +4,32 @@ struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
   @State private var height = KeyboardLayoutPreference.heightAdjustment
+  @State private var skin = KeyboardSkinPreference.selected
+  @State private var nineKey = InputSchemePreference.scheme == .nineKey
+
   var body: some View {
+    VStack(spacing: 0) {
+      // 预览钉在滑块上面,不跟着表单滚走 —— 拖的时候看不到效果,等于在盲调。
+      preview
+      form
+    }
+    .tint(MetasequoiaTheme.accent)
+    .navigationTitle("键盘设置").navigationBarTitleDisplayMode(.inline)
+    .onAppear { readPreferences() }
+  }
+
+  /// 实时预览:三个滑块的当前值直接画出来,不读存储 —— 读存储也能对,但那是「存进去之后」的值,拖动中间那一段就没有反馈。
+  private var preview: some View {
+    KeyboardSkinPreview(
+      skin: skin, nineKey: nineKey,
+      layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing),
+      heightAdjustment: height
+    )
+    .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
+    .accessibilityIdentifier("keyboardLayoutPreview")
+  }
+
+  private var form: some View {
     Form {
       Section {
         spacingRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
@@ -14,7 +39,7 @@ struct KeyboardLayoutSettingsView: View {
       } header: {
         Text("键盘高度")
       } footer: {
-        Text("在系统键盘高度的基础上增减，按键会跟着变高。调整后重新唤出键盘生效。")
+        Text("在系统键盘高度的基础上增减，按键会跟着变高。上面的预览实时跟着走；已经打开的键盘要重新唤出才生效。")
       }
       Section {
         spacingRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider") {
@@ -39,9 +64,6 @@ struct KeyboardLayoutSettingsView: View {
         Text("把这一页的间距和高度恢复成默认值。")
       }
     }
-    .tint(MetasequoiaTheme.accent)
-    .navigationTitle("键盘设置").navigationBarTitleDisplayMode(.inline)
-    .onAppear { readPreferences() }
   }
 
   /// 把存储里的值读回控件。复位后也走这里,免得界面还停在旧数值上。
@@ -49,6 +71,8 @@ struct KeyboardLayoutSettingsView: View {
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
+    skin = KeyboardSkinPreference.selected
+    nineKey = InputSchemePreference.scheme == .nineKey
   }
 
   private func spacingRow(

@@ -645,6 +645,22 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("CandidateTranslationPreference.onlineEnabled, hasFullAccess", controller)
         self.assertIn("words.filter(Self.translatable)", store)
 
+    def test_the_layout_sliders_drive_a_live_preview(self):
+        # 三个滑块原来调完什么也看不见,要退出去唤起键盘才知道效果。预览必须吃滑块的当前值:读存储也能画,但那是「存进去之后」的值,拖动中间那一段仍然没有反馈。
+        settings = (IOS_ROOT / "App/Sources/KeyboardLayoutSettingsView.swift").read_text()
+        canvas = (IOS_ROOT / "App/Sources/KeyboardPreviewCanvas.swift").read_text()
+        preview = (IOS_ROOT / "App/Sources/KeyboardSkinPreview.swift").read_text()
+
+        body = settings[settings.index("private var preview"):settings.index("private var form")]
+        self.assertIn("KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing)", body)
+        self.assertIn("heightAdjustment: height", body)
+        self.assertNotIn("KeyboardLayoutPreference.", body)
+        self.assertIn('.accessibilityIdentifier("keyboardLayoutPreview")', settings)
+
+        # 高度是画布自己的尺寸,不在 KeyboardGeometry 里,所以要单独传进去。
+        self.assertIn("KeyboardPreviewCanvas(referenceHeight: 260 + heightAdjustment)", preview)
+        self.assertIn("aspectRatio(390.0 / referenceHeight", canvas)
+
     def test_apostrophe_reaches_the_engine_before_punctuation_conversion(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
