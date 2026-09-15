@@ -141,7 +141,7 @@ base = "wechat"
 toolbar_stylesheet = "toolbar.css"
 
 [supports]
-layouts = ["horizontal", "vertical"]
+layouts = ["horizontal"]
 themes = ["dark", "light"]
 
 [candidate_window]
@@ -154,13 +154,25 @@ width_dip = 0
 [candidate.dark]
 accent = "#ff0000"
 )toml");
+    WriteFile(root / "wechat-based" / "toolbar.css", ".toolbar { color: red; }\n");
     auto wechatBased = msime::mac::LoadSkinPackage(root, "wechat-based", &error);
     Require(wechatBased.has_value() && wechatBased->base == "wechat",
-            "A wechat-based skin with a missing toolbar stylesheet was rejected.");
+            "A wechat-based skin with a valid toolbar stylesheet was rejected.");
     const auto resolvedWechat = msime::mac::ResolveSkin("wechat-based", true, root);
     Require(resolvedWechat.id == "wechat-based" && !resolvedWechat.tokens.showSelectedBar &&
                 resolvedWechat.tokens.selected.g > 0.6f && resolvedWechat.tokens.accent.r > 0.9f,
             "External skin tokens did not inherit the declared base skin.");
+    Require(msime::mac::SupportsSkin(*wechatBased, "horizontal", "dark") &&
+                !msime::mac::SupportsSkin(*wechatBased, "vertical", "dark"),
+            "External skin layout and theme support was not enforced.");
+    std::filesystem::remove(root / "wechat-based" / "toolbar.css");
+    Require(!msime::mac::LoadSkinPackage(root, "wechat-based", &error) &&
+                error.find("toolbar_stylesheet") != std::string::npos,
+            "A skin with a missing toolbar stylesheet was accepted.");
+    WriteFile(root / "wechat-based" / "toolbar.css", ".toolbar { color: red; }\n");
+    Require(msime::mac::ResolveSkin("wechat-based", false, root, "vertical", "dark").id == "fluent" &&
+                msime::mac::ResolveSkin("wechat-based", false, root, "horizontal", "light").id == "wechat-based",
+            "Incompatible external skins did not fall back to Fluent.");
 
     // Manifest/resource paths cannot escape through a package or resource symlink.
     const auto outside = MakeTempRoot();
