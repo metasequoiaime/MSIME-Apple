@@ -17,6 +17,7 @@ final class BackendWindowBridge: NSObject {
   @objc func showEmojiDeliveryFailure() { emojiDeliveryNotice.show() }
 
   @objc func applyEmojiPreferences(_ preferences: NSDictionary) { MacEmojiAppearance.shared.apply(preferences) }
+  @objc func applyHandwritingPreferences(_ preferences: NSDictionary) { MacHandwritingAppearance.shared.apply(preferences) }
 
   func closeAll() {
     emojiDeliveryNotice.dismiss()

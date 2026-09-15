@@ -1893,6 +1893,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
         [shared performSelector:@selector(applyEmojiPreferences:) withObject:preferences];
+    if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
+        [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
     [_toolbar applyThemePreferences:preferences];
     [_toolbar applySizingPreferences:preferences];

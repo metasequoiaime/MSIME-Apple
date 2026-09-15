@@ -20,6 +20,12 @@
 
 共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
 
+### macOS 手写板主题覆盖（next43）
+
+共享设置中的 `handwriting_theme` 已接入 macOS 原生 SwiftUI 手写识别板。手写板表面显式 `dark`/`light` 时覆盖全局 `theme`；`follow` 继承全局；全局为 `system` 时使用可选 `ColorScheme`，由 SwiftUI/AppKit 跟随系统。画布背景、笔迹和根窗口前景色同步使用解析后的明暗 palette；偏好热更新只更新展示状态，不重建手写识别请求或改变候选提交路径。缺失、非法或非字符串表面值不会覆盖全局解析。
+
+新增 `handwriting-provider` CTest 覆盖显式覆盖、跟随、系统和非法值，以及原有笔迹请求边界；Rust workspace、`msime-host-api`、手写 provider 和真实 `MSIMEClientInputMethod.app` target 均在 macOS 13 最低部署目标下通过本地构建验证。该切片仍不代表已安装输入源、麦克风/识别权限、真实编辑器或完整手写模型链路的系统级验收。
+
 ### macOS 候选表面主题覆盖（next41）
 
 共享设置中的 `theme`（`dark`、`light`、`system`）与 `candidate_theme`（`follow`、`dark`、`light`）现由实际 IMK 候选面板消费。候选表面显式深色或浅色时覆盖全局主题；跟随时继承全局；全局为 `system` 时不设置窗口外观，让 AppKit 根据系统外观动态解析。偏好热更新会在不重建 Engine 或改变候选身份的情况下更新面板 appearance，并复用候选皮肤重绘路径。未收到共享主题字段的旧宿主保留其既有面板 appearance，避免测试替身或宿主注入外观被意外清除。`skin-preview`、`shortcut`、真实输入法 bundle 编译与 Rust workspace 测试均覆盖该切片；系统安装后的编辑器端到端验收仍需后续执行。
