@@ -23,15 +23,14 @@ void require(bool condition, const char *message)
 @property(nonatomic) BOOL englishSelected;
 @property(nonatomic) BOOL simplifiedSelected;
 @property(nonatomic) BOOL traditionalSelected;
-@property(nonatomic) BOOL voiceToggled;
+@property(nonatomic) BOOL voicePanelShown;
 @property(nonatomic) BOOL voiceSettingsShown;
 @end
 
 @implementation PreferencesTarget
-- (void)toggleVoiceInput:(id)sender
+- (void)showVoicePanel
 {
-    (void)sender;
-    self.voiceToggled = YES;
+    self.voicePanelShown = YES;
 }
 - (void)showVoiceSettings:(id)sender
 {
@@ -147,7 +146,7 @@ int main()
 
         [menu performActionForItemAtIndex:10];
         [menu performActionForItemAtIndex:11];
-        require(target.voiceToggled && target.voiceSettingsShown, "Voice menu actions were not dispatched.");
+        require(target.voicePanelShown && target.voiceSettingsShown, "Voice menu actions were not dispatched.");
         [menu performActionForItemAtIndex:1];
         require(target.englishSelected, "The English input mode action was not dispatched.");
         NSMenu *englishMenu = CreateMetasequoiaInputMenu(target, YES, YES);
