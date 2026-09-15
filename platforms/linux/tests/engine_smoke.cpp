@@ -1390,6 +1390,11 @@ int main(int argc, char **argv) {
     require(seen.committed == "你好" + selected,
             "Candidate click did not use shared global index");
     invoke("Reset");
+    const auto committed_before_stale_click = seen.committed;
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+    require(seen.committed == committed_before_stale_click &&
+                !seen.lookup_visible,
+            "Candidate click used a cleared rendered snapshot");
     require(key(','), "Punctuation not consumed");
     require(seen.committed == "你好" + selected + "，",
             "Chinese punctuation not applied");
