@@ -385,7 +385,7 @@ BOOL CTextLayout::Render(ID2D1RenderTarget *pRenderTarget, const WCHAR *psz, UIN
 
                     pCompositionBrush->SetColor(compositionTextColor);
                     const FLOAT scrollX = _singleLine ? _horizontalScrollDips : 0.0f;
-                    pRenderTarget->DrawTextW(
+                    pRenderTarget->DrawText(
                         &ch, 1, _pTextFormat,
                         D2D1::RectF(rc.left - scrollX, rc.top, rc.right - scrollX + PixelsToDipsX(2.0f), rc.bottom),
                         pCompositionBrush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, DWRITE_MEASURING_MODE_NATURAL);
