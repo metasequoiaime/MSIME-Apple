@@ -577,12 +577,11 @@ int wmain(int argc, wchar_t **argv) {
       const auto global = stored.value("theme", std::string("dark"));
       return surface_theme_mode(theme, global);
     }());
-    auto voice_light = std::make_shared<std::atomic<bool>>([&] {
+    auto voice_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("voice_theme", std::string("follow"));
-      return msime::windows::voice_theme_is_light(
-          theme, stored.value("theme", std::string("dark")),
-          system_prefers_dark());
+      return surface_theme_mode(
+          theme, stored.value("theme", std::string("dark")));
     }());
     auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
@@ -612,7 +611,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
-         toolbar_enabled, follow_cursor, voice_light, candidate_fonts,
+         toolbar_enabled, follow_cursor, voice_theme, candidate_fonts,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
          tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
@@ -652,7 +651,7 @@ int wmain(int argc, wchar_t **argv) {
           // all along, but nothing read the preference, so it was always dark.
           // The overlay is built later, so publish through a flag the loop
           // applies.
-          const auto voice_theme =
+          const auto voice_surface_theme =
               preferences.value("voice_theme", std::string("follow"));
           // Publish the TSF-local settings; the loop pushes them to the
           // focused TIP, since the server is constructed after this handler.
@@ -661,11 +660,11 @@ int wmain(int argc, wchar_t **argv) {
             *tsf_config = tsf_local_config(preferences);
             tsf_config_dirty->store(true, std::memory_order_release);
           }
-          voice_light->store(msime::windows::voice_theme_is_light(
-                                 voice_theme,
-                                 preferences.value("theme", std::string("dark")),
-                                 system_prefers_dark()),
-                             std::memory_order_release);
+          voice_theme->store(
+              surface_theme_mode(
+                  voice_surface_theme,
+                  preferences.value("theme", std::string("dark"))),
+              std::memory_order_release);
           // The settings page owns this too; without reconciling it here the
           // toolbar only followed the preference across a restart.
           const auto toolbar_preferences =
@@ -726,7 +725,8 @@ int wmain(int argc, wchar_t **argv) {
         production ? production_key_handler() : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
-    voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+    voice_overlay.set_light_theme(surface_theme_is_light(
+        voice_theme->load(std::memory_order_acquire), system_prefers_dark()));
     VoiceInputSession *voice_session = nullptr;
     if (!voice_overlay.init(
             GetModuleHandleW(nullptr), [&voice_session](WaveOverlay::Action action) {
@@ -1241,7 +1241,8 @@ int wmain(int argc, wchar_t **argv) {
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       if (auto settings = toolbar_settings->take())
         toolbar.set_settings(*settings);
-      voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
+      voice_overlay.set_light_theme(surface_theme_is_light(
+          voice_theme->load(std::memory_order_acquire), system_dark));
       if (const bool dark = !surface_theme_is_light(
               menu_theme->load(std::memory_order_acquire), system_dark);
           dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
