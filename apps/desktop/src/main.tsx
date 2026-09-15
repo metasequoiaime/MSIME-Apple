@@ -363,6 +363,7 @@ function DesktopSettings() {
             mobileKeyboardFeedback: {
               load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
               save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
+              preview: strength => invoke("mobile_keyboard_feedback_preview", { strength }),
             },
             home: {
               openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
@@ -373,6 +374,7 @@ function DesktopSettings() {
             mobileKeyboardFeedback: {
               load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
               save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
+              preview: strength => invoke("mobile_keyboard_feedback_preview", { strength }),
             },
           } : {}),
           ...(host.platform === "linux" ? {

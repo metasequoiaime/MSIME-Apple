@@ -49,6 +49,10 @@ private struct VoiceControlArgs: Decodable {
   let requestId: String?
 }
 
+private struct PreviewKeyboardHapticsArgs: Decodable {
+  let strength: String
+}
+
 struct VoicePluginFailure: Error {
   let code: String
 }
@@ -727,6 +731,7 @@ final class MobilePlatformPlugin: Plugin {
   private let voiceHandoff = VoiceTextHandoffWriter()
   private let voiceTranscription = IOSVoiceTranscriptionService()
   private var appleSignIn: AppleSignInCoordinator?
+  private var previewFeedback: UIImpactFeedbackGenerator?
 
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
@@ -963,6 +968,33 @@ final class MobilePlatformPlugin: Plugin {
       invoke.resolve(try keyboardPreferences.save(args))
     } catch {
       invoke.reject("keyboard_preferences", code: "keyboard_preferences")
+    }
+  }
+
+  @objc public func previewKeyboardHaptics(_ invoke: Invoke) {
+    let args: PreviewKeyboardHapticsArgs
+    do {
+      args = try invoke.parseArgs(PreviewKeyboardHapticsArgs.self)
+    } catch {
+      invoke.reject("invalid_feedback", code: "invalid_feedback")
+      return
+    }
+    let style: UIImpactFeedbackGenerator.FeedbackStyle
+    let intensity: CGFloat
+    switch args.strength {
+    case "light": style = .light; intensity = 0.45
+    case "medium": style = .medium; intensity = 0.75
+    case "strong": style = .heavy; intensity = 1.0
+    default:
+      invoke.reject("invalid_feedback", code: "invalid_feedback")
+      return
+    }
+    onMain { [self] in
+      let generator = UIImpactFeedbackGenerator(style: style)
+      previewFeedback = generator
+      generator.prepare()
+      generator.impactOccurred(intensity: intensity)
+      invoke.resolve()
     }
   }
 }

@@ -1342,6 +1342,12 @@ pub struct MobileKeyboardFeedbackRequest {
 }
 
 #[cfg(target_os = "ios")]
+#[derive(serde::Deserialize)]
+pub struct MobileKeyboardFeedbackPreviewRequest {
+    pub strength: String,
+}
+
+#[cfg(target_os = "ios")]
 fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback {
     MobileKeyboardFeedback {
         sound_enabled: native.sound_enabled,
@@ -1406,6 +1412,25 @@ pub async fn mobile_keyboard_feedback_save(
     .map_err(|_| super::CommandError {
         code: "feedback_storage",
     })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_preview(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackPreviewRequest,
+) -> Result<(), super::CommandError> {
+    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    state
+        .platform
+        .preview_keyboard_haptics(&request.strength)
+        .map_err(|_| super::CommandError {
+            code: "feedback_preview",
+        })
 }
 
 #[cfg(test)]

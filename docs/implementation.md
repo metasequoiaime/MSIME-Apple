@@ -987,3 +987,9 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 依据 Apple `InputSettingsView` 的“高情商回复”分组，Android/iOS 共享输入设置增加使用说明和“配置键盘 AI”入口。按钮通过共享页内导航进入 AI 配置，不复制平台键盘会话或凭据；高情商回复仍由移动键盘宿主消费，桌面输入设置保持原有布局。
 
 本地验证通过 Android 移动输入设置定向 Vitest 和 TypeScript 类型检查；未执行 Android/iOS 真机键盘切换、粘贴权限、AI 请求和候选插入验收，CI 保持禁用。
+
+### 移动端按键振动预览（2026-09-16）
+
+对齐 Apple 输入设置的“试一下振动”，共享按键反馈分组新增预览按钮。iOS 通过移动插件调用 `UIImpactFeedbackGenerator`，Android 通过 `Vibrator`/`VibrationEffect` 按轻、中、强映射触觉振幅；预览不写入共享 Engine 设置或键盘输入状态，保存的偏好仍由各自键盘宿主读取。
+
+本地验证通过按键反馈定向 Vitest、Rust fmt、移动插件测试和桌面 TypeScript 检查；未执行签名设备触觉硬件效果、系统静音策略或 Android 厂商振动强度验收，CI 保持禁用。

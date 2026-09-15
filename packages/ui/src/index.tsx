@@ -581,6 +581,7 @@ export type MobileKeyboardFeedback = {
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
   save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
+  preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
 };
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
@@ -1091,6 +1092,14 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     } finally {
       setMobileKeyboardFeedbackBusy(false);
     }
+  }
+
+  async function previewMobileKeyboardHaptics() {
+    const feedback = client.mobileKeyboardFeedback;
+    if (!feedback?.preview || !mobileKeyboardFeedback?.hapticsEnabled) return;
+    setError("");
+    try { await feedback.preview(mobileKeyboardFeedback.hapticStrength); }
+    catch { setError("无法预览按键振动，请重试。"); }
   }
 
   function resetTouchKeyboardSettings() {
@@ -2011,7 +2020,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           <label className="section-header"><span className="section-title">按键音<small>按键音受系统静音设置控制</small></span><input aria-label="按键音" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.soundEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, soundEnabled: event.target.checked })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">按键振动<small>振动效果取决于设备与系统支持</small></span><input aria-label="按键振动" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.hapticsEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticsEnabled: event.target.checked })} /></label>
-          {mobileKeyboardFeedback.hapticsEnabled && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">振动强度</span><select aria-label="振动强度" disabled={mobileKeyboardFeedbackBusy} value={mobileKeyboardFeedback.hapticStrength} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"] })}><option value="light">轻</option><option value="medium">中</option><option value="strong">强</option></select></label></>}
+          {mobileKeyboardFeedback.hapticsEnabled && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">振动强度</span><select aria-label="振动强度" disabled={mobileKeyboardFeedbackBusy} value={mobileKeyboardFeedback.hapticStrength} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"] })}><option value="light">轻</option><option value="medium">中</option><option value="strong">强</option></select></label>{client.mobileKeyboardFeedback?.preview && <button type="button" className="secondary" disabled={mobileKeyboardFeedbackBusy} onClick={() => void previewMobileKeyboardHaptics()}>试一下振动</button>}</>}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">

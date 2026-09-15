@@ -577,6 +577,15 @@ impl<R: Runtime> MobilePlatform<R> {
             .map_err(|_| ())?;
         saved.is_valid().then_some(saved).ok_or(())
     }
+
+    pub fn preview_keyboard_haptics(&self, strength: &str) -> Result<(), ()> {
+        if !matches!(strength, "light" | "medium" | "strong") {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("previewKeyboardHaptics", json!({ "strength": strength }))
+            .map_err(|_| ())
+    }
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {

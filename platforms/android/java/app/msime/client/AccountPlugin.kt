@@ -7,6 +7,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import app.tauri.annotation.Command
@@ -229,6 +232,29 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (_: Exception) {
             invoke.reject("feedback_storage", "feedback_storage")
+        }
+    }
+
+    @Command
+    fun previewFeedback(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SaveFeedbackArgs::class.java)
+            val strength = KeyboardFeedbackPreferences.strength(args.hapticStrength)
+            if (args.hapticStrength !in setOf("light", "medium", "strong")) {
+                invoke.reject("invalid_feedback", "invalid_feedback")
+                return
+            }
+            val vibrator = hostActivity.getSystemService(Vibrator::class.java)
+                ?: throw IllegalStateException("vibrator unavailable")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(18L, strength.amplitude()))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(18L)
+            }
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("feedback_preview", "feedback_preview")
         }
     }
 

@@ -67,6 +67,11 @@ struct MobileKeyboardFeedbackRequest {
     settings: FeedbackSettings,
 }
 
+#[derive(Deserialize)]
+struct MobileKeyboardFeedbackPreviewRequest {
+    strength: String,
+}
+
 #[derive(Serialize)]
 struct AiModelsRequest<'a> {
     endpoint: &'a str,
@@ -2850,5 +2855,34 @@ pub async fn mobile_keyboard_feedback_save(
     .await
     .map_err(|_| super::CommandError {
         code: "feedback_storage",
+    })?
+}
+
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_preview(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackPreviewRequest,
+) -> Result<(), super::CommandError> {
+    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    let feedback = state.feedback.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        feedback
+            .run_mobile_plugin::<()>(
+                "previewFeedback",
+                serde_json::json!({
+                    "hapticStrength": request.strength,
+                }),
+            )
+            .map_err(|_| super::CommandError {
+                code: "feedback_preview",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_preview",
     })?
 }
