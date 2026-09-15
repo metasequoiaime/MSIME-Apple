@@ -356,9 +356,7 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
 void SessionController::wait_candidate_render_for_key(
     const FocusLease &lease, const FanyImeNamedpipeData &packet) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent ||
-      (packet.keycode != 0x20 &&
-       (packet.keycode < 0x30 || packet.keycode > 0x39) &&
-       (packet.keycode < 0x60 || packet.keycode > 0x69)))
+      !candidate_render_key(packet.keycode))
     return;
   const auto shown = candidate_view();
   if (!shown || !shown->visible ||
