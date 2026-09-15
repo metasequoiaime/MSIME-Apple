@@ -5164,6 +5164,25 @@ mod credential_command_tests;
 #[cfg(test)]
 mod tests {
     #[test]
+    fn external_links_require_clean_https_urls() {
+        for url in [
+            "https://example.com/help",
+            "https://updates.example.com/v1?channel=stable",
+        ] {
+            assert!(super::external_url_is_safe(url));
+        }
+        for url in [
+            "http://example.com",
+            "https://example.com/help path",
+            "https://example.com/a&b",
+            "https://example.com/\"quoted\"",
+            "https://example.com/\\escape",
+        ] {
+            assert!(!super::external_url_is_safe(url));
+        }
+    }
+
+    #[test]
     fn ios_clipboard_history_is_permission_gated_not_preference_gated() {
         assert!(!super::clipboard_history_uses_preference(
             msime_client_core::host_surface::HostPlatform::Ios
