@@ -282,6 +282,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    // The host can publish its document identifier and keyboard type one run-loop turn after the
+    // extension appears. Reading the proxy only in viewWillAppear can therefore leave the first
+    // frame in the default English presentation; the next activation then appears to "fix" it.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.synchronizeInputContext()
+      self.synchronizeInputSchemePreference()
+      self.updateLanguageModeButton()
+      self.updateLetterCaseControls()
+      self.updateCandidateStrip(preedit: self.visiblePreedit, candidates: self.visibleCandidates)
+    }
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
