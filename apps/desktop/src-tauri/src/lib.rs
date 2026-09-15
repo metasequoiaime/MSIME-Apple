@@ -882,6 +882,7 @@ fn start_desktop_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
     history: Arc<Mutex<ClipboardHistoryStore>>,
+    #[cfg(target_os = "linux")] history_path: PathBuf,
 ) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
@@ -899,7 +900,14 @@ fn start_desktop_preferences_monitor(
                         std::time::Duration::from_millis(750),
                     );
                 }
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = desktop_preferences_monitor::wait_for_filesystem_change(
+                        &history_path,
+                        std::time::Duration::from_millis(750),
+                    );
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "windows")))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
             }
@@ -4779,6 +4787,8 @@ pub fn run() {
                 app.handle(),
                 preferences.clone(),
                 Arc::clone(&clipboard_state.0),
+                #[cfg(target_os = "linux")]
+                directory.join("clipboard_history.json"),
             );
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
