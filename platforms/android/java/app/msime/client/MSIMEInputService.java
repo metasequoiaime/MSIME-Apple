@@ -134,6 +134,9 @@ public final class MSIMEInputService extends InputMethodService {
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
+    private boolean candidateTranslationsEnabled;
+    private String candidateTranslationTarget = "en";
+    private CandidateTranslationStore candidateTranslationStore;
     private boolean wubiCodeHint = true;
     private boolean wubiMixedPinyin;
     private String candidateGlossResources = "";
@@ -300,6 +303,9 @@ public final class MSIMEInputService extends InputMethodService {
         new ThreadPoolExecutor.AbortPolicy());
     private final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
+        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+        new ThreadPoolExecutor.DiscardOldestPolicy());
+    private final ExecutorService candidateTranslationWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
@@ -472,6 +478,7 @@ public final class MSIMEInputService extends InputMethodService {
         resetSpaceCursor();
         stop(false);
         connection = getCurrentInputConnection();
+        ensureCandidateTranslationStore();
         editorContextRevision++;
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
@@ -515,6 +522,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyClipboardPreference(preferences);
                 applyChineseOutputPreference(preferences);
                 applyCandidateGlossPreference(preferences);
+                applyCandidateTranslationPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
                 wubiMixedPinyin = preferences != null
                     && preferences.optBoolean("wubi_mixed_pinyin", false);
@@ -565,6 +573,7 @@ public final class MSIMEInputService extends InputMethodService {
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
         candidateGlossWorker.shutdownNow();
+        candidateTranslationWorker.shutdownNow();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -582,6 +591,9 @@ public final class MSIMEInputService extends InputMethodService {
         emojiResources = "";
         candidateGlossResources = "";
         candidateEnglishGloss = false;
+        candidateTranslationsEnabled = false;
+        candidateTranslationTarget = "en";
+        if (candidateTranslationStore != null) candidateTranslationStore.clear();
         wubiCodeHint = true;
         wubiMixedPinyin = false;
         preferencesSnapshot = null;
@@ -803,6 +815,23 @@ public final class MSIMEInputService extends InputMethodService {
         candidateEnglishGloss = next;
     }
 
+    private void applyCandidateTranslationPreference(JSONObject preferences) {
+        boolean nextEnabled = preferences == null
+            || preferences.optBoolean("candidate_translations", true);
+        String nextTarget = preferences == null ? "en"
+            : preferences.optString("translation_target_language", "en")
+                .toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("en", "fr", "ja", "es", "ru", "de", "ko").contains(nextTarget))
+            nextTarget = "en";
+        if (candidateTranslationsEnabled != nextEnabled
+                || !candidateTranslationTarget.equals(nextTarget)) {
+            if (candidateTranslationStore != null) candidateTranslationStore.clear();
+            invalidateCandidateGlosses();
+        }
+        candidateTranslationsEnabled = nextEnabled;
+        candidateTranslationTarget = nextTarget;
+    }
+
     private void applyWubiCodeHintPreference(JSONObject preferences) {
         wubiCodeHint = preferences == null
             || preferences.optBoolean("wubi_code_hint", true);
@@ -812,6 +841,14 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
         candidateGlossRequestedSession = 0;
         candidateGlossRequestedGeneration = -1;
+    }
+
+    private void ensureCandidateTranslationStore() {
+        if (candidateTranslationStore == null) {
+            candidateTranslationStore = new CandidateTranslationStore(
+                this, candidateTranslationWorker, main,
+                generation -> applyCandidateTranslations(generation));
+        }
     }
 
     private String chineseOutput(String text, JSONObject context) {
@@ -848,6 +885,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
+        boolean previousCandidateTranslations = candidateTranslationsEnabled;
+        String previousTranslationTarget = candidateTranslationTarget;
         boolean previousWubiCodeHint = wubiCodeHint;
         boolean previousWubiMixedPinyin = wubiMixedPinyin;
         KeyboardScheme previousScheme = selectedScheme;
@@ -868,6 +907,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
+                || previousCandidateTranslations != candidateTranslationsEnabled
+                || !previousTranslationTarget.equals(candidateTranslationTarget)
                 || previousWubiCodeHint != wubiCodeHint
                 || previousWubiMixedPinyin != wubiMixedPinyin
                 || previousScheme != selectedScheme
@@ -900,6 +941,11 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
+        boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
+        String nextTranslationTarget = preferences.optString("translation_target_language", "en")
+            .toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("en", "fr", "ja", "es", "ru", "de", "ko").contains(nextTranslationTarget))
+            nextTranslationTarget = "en";
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
@@ -930,6 +976,13 @@ public final class MSIMEInputService extends InputMethodService {
         traditionalChineseOutput = nextTraditional;
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
+        if (candidateTranslationsEnabled != nextCandidateTranslations
+                || !candidateTranslationTarget.equals(nextTranslationTarget)) {
+            if (candidateTranslationStore != null) candidateTranslationStore.clear();
+            invalidateCandidateGlosses();
+        }
+        candidateTranslationsEnabled = nextCandidateTranslations;
+        candidateTranslationTarget = nextTranslationTarget;
         wubiCodeHint = nextWubiCodeHint;
         wubiMixedPinyin = nextWubiMixedPinyin;
         JSONObject nextView = result.getJSONObject("view");
@@ -1043,6 +1096,52 @@ public final class MSIMEInputService extends InputMethodService {
             render();
         } catch (JSONException | RuntimeException | LinkageError error) {
             // Candidate glosses are optional display state; keep the current Engine view.
+        }
+    }
+
+    private void scheduleCandidateTranslations() {
+        if (!candidateTranslationsEnabled || session == 0 || view == null
+                || candidateTranslationStore == null
+                || !"none".equals(view.optString("local_mode", "none"))) return;
+        if (view.optInt("scheme", -1) == 3) return;
+        JSONArray entries = view.optJSONArray("candidates");
+        long generation = view.optLong("generation", -1);
+        if (entries == null || entries.length() == 0 || generation < 0) return;
+        java.util.ArrayList<String> words = new java.util.ArrayList<>();
+        for (int index = 0; index < Math.min(entries.length(), 32); index++) {
+            JSONObject candidate = entries.optJSONObject(index);
+            if (candidate != null) words.add(candidate.optString("text", ""));
+        }
+        candidateTranslationStore.refresh(words, candidateTranslationTarget, generation);
+    }
+
+    private void applyCandidateTranslations(long generation) {
+        if (!candidateTranslationsEnabled || session == 0 || view == null
+                || view.optLong("generation", -1) != generation) return;
+        JSONArray entries = view.optJSONArray("candidates");
+        if (entries == null || entries.length() == 0) return;
+        JSONArray translations = new JSONArray();
+        for (int index = 0; index < Math.min(entries.length(), 32); index++) {
+            JSONObject candidate = entries.optJSONObject(index);
+            if (candidate == null) continue;
+            String text = candidate.optString("text", "");
+            String translation = candidateTranslationStore.gloss(text, candidateTranslationTarget);
+            if (translation != null && !translation.isEmpty()) {
+                try { translations.put(new JSONObject().put("text", text).put("translation", translation)); }
+                catch (JSONException ignored) { return; }
+            }
+        }
+        if (translations.length() == 0) return;
+        try {
+            JSONObject applied = value(NativeClient.applyTranslations(session, generation,
+                translations.toString()));
+            if (!applied.optBoolean("applied", false)) return;
+            JSONObject next = applied.getJSONObject("view");
+            if (next.optLong("session") != session || next.optLong("generation") != generation) return;
+            view = next;
+            render();
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // Online translations are optional display state.
         }
     }
 
@@ -3912,7 +4011,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String candidateAnnotation(JSONObject candidate) {
         return CandidateGlossPolicy.annotation(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
-            candidateEnglishGloss);
+            candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
     private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
@@ -3930,7 +4029,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String candidateAccessibilitySuffix(JSONObject candidate) {
         return CandidateGlossPolicy.accessibilitySuffix(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
-            candidateEnglishGloss);
+            candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
     private String candidateAccessibilitySuffix(JSONObject candidate, String typed) {
@@ -5570,6 +5669,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (hasDiagnostic && nineKeySpellingScroll != null)
             nineKeySpellingScroll.setVisibility(View.GONE);
         scheduleCandidateGlosses();
+        scheduleCandidateTranslations();
         if (candidates == null) {
             applySkin();
             return;

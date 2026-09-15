@@ -1786,7 +1786,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {androidPlatform && <p className="input-setting-description">Android 使用已登录的 MSIME 在线服务处理候选翻译；凭据保存在系统安全存储中，不会进入此设置页。</p>}
         </div>
+        {!androidPlatform && <>
         <div className="section" role="group" aria-label="候选翻译服务">
           <label className="section-header"><span className="section-title">翻译服务</span><select aria-label="候选翻译服务" disabled={!candidateTranslations} value={translationProvider} onChange={event => setTranslationProvider(event.target.value as "none" | "custom" | "tencent" | "niutrans")}>
             <option value="none">关闭</option><option value="tencent">腾讯云机器翻译</option><option value="niutrans">小牛翻译（NiuTrans）</option><option value="custom">自定义 DeepLX 兼容服务</option>
@@ -1829,6 +1831,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">API Key</span><SecretInput label="自定义翻译 API Key" value={customTranslation.api_key} disabled={!candidateTranslations || !customTranslation.enabled} onChange={value => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: value } })} /></label>
           {customTranslation.enabled && credentialTestControl("translation.custom", "测试自定义翻译配置", { endpoint: customTranslation.endpoint, api_key: customTranslation.api_key }, !candidateTranslations || Boolean(translationEndpointIssue(customTranslation.endpoint)))}
         </div>
+        </>}
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
           <div className="input-option-divider" />
