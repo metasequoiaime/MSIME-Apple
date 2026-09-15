@@ -3084,8 +3084,10 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeVoiceResult();
-        try { VoiceRecognitionActivity.launch(this, voiceLanguage); }
+        String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
+        try { VoiceRecognitionActivity.launch(this, requestId, voiceLanguage); }
         catch (RuntimeException error) {
+            VoiceRecognitionActivity.clearRequest(requestId);
             Toast.makeText(this, "系统语音识别服务无法启动", Toast.LENGTH_SHORT).show();
         }
     }

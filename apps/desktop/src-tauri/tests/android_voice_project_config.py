@@ -33,6 +33,13 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         for command in ["recognizeVoice", "stopVoice", "cancelVoice", "saveVoiceText"]:
             self.assertIn(f"fun {command}", plugin)
         self.assertIn("VoiceResultStore", plugin)
+        self.assertIn("VoiceRecognitionActivity.markLaunched(args.requestId)", plugin)
+        self.assertIn("VoiceRecognitionActivity.isRequestActive(requestId)", plugin)
+        self.assertIn("public static void markLaunched(String requestId)", activity)
+        self.assertIn("public static boolean isRequestActive(String requestId)", activity)
+        self.assertIn("EXTRA_REQUEST_ID", activity)
+        self.assertIn("markLaunched(requestId)", activity)
+        self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/client/MSIMEInputService.java").read_text())
         self.assertIn("public static void cancelActive()", activity)
 
 

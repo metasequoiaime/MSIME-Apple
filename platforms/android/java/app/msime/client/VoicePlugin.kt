@@ -65,8 +65,10 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         }
         val startedAt = System.currentTimeMillis()
         try {
-            VoiceRecognitionActivity.launch(hostActivity, args.language)
+            VoiceRecognitionActivity.markLaunched(args.requestId)
+            VoiceRecognitionActivity.launch(hostActivity, args.requestId, args.language)
         } catch (_: RuntimeException) {
+            VoiceRecognitionActivity.clearRequest(args.requestId)
             activeRequest.compareAndSet(args.requestId, null)
             invoke.reject("unavailable", "unavailable")
             return
@@ -86,6 +88,15 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
                 if (entry != null && entry.createdAtMillis() >= startedAt) {
                     activeRequest.compareAndSet(requestId, null)
                     invoke.resolve(JSObject().put("text", entry.text()))
+                    return
+                }
+                // The recognizer may finish with BACK, a missing service, or a
+                // system cancellation without producing a result file. Treat
+                // the Activity lifecycle as authoritative instead of waiting
+                // for the two-minute polling deadline.
+                if (!VoiceRecognitionActivity.isRequestActive(requestId)) {
+                    activeRequest.compareAndSet(requestId, null)
+                    invoke.reject("cancelled", "cancelled")
                     return
                 }
                 Thread.sleep(200L)
