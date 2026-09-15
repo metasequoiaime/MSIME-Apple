@@ -1,4 +1,5 @@
 #pragma once
+#include "PairedPunctuationHostPolicy.h"
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -31,12 +32,6 @@ inline bool IsPairedPunctuationExcludedProcess(const std::wstring &processName)
 // inline bool IsVSCodeLike = false;
 inline LONG INVALID_Y = -100000;
 
-// Excel cell editing cannot preserve the caret move used by paired punctuation.
-inline bool IsPairedPunctuationExcludedProcess(const std::wstring &processName)
-{
-    return !processName.empty() &&
-           CompareStringOrdinal(processName.c_str(), -1, L"EXCEL.EXE", -1, TRUE) == CSTR_EQUAL;
-}
 } // namespace Global
 
 namespace GlobalSettings
