@@ -22,8 +22,13 @@ pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static 
     Ok(names)
 }
 
+/// OpenHarmony reports `target_os = "linux"`, so every Linux gate in this file has to exclude it explicitly. It ships no fontconfig, and an extension ability cannot spawn `fc-list` from its sandbox, so claiming support here would offer the shared UI a font picker that only ever returns an error.
 pub fn supported() -> bool {
-    cfg!(any(target_os = "macos", target_os = "linux", windows))
+    cfg!(any(
+        target_os = "macos",
+        all(target_os = "linux", not(target_env = "ohos")),
+        windows
+    ))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
@@ -40,12 +45,17 @@ pub fn list() -> Result<Vec<String>, &'static str> {
     windows_catalog::list()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub fn list() -> Result<Vec<String>, &'static str> {
     linux_catalog::list()
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(all(target_os = "linux", target_env = "ohos"))]
+pub fn list() -> Result<Vec<String>, &'static str> {
+    Err("unsupported")
+}
+
+#[cfg(any(all(target_os = "linux", not(target_env = "ohos")), test))]
 fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'static str> {
     use std::collections::BTreeSet;
 
@@ -69,7 +79,7 @@ fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'st
     Ok(names.into_iter().collect())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod linux_catalog {
     use super::parse_catalog;
     use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};

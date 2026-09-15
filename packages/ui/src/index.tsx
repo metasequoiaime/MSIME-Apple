@@ -166,7 +166,7 @@ const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/MSIME-Client/issues";
 
-export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios";
+export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
@@ -773,6 +773,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
   const androidPlatform = client.host?.platform === "android";
   const iosPlatform = client.host?.platform === "ios";
+  // This repository ships the HarmonyOS host too, so its release, license and issue links follow the client-hosted set rather than the Windows ones.
+  const harmonyPlatform = client.host?.platform === "harmony";
   // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
@@ -796,8 +798,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   const showVoiceCaptureDevices = !androidPlatform && (host ? host.voice_capture_devices : linuxPlatform) && client.listVoiceCaptureDevices;
-  const showDesktopMaintenanceShortcuts = !host || (host.platform !== "android" && host.platform !== "ios");
-  const clientHostedPlatform = linuxPlatform || androidPlatform || macosPlatform || host?.platform === "ios";
+  // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
+  const showDesktopMaintenanceShortcuts = !host || host.panel_windows;
+  const clientHostedPlatform = linuxPlatform || androidPlatform || macosPlatform || harmonyPlatform || host?.platform === "ios";
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = clientHostedPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
