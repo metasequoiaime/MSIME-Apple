@@ -871,3 +871,9 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
 
 本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
+
+### macOS Tauri 语音面板目标回传
+
+macOS 浮动工具栏的语音入口现在优先启动共享 Tauri `voice` 面板，并通过一次性、带 peer PID/目标启动时间校验的 IMK 输入会话把最终文本回传到原编辑器；Tauri 侧将 `send_voice_text` 接到同一会话，关闭、失焦、超时或启动失败都会拒绝迟到结果。原生语音服务仍作为 Tauri 启动失败时的 macOS fallback，录音、识别和 Engine 组合状态没有移入 Tauri。
+
+本地验证：`macos_panel_session` Rust 回归 5/5 通过，`InputController.mm` Objective-C++ syntax-only 编译通过；使用锁定 Engine 副本避开自动拉取。未执行 Tauri bundle、麦克风/语音 provider、安装输入源或真实编辑器端到端验收，CI 保持禁用。

@@ -1136,6 +1136,66 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
     [self showSharedTextTool:@"emoji" options:options bridge:shared];
 }
+- (void)showVoicePanel {
+    NSString *providerSocket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+    if (![providerSocket isKindOfClass:NSString.class] || !providerSocket.isAbsolutePath ||
+        ![[NSFileManager defaultManager] fileExistsAtPath:providerSocket]) {
+        // Direct macOS Speech/HTTP/Doubao providers remain native. The shared
+        // panel is only advertised when a session-scoped provider socket can
+        // actually serve its recognition requests.
+        [self toggleVoiceInput:nil];
+        return;
+    }
+    NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
+    id targetClient = _activeClient;
+    if (!targetClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
+        !MSIMEToolApplicationMatches([(id<IMKTextInput>)targetClient bundleIdentifier], application.bundleIdentifier)) {
+        return;
+    }
+    [_desktopInputSession stop];
+    _desktopInputSession = nil;
+    if (_desktopEmojiCompletion) {
+        _desktopEmojiCompletion(NO);
+        _desktopEmojiCompletion = nil;
+    }
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMEDesktopInputSession *session = [[MSIMEDesktopInputSession alloc]
+        initWithTargetPID:application.processIdentifier
+        launchTime:application.launchDate.timeIntervalSince1970
+        handler:^(NSString *text, double deadline, MSIMEPanelTextCompletion completion) {
+            (void)deadline;
+            MSIMEInputController *controller = weakSelf;
+            if (!controller || application.terminated || controller->_activeClient != targetClient ||
+                NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != application.processIdentifier ||
+                !text.length) {
+                completion(NO);
+                return;
+            }
+            @try {
+                [targetClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+                NSDictionary *options = controller->_session ? MSIMEStatisticsHostOptions(controller->_session) : @{};
+                MSIMERecordTypingStatistics(controller->_preferencesDirectory ?: options[@"preferences_directory"],
+                                            text, msime::mac::TypingSource::Voice);
+                completion(YES);
+            } @catch (NSException *) {
+                completion(NO);
+            }
+        }];
+    _desktopInputSession = session;
+    dispatch_block_t fallback = ^{
+        [session stop];
+        MSIMEInputController *controller = weakSelf;
+        if (controller && controller->_activeClient == targetClient) [controller toggleVoiceInput:nil];
+    };
+    if (!session) {
+        fallback();
+        return;
+    }
+    MSIMEOpenDesktopRouteWithContext(@"voice", MSIMERuntimeOptionsPath(), session.launchEnvironment,
+        NSWorkspace.sharedWorkspace, ^(NSRunningApplication *peer) {
+            [session authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];
+        }, fallback);
+}
 - (void)showSharedTextTool:(NSString *)route options:(NSDictionary *)options bridge:(id)shared {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return;
@@ -2171,7 +2231,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)floatingToolbarDidRequestOpenEmoji:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showEmoji:nil]; }
 - (void)floatingToolbarDidRequestOpenHandwriting:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showHandwriting:nil]; }
 - (void)floatingToolbarDidRequestOpenScreenKeyboard:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showScreenKeyboard:nil]; }
-- (void)floatingToolbarDidRequestToggleVoice:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self toggleVoiceInput:nil]; }
+- (void)floatingToolbarDidRequestToggleVoice:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showVoicePanel]; }
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showAppearance:nil]; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
