@@ -9,6 +9,17 @@ private struct StubTranslationService: CandidateTranslationService, Sendable {
 
 @MainActor
 final class CandidateTranslationTests: XCTestCase {
+  func testCandidateGlossesAreEnabledByDefault() {
+    let defaults = CandidateGlossPreference.defaults
+    let previous = defaults.object(forKey: CandidateGlossPreference.key)
+    defer {
+      if let previous { defaults.set(previous, forKey: CandidateGlossPreference.key) }
+      else { defaults.removeObject(forKey: CandidateGlossPreference.key) }
+    }
+    defaults.removeObject(forKey: CandidateGlossPreference.key)
+    XCTAssertTrue(CandidateGlossPreference.enabled)
+  }
+
   func testOnlyHanCandidatesAreTranslatable() {
     XCTAssertTrue(CandidateTranslationStore.translatable("你好"))
     XCTAssertFalse(CandidateTranslationStore.translatable("nihao"))

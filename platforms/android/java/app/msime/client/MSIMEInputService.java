@@ -810,7 +810,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyCandidateGlossPreference(JSONObject preferences) {
         boolean next = preferences != null
-            && preferences.optBoolean("candidate_english_gloss", false);
+            && preferences.optBoolean("candidate_english_gloss", true);
         if (candidateEnglishGloss != next) invalidateCandidateGlosses();
         candidateEnglishGloss = next;
     }
@@ -940,7 +940,7 @@ public final class MSIMEInputService extends InputMethodService {
             : nextVoice.optString("language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
-        boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
+        boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
         String nextTranslationTarget = preferences.optString("translation_target_language", "en")
             .toLowerCase(java.util.Locale.ROOT);

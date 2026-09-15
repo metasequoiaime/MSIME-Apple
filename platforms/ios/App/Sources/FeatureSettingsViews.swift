@@ -69,7 +69,7 @@ struct DictionarySettingsView: View {
   @AppStorage(DictionaryLearningPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var learningEnabled = false
   @AppStorage(CandidateGlossPreference.key, store: CandidateGlossPreference.defaults)
-  private var candidateGlossEnabled = false
+  private var candidateGlossEnabled = true
   @AppStorage(CandidateTranslationPreference.primaryKey, store: CandidateTranslationPreference.defaults)
   private var translationPrimary = 0
   @AppStorage(CandidateTranslationPreference.secondaryKey, store: CandidateTranslationPreference.defaults)

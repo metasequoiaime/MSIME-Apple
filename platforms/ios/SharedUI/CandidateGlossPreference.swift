@@ -1,9 +1,9 @@
 import Foundation
 
-/// Controls the optional offline annotation shown beside iOS candidates.
+/// Controls the offline annotation shown below iOS candidates.
 ///
 /// The keyboard and its containing app share this value through the App Group. It is deliberately
-/// off by default: an annotation on every candidate changes the reading of the one-line strip.
+/// Enabled by default now that glosses occupy their own row, matching the macOS candidate surface.
 enum CandidateGlossPreference {
   static let key = "candidate.englishGloss"
 
@@ -12,7 +12,7 @@ enum CandidateGlossPreference {
   }
 
   static var enabled: Bool {
-    get { defaults.object(forKey: key) as? Bool ?? false }
+    get { defaults.object(forKey: key) as? Bool ?? true }
     set { defaults.set(newValue, forKey: key) }
   }
 }

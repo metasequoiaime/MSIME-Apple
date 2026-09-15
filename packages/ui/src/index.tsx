@@ -1306,7 +1306,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
-  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
+  const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
   const systemVoice = macosPlatform && voiceInput.asr_provider === "system";
