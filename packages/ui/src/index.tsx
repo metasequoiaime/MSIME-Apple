@@ -1310,6 +1310,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
+  const candidateGlossLanguagesEnabled = candidateTranslations
+    || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
   const translationSecondaryLanguage = draft?.translation_secondary_language ?? "";
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
@@ -1789,10 +1791,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>向在线服务请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateGlossLanguagesEnabled} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           {(androidPlatform || iosPlatform) && <>
             <div className="input-option-divider" />
-            <label className="section-header"><span className="section-title">第二种语言<small>候选词下方可同时显示第二种释义</small></span><select aria-label="候选翻译第二种语言" disabled={!candidateTranslations} value={translationSecondaryLanguage} onChange={event => setDraft({ ...draft, translation_secondary_language: event.target.value === "" ? null : event.target.value as Preferences["translation_target_language"] })}>{translationSecondaryLanguages.map(([value, label]) => <option key={value || "none"} value={value}>{label}</option>)}</select></label>
+            <label className="section-header"><span className="section-title">第二种语言<small>候选词下方可同时显示第二种释义</small></span><select aria-label="候选翻译第二种语言" disabled={!candidateGlossLanguagesEnabled} value={translationSecondaryLanguage} onChange={event => setDraft({ ...draft, translation_secondary_language: event.target.value === "" ? null : event.target.value as Preferences["translation_target_language"] })}>{translationSecondaryLanguages.map(([value, label]) => <option key={value || "none"} value={value}>{label}</option>)}</select></label>
           </>}
           {androidPlatform && <p className="input-setting-description">Android 使用已登录的 MSIME 在线服务处理候选翻译；凭据保存在系统安全存储中，不会进入此设置页。</p>}
         </div>

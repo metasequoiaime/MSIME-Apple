@@ -92,19 +92,19 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
-test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
+test("offline candidate gloss is host-enabled, defaults on and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
+  expect(toggle.checked).toBe(true);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    candidate_english_gloss: true,
+    candidate_english_gloss: false,
   });
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -133,11 +133,11 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(false);
+  expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: true }));
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: false }));
 });
 
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
@@ -512,7 +512,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("english");
+  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("chinese");
   fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
   fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });
@@ -546,6 +546,26 @@ test("Android candidate translations persist an optional second language", async
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
     translation_secondary_language: "ja",
   }));
+});
+
+test("mobile translation languages stay editable for offline English glosses", async () => {
+  const snapshot: Snapshot = { ...initial, preferences: {
+    ...initial.preferences, candidate_translations: false, candidate_english_gloss: true,
+  } };
+  render(<SettingsPage client={{
+    load: async () => snapshot,
+    save: vi.fn(),
+    host: { platform: "android" } as HostCapabilities,
+    candidateEnglishGloss: true,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const primary = screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement;
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect(primary.disabled).toBe(false);
+  expect(secondary.disabled).toBe(false);
+  fireEvent.click(screen.getByRole("checkbox", { name: "显示英文释义" }));
+  expect(primary.disabled).toBe(true);
+  expect(secondary.disabled).toBe(true);
 });
 
 test("frequency values above the upstream dropdown range remain visible", async () => {
