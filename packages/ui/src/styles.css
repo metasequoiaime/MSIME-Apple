@@ -505,6 +505,7 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .about-mark { display: flex; align-items: center; justify-content: center; width: 62px; height: 62px; padding: 10px; border-radius: 16px; background: var(--surface-raised); }
 .about-mark img { width: 48px; height: 48px; }
 .about-links { padding: 0 20px; }
+.about-guides { padding: 0 20px; }
 .about-link-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 18px 4px; border: 0; border-bottom: 1px solid var(--divider-color); background: transparent; text-align: left; }
 .about-link-row:last-child { border-bottom: 0; }
 .about-link-title { color: var(--text-color); font-size: 14px; }
