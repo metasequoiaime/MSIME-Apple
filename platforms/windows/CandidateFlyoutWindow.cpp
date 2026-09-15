@@ -408,6 +408,23 @@ LRESULT CALLBACK CandidateFlyoutWindow::procedure(HWND window, UINT message,
           self->hide();
         }
         return 0;
+      case WM_POWERBROADCAST:
+        if (wparam != PBT_APMRESUMEAUTOMATIC &&
+            wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)
+          break;
+        [[fallthrough]];
+      case WM_DPICHANGED:
+      case WM_DISPLAYCHANGE:
+      case WM_DWMCOMPOSITIONCHANGED:
+      case WM_SETTINGCHANGE:
+        // Neither panel retains the pointer anchor needed to place the flyout
+        // again after the display environment changes. Discard both targets
+        // and close the whole capture-owned menu; the next right click opens
+        // it from the current pointer, DPI and monitor work area.
+        self->menu_.device.DiscardTarget();
+        self->submenu_.device.DiscardTarget();
+        self->hide();
+        return message == WM_POWERBROADCAST ? TRUE : 0;
       case WM_PAINT:
         if (panel)
           self->paint(*panel);
