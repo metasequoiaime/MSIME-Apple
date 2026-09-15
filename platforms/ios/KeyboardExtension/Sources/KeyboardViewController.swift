@@ -1851,7 +1851,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     let panel = KeyboardCandidatePanelView(
       candidates: visibleCandidates,
-      hints: visibleCandidates.indices.map { wubiCodeHint(at: $0) }, preedit: visiblePreedit,
+      hints: visibleCandidates.indices.map { wubiCodeHint(at: $0) },
+      glosses: visibleCandidates.indices.map { candidateGlosses(at: $0) }, preedit: visiblePreedit,
       display: { [weak self] in self?.chineseOutput($0) ?? $0 },
       onSelect: { [weak self] index in
         guard let self else { return }
@@ -2380,7 +2381,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
     }
     for (offset, chip) in candidateStack.arrangedSubviews.enumerated() {
-      guard let chip = chip as? UIButton else { continue }
+      guard let chip = chip as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
       updateCandidateButton(chip, candidate: page[offset], hint: wubiCodeHint(at: offset),
@@ -2424,7 +2425,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
   }
 
-  private func makeCandidateButton(index: Int) -> UIButton {
+  private func makeCandidateButton(index: Int) -> KeyboardKeyButton {
     var configuration = UIButton.Configuration.plain()
     // A configuration's title label wraps by default, and a chip the row could not fit took the
     // break instead of its natural width: 晕了限制 came out as 晕了限 over 制 while 做了限制 beside
@@ -2451,7 +2452,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
-    button.titleLabel?.numberOfLines = 1
     // Keeping the width costs a scroll; giving it up costs a line break, so the chip refuses to be
     // the one the stack squeezes.
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -2543,7 +2543,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
   }
 
-  private func updateCandidateButton(_ button: UIButton, candidate: String, hint: String,
+  private func updateCandidateButton(_ button: KeyboardKeyButton, candidate: String, hint: String,
                                      glosses: [String] = [], number: Int,
                                      converting: Bool = false) {
     let display = chineseOutput(candidate)
@@ -2584,8 +2584,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     button.configuration = configuration
-    // 配置刷新会重建标题标签,行数得跟着这一格实际写了几行走,否则第二、三行直接被截掉。
-    button.titleLabel?.numberOfLines = 1 + glosses.count
+    // 换完配置再设行数:标题标签是跟着配置建出来的,在那之前 titleLabel 还是 nil,这一句就悄无声息地没了。KeyboardKeyButton 每次布局还会再纠正一遍。
+    button.titleLines = 1 + glosses.count
     button.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(display)" : "候选词 \(number)：\(display)，还需输入 \(hint)"
     if !glosses.isEmpty {

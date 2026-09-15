@@ -9,17 +9,20 @@ final class KeyboardCandidatePanelView: UIView {
   private let candidates: [String]
   // The keys still to press for each candidate, parallel to candidates and empty where none applies.
   private let hints: [String]
+  /// 每个候选的释义,和 candidates 平行,最多两条。联网那份只覆盖候选条上的那一页,再往后是随包词库答的。
+  private let glosses: [[String]]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
-  init(candidates: [String], hints: [String] = [], preedit: String,
+  init(candidates: [String], hints: [String] = [], glosses: [[String]] = [], preedit: String,
        display: @escaping (String) -> String,
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
     self.hints = hints
+    self.glosses = glosses
     self.display = display
     self.onSelect = onSelect
     super.init(frame: .zero)
@@ -105,7 +108,10 @@ final class KeyboardCandidatePanelView: UIView {
     for (offset, candidate) in candidates.enumerated() {
       let chip = makeChip(
         candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
+        glosses: glosses.indices.contains(offset) ? glosses[offset] : [],
         number: offset + 1)
+      // 先排一次,让标题标签建出来并吃到行数 —— 三行的格子按一行量,量到的是三行接成一条长线的宽度,一行就只塞得下它一个。
+      chip.layoutIfNeeded()
       // 按自然宽度量,并且不许超过一行的可用宽度。
       let natural = chip.systemLayoutSizeFitting(
         CGSize(width: available, height: UIView.layoutFittingCompressedSize.height),
@@ -127,23 +133,42 @@ final class KeyboardCandidatePanelView: UIView {
     let row = UIStackView()
     row.axis = .horizontal
     row.spacing = spacing
-    row.alignment = .center
+    // 同一行里有的格子带释义、有的没有,按内容居中就参差不齐;拉到一样高。
+    row.alignment = .fill
     return row
   }
 
-  private func makeChip(candidate: String, hint: String, number: Int) -> UIButton {
+  private func makeChip(candidate: String, hint: String, glosses: [String], number: Int) -> KeyboardKeyButton {
     let text = display(candidate)
     var configuration = UIButton.Configuration.plain()
     configuration.title = text
-    if !hint.isEmpty {
-      configuration.attributedTitle = AttributedString(
-        text, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .body)]))
-        + AttributedString(
+    if !hint.isEmpty || !glosses.isEmpty {
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.alignment = .natural
+      paragraph.lineBreakMode = .byTruncatingTail
+      var title = AttributedString(
+        text,
+        attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+        ]))
+      if !hint.isEmpty {
+        title += AttributedString(
           " " + hint,
           attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
+      }
+      // 释义自己一行,跟候选条上一样。面板一行排好几个格,挤在候选右边会把一行挤得只剩两三个词。
+      for gloss in glosses {
+        title += AttributedString(
+          "\n" + gloss,
+          attributes: AttributeContainer([
+            .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+      }
+      configuration.attributedTitle = title
     }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     // 候选一行写完,写不下就截断。Leaving this unset let a long candidate wrap inside its own chip,
@@ -161,9 +186,13 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
+    chip.titleLines = 1 + glosses.count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"
+    if !glosses.isEmpty {
+      chip.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，")
+    }
     return chip
   }
 }

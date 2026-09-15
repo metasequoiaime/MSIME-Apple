@@ -92,6 +92,7 @@ final class CandidateTranslationTests: XCTestCase {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letter } as? UIButton)
         .sendActions(for: .primaryActionTriggered)
     }
+    controller.view.layoutIfNeeded()
     let chip = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
     let title = try XCTUnwrap(chip.configuration?.attributedTitle.map { String($0.characters) })
@@ -129,6 +130,26 @@ final class CandidateTranslationTests: XCTestCase {
 
     CandidateTranslationPreference.secondaryIndex = 1
     XCTAssertEqual(keyboardHeight(), base + 2 * line, "两条释义长两行,高度从按键之外来")
+  }
+
+  func testTheExpandedPanelDrawsTheSameGlossesAsTheStrip() throws {
+    // 展开面板是另一套格子。它一直只画五笔剩余编码,于是打开释义之后展开候选,那里仍然什么都没有。
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥好"], hints: ["", ""], glosses: [["hello", "こんにちは"], []],
+      preedit: "nihao", display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+    panel.layoutIfNeeded()
+
+    let glossed = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    let title = try XCTUnwrap(glossed.configuration?.attributedTitle.map { String($0.characters) })
+    XCTAssertEqual(title.split(separator: "\n", omittingEmptySubsequences: false),
+                   ["你好", "hello", "こんにちは"])
+    XCTAssertEqual(glossed.titleLabel?.numberOfLines, 3)
+
+    let bare = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)
+    XCTAssertEqual(bare.configuration?.title, "泥好", "没有释义的候选还是一行")
   }
 
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
