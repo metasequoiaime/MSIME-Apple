@@ -98,7 +98,7 @@ pub fn handwriting_local_candidates(
     engine_handwriting_candidates(model_path, query, 420.0, 420.0)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 fn engine_handwriting_candidates(
     model_path: &str,
     query: &HandwritingQuery,
@@ -114,7 +114,7 @@ fn engine_handwriting_candidates(
         .map_err(|_| "local handwriting recognizer unavailable")
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_env = "ohos"))]
 fn engine_handwriting_candidates(
     _model_path: &str,
     _query: &HandwritingQuery,
@@ -123,7 +123,9 @@ fn engine_handwriting_candidates(
 ) -> Result<Vec<String>, &'static str> {
     // Android injects ML Kit Digital Ink through HandwritingRecognizer. Keeping
     // this boundary unavailable prevents zinnia and its model path from becoming
-    // an unused second recognizer in the IME process.
+    // an unused second recognizer in the IME process. HarmonyOS is the same case:
+    // its build turns MSIME_ENGINE_BRIDGE_HANDWRITING off, so the Engine symbol
+    // is not there to call.
     Err("local handwriting recognizer unavailable")
 }
 

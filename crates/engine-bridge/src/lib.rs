@@ -273,7 +273,7 @@ mod ffi {
             key: &str,
             gloss: &str,
         ) -> bool;
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_env = "ohos")))]
         fn handwriting_recognize(
             model_path: &str,
             points: &[HandwritingPoint],
@@ -520,7 +520,9 @@ pub fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>
 
 /// Run the Engine's optional offline handwriting recognizer on copied strokes.
 /// Points are flattened with their zero-based stroke index for the CXX ABI.
-#[cfg(not(target_os = "android"))]
+/// Absent on the mobile hosts, which inject their own recognizer: the build turns
+/// MSIME_ENGINE_BRIDGE_HANDWRITING off there, so the symbol does not exist to link.
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn handwriting_recognize(
     model_path: &str,
     strokes: &[Vec<(f32, f32)>],

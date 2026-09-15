@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMAKE_PREFIX_PATH");
     let mut config = cmake::Config::new("native");
     let mut android_include = None;
+    let mut ohos_include = None;
     let mut windows_include = None;
     println!("cargo:rerun-if-env-changed=MSIME_BOOST_DIR");
     if let Some(boost_dir) = std::env::var_os("MSIME_BOOST_DIR") {
@@ -26,11 +27,29 @@ fn main() {
         );
         config.define("boost_headers_DIR", &boost_headers_dir);
     }
+    // fmt and spdlog ship config packages the same way Boost does, and a cross build has to be told
+    // where they are for the same reason: the toolchain's find root hides the host-side ones.
+    for (variable, define) in [
+        ("MSIME_FMT_DIR", "fmt_DIR"),
+        ("MSIME_SPDLOG_DIR", "spdlog_DIR"),
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+        if let Some(directory) = std::env::var_os(variable) {
+            let directory = PathBuf::from(directory);
+            assert!(
+                directory.is_absolute(),
+                "{variable} must be an absolute path"
+            );
+            config.define(define, &directory);
+        }
+    }
     let android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
     let ios = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios");
-    if ios {
-        // CMake's iOS platform defaults package lookup to the SDK root, which
-        // hides the host-side config packages used for header-only dependencies.
+    // OpenHarmony reports target_os = "linux", so only target_env separates it from an ordinary
+    // Linux desktop build.
+    let ohos = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("ohos");
+    if ios || ohos {
+        // Both the iOS and the OpenHarmony CMake platform default package lookup to their SDK root, which hides the host-side config packages used for header-only dependencies.
         config.define("CMAKE_FIND_ROOT_PATH_MODE_PACKAGE", "BOTH");
     }
     let windows_gnu = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
@@ -89,6 +108,40 @@ fn main() {
             .define("CMAKE_PREFIX_PATH", &prefix)
             .define("CMAKE_FIND_ROOT_PATH", &prefix);
     }
+    for name in ["MSIME_OHOS_NDK", "MSIME_OHOS_DEPS"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    if ohos {
+        let ndk =
+            PathBuf::from(std::env::var_os("MSIME_OHOS_NDK").expect("MSIME_OHOS_NDK is required"));
+        let prefix = PathBuf::from(
+            std::env::var_os("MSIME_OHOS_DEPS").expect("MSIME_OHOS_DEPS is required"),
+        );
+        assert!(
+            ndk.is_absolute() && prefix.is_absolute(),
+            "OpenHarmony build paths must be absolute"
+        );
+        ohos_include = Some(prefix.join("include"));
+        let arch = match std::env::var("TARGET").unwrap().as_str() {
+            "aarch64-unknown-linux-ohos" => "arm64-v8a",
+            "armv7-unknown-linux-ohos" => "armeabi-v7a",
+            "x86_64-unknown-linux-ohos" => "x86_64",
+            target => panic!("OpenHarmony arch not configured: {target}"),
+        };
+        config
+            // Native dependency roots can move; don't retain stale FindPackage paths.
+            .configure_arg("--fresh")
+            // The HarmonyOS host injects the platform recognizer, exactly as Android does, so the
+            // vendored zinnia implementation would ship unreachable.
+            .define("MSIME_ENGINE_BRIDGE_HANDWRITING", "OFF")
+            .define(
+                "CMAKE_TOOLCHAIN_FILE",
+                ndk.join("build/cmake/ohos.toolchain.cmake"),
+            )
+            .define("OHOS_ARCH", arch)
+            .define("CMAKE_PREFIX_PATH", &prefix)
+            .define("CMAKE_FIND_ROOT_PATH", &prefix);
+    }
     // Rust links the release CRT on MSVC even for debug profiles, while CMake
     // selects the debug CRT for a Debug build. Mixing them makes the Engine
     // objects unlinkable into any Rust test binary ("RuntimeLibrary mismatch:
@@ -113,11 +166,14 @@ fn main() {
         .include("native")
         .include(&engine)
         .include(engine.join("include"));
-    if ios {
+    if ios || ohos {
         // The iOS app records through AVAudioEngine in Swift. Keyboard
         // extensions cannot use this desktop capture path, and compiling the
         // Engine's miniaudio source as C++ also pulls Objective-C declarations
         // into a non-Objective-C translation unit.
+        //
+        // OpenHarmony is the same shape from the other side: miniaudio has no backend for it, and an
+        // InputMethodExtensionAbility records through the platform's own audio kit.
         bridge.define("MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE", Some("0"));
     } else {
         // capture_audio() in bridge.cpp calls the Engine's AudioCapture, which
@@ -145,6 +201,9 @@ fn main() {
     if let Some(include) = android_include {
         bridge.include(include);
     }
+    if let Some(include) = ohos_include {
+        bridge.include(include);
+    }
     if let Some(include) = windows_include {
         bridge.include(include);
     }
@@ -154,7 +213,7 @@ fn main() {
         destination.display()
     );
     println!("cargo:rustc-link-lib=static=MetasequoiaImeEngine");
-    if !android {
+    if !android && !ohos {
         println!("cargo:rustc-link-lib=static=MetasequoiaHandwriting");
     }
     let sqlite = std::fs::read_to_string(destination.join("build/sqlite-path.txt"))
@@ -166,7 +225,7 @@ fn main() {
     );
     println!(
         "cargo:rustc-link-lib={}sqlite3",
-        if android || windows_gnu {
+        if android || ohos || windows_gnu {
             "static="
         } else {
             ""
