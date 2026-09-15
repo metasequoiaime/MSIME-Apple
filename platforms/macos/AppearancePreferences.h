@@ -27,8 +27,11 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic, copy) NSString *fontFamily;
+/// Optional leading face for Latin glyphs in the candidate cascade.
+@property(nonatomic, copy) NSString *candidateEnglishFont;
 @property(nonatomic, copy) NSArray<NSString *> *fallbackFonts;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
+- (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
