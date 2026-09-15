@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <array>
 
 namespace msime::windows {
@@ -19,6 +20,25 @@ struct TsfFocusLeaseRequest {
 
 using TsfFocusLeaseFrame = std::array<std::uint8_t, 32>;
 static_assert(TsfFocusLeaseFrame{}.size() == 32);
+
+class TsfFocusLeaseFrameAssembler final {
+public:
+  constexpr bool append(const std::uint8_t *data, std::size_t size) {
+    if (size > TsfFocusLeaseFrame{}.size() - filled_) return false;
+    for (std::size_t i = 0; i != size; ++i) frame_[filled_ + i] = data[i];
+    filled_ += size;
+    return true;
+  }
+
+  constexpr bool complete() const { return filled_ == frame_.size(); }
+  constexpr const TsfFocusLeaseFrame &frame() const { return frame_; }
+  constexpr std::size_t size() const { return filled_; }
+  constexpr void reset() { frame_ = {}; filled_ = 0; }
+
+private:
+  TsfFocusLeaseFrame frame_{};
+  std::size_t filled_ = 0;
+};
 
 constexpr void write_u16(std::uint8_t *out, std::uint16_t value) {
   out[0] = static_cast<std::uint8_t>(value);

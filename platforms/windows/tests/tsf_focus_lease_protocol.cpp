@@ -32,4 +32,21 @@ int main() {
   request.magic_value = TsfFocusLeaseRequest::magic;
   request.client = 0;
   assert(!valid_tsf_focus_lease_request(request));
+
+  const auto complete_frame = encode_tsf_focus_lease(TsfFocusLeaseRequest{TsfFocusLeaseRequest::magic,
+                                                                            TsfFocusLeaseRequest::version,
+                                                                            0, 7, 11, 19});
+  msime::windows::TsfFocusLeaseFrameAssembler assembler;
+  assert(!assembler.complete() && assembler.size() == 0);
+  assert(assembler.append(complete_frame.data(), 1));
+  assert(assembler.size() == 1 && !assembler.complete());
+  assert(assembler.append(complete_frame.data() + 1, complete_frame.size() - 1));
+  assert(assembler.complete() && assembler.frame() == complete_frame);
+  const auto before = assembler.frame();
+  assert(!assembler.append(complete_frame.data(), 1));
+  assert(assembler.frame() == before && assembler.size() == complete_frame.size());
+  assembler.reset();
+  assert(!assembler.complete() && assembler.size() == 0);
+  assert(assembler.append(complete_frame.data(), complete_frame.size()));
+  assert(assembler.complete());
 }
