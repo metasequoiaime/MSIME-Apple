@@ -46,4 +46,26 @@ export class KeyboardMetrics {
     const gaps: number = (rowSpacingTenths / 10) * KeyboardMetrics.KEY_ROWS;
     return strip + keys + gaps + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
   }
+
+  /**
+   * How wide a candidate window is, where the panel is not the width of the screen.
+   *
+   * Wide enough for a spelling and the candidates it produces, narrow enough to sit beside the
+   * caret without covering what is being written. Fixed rather than measured: a window that resized
+   * itself on every keystroke would jitter under the cursor it is trying to stay next to.
+   */
+  static readonly CANDIDATE_WINDOW_WIDTH_VP: number = 420;
+  /** Clear of the caret's own line, so the window sits under the text rather than on it. */
+  static readonly CANDIDATE_WINDOW_GAP_VP: number = 4;
+
+  /**
+   * The strip on its own, which is the whole panel where the machine has its own keys.
+   *
+   * No key rows and therefore none of the gaps between them: what is left is the composition line,
+   * the candidate line and the padding that frames them.
+   */
+  static candidateHeightVp(): number {
+    return KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+      + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
+  }
 }

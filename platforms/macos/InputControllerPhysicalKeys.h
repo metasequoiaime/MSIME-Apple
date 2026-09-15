@@ -43,7 +43,51 @@ constexpr int PhysicalCandidateDigitSlot(unsigned short keyCode)
     case 26: return 6; // 7
     case 28: return 7; // 8
     case 25: return 8; // 9
+    // AppKit reports the physical ANSI keypad digits separately from the
+    // number row. Windows normalizes VK_NUMPAD1..9 before candidate routing;
+    // keep the same selection contract on macOS without accepting keypad 0.
+    case 83: return 0; // kVK_ANSI_Keypad1
+    case 84: return 1; // kVK_ANSI_Keypad2
+    case 85: return 2; // kVK_ANSI_Keypad3
+    case 86: return 3; // kVK_ANSI_Keypad4
+    case 87: return 4; // kVK_ANSI_Keypad5
+    case 88: return 5; // kVK_ANSI_Keypad6
+    case 89: return 6; // kVK_ANSI_Keypad7
+    case 91: return 7; // kVK_ANSI_Keypad8
+    case 92: return 8; // kVK_ANSI_Keypad9
     default: return -1;
+    }
+}
+
+// Candidate digits are a controller shortcut only for an ordinary candidate
+// panel. Unicode composition consumes the same physical keys as hexadecimal
+// input, while nine-key mode and modified chords belong to the Engine.
+constexpr bool ShouldRoutePhysicalCandidateDigit(bool candidatePanelVisible, bool nineKeyMode, bool unicodeMode,
+                                                   bool modified)
+{
+    return candidatePanelVisible && !nineKeyMode && !unicodeMode && !modified;
+}
+
+constexpr bool IsKeypadDecimal(unsigned short keyCode)
+{
+    return keyCode == 65; // kVK_ANSI_KeypadDecimal
+}
+
+// Physical macOS keypad punctuation.  Keep this independent of the active
+// keyboard layout so keypad operators cannot fall into the main-row paging
+// shortcuts (notably '-' and '=').
+constexpr char KeypadPunctuation(unsigned short keyCode)
+{
+    switch (keyCode)
+    {
+    case 65: return '.'; // kVK_ANSI_KeypadDecimal
+    case 67: return '*'; // kVK_ANSI_KeypadMultiply
+    case 69: return '+'; // kVK_ANSI_KeypadPlus
+    case 75: return '/'; // kVK_ANSI_KeypadDivide
+    case 78: return '-'; // kVK_ANSI_KeypadMinus
+    case 81: return '='; // kVK_ANSI_KeypadEquals
+    case 95: return ','; // kVK_JIS_KeypadComma / keypad separator
+    default: return '\0';
     }
 }
 

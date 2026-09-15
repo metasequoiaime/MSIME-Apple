@@ -709,7 +709,7 @@ void CTextStore::PrepareAttributes(ULONG cFilterAttrs, const TS_ATTRID *paFilter
     _nAttrVals = 0;
     memset(_attrval, 0, sizeof(_attrval));
 
-    for (int i = 0; i < ARRAYSIZE(c_rgSupportedAttr); i++)
+    for (size_t i = 0; i < ARRAYSIZE(c_rgSupportedAttr); i++)
     {
         if (cFilterAttrs)
         {

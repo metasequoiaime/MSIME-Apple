@@ -35,7 +35,9 @@ if [[ ! -f "$deps/lib/libsqlite3.a" || ! -f "$deps/include/sqlite3.h" ]]; then
   echo "  $compiler -O2 -fPIC -c sqlite3.c -o sqlite3.o" >&2
   echo "  $ndk/llvm/bin/llvm-ar rcs $deps/lib/libsqlite3.a sqlite3.o" >&2
   echo "  cp sqlite3.h $deps/include/" >&2
-  echo "Or set MSIME_OHOS_DEPS to a prefix that already has them." >&2
+  echo "Or set MSIME_OHOS_DEPS to a prefix that already has them. The default lives under the" >&2
+  echo "worktree's target/, so it is rebuilt from scratch in every new worktree; a path outside" >&2
+  echo "one is worth setting if you make worktrees often." >&2
   exit 1
 fi
 # The OpenHarmony CMake platform confines find_package to its own sysroot, so the header-only

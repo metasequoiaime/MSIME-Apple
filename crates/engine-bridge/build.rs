@@ -1,9 +1,31 @@
 use std::path::PathBuf;
 
+/// Put the locked Engine tree in place before anything is compiled against it.
+///
+/// It used to arrive as a git submodule, which meant a clone without `--recursive` produced an empty
+/// directory and a hundred lines of compiler errors that named neither the cause nor the cure. The
+/// lock file is fetched and verified here instead, so the failure — if there is one — is a sentence
+/// about the Engine rather than a missing header.
+fn prepare_engine() {
+    let script = PathBuf::from("../../scripts/fetch_engine.py");
+    println!("cargo:rerun-if-changed=../../engine-lock.json");
+    println!("cargo:rerun-if-changed={}", script.display());
+    // An offline build of a tree that is already prepared has nothing to do here, and no network to
+    // do it with. Verification has already happened for that tree; it is the lock's own record.
+    if std::env::var_os("MSIME_SKIP_ENGINE_FETCH").is_some() {
+        return;
+    }
+    let status = std::process::Command::new("python3")
+        .arg(&script)
+        .status()
+        .unwrap_or_else(|error| panic!("could not run {}: {error}", script.display()));
+    assert!(status.success(), "{} failed", script.display());
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=native");
-    println!("cargo:rerun-if-changed=../../vendor/MSIME-Engine");
+    prepare_engine();
     println!("cargo:rerun-if-env-changed=CMAKE_PREFIX_PATH");
     let mut config = cmake::Config::new("native");
     let mut android_include = None;

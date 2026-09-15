@@ -12,14 +12,20 @@
 @property(nonatomic, strong) NSMutableArray<NSString *> *events;
 @property(nonatomic) NSRange documentSelection;
 @property(nonatomic, copy) NSString *following;
+@property(nonatomic, copy) NSString *document;
 @end
 @implementation FakeTextClient
 - (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"commit"]; self.committed = text; }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"marked"]; self.marked = text; self.selection = selection; }
 - (NSRange)selectedRange { return self.documentSelection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
-    if (range.location != self.documentSelection.location || range.length != 1 || !self.following) return nil;
-    return [[NSAttributedString alloc] initWithString:self.following];
+    if (self.following) {
+        if (range.location != self.documentSelection.location || range.length != 1) return nil;
+        return [[NSAttributedString alloc] initWithString:self.following];
+    }
+    if (!self.document || range.location == NSNotFound || range.location > self.document.length ||
+        range.length > self.document.length - range.location) return nil;
+    return [[NSAttributedString alloc] initWithString:[self.document substringWithRange:range]];
 }
 @end
 
@@ -444,6 +450,13 @@ int main() {
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);
         client.following = nil;
         assert(MSIMETextClientFollowingCharacter(client) == nil);
+        client.document = @"a😀";
+        client.documentSelection = NSMakeRange(client.document.length, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 0x1f600);
+        client.documentSelection = NSMakeRange(1, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 'a');
+        client.documentSelection = NSMakeRange(0, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 0);
     }
     return 0;
 }

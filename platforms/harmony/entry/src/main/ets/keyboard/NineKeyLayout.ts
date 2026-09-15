@@ -22,7 +22,10 @@ const ROWS: NineKey[][] = [
   [key('PQRS', '7', '7 PQRS'), key('TUV', '8', '8 TUV'), key('WXYZ', '9', '9 WXYZ')]
 ];
 
-const PUNCTUATION: string[] = ['，', '。', '？', '！'];
+// ASCII, as the twenty-six key face sends: the Engine decides whether a comma arrives as , or as ，,
+// and it is the only thing that knows, since the answer depends on the composing language and on the
+// punctuation lock. iOS hard-codes the Chinese forms here because its grid only ever spells Chinese.
+const PUNCTUATION: string[] = [',', '.', '?', '!'];
 
 export class NineKeyLayout {
   static rows(): NineKey[][] {

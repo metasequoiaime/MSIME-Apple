@@ -16,10 +16,6 @@
 
 ## 当前证据
 
-### Android Tauri 语音面板原生插件接入
-
-Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React/Tauri 语音面板通过 Android 系统 `RecognizerIntent` 使用设备语音识别服务；录音仍由系统服务持有，识别文本经有界的应用私有 handoff 文件交给隔离的 `:ime` 进程。`recognize_voice`、`stop_voice`、`cancel_voice` 和 `send_voice_text` 均已接入 Android 专用路径，避免误走 Unix socket，并保留请求代号、取消、过期、NUL 和长度校验。已通过 Rust 格式检查、移动插件单元测试、桌面 TypeScript 类型检查和 Android host smoke；Android 原生 Gradle/设备识别器及真实编辑器插入仍需设备产品验证。
-
 ### macOS Emoji 面板主题覆盖（next42）
 
 共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
@@ -49,6 +45,8 @@ macOS 设置页现在也显示共享的腾讯云翻译凭据探测入口；探�
 macOS 语音设置页不再显示无法提交到 IMK 输入会话的共享 Tauri 语音面板按钮。云端识别和结果提交继续由当前输入法进程负责，设置页改为明确提示使用输入法快捷键或悬浮工具栏；Windows/Linux 的共享语音面板入口保持不变。
 
 同一输入会话边界也应用于 macOS 手写、云剪贴板和云词典：从共享设置页移除无法获得原生会话的 Tauri 面板按钮，改为指向输入法悬浮工具栏或菜单。Windows/Linux 的共享面板路由不变；macOS 从原生输入法入口启动时仍通过带会话描述的 Tauri route 使用共享 UI。
+
+macOS 关于页不再显示 Windows Server、TSF 或 Linux IBus 的诊断开关；这些配置没有 macOS 原生消费者，避免把未接通的设置伪装成可用功能。现有 macOS 原生诊断仍由输入法进程自身管理。
 
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
@@ -874,8 +872,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
 
+### Android Tauri 语音面板原生插件接入
+
+Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React/Tauri 语音面板通过 Android 系统 `RecognizerIntent` 使用设备语音识别服务；录音仍由系统服务持有，识别文本经有界的应用私有 handoff 文件交给隔离的 `:ime` 进程。`recognize_voice`、`stop_voice`、`cancel_voice` 和 `send_voice_text` 均已接入 Android 专用路径，避免误走 Unix socket，并保留请求代号、取消、过期、NUL 和长度校验。已通过 Rust 格式检查、移动插件单元测试、桌面 TypeScript 类型检查和 Android host smoke；Android 原生 Gradle/设备识别器及真实编辑器插入仍需设备产品验证。
+
 ### 移动端九键 Engine 同步
 
-依据 Apple 远端默认分支 `origin/develop` 的固定提交 `abda282`，同步其依赖的九键拼写长度排序修复。Client 不回退到与既有 Engine 历史分叉的 Apple gitlink，而是把 `vendor/MSIME-Engine` 从 `f331a45a` 升级到 Engine 实际远端默认分支 `main` 的固定提交 `a122e56b632b4c826464fa1bc199f3cdc68b61aa`。该提交同时包含按数字长度排列九键拼写、九键英文候选及状态修复，并保留 Client 已接入的日语长音输入修复；输入算法和组合状态继续完全归 C++ Engine，Android 与 iOS 只消费共享 Host API 快照。
+依据 Apple 远端默认分支 `origin/develop` 的固定提交 `abda282`，同步其依赖的九键拼写长度排序修复。Client 采用默认分支引入的校验归档机制，并把 `engine-lock.json` 固定到 Engine 实际远端默认分支 `main` 的提交 `a122e56b632b4c826464fa1bc199f3cdc68b61aa`；归档 SHA-256 已从固定 URL 重新计算。该提交同时包含按数字长度排列九键拼写、九键英文候选及状态修复，并保留 Client 已接入的日语长音输入修复；输入算法和组合状态继续完全归 C++ Engine，Android 与 iOS 只消费共享 Host API 快照。
 
 本地 Release CMake 构建及 Engine CTest 28/28 通过，覆盖 `nine_key_session`、英文输入、日语、全拼/双拼与本地模式；共享 `client-core` 237 项、`host-api` 91 项及其集成测试、fmt、clippy、Android 宿主静态检查、iOS Swift 解析和 10 项工程配置测试通过。未执行 Android/iOS 真机输入、安装包或产品级九键触控验收，CI 保持禁用。

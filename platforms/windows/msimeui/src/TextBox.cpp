@@ -267,7 +267,7 @@ void TextBox::Render(DeviceResources &deviceResources)
             deviceResources.GetSolidColorBrush(ThemeManager::GetCurrent().textSecondary);
         if (placeholderFormat && placeholderBrush)
         {
-            target->DrawTextW(placeholder_.c_str(), static_cast<UINT32>(placeholder_.size()), placeholderFormat,
+            target->DrawText(placeholder_.c_str(), static_cast<UINT32>(placeholder_.size()), placeholderFormat,
                               D2D1::RectF(6.0f, 0.0f, contentWidth, contentHeight), placeholderBrush,
                               D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }

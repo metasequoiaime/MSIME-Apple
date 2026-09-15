@@ -68,6 +68,16 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
+@property(nonatomic) NSUInteger punctuationASCIICalls;
+@property(nonatomic) uint8_t lastPunctuationASCII;
+@property(nonatomic, copy) NSDictionary *punctuationASCIITransition;
+@property(nonatomic) NSUInteger contextualPunctuationCalls;
+@property(nonatomic) uint8_t lastContextualPunctuation;
+@property(nonatomic) uint32_t lastPrecedingScalar;
+@property(nonatomic, copy) NSDictionary *contextualPunctuationTransition;
+@property(nonatomic) NSUInteger enginePunctuationCalls;
+@property(nonatomic) uint8_t lastEnginePunctuation;
+@property(nonatomic, copy) NSDictionary *enginePunctuationTransition;
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
 @property(nonatomic) NSUInteger focusCalls;
@@ -153,6 +163,25 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastShift = shift;
     return self.nextTransition;
 }
+- (NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
+    (void)error;
+    ++self.punctuationASCIICalls;
+    self.lastPunctuationASCII = ascii;
+    return self.punctuationASCIITransition ?: self.nextTransition;
+}
+- (NSDictionary *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error {
+    (void)error;
+    ++self.contextualPunctuationCalls;
+    self.lastContextualPunctuation = ascii;
+    self.lastPrecedingScalar = preceding;
+    return self.contextualPunctuationTransition ?: self.nextTransition;
+}
+- (NSDictionary *)punctuation:(uint8_t)ascii error:(NSError **)error {
+    (void)error;
+    ++self.enginePunctuationCalls;
+    self.lastEnginePunctuation = ascii;
+    return self.enginePunctuationTransition ?: self.nextTransition;
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
@@ -171,19 +200,34 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @interface ShortcutClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
+@property(nonatomic, copy) NSString *document;
+@property(nonatomic) NSRange selection;
 @property(nonatomic) NSRect caret;
 @property(nonatomic, strong) NSMutableArray<NSString *> *insertions;
 @end
 @implementation ShortcutClient
+- (NSRange)selectedRange { return self.selection; }
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    if (range.location == NSNotFound || range.location > self.document.length || range.length > self.document.length - range.location) return nil;
+    return [[NSAttributedString alloc] initWithString:[self.document substringWithRange:range]];
+}
 - (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
     (void)index;
     *rect = self.caret;
     return @{};
 }
 - (void)insertText:(id)text replacementRange:(NSRange)range {
-    (void)range;
     self.committed = text;
-    [self.insertions addObject:text];
+    if ([text isKindOfClass:NSString.class]) {
+        NSRange target = range.location == NSNotFound ? self.selection : range;
+        if (target.location != NSNotFound && target.location <= self.document.length && target.length <= self.document.length - target.location) {
+            NSString *string = text;
+            self.document = [self.document stringByReplacingCharactersInRange:target withString:string];
+            self.selection = NSMakeRange(target.location + string.length, 0);
+        }
+        if (!self.insertions) self.insertions = [NSMutableArray array];
+        [self.insertions addObject:text];
+    }
 }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     (void)selection;
@@ -228,6 +272,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+}
+
+static NSEvent *KeypadKey(unsigned short code, NSString *characters, NSEventModifierFlags flags, BOOL repeat) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
 }
 
 @interface HiddenKeymapPanel : MSIMEShuangpinKeymapPanel
@@ -1042,6 +1090,185 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(client.committed == nil && control.state == NSControlStateValueOff);
 }
 
+static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.insertions = [NSMutableArray array];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"."
+                                      isARepeat:NO keyCode:65];
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"候选.",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([controller handleEvent:key client:client]);
+    assert(session.punctuationASCIICalls == 1 && session.lastPunctuationASCII == '.' && session.asciiCalls == 0);
+    assert([client.committed isEqual:@"候选."]);
+
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"view": @{ @"focused": @YES,
+        @"editing_text": @"", @"candidates": @[] } };
+    client.committed = nil;
+    [client.insertions removeAllObjects];
+    assert([controller handleEvent:key client:client]);
+    assert(session.punctuationASCIICalls == 2 && [client.committed isEqual:@"."]);
+    assert([client.insertions isEqual:@[@"."]]);
+
+    NSEvent *modified = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+        modifierFlags:NSEventModifierFlagControl timestamp:0 windowNumber:0 context:nil characters:@"."
+        charactersIgnoringModifiers:@"." isARepeat:NO keyCode:65];
+    assert(![controller handleEvent:modified client:client]);
+    assert(session.punctuationASCIICalls == 2);
+}
+
+static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.insertions = [NSMutableArray array];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    appearance.englishMode = NO;
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+
+    NSArray *operators = @[
+        @[@67, @"*"], @[@69, @"+"], @[@75, @"/"], @[@78, @"-"],
+        @[@81, @"="], @[@95, @","]
+    ];
+    NSUInteger expectedCalls = 0;
+    for (NSArray *entry in operators) {
+        const unsigned short keyCode = [entry[0] unsignedShortValue];
+        const uint8_t mark = (uint8_t)[entry[1] characterAtIndex:0];
+        session.enginePunctuationTransition = @{ @"handled": @YES, @"commit": entry[1],
+            @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+        session.punctuationASCIITransition = nil;
+        client.committed = nil;
+        assert([controller handleEvent:KeypadKey(keyCode, entry[1], 0, NO) client:client]);
+        assert(++expectedCalls == session.enginePunctuationCalls && session.lastEnginePunctuation == mark);
+        assert(session.punctuationASCIICalls == 0 && session.asciiCalls == 0);
+        assert([client.committed isEqual:entry[1]]);
+    }
+
+    // Any active composition uses the literal route, including keypad '-'
+    // and '=', so the main-row paging bindings cannot intercept them.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"nihao",
+        @"candidates": @[@{ @"highlighted": @YES }] } forKey:@"view"];
+    session.enginePunctuationTransition = nil;
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"候选-",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    client.committed = nil;
+    assert([controller handleEvent:KeypadKey(78, @"-", 0, NO) client:client]);
+    assert(session.punctuationASCIICalls == 1 && session.lastPunctuationASCII == '-');
+    assert(session.enginePunctuationCalls == expectedCalls && [client.committed isEqual:@"候选-"]);
+
+    const NSUInteger asciiCalls = session.punctuationASCIICalls;
+    const NSUInteger engineCalls = session.enginePunctuationCalls;
+    assert(![controller handleEvent:KeypadKey(69, @"+", NSEventModifierFlagControl, NO) client:client]);
+    assert(session.punctuationASCIICalls == asciiCalls && session.enginePunctuationCalls == engineCalls);
+}
+
+static void TestSmartPunctuationPreferences() {
+    NSString *suite = [@"msime.smart-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    NSButton *smartButton = (id)PreferenceControl(appearance, @selector(smartPunctuationChanged:));
+    NSButton *smartRepeatButton = (id)PreferenceControl(appearance, @selector(smartPunctuationRepeatChanged:));
+    assert(smartButton.state == NSControlStateValueOn && smartRepeatButton.state == NSControlStateValueOn);
+    smartButton.state = NSControlStateValueOff;
+    [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
+    smartRepeatButton.state = NSControlStateValueOff;
+    [NSApp sendAction:smartRepeatButton.action to:smartRepeatButton.target from:smartRepeatButton];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    smartButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
+    smartRepeatButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartRepeatButton.action to:smartRepeatButton.target from:smartRepeatButton];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@YES]);
+    [appearance applySharedInputPreferences:@{@"smart_punctuation": @NO, @"smart_punctuation_repeat": @NO}];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    [appearance applySharedInputPreferences:@{@"smart_punctuation": @1, @"smart_punctuation_repeat": @"true"}];
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    appearance.smartPunctuation = YES;
+    appearance.smartPunctuationRepeatToChinese = YES;
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"a";
+    client.selection = NSMakeRange(1, 0);
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{@"focused": @YES, @"editing_text": @"", @"candidates": @[]} forKey:@"view"];
+    session.contextualPunctuationTransition = @{@"handled": @YES, @"commit": @".",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    NSEvent *period = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                      windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"." isARepeat:NO keyCode:47];
+    assert([controller handleEvent:period client:client]);
+    assert(session.contextualPunctuationCalls == 1 && session.lastContextualPunctuation == '.' && session.lastPrecedingScalar == 'a');
+    assert([client.document isEqual:@"a."]);
+    client.selection = NSMakeRange(2, 0);
+    session.contextualPunctuationTransition = @{@"handled": @YES, @"commit": @".",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    assert([controller handleEvent:period client:client]);
+    assert([client.document isEqual:@"a。"] && [client.committed isEqual:@"。"]);
+
+    ModeController *composingController = [ModeController alloc];
+    ShortcutSession *composingSession = [ShortcutSession new];
+    ShortcutClient *composingClient = [ShortcutClient new];
+    composingClient.document = @"";
+    [composingController setValue:appearance forKey:@"appearance"];
+    [composingController setValue:composingSession forKey:@"session"];
+    [composingController setValue:composingClient forKey:@"activeClient"];
+    [composingController setValue:@{@"focused": @YES, @"editing_text": @"abc",
+        @"candidates": @[@{@"text": @"abc", @"highlighted": @YES}]} forKey:@"view"];
+    composingSession.punctuationASCIITransition = @{@"handled": @YES, @"commit": @"abc.",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    assert([composingController handleEvent:period client:composingClient]);
+    assert(composingSession.punctuationASCIICalls == 1 && [composingClient.committed isEqual:@"abc."]);
+
+    // A non-ASCII preceding scalar stays on the normal Engine route rather
+    // than using the contextual ASCII fast path.
+    ModeController *nonASCIIController = [ModeController alloc];
+    ShortcutSession *nonASCIISession = [ShortcutSession new];
+    ShortcutClient *nonASCIIClient = [ShortcutClient new];
+    nonASCIIClient.document = @"中";
+    nonASCIIClient.selection = NSMakeRange(1, 0);
+    [nonASCIIController setValue:appearance forKey:@"appearance"];
+    [nonASCIIController setValue:nonASCIISession forKey:@"session"];
+    [nonASCIIController setValue:nonASCIIClient forKey:@"activeClient"];
+    [nonASCIIController setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    nonASCIISession.nextTransition = @{ @"handled": @YES, @"commit": @"，",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([nonASCIIController handleEvent:period client:nonASCIIClient]);
+    assert(nonASCIISession.contextualPunctuationCalls == 0 && nonASCIISession.asciiCalls == 1);
+
+    // Full-width input applies to the idle smart-punctuation transition too.
+    ModeController *fullWidthController = [ModeController alloc];
+    ShortcutSession *fullWidthSession = [ShortcutSession new];
+    ShortcutClient *fullWidthClient = [ShortcutClient new];
+    fullWidthClient.document = @"a";
+    fullWidthClient.selection = NSMakeRange(1, 0);
+    appearance.fullWidthInput = YES;
+    [fullWidthController setValue:appearance forKey:@"appearance"];
+    [fullWidthController setValue:fullWidthSession forKey:@"session"];
+    [fullWidthController setValue:fullWidthClient forKey:@"activeClient"];
+    [fullWidthController setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    fullWidthSession.contextualPunctuationTransition = @{ @"handled": @YES, @"commit": @".",
+        @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert([fullWidthController handleEvent:period client:fullWidthClient]);
+    assert([fullWidthClient.document isEqual:@"a．"]);
+    appearance.fullWidthInput = NO;
+    appearance.smartPunctuation = NO;
+    assert(![[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] boolValue]);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
@@ -1136,6 +1363,21 @@ static void RecordBaseDeactivation(id object, SEL selector, id sender) {
 @end
 @implementation DeactivationToolbar
 - (void)deactivateForDelegate:(id)delegate { (void)delegate; ++self.calls; }
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+         englishCandidateMode:(BOOL)englishCandidateMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled {
+    (void)englishInputMode;
+    (void)englishCandidateMode;
+    (void)japaneseInputMode;
+    (void)capsLock;
+    (void)chinesePunctuationEnabled;
+    (void)fullWidthEnabled;
+    (void)traditionalChineseOutputEnabled;
+}
 @end
 
 static void TestStaleClientDeactivation() {
@@ -2692,8 +2934,11 @@ static void TestCandidateTranslationPreference() {
     RoutedAppearancePreferences *prefs = [[RoutedAppearancePreferences alloc] initWithDefaults:defaults];
     prefs.testWorkspace = [SettingsRouteWorkspace new];
     NSButton *toggle = (id)PreferenceControl(prefs, @selector(candidateTranslationsChanged:));
+    NSButton *offlineToggle = (id)PreferenceControl(prefs, @selector(candidateEnglishGlossChanged:));
     assert(prefs.candidateTranslations && toggle.state == NSControlStateValueOn);
+    assert(!prefs.candidateEnglishGloss && offlineToggle.state == NSControlStateValueOff);
     assert(![prefs sharedPreferencesByMerging:@{}][@"candidate_translations"]);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"candidate_english_gloss"]);
     assert([[prefs sharedPreferencesByMerging:@{@"candidate_translations":@NO}][@"candidate_translations"] isEqual:@NO]);
     __block NSUInteger saves = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
@@ -2704,6 +2949,16 @@ static void TestCandidateTranslationPreference() {
     toggle.state = NSControlStateValueOn;
     [NSApp sendAction:toggle.action to:toggle.target from:toggle];
     assert(prefs.candidateTranslations && saves == 1);
+    [prefs applySharedInputPreferences:@{@"candidate_english_gloss":@YES}];
+    assert(prefs.candidateEnglishGloss && offlineToggle.state == NSControlStateValueOn && saves == 1);
+    for (id invalid in @[NSNull.null, @1, @"true"]) [prefs applySharedInputPreferences:@{@"candidate_english_gloss":invalid}];
+    assert(prefs.candidateEnglishGloss && saves == 1 && ![defaults objectForKey:@"MSIMEClientCandidateEnglishGloss"]);
+    offlineToggle.state = NSControlStateValueOff;
+    [NSApp sendAction:offlineToggle.action to:offlineToggle.target from:offlineToggle];
+    assert(!prefs.candidateEnglishGloss && saves == 2);
+    offlineToggle.state = NSControlStateValueOn;
+    [NSApp sendAction:offlineToggle.action to:offlineToggle.target from:offlineToggle];
+    assert(prefs.candidateEnglishGloss && saves == 3);
     GlossController *controller = [GlossController alloc];
     controller.started = dispatch_semaphore_create(0);
     controller.released = dispatch_semaphore_create(0);
@@ -2715,20 +2970,26 @@ static void TestCandidateTranslationPreference() {
     assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
     toggle.state = NSControlStateValueOff;
     [NSApp sendAction:toggle.action to:toggle.target from:toggle];
-    assert(![controller currentGlossRequest] && saves == 2);
+    assert([controller currentGlossRequest] && saves == 4);
     [controller appearanceChanged:nil];
-    assert(session.clears == 1);
+    assert(session.clears == 0);
+    offlineToggle.state = NSControlStateValueOff;
+    [NSApp sendAction:offlineToggle.action to:offlineToggle.target from:offlineToggle];
+    [controller appearanceChanged:nil];
+    assert(![controller currentGlossRequest] && session.clears == 1 && saves == 5);
     dispatch_semaphore_signal(controller.released);
     [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
     [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
     assert(session.applications == 0);
     assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] candidateTranslations]);
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] candidateEnglishGloss]);
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSError *error = nil;
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(snapshot && !error);
     NSDictionary *merged = [prefs sharedPreferencesByMerging:snapshot[@"preferences"]];
     assert([merged[@"candidate_translations"] isEqual:@NO]);
+    assert([merged[@"candidate_english_gloss"] isEqual:@NO]);
     assert([merged[@"custom_translation"] isEqual:snapshot[@"preferences"][@"custom_translation"]]);
     NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
         snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":merged} error:&error];
@@ -3168,6 +3429,43 @@ int main(int argc, char **argv) {
             [controller refreshCandidateSkin];
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
             assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
+            if (!vertical.boolValue) {
+                [appearance applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030",
+                    @"candidate_number_color": @"#203040", @"candidate_accent_color": @"#304050",
+                    @"candidate_selected_color": @"#405060", @"candidate_hover_color": @"#506070",
+                    @"candidate_surface_color": @"#607080", @"candidate_border_color": @"#708090"}];
+                NSMutableDictionary *colorView = [pageView mutableCopy];
+                colorView[@"candidates"] = @[@{@"text": @"selected", @"highlighted": @YES},
+                    @{@"text": @"ordinary", @"highlighted": @NO}];
+                [controller setValue:colorView forKey:@"view"];
+                [controller renderCandidates];
+                MSIMECandidateChromeView *chrome = (id)layoutPanel.contentView;
+                MSIMECandidateButton *selectedButton = PageButton(chrome, 0);
+                MSIMECandidateButton *customButton = PageButton(chrome, 1);
+                preeditLabel = nil;
+                for (NSView *child in chrome.subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
+                assert(preeditLabel && [preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
+                caretLabel = (id)preeditLabel;
+                assert([chrome.fillColor isEqual:[appearance candidateSurfaceColorWithDefault:NSColor.clearColor]]);
+                assert([chrome.strokeColor isEqual:[appearance candidateBorderColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.titleColor isEqual:[appearance candidateTextColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.numberColor isEqual:[appearance candidateNumberColorWithDefault:NSColor.clearColor]]);
+                assert([selectedButton.fillColor isEqual:[appearance candidateSelectedColorWithDefault:NSColor.clearColor]]);
+                assert([selectedButton.titleColor isEqual:SkinColor(preeditTokens.selectedText)]);
+                assert([selectedButton.numberColor isEqual:SkinColor(preeditTokens.selectedText)]);
+                assert([customButton.hoverColor isEqual:[appearance candidateHoverColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.barColor isEqual:[appearance candidateAccentColorWithDefault:NSColor.clearColor]]);
+                assert([caretLabel.caretColor isEqual:customButton.barColor]);
+                [appearance applySharedCandidatePreferences:@{}];
+                [controller setValue:pageView forKey:@"view"];
+                [controller renderCandidates];
+                preeditLabel = nil;
+                for (NSView *child in layoutPanel.contentView.subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
+                assert(preeditLabel && [preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
+                caretLabel = (id)preeditLabel;
+            }
             assert(NSContainsRect(layoutPanel.contentView.bounds, preeditLabel.frame));
             for (NSView *child in layoutPanel.contentView.subviews)
                 if ([child isKindOfClass:MSIMECandidateButton.class]) {
@@ -3673,6 +3971,9 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
+        TestKeypadDecimal(appearance);
+        TestKeypadOperators(appearance);
+        TestSmartPunctuationPreferences();
         TestScreenKeyboardShortcut(appearance);
         TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);

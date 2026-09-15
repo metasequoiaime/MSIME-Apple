@@ -19,3 +19,6 @@ dist/
 /platforms/harmony/entry/src/main/resources/resfile/
 oh_modules/
 local.properties
+
+# Prepared by scripts/fetch_engine.py from engine-lock.json rather than tracked or submoduled.
+/vendor/MSIME-Engine/

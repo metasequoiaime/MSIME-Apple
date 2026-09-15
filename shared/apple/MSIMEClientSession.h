@@ -28,6 +28,12 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 /// Returns a View; remembers an explicit live width override across recreation.
 - (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error;
+/// Finish the highlighted composition and append a literal ASCII punctuation mark.
+- (nullable NSDictionary<NSString *, id> *)punctuationASCII:(uint8_t)ascii error:(NSError **)error;
+/// Apply the Engine's punctuation policy to an ASCII punctuation mark.
+- (nullable NSDictionary<NSString *, id> *)punctuation:(uint8_t)ascii error:(NSError **)error;
+/// Resolve smart punctuation using the host's preceding Unicode scalar.
+- (nullable NSDictionary<NSString *, id> *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)command:(uint32_t)command error:(NSError **)error;
 /// Clears this session's Engine candidate cache and returns the refreshed transition.
 - (nullable NSDictionary<NSString *, id> *)resetCacheWithError:(NSError **)error;

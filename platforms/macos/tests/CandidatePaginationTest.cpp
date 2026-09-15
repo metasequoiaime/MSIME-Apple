@@ -22,7 +22,20 @@ int main() {
     require(msime::mac::IsJapaneseMinusEqualInput(0, true, '-') && msime::mac::IsJapaneseMinusEqualInput(0, true, '='), "temporary Japanese punctuation");
     require(!msime::mac::IsJapaneseMinusEqualInput(0, false, '-') && !msime::mac::IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
     require(msime::mac::PhysicalCandidateDigitSlot(18) == 0 && msime::mac::PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
-    require(msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
+    require(msime::mac::PhysicalCandidateDigitSlot(83) == 0 && msime::mac::PhysicalCandidateDigitSlot(92) == 8, "keypad digit mapping");
+    require(msime::mac::PhysicalCandidateDigitSlot(82) == -1 && msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
+    require(msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, false, false), "ordinary candidate digits route");
+    require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, true, false), "Unicode digits reach the engine");
+    require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, true, false, false), "nine-key digits reach the engine");
+    require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, false, true), "modified digits reach the engine");
+    require(!msime::mac::ShouldRoutePhysicalCandidateDigit(false, false, false, false), "hidden candidate panel does not route digits");
+    require(msime::mac::IsKeypadDecimal(65) && !msime::mac::IsKeypadDecimal(0), "keypad decimal mapping");
+    require(msime::mac::KeypadPunctuation(65) == '.' && msime::mac::KeypadPunctuation(67) == '*' &&
+                msime::mac::KeypadPunctuation(69) == '+' && msime::mac::KeypadPunctuation(75) == '/' &&
+                msime::mac::KeypadPunctuation(78) == '-' && msime::mac::KeypadPunctuation(81) == '=' &&
+                msime::mac::KeypadPunctuation(95) == ',', "keypad punctuation mapping");
+    require(msime::mac::KeypadPunctuation(82) == '\0' && msime::mac::KeypadPunctuation(0) == '\0',
+            "non-punctuation keypad codes rejected");
     using msime::mac::CandidateWheelAction;
     require(msime::mac::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
     require(msime::mac::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");

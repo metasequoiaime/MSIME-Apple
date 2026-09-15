@@ -31,6 +31,8 @@ export const destroy: (handle: number) => string;
 export const focus: (handle: number, focused: boolean) => string;
 export const setNineKeyMode: (handle: number, enabled: boolean) => string;
 export const setEnglishMode: (handle: number, enabled: boolean) => string;
+/** Whether ASCII is committed as its fullwidth twin, which Ctrl+Shift+F toggles. */
+export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
 export const punctuationWithContext: (handle: number, ascii: number, preceding: number) => string;

@@ -165,23 +165,36 @@ impl HostCapabilities {
             ),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
-            floating_toolbar: platform.is_desktop(),
+            // A 2in1 draws one from the input method's own status-bar panel, which needs none of
+            // the window permissions a desktop floating window would. A HarmonyOS phone has no use
+            // for one: the surfaces are on the keyboard's own key faces there.
+            floating_toolbar: platform.is_desktop() || platform == HostPlatform::Harmony,
             // macOS FloatingToolbarPanel.mm and the Windows FloatingToolbarWindow
             // both read scale_percent and font_size; the Linux host has no
-            // equivalent surface for those two values.
+            // equivalent surface for those two values. The HarmonyOS panel
+            // scales its own frame by the former and draws its faces at the
+            // latter.
             floating_toolbar_appearance: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
             // Linux maps the component switches to IBus menu entries; the
-            // native-window hosts apply them to their own toolbar buttons.
-            floating_toolbar_components: platform.is_desktop(),
+            // native-window hosts apply them to their own toolbar buttons. The
+            // HarmonyOS panel hides the button and narrows itself, and its
+            // emoji and screen-keyboard buttons open the same surfaces its
+            // phone keyboard reaches from a key face.
+            floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
             // The IBus host consumes these directly. The Windows Server now
             // mirrors them into the shared config.toml the TIP reads at
-            // activation, so the toggles take effect there too.
+            // activation, so the toggles take effect there too. The HarmonyOS
+            // host reads all four in its hardware key router, which only a
+            // machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Linux
+                    | HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
             ),
             // Windows handles Ctrl+Shift+Win+K on its maintenance hook; Linux
             // uses the current IBus context, and macOS uses the current IMK
@@ -707,15 +720,19 @@ mod tests {
         assert!(!harmony.panel_windows);
         assert!(!harmony.window_chrome);
         assert!(!harmony.system_fonts);
+        // Drawn from the input method's status-bar panel, which scales itself by the shared
+        // scale and font size, hides the buttons the user turned off, and opens the emoji panel
+        // and the screen keyboard in the window its candidates otherwise occupy.
         assert!(
-            !harmony.floating_toolbar
-                && !harmony.floating_toolbar_appearance
-                && !harmony.floating_toolbar_components
+            harmony.floating_toolbar
+                && harmony.floating_toolbar_appearance
+                && harmony.floating_toolbar_components
         );
         assert!(!harmony.restart_input_method);
         assert!(!harmony.ime_mode_scope);
         assert!(!harmony.fuzzy_pinyin);
-        assert!(!harmony.mode_switch_shortcuts);
+        // Consumed: the hardware key router reads all four bindings, so the page may offer them.
+        assert!(harmony.mode_switch_shortcuts);
         assert!(!harmony.panel_shortcuts);
         assert!(!harmony.number_row_selection);
         assert!(!harmony.voice_capture_devices);

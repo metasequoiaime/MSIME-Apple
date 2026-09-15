@@ -28,6 +28,12 @@ static NSString *RenderedFamily(NSFont *font) {
     return family;
 }
 
+static NSColor *TestCandidateColor(NSString *value) {
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+}
+
 static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
     NSComboBox *entry = (id)FindControl(preferences.window.contentView, @"添加补充字体");
     NSPopUpButton *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
@@ -380,6 +386,28 @@ int main(int argc, const char **argv) {
         [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#112233"}];
         [preferences applySharedCandidatePreferences:@{@"candidate_text_color": NSNull.null}];
         assert(preferences.candidateTextColor == nil);
+        NSDictionary *rowColors = @{@"candidate_text_color": @"#102030", @"candidate_number_color": @"#203040",
+            @"candidate_accent_color": @"#304050", @"candidate_selected_color": @"#405060",
+            @"candidate_hover_color": @"#506070", @"candidate_surface_color": @"#607080",
+            @"candidate_border_color": @"#708090"};
+        [preferences applySharedCandidatePreferences:rowColors];
+        NSArray *resolvedColors = @[[preferences candidateTextColorWithDefault:NSColor.clearColor],
+            [preferences candidateNumberColorWithDefault:NSColor.clearColor],
+            [preferences candidateAccentColorWithDefault:NSColor.clearColor],
+            [preferences candidateSelectedColorWithDefault:NSColor.clearColor],
+            [preferences candidateHoverColorWithDefault:NSColor.clearColor],
+            [preferences candidateSurfaceColorWithDefault:NSColor.clearColor],
+            [preferences candidateBorderColorWithDefault:NSColor.clearColor]];
+        NSArray *expectedColors = @[@"#102030", @"#203040", @"#304050", @"#405060", @"#506070", @"#607080", @"#708090"];
+        for (NSUInteger index = 0; index < expectedColors.count; ++index)
+            assert([resolvedColors[index] isEqual:TestCandidateColor(expectedColors[index])]);
+        for (id invalid in @[@YES, @"red", @"#123", @"#12345678", @"#GG0000"])
+            [preferences applySharedCandidatePreferences:@{@"candidate_number_color": invalid}];
+        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:TestCandidateColor(@"#203040")]);
+        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030"}];
+        NSColor *derivedNumber = [TestCandidateColor(@"#102030") colorWithAlphaComponent:0x9d / 255.0];
+        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:derivedNumber]);
+        assert([[preferences candidateAccentColorWithDefault:NSColor.redColor] isEqual:NSColor.redColor]);
         preferences.candidateTextColor = @"#112233";
         [NSApp sendAction:NSSelectorFromString(@"resetTextColor:") to:preferences from:nil];
         assert([preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] == NSNull.null);

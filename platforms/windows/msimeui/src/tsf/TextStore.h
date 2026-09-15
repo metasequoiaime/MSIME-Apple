@@ -27,7 +27,7 @@ class CTextStore : public ITextStoreACP, public ITfContextOwnerCompositionSink, 
         _pCurrentCompositionView = NULL;
         _cRef = 1;
     }
-    ~CTextStore()
+    virtual ~CTextStore()
     {
     }
 
