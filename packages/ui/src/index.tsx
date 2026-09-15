@@ -1316,7 +1316,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
   const translationSecondaryLanguage = draft?.translation_secondary_language ?? "";
   const visibleTranslationLanguages = mobilePlatform
-    ? mobileTranslationLanguages
+    ? [...mobileTranslationLanguages]
     : translationLanguages;
   const visibleSecondaryLanguages = mobilePlatform
     ? ([...[ ["", "不显示第二种语言"] as ["", string], ...mobileTranslationLanguages],

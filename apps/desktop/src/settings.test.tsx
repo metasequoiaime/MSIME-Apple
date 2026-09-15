@@ -570,6 +570,22 @@ test("mobile translation languages stay editable for offline English glosses", a
   expect(secondary.disabled).toBe(true);
 });
 
+test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
+  const legacy: Snapshot = { ...initial, preferences: {
+    ...initial.preferences, translation_target_language: "ru", translation_secondary_language: "ru",
+  } };
+  const client = { load: async () => legacy, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  const first = render(<SettingsPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
+  expect((screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
+  first.unmount();
+  render(<SettingsPage client={{ ...client, load: async () => initial }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect([...((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).options)]
+    .map(option => option.value)).not.toContain("ru");
+});
+
 test("frequency values above the upstream dropdown range remain visible", async () => {
   const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
