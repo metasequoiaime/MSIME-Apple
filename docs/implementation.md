@@ -873,3 +873,9 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
 
 本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
+
+### 移动端九键 Engine 同步
+
+依据 Apple 远端默认分支 `origin/develop` 的固定提交 `abda282`，同步其依赖的九键拼写长度排序修复。Client 不回退到与既有 Engine 历史分叉的 Apple gitlink，而是把 `vendor/MSIME-Engine` 从 `f331a45a` 升级到 Engine 实际远端默认分支 `main` 的固定提交 `a122e56b632b4c826464fa1bc199f3cdc68b61aa`。该提交同时包含按数字长度排列九键拼写、九键英文候选及状态修复，并保留 Client 已接入的日语长音输入修复；输入算法和组合状态继续完全归 C++ Engine，Android 与 iOS 只消费共享 Host API 快照。
+
+本地 Release CMake 构建及 Engine CTest 28/28 通过，覆盖 `nine_key_session`、英文输入、日语、全拼/双拼与本地模式；共享 `client-core` 237 项、`host-api` 91 项及其集成测试、fmt、clippy、Android 宿主静态检查、iOS Swift 解析和 10 项工程配置测试通过。未执行 Android/iOS 真机输入、安装包或产品级九键触控验收，CI 保持禁用。
