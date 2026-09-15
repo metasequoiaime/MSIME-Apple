@@ -3,13 +3,13 @@
 
 macOS locks and bundles the main and English dictionaries from the same published desktop product. Both are required when Engine rebuilds a complete personal dictionary snapshot.
 
-Engine, helpcodes and the mobile builder share one Engine gitlink, and this lock does not copy that commit. Nothing here reads it: the manifest resolves gitlinks directly, and this repository has no release gate that refuses an engine commit nobody merged. MSIME-Windows does record it, because its packaging manifest and release gate both consume it, and `product_lock.py verify-contracts` keeps that copy honest against the gitlink. Either is fine with a checker; a second copy with no reader and no checker is not.
+Engine, helpcodes and the mobile builder all come from one locked Engine archive, and this lock does not copy that commit. Nothing here reads it: the manifest reads engine-lock.json directly, and this repository has no release gate that refuses an engine commit nobody merged. MSIME-Windows does record it, because its packaging manifest and release gate both consume it, and `product_lock.py verify-contracts` keeps that copy honest against the pin. Either is fine with a checker; a second copy with no reader and no checker is not.
 
 The dictionary the bundle actually *ships* is the one input git does not pin. It is a release asset behind a tag that upstream can retag, and the SHA256SUMS.txt published beside it is exactly as mutable as the data. So product-lock.json holds the tag and the SHA256 of every asset, and the build verifies those committed digests instead.
 
-The dictionary's *source* commit is locked alongside the digests rather than read from a gitlink. MSIME-Linux learned that the hard way: its dict gitlink recorded 55bd649 while every shipped byte came from 0c7368c, because nothing moves that pin in lockstep with the release tag (MSIME-Linux#47). The commit the tag resolves to is the only one that produced the data, so `refresh` resolves it at the moment the data is reviewed. The Engine gitlink also owns the mobile-profile builder, never the source identity of the released database.
+The dictionary's *source* commit is locked alongside the digests rather than read from a gitlink. MSIME-Linux learned that the hard way: its dict gitlink recorded 55bd649 while every shipped byte came from 0c7368c, because nothing moves that pin in lockstep with the release tag (MSIME-Linux#47). The commit the tag resolves to is the only one that produced the data, so `refresh` resolves it at the moment the data is reviewed. The Engine pin also owns the mobile-profile builder, never the source identity of the released database.
 
-`refresh` is the only command that reaches upstream. `manifest` records what a build consumed: the source commit, every gitlink, the locked dictionary and the digest of the lock itself.
+`refresh` is the only command that reaches upstream. `manifest` records what a build consumed: the source commit, the Engine pin, the locked dictionary and the digest of the lock itself.
 """
 
 from __future__ import annotations
@@ -38,11 +38,9 @@ REPOSITORY = "metasequoiaime/MSIME-Apple"
 DICTIONARY_REPOSITORY = "metasequoiaime/MSIME-Engine"
 DICTIONARY_URL = f"https://github.com/{DICTIONARY_REPOSITORY}.git"
 
-# Every gitlink this repository builds from. The manifest reads their commits here rather than from
-# a second copy in the lock, so there is one source of truth for what was checked out.
-SUBMODULES = {
-    "engine": ("metasequoiaime/MSIME-Engine", "vendor/MetasequoiaImeEngine"),
-}
+# Where the Engine lands and which lock names the commit that produced it. The manifest reads that lock rather than keeping a second copy, so there is one source of truth for what was built.
+ENGINE_PATH = "vendor/MetasequoiaImeEngine"
+ENGINE_LOCK = "engine-lock.json"
 
 # The database CMakeLists.txt installs into the bundle, plus the checksum file the release publishes
 # beside it. The checksum file is locked too so a rewritten one is caught rather than trusted.
@@ -136,14 +134,19 @@ def git(directory: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(directory), *args], text=True).strip()
 
 
-def gitlinks(directory: Path) -> dict:
-    submodules = {}
-    for name, (repository, path) in SUBMODULES.items():
-        fields = git(directory, "ls-tree", "HEAD", path).split()
-        if len(fields) != 4 or fields[0] != "160000" or not SHA.fullmatch(fields[2]):
-            raise ValueError(f"{path} is not a gitlink at an immutable commit in HEAD")
-        submodules[name] = {"repository": repository, "path": path, "commit": fields[2]}
-    return submodules
+def engine(directory: Path) -> dict:
+    """What the Engine archive attests to. It used to be a gitlink; a tarball has no commit of its own, so the lock is what says which one it came from -- and the digest is what makes that claim checkable."""
+    lock = json.loads((directory / ENGINE_LOCK).read_text())
+    if not SHA.fullmatch(lock.get("commit", "")) or not DIGEST.fullmatch(lock.get("sha256", "")):
+        raise ValueError(f"{ENGINE_LOCK} does not pin the Engine to an immutable, verified archive")
+    return {
+        "engine": {
+            "repository": lock["repository"],
+            "path": ENGINE_PATH,
+            "commit": lock["commit"],
+            "archive_sha256": lock["sha256"],
+        }
+    }
 
 
 def manifest(directory: Path, commit: str, lock: Path, data: dict) -> dict:
@@ -152,7 +155,7 @@ def manifest(directory: Path, commit: str, lock: Path, data: dict) -> dict:
     return {
         "schema_version": 1,
         "source": {"repository": REPOSITORY, "commit": commit},
-        "submodules": gitlinks(directory),
+        "dependencies": engine(directory),
         "dictionary": data["dictionary"],
         "lock_sha256": sha256(lock),
     }
