@@ -36,6 +36,9 @@ static const CGFloat kCandidateNumberGap = 6.0;
 // 释义垂直于候选的排列方向:候选横着走就把释义叠在词下面,候选竖着走就排在同一行。反过来两种都爆——
 // 九个候选把释义摆在词旁边要 2322pt(屏幕只有 1512),而把释义叠在竖排每一行下面要 639pt 高。
 @property(nonatomic) BOOL stacksGlosses;
+// 待上屏的那一列:0 词,1 目标语言释义,2 第二语言释义。Tab 切换,画成下划线 —— 光靠提高不透明度
+// 在浅色皮肤上几乎看不出来,而按错一次就上屏了错东西。
+@property(nonatomic) NSInteger armedGlossColumn;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -93,8 +96,18 @@ static const CGFloat kCandidateNumberGap = 6.0;
           NSParagraphStyleAttributeName : paragraph,
       };
     };
+    NSDictionary * (^armedAttributes)(NSDictionary *) = ^(NSDictionary *attributes) {
+      NSMutableDictionary *armed = [attributes mutableCopy];
+      armed[NSForegroundColorAttributeName] = base;
+      armed[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
+      return [armed copy];
+    };
     NSDictionary *primaryAttributes = glossAttributes(5.0, 0.82);
     NSDictionary *secondaryAttributes = glossAttributes(6.0, 0.66);
+    if (self.candidateHighlighted && self.armedGlossColumn == 1)
+        primaryAttributes = armedAttributes(primaryAttributes);
+    else if (self.candidateHighlighted && self.armedGlossColumn == 2)
+        secondaryAttributes = armedAttributes(secondaryAttributes);
 
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
@@ -219,6 +232,7 @@ static const CGFloat kCandidateNumberGap = 6.0;
     NSArray<NSAttributedString *> *_data;
     NSFont *_font;
     NSInteger _selected;
+    NSInteger _armedGlossColumn;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
     NSRect _anchorCaret;
@@ -235,6 +249,7 @@ static const CGFloat kCandidateNumberGap = 6.0;
         _preedit = @"";
         _font = [NSFont systemFontOfSize:18];
         _selected = NSNotFound;
+        _armedGlossColumn = 0;
         _window = [[MetasequoiaCandidateWindow alloc]
             initWithContentRect:NSZeroRect
                       styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
@@ -482,6 +497,7 @@ static const CGFloat kCandidateNumberGap = 6.0;
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
+        button.armedGlossColumn = _armedGlossColumn;
         button.candidateTranslation = translations[index];
         button.candidateSecondaryTranslation = secondaryTranslations[index];
         button.stacksGlosses = stacked;
@@ -613,6 +629,30 @@ static const CGFloat kCandidateNumberGap = 6.0;
         }
     return YES;
 }
+- (void)setArmedGlossColumn:(NSInteger)column
+{
+    if (_armedGlossColumn == column)
+    {
+        return;
+    }
+    _armedGlossColumn = column;
+    // 和选中高亮走同一条路:按钮挂在 _chrome 上。走 window.contentView 眼下指的是同一个对象,但那是
+    // 赋值的副产品,不是约定。
+    for (NSView *view in _chrome.subviews)
+    {
+        if ([view isKindOfClass:MetasequoiaCandidateButton.class])
+        {
+            ((MetasequoiaCandidateButton *)view).armedGlossColumn = column;
+            view.needsDisplay = YES;
+        }
+    }
+}
+
+- (NSInteger)armedGlossColumn
+{
+    return _armedGlossColumn;
+}
+
 - (NSInteger)selectedCandidate
 {
     return _selected;

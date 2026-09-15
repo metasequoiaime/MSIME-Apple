@@ -43,6 +43,34 @@ inline int CandidateGlossRequestForModifiers(NSEventModifierFlags modifiers, uni
     return modifiers == NSEventModifierFlagControl ? 2 : 0;
 }
 
+// 候选行上「待上屏的那一列」:0 是候选词本身,1 是目标语言的释义,2 是第二语言的释义。Tab 在这几列
+// 之间循环,⇧Tab 反向;没有释义的列直接跳过,所以一条释义都没有时 Tab 停在 0,不会变成一个按了没反应
+// 又悄悄改了上屏内容的键。
+inline int NextArmedGlossColumn(int current, bool hasPrimary, bool hasSecondary, bool backwards)
+{
+    int columns[3] = {0, 0, 0};
+    int count = 1;
+    if (hasPrimary)
+    {
+        columns[count++] = 1;
+    }
+    if (hasSecondary)
+    {
+        columns[count++] = 2;
+    }
+    int position = 0;
+    for (int index = 0; index < count; ++index)
+    {
+        if (columns[index] == current)
+        {
+            position = index;
+            break;
+        }
+    }
+    const int next = (position + (backwards ? count - 1 : 1)) % count;
+    return columns[next];
+}
+
 inline NSArray<NSNumber *> *CandidateSelectionKeys(size_t pageSize)
 {
     NSArray<NSNumber *> *allKeys = @[

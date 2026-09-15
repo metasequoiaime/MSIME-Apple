@@ -30,6 +30,9 @@
 - (NSInteger)lineNumberForCandidateWithIdentifier:(NSInteger)identifier;
 - (NSInteger)candidateStringIdentifier:(NSAttributedString *)candidate;
 - (BOOL)selectCandidateWithIdentifier:(NSInteger)identifier;
+// 待上屏的那一列(0 词,1 目标语言,2 第二语言)。只影响高亮行的画法,不改候选内容。
+- (void)setArmedGlossColumn:(NSInteger)column;
+- (NSInteger)armedGlossColumn;
 - (NSInteger)selectedCandidate;
 - (NSAttributedString *)selectedCandidateString;
 @end
