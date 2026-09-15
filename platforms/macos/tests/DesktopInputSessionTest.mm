@@ -66,10 +66,13 @@ static void Check(std::vector<unsigned char> body, uint32_t declared, bool autho
     worker.join();
     assert(calls == unsigned(expectedCall));
     [session stop];
-    for (int attempt = 0; attempt < 100 && access(path.fileSystemRepresentation, F_OK) == 0; ++attempt)
+    NSString *directory = path.stringByDeletingLastPathComponent;
+    for (int attempt = 0; attempt < 100 &&
+         (access(path.fileSystemRepresentation, F_OK) == 0 ||
+          access(directory.fileSystemRepresentation, F_OK) == 0); ++attempt)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     assert(access(path.fileSystemRepresentation, F_OK) != 0);
-    assert(access(path.stringByDeletingLastPathComponent.fileSystemRepresentation, F_OK) != 0);
+    assert(access(directory.fileSystemRepresentation, F_OK) != 0);
 }
 
 int main() {

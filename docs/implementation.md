@@ -801,3 +801,9 @@ iOS 升级兼容会在共享输入会话创建前检查固定 Apple 来源遗留
 ### iOS 打字统计共享状态接通
 
 iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态目录，使扩展写入、React 统计页读取/启停/清空和旧 Swift 统计页访问同一份 `typing-statistics.json` 与锁文件。升级时只在共享目标尚不存在时读取 App Group 根目录的旧聚合文件，双端加锁并验证后原子移动到新目录；不迁移、记录或输出真实输入内容。
+
+### macOS 输入上下文维护快捷键
+
+将 Windows 开发维护组合按 macOS 输入法生命周期适配到当前 IMK 输入上下文：`Control+Shift+Option+C` 清除当前会话的 Engine 候选缓存，`Control+Shift+Option+R` 启动同一输入法 bundle 的独立重新注册实例并在启动成功后退出当前进程，`Control+Shift+Option+T` 退出当前输入法进程。三项均使用物理 C/R/T 键位，要求精确的 Control、Shift、Option，排除 Command；Caps Lock 不影响识别，重复 keyDown 只消费而不重复执行。候选窗口中的 `1–8` 删除继续使用同一修饰键语义。
+
+共享快捷键页在 macOS 显示 Option 和“当前输入上下文”，不再声称 Windows 风格的全局 hook；重启按钮也明确为重新注册已安装输入源。Tauri 的 macOS 重新注册命令改为按输入法 bundle identifier 启动 `app.msime.client.preview.inputmethod`，不再把设置应用自身误当成输入法 bundle。Engine 缓存清理由既有 Host C ABI 经 Apple Foundation 适配器调用，平台不复制 Engine 状态。

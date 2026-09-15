@@ -6,6 +6,7 @@
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
+#import "InputSourceRegistration.h"
 #import "UpdateController.h"
 #import "ScreenKeyboardPanel.h"
 #import "DictionaryWindowController.h"
@@ -1970,6 +1971,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
 }
 
+- (void)restartCurrentInputMethod {
+    MSIMELaunchInputSourceReregistration(NSBundle.mainBundle.bundleURL, NSWorkspace.sharedWorkspace,
+        ^(BOOL launched) {
+            if (launched) [NSApp terminate:nil];
+            else NSBeep();
+        });
+}
+
+- (void)terminateCurrentInputMethod {
+    [NSApp terminate:nil];
+}
+
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
@@ -2066,6 +2079,34 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) ==
             (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagCommand)) {
         if (!event.isARepeat) [self showScreenKeyboard:nil];
+        return YES;
+    }
+    const auto maintenanceShortcut = msime::mac::PhysicalMaintenanceShortcut(
+        event.keyCode,
+        (event.modifierFlags & NSEventModifierFlagControl) != 0,
+        (event.modifierFlags & NSEventModifierFlagShift) != 0,
+        (event.modifierFlags & NSEventModifierFlagOption) != 0,
+        (event.modifierFlags & NSEventModifierFlagCommand) != 0);
+    if (maintenanceShortcut != msime::mac::MaintenanceShortcutAction::None) {
+        if (event.isARepeat) return YES;
+        switch (maintenanceShortcut) {
+            case msime::mac::MaintenanceShortcutAction::ClearCache: {
+                if (!_session) [self prepareSession];
+                NSError *error = nil;
+                NSDictionary *transition = [_session resetCacheWithError:&error];
+                if (transition) [self apply:transition];
+                else if (error) NSBeep();
+                break;
+            }
+            case msime::mac::MaintenanceShortcutAction::Restart:
+                [self restartCurrentInputMethod];
+                break;
+            case msime::mac::MaintenanceShortcutAction::Terminate:
+                [self terminateCurrentInputMethod];
+                break;
+            case msime::mac::MaintenanceShortcutAction::None:
+                break;
+        }
         return YES;
     }
     if (_appearance.englishMode) return NO;

@@ -93,6 +93,8 @@ int main() {
         assert([[session typeASCII:',' shift:NO error:&error][@"handled"] isEqual:@NO]);
         assert([session setChinesePunctuationEnabled:YES error:&error]);
         assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
+        error = nil;
+        assert([[session resetCacheWithError:&error][@"handled"] isEqual:@YES] && !error);
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
             NSError *threadError = nil;
@@ -103,6 +105,7 @@ int main() {
         assert(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
         assert(rejected);
         assert([session closeWithError:&error]);
+        assert(![session resetCacheWithError:&error]);
         assert(![session setChinesePunctuationEnabled:NO error:&error]);
         assert(![session viewWithError:&error]);
         assert(error);

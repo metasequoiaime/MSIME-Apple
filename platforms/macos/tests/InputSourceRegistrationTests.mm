@@ -3,6 +3,23 @@
 #include <stdexcept>
 #include <vector>
 
+@interface RegistrationWorkspace : NSWorkspace
+@property(nonatomic) NSUInteger launches;
+@property(nonatomic, strong) NSURL *launchedURL;
+@property(nonatomic, strong) NSWorkspaceOpenConfiguration *configuration;
+@property(nonatomic, copy) void (^completion)(NSRunningApplication *, NSError *);
+@end
+
+@implementation RegistrationWorkspace
+- (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration
+           completionHandler:(void (^)(NSRunningApplication *, NSError *))completion {
+    ++self.launches;
+    self.launchedURL = url;
+    self.configuration = configuration;
+    self.completion = completion;
+}
+@end
+
 namespace
 {
 NSURL *registeredURL = nil;
@@ -80,6 +97,29 @@ int main()
                 "An unknown command was treated as registration.");
 
         NSURL *bundleURL = [NSURL fileURLWithPath:@"/tmp/MetasequoiaIME.app" isDirectory:YES];
+        RegistrationWorkspace *workspace = [RegistrationWorkspace new];
+        __block BOOL launchCompleted = NO;
+        __block BOOL launchSucceeded = NO;
+        MSIMELaunchInputSourceReregistration(bundleURL, workspace, ^(BOOL launched) {
+            launchCompleted = YES;
+            launchSucceeded = launched;
+        });
+        require(workspace.launches == 1 && [workspace.launchedURL isEqual:bundleURL],
+                "Re-registration did not launch the current input method bundle.");
+        require([workspace.configuration.arguments isEqual:@[@"--reregister-input-source"]] &&
+                    !workspace.configuration.activates && workspace.configuration.createsNewApplicationInstance,
+                "Re-registration used the wrong launch policy.");
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        require(launchCompleted && launchSucceeded, "A successful re-registration launch was not reported.");
+        launchCompleted = NO;
+        launchSucceeded = YES;
+        workspace.completion(nil, [NSError errorWithDomain:@"SyntheticLaunchFailure" code:1 userInfo:nil]);
+        require(launchCompleted && !launchSucceeded, "A failed re-registration launch was accepted.");
+        launchCompleted = NO;
+        MSIMELaunchInputSourceReregistration([NSURL URLWithString:@"https://invalid.example"], workspace,
+                                             ^(BOOL launched) { launchCompleted = !launched; });
+        require(launchCompleted && workspace.launches == 1, "A non-file bundle URL was launched.");
+
         require(MSIMERegisterInputSource(bundleURL, CaptureRegistration) == noErr,
                 "A successful registration callback was reported as failed.");
         require([registeredURL isEqual:bundleURL], "Registration did not receive the installed bundle URL.");

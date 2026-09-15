@@ -1402,6 +1402,17 @@ struct HostActionError {
     code: &'static str,
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn macos_input_source_restart_args() -> [&'static str; 5] {
+    [
+        "-n",
+        "-b",
+        "app.msime.client.preview.inputmethod",
+        "--args",
+        "--reregister-input-source",
+    ]
+}
+
 #[tauri::command]
 fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
@@ -1430,27 +1441,15 @@ fn restart_input_method() -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "macos")]
     {
-        let executable = std::env::current_exe().map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-        let app = executable
-            .ancestors()
-            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("app"))
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
         let status = std::process::Command::new("open")
-            .arg("-n")
-            .arg(app)
-            .arg("--args")
-            .arg("--reregister-input-source")
+            .args(macos_input_source_restart_args())
             .status()
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-        return status.success().then_some(()).ok_or(HostActionError {
+        status.success().then_some(()).ok_or(HostActionError {
             code: "unavailable",
-        });
+        })
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
@@ -5303,6 +5302,20 @@ mod tests {
             None
         );
         assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
+    }
+
+    #[test]
+    fn macos_restart_targets_the_input_method_bundle() {
+        assert_eq!(
+            super::macos_input_source_restart_args(),
+            [
+                "-n",
+                "-b",
+                "app.msime.client.preview.inputmethod",
+                "--args",
+                "--reregister-input-source",
+            ]
+        );
     }
 
     #[test]
