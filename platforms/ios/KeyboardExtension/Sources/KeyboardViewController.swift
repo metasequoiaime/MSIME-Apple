@@ -173,13 +173,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 候选栏在候选行之外还占掉的高度:组字行,加上按设置预留的释义行。键盘的高度都是在它之上加出来的,所以断言高度的测试照它写,而不是各自重述一遍这个和。
   static var stripExtraHeight: CGFloat {
-    compositionRowHeight + glossHeight(lines: configuredGlossLines())
+    compositionRowHeight + glossHeight(lines: configuredGlossLines(fullAccess: false))
   }
 
-  /// 设置里配了几条释义。总开关关着就是零 —— 那时语言选了什么都不显示,也不会有任何请求。
-  static func configuredGlossLines() -> Int {
+  /// 这条语言现在拿得到释义吗。英语有随包的离线词库,其余语言只能联网 —— 而键盘没有「允许完全访问」时根本没有网络,给它留一行就是留一行永远空着的白。macOS 的候选面板也只画拿得到的那几条。
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
+    !CandidateTranslationPreference.needsNetwork(language)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+  }
+
+  /// 候选格下面要留几行释义。总开关关着就是零 —— 那时语言选了什么都不显示,也不会有任何请求。
+  static func configuredGlossLines(fullAccess: Bool) -> Int {
     guard CandidateGlossPreference.enabled else { return 0 }
-    return CandidateTranslationPreference.secondary == nil ? 1 : 2
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    if let secondary = CandidateTranslationPreference.secondary,
+       canFillGloss(secondary, fullAccess: fullAccess) {
+      lines += 1
+    }
+    return lines
   }
 
   private var feedbackStrength: KeyboardHapticStrength?
@@ -230,10 +241,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    // 候选栏建起来之前就要知道留几行释义 —— 它的高度是常量约束,建完再改就是一次可见的跳动。
-    glossLineCount = Self.configuredGlossLines()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
+    // 候选栏建起来之前就要知道留几行释义 —— 它的高度是常量约束,建完再改就是一次可见的跳动。方案先读出来,因为日语不要释义。
+    glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -1585,9 +1596,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyCandidateGlossLayout()
   }
 
+  /// 这一刻候选格下面该留几行。不按方案分 —— 换个方案就让键盘高度跳一下,比省下那一行更碍事。
+  private func currentGlossLines() -> Int {
+    Self.configuredGlossLines(fullAccess: hasFullAccess)
+  }
+
   /// 释义的行数变了就重排候选栏和键盘高度。设置改在宿主 App 里,键盘每次露面时读一遍。
   private func applyCandidateGlossLayout() {
-    let lines = Self.configuredGlossLines()
+    let lines = currentGlossLines()
     guard lines != glossLineCount else { return }
     glossLineCount = lines
     // 候选栏还没建起来时只记下行数,建的时候会照它来。
@@ -2524,7 +2540,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
-    if !CandidateTranslationPreference.needsNetwork(language),
+    // 离线词典不解日语:随包的是一本英汉词典,拿它去解假名打出来的候选是答非所问。macOS 也只把日语排除在离线这一条之外,联网那条照旧。
+    if !CandidateTranslationPreference.needsNetwork(language), !inputScheme.isJapanese,
        visibleCandidateGlosses.indices.contains(index) {
       let offline = visibleCandidateGlosses[index]
       // 词库对生僻字的「英文释义」常常就是那个字本身(孖→孖、聑→聑)。这种释义等于没有,还会占住位置让网络那份不去补。

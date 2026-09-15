@@ -103,15 +103,37 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(chip.titleLabel?.numberOfLines, 2, "行数没跟上就会被截掉")
   }
 
-  func testAsecondLanguageReservesAnotherRowOnTheKeyboard() throws {
+  func testARowIsReservedOnlyForAGlossThatCanActuallyBeFetched() throws {
     let previousGloss = CandidateGlossPreference.enabled
     let previousSecondary = CandidateTranslationPreference.secondaryIndex
     defer {
       CandidateGlossPreference.enabled = previousGloss
       CandidateTranslationPreference.secondaryIndex = previousSecondary
     }
-    let line = KeyboardViewController.glossLineHeight
-    let base = 260 + KeyboardViewController.compositionRowHeight
+
+    CandidateGlossPreference.enabled = false
+    CandidateTranslationPreference.secondaryIndex = -1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 0, "关着释义时一行都不留")
+
+    CandidateGlossPreference.enabled = true
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "英语走随包的离线词库,没有网络也答得上")
+
+    CandidateTranslationPreference.secondaryIndex = 1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "没有完全访问权限就没有网络,日语那一行永远填不上,不给它留空白")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 2,
+                   "能取到了才长这一行")
+  }
+
+  func testTheKeyboardGrowsByTheRowsTheStripReserves() throws {
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+    CandidateTranslationPreference.secondaryIndex = -1
 
     func keyboardHeight() -> CGFloat? {
       let controller = KeyboardViewController()
@@ -122,14 +144,11 @@ final class CandidateTranslationTests: XCTestCase {
     }
 
     CandidateGlossPreference.enabled = false
-    CandidateTranslationPreference.secondaryIndex = -1
-    XCTAssertEqual(keyboardHeight(), base, "关着释义时键盘还是原来的高度")
-
+    let bare = try XCTUnwrap(keyboardHeight())
     CandidateGlossPreference.enabled = true
-    XCTAssertEqual(keyboardHeight(), base + line, "一条释义长一行")
-
-    CandidateTranslationPreference.secondaryIndex = 1
-    XCTAssertEqual(keyboardHeight(), base + 2 * line, "两条释义长两行,高度从按键之外来")
+    let glossed = try XCTUnwrap(keyboardHeight())
+    XCTAssertEqual(glossed - bare, KeyboardViewController.glossLineHeight,
+                   "释义那一行是键盘长出来的,不是从按键身上挪的")
   }
 
   func testTheExpandedPanelDrawsTheSameGlossesAsTheStrip() throws {
