@@ -165,6 +165,14 @@ struct State {
   uint64_t focus_epoch = 0;
   msime::linux_host::KeyRouterAdapter key_router;
   Json view;
+  Json rendered_view;
+  // IBus reports only the row index for a candidate click. Keep the exact
+  // candidate page that was most recently handed to the panel so an
+  // asynchronous Engine refresh cannot make that index resolve against a
+  // different page.
+  Json rendered_candidates = Json::array();
+  int rendered_scheme = 255;
+  uint64_t rendered_session = 0;
   bool focused = false;
   std::string focused_context;
   std::string focused_client;
@@ -403,6 +411,10 @@ struct State {
            msime::linux_host::KeyRouterAdapter::lease_token(client_token,
                                                              session)});
     view = nullptr;
+    rendered_view = nullptr;
+    rendered_candidates = Json::array();
+    rendered_scheme = 255;
+    rendered_session = 0;
     surrounding_text.clear();
     surrounding_valid = false;
     surrounding_cursor = 0;
@@ -2789,6 +2801,11 @@ void clear(IBusEngine *engine) {
       IBUS_ENGINE_PREEDIT_CLEAR);
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
+  auto &s = state(engine);
+  s.rendered_view = nullptr;
+  s.rendered_candidates = Json::array();
+  s.rendered_scheme = 255;
+  s.rendered_session = 0;
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2868,6 +2885,10 @@ void render(IBusEngine *engine, const Json &view) {
         static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
         !s.voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
+    s.rendered_candidates = Json::array();
+    s.rendered_scheme = 255;
+    s.rendered_session = 0;
+    s.rendered_view = nullptr;
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -2898,6 +2919,11 @@ void render(IBusEngine *engine, const Json &view) {
   if (candidates.empty()) {
     ibus_engine_hide_lookup_table(engine);
     ibus_engine_hide_auxiliary_text(engine);
+    auto &s = state(engine);
+    s.rendered_candidates = Json::array();
+    s.rendered_scheme = 255;
+    s.rendered_session = 0;
+    s.rendered_view = nullptr;
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
@@ -3010,6 +3036,11 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_lookup_table_set_cursor_pos(table, static_cast<guint>(index));
   }
   ibus_engine_update_lookup_table(engine, table, TRUE);
+  auto &s = state(engine);
+  s.rendered_view = view;
+  s.rendered_candidates = candidates;
+  s.rendered_scheme = view.value("scheme", 255);
+  s.rendered_session = s.session;
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
@@ -5032,9 +5063,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK) &&
       maintenance_candidate_slot.has_value();
   if (maintenance_candidate_key) {
-    const auto candidates = s.view.value("candidates", Json::array());
+    const auto &candidates = s.rendered_candidates;
     const auto index = maintenance_candidate_slot;
-    if (!index || !candidates.is_array() || *index >= candidates.size())
+    if (!index || s.rendered_session != s.session || !candidates.is_array() ||
+        *index >= candidates.size())
       return FALSE;
     const auto &candidate = candidates.at(*index);
     if (!candidate.is_object() || !candidate.contains("id"))
@@ -5044,8 +5076,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return FALSE;
     const auto source = candidate.value("source", 0);
     if (!msime::linux_host::candidate_dictionary_removal_available(
-            s.view.value("scheme", 255), source,
-            candidate.value("text", std::string{})))
+        s.rendered_scheme, source,
+        candidate.value("text", std::string{})))
       return FALSE;
     guarded(engine, "remove_candidate_shortcut", [&] {
       apply(engine, msime_client_remove_candidate(
@@ -5255,10 +5287,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (s.number_row_selection && !s.view.value("nine_key", false) &&
-        !s.view.at("candidates").empty()) {
-      if (const auto index = candidate_digit_slot(key, keycode, flags, s.view)) {
-        if (*index >= s.view.at("candidates").size()) return;
-        const auto &candidate = s.view.at("candidates").at(*index);
+        s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+        !s.rendered_candidates.empty()) {
+      if (const auto index =
+              candidate_digit_slot(key, keycode, flags, s.rendered_view)) {
+        if (*index >= s.rendered_candidates.size()) return;
+        const auto &candidate = s.rendered_candidates.at(*index);
         const auto &id = candidate.at("id");
         if (id.at("session").get<uint64_t>() != s.session) return;
         handled = apply(engine, msime_client_select(
@@ -5268,8 +5302,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
     }
     const bool ordinary_candidate_digit =
-        !s.english_mode && s.view.value("local_mode", "none") == "none" &&
-        !s.view.value("nine_key", false) && !s.view.at("candidates").empty() &&
+        !s.english_mode && s.rendered_view.value("local_mode", "none") == "none" &&
+        !s.rendered_view.value("nine_key", false) &&
+        s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+        !s.rendered_candidates.empty() &&
         ((key >= IBUS_0 && key <= IBUS_9) ||
          (key >= IBUS_KP_0 && key <= IBUS_KP_9));
     if (ordinary_candidate_digit &&
@@ -5609,8 +5645,9 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
           apply(engine, msime_client_command(s.session, *wheel));
       return;
     }
-    const auto candidates = s.view.value("candidates", Json::array());
-    if (!s.session || !candidates.is_array() || index >= candidates.size()) return;
+    const auto &candidates = s.rendered_candidates;
+    if (!s.session || s.rendered_session != s.session ||
+        !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");
@@ -5618,7 +5655,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
     const auto source = entry.value("source", 0);
-    const auto scheme = s.view.value("scheme", 255);
+    const auto scheme = s.rendered_scheme;
     if (button == 3 && scheme != 3 &&
         (source == 0 || source == 1 || source == 4))
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
