@@ -947,3 +947,9 @@ Android 与 iOS 的共享 Tauri 设置页现在把页面和云面板层级写入
 Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设置 WebView 存在 history 时调用 `goBack()`，由 React 的 `popstate` 恢复设置页或云面板层级；没有应用内 history 时暂时关闭回调并交给 Android 默认 Activity 返回，避免递归拦截。WebView 销毁时清除引用，键盘输入法服务和 Engine 会话不随设置页返回重启。设备 smoke 新增从输入页按系统返回回到首页的检查。
 
 本地已通过 Java 设备测试源码的 `git diff --check` 与共享 UI 回归；生成的 Tauri Android Gradle 工程当前缺少本地 `tauri.settings.gradle`，因此 Gradle 编译入口未能运行，不能据此声称 Android 原生构建或真机系统返回验收完成。CI 保持禁用。
+
+### 移动端深层设置导航返回
+
+补齐共享设置页中绕过 history 的深层入口：首页快捷卡片、聊天登录、账号关于、社区资源/皮肤和本地皮肤编辑器现在统一通过移动导航函数进入页面。这样从账号进入关于或从首页进入输入/皮肤后，Android 系统返回和 iOS 导航手势都能回到来源页；桌面端仍使用原有侧栏状态。社区目的地在导航后再写入，保留“我的/已保存”等深链筛选条件。
+
+本地验证通过设置页 TypeScript 检查、设置 UI 136 项全量测试及新增移动深链返回回归。真实 iOS 手势、Android Activity 返回动画和旋转后的 history 恢复仍需设备验证，CI 保持禁用。

@@ -1019,6 +1019,35 @@ test("mobile settings reload shared preferences after returning to foreground", 
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
 
+test("mobile account deep links participate in the back stack", async () => {
+  const previous = window.history.state;
+  window.history.replaceState(null, "");
+  try {
+    render(<SettingsPage client={{
+      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+      host: { platform: "ios" } as HostCapabilities,
+      account: {
+        status: vi.fn().mockResolvedValue({ available: false }),
+        providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
+        requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(),
+        deleteAccount: vi.fn(), clearExpired: vi.fn(),
+      },
+    }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    fireEvent.click(screen.getByRole("button", { name: "账号" }));
+    fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
+    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "about" }));
+    act(() => {
+      const state = { msimeSettings: true, page: "account" };
+      window.history.replaceState(state, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    });
+    expect(await screen.findByRole("heading", { name: "我的" })).toBeTruthy();
+  } finally {
+    window.history.replaceState(previous, "");
+  }
+});
+
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

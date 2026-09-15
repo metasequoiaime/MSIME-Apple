@@ -1509,12 +1509,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     } catch { setError(failure); }
   };
   const openLocalDesigns = () => {
-    setPage("appearance");
+    selectPage("appearance");
     setShowTouchSkinEditor(true);
   };
   const openCommunity = (destination: AccountCommunityDestination) => {
+    selectPage("community");
     setCommunityDestination(destination);
-    setPage("community");
   };
   const initialCommunityCategory = communityDestination === "published-reply" || communityDestination === "saved-reply"
     ? "reply"
@@ -1607,7 +1607,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
-    {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => setPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => setPage("chat") : undefined} />}
+    {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => selectPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => selectPage("chat") : undefined} />}
     {(client.account || client.appIcon) && page === "account" && <AccountPage
       client={client.account}
       appIcon={client.appIcon}
@@ -1616,11 +1616,11 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
       onOpenCloudDictionary={client.openCloudDictionary ? () => { void client.openCloudDictionary!().catch(() => setError("无法打开云词库，请重试。")); } : undefined}
       onOpenCloudClipboard={client.openCloudClipboard ? () => { void client.openCloudClipboard!().catch(() => setError("无法打开云剪贴板，请重试。")); } : undefined}
-      onOpenAbout={mobilePlatform ? () => setPage("about") : undefined}
+      onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
       onOpenDesktopDownload={mobilePlatform && client.openExternalUrl ? () => { void openExternalUrl(desktopDownloadUrl); } : undefined}
       onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
     />}
-    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
+    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => selectPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}
     {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityDestination} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityDestination === "published-skins"} />}
     {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} />}
