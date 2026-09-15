@@ -1088,6 +1088,40 @@ int main(int argc, char **argv) {
     require(fresh_committed,
             "Fresh voice result did not commit after mode cancellation");
     seen.committed.clear();
+    // Recreating the Engine session on the same IBus object must invalidate
+    // callbacks from the old session, even when the voice generation resets.
+    const auto recreate_starts = voice_provider.started.load();
+    const auto recreate_finals = voice_provider.finished.load();
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 1; }),
+            "Session-recreation voice fixture did not start");
+    // Deliver the old result before rebuilding, but leave its idle callback
+    // queued so the replacement session is active when it is dispatched.
+    voice_provider.release_final = true;
+    const auto old_result_deadline = g_get_monotonic_time() + 2000000;
+    while (voice_provider.finished.load() < recreate_finals + 1 &&
+           g_get_monotonic_time() < old_result_deadline)
+      g_usleep(1000);
+    require(voice_provider.finished.load() == recreate_finals + 1,
+            "Session-recreation fixture did not produce the old result");
+    g_usleep(50000);
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        engine, "ShuangpinProfile/ziranma", PROP_STATE_CHECKED);
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        engine, "VoiceInput", PROP_STATE_CHECKED);
+    require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 2; }),
+            "Voice capture did not restart after Engine session recreation");
+    const auto recreate_settle = g_get_monotonic_time() + 100000;
+    while (g_get_monotonic_time() < recreate_settle) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
+    require(seen.committed.empty(),
+            "Old-session voice result committed after Engine session recreation");
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+            "Current-session voice result did not commit after recreation");
+    seen.committed.clear();
     const auto escape_starts = voice_provider.started.load();
     const auto escape_cancels = voice_provider.cancelled.load();
     const auto escape_finals = voice_provider.finished.load();

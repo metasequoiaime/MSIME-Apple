@@ -3062,6 +3062,7 @@ struct VoiceResult {
   std::shared_ptr<std::atomic_bool> alive;
   uint64_t generation;
   uint64_t focus_epoch;
+  uint64_t session;
   std::string text;
   bool final = true;
   unsigned level = 0;
@@ -3255,6 +3256,7 @@ void voice_start_impl(IBusEngine *engine) {
     apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
+  const auto session_id = s.session;
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
   s.voice_phase = "正在录音…";
@@ -3275,7 +3277,7 @@ void voice_start_impl(IBusEngine *engine) {
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   s.voice_worker.run_stream(
-      [socket, language, generation, focus_epoch, engine, alive, provider_succeeded,
+      [socket, language, generation, session_id, focus_epoch, engine, alive, provider_succeeded,
        provider_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
@@ -3284,15 +3286,16 @@ void voice_start_impl(IBusEngine *engine) {
                                 {"generation", generation},
                                 {"options", provider_options}}
                                .dump();
-        VoiceStreamContext stream{progress, [engine, alive, generation, focus_epoch, &cancelled](uint8_t phase) {
+        VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
           const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
-          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, labels[phase], false};
+          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, labels[phase], false};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
             if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                 !s.session || !s.focused || s.blocked || !s.input_enabled)
               return G_SOURCE_REMOVE;
@@ -3309,15 +3312,16 @@ void voice_start_impl(IBusEngine *engine) {
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
           }, result, nullptr);
-        }, [engine, alive, generation, focus_epoch, &cancelled](float level) {
+        }, [engine, alive, generation, session_id, focus_epoch, &cancelled](float level) {
           if (cancelled.load()) return;
-          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, {}, false,
+          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, {}, false,
               static_cast<unsigned>(level * 10.0f + 0.5f)};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
             if (!s.voice_active || s.voice_stopping || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                 !s.session || !s.focused || s.blocked || !s.input_enabled)
               return G_SOURCE_REMOVE;
@@ -3352,11 +3356,11 @@ void voice_start_impl(IBusEngine *engine) {
           return std::string{};
         }
       },
-      [engine, alive, generation, focus_epoch,
+      [engine, alive, generation, session_id, focus_epoch,
        stream_inline_preedit](std::string text, bool final) {
         if (final || text.empty())
           return;
-        auto *result = new VoiceResult{engine, alive, generation, focus_epoch,
+        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id,
                                        std::move(text), false};
         result->inline_preedit = stream_inline_preedit;
         g_idle_add_full(
@@ -3367,6 +3371,7 @@ void voice_start_impl(IBusEngine *engine) {
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
               if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                   !s.session || !s.focused || s.blocked || !s.input_enabled)
                 return G_SOURCE_REMOVE;
@@ -3385,8 +3390,8 @@ void voice_start_impl(IBusEngine *engine) {
             },
             result, nullptr);
       },
-      [engine, alive, generation, focus_epoch, provider_succeeded](std::string text) {
-        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, std::move(text),
+      [engine, alive, generation, session_id, focus_epoch, provider_succeeded](std::string text) {
+        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, std::move(text),
                                        true, 0, !provider_succeeded->load()};
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
@@ -3396,6 +3401,7 @@ void voice_start_impl(IBusEngine *engine) {
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
               if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                   !s.session || !s.focused || s.blocked || !s.input_enabled) {
                 return G_SOURCE_REMOVE;
