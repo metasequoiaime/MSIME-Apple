@@ -166,6 +166,7 @@ const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PR
 const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/MSIME-Client/issues";
+const desktopDownloadUrl = "https://msime.app/download/";
 
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
@@ -1568,6 +1569,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
       onOpenCloudDictionary={client.openCloudDictionary ? () => { void client.openCloudDictionary!().catch(() => setError("无法打开云词库，请重试。")); } : undefined}
       onOpenCloudClipboard={client.openCloudClipboard ? () => { void client.openCloudClipboard!().catch(() => setError("无法打开云剪贴板，请重试。")); } : undefined}
+      onOpenAbout={mobilePlatform ? () => setPage("about") : undefined}
+      onOpenDesktopDownload={mobilePlatform && client.openExternalUrl ? () => { void openExternalUrl(desktopDownloadUrl); } : undefined}
     />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}

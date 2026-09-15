@@ -264,7 +264,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard }: {
+export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -273,6 +273,8 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
+  onOpenAbout?: () => void;
+  onOpenDesktopDownload?: () => void;
 }) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
@@ -289,10 +291,12 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
     onOpenCommunity={onOpenCommunity}
     onOpenCloudDictionary={onOpenCloudDictionary}
     onOpenCloudClipboard={onOpenCloudClipboard}
+    onOpenAbout={onOpenAbout}
+    onOpenDesktopDownload={onOpenDesktopDownload}
   />;
 }
 
-function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard }: {
+function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload }: {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -301,6 +305,8 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
+  onOpenAbout?: () => void;
+  onOpenDesktopDownload?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -603,6 +609,13 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         </div>}
         <p className="account-muted">验证码只用于本次登录，请勿向他人透露。</p>
       </>}
+    </section>}
+    {(onOpenAbout || onOpenDesktopDownload) && <section className="section account-community-actions account-about-actions">
+      <div><h2>关于</h2><p>查看水杉版本信息、开源说明和其他平台下载指南。</p></div>
+      <div className="account-inline-actions">
+        {onOpenAbout && <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>关于水杉</button>}
+        {onOpenDesktopDownload && <button type="button" className="secondary" disabled={busy} onClick={onOpenDesktopDownload}>电脑版下载</button>}
+      </div>
     </section>}
     <section className="section account-privacy">
       <h2>本地数据与云端作品</h2>

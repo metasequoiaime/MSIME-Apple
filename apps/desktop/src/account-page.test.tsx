@@ -162,6 +162,16 @@ test("logged-in mobile accounts expose direct cloud dictionary and clipboard ent
   expect(openCloudClipboard).toHaveBeenCalledTimes(1);
 });
 
+test("mobile accounts expose about and desktop download actions while signed out", async () => {
+  const openAbout = vi.fn();
+  const openDesktopDownload = vi.fn();
+  render(<AccountPage client={account()} onOpenAbout={openAbout} onOpenDesktopDownload={openDesktopDownload} />);
+  fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
+  fireEvent.click(screen.getByRole("button", { name: "电脑版下载" }));
+  expect(openAbout).toHaveBeenCalledTimes(1);
+  expect(openDesktopDownload).toHaveBeenCalledTimes(1);
+});
+
 test("local designs remain available without an account", async () => {
   const openLocalDesigns = vi.fn();
   render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);
