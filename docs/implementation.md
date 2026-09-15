@@ -981,3 +981,9 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 依据 Apple `OnboardingView` 的“手写输入”分组，共享输入设置在 iOS 增加中文模型首次下载、离线识别、笔迹隐私和 Google ML Kit 性能统计说明，并提供“手写 SDK 隐私说明”外链。链接通过宿主注入的 `openExternalUrl` 打开；Android、桌面和 Engine 输入路径不受影响。
 
 本地验证通过 iOS 输入设置定向 Vitest 和 TypeScript 类型检查；未执行键盘扩展首次下载、完全访问权限、网络统计或真机外链验收，CI 保持禁用。
+
+### 移动端输入设置高情商回复入口（2026-09-16）
+
+依据 Apple `InputSettingsView` 的“高情商回复”分组，Android/iOS 共享输入设置增加使用说明和“配置键盘 AI”入口。按钮通过共享页内导航进入 AI 配置，不复制平台键盘会话或凭据；高情商回复仍由移动键盘宿主消费，桌面输入设置保持原有布局。
+
+本地验证通过 Android 移动输入设置定向 Vitest 和 TypeScript 类型检查；未执行 Android/iOS 真机键盘切换、粘贴权限、AI 请求和候选插入验收，CI 保持禁用。

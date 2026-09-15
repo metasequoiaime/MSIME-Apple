@@ -144,6 +144,17 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: false }));
 });
 
+test("mobile input settings expose the keyboard AI entry", async () => {
+  render(<SettingsPage client={{
+    load: async () => initial, save: vi.fn(),
+    host: { platform: "android" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.getByText(/切换到高情商回复键盘/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "配置键盘 AI" }));
+  expect(await screen.findByText("启用 AI 辅助")).toBeDefined();
+});
+
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
