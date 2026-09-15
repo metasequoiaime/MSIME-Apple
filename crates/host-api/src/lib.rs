@@ -149,6 +149,21 @@ struct HostSession {
     _dictionary_access: DictionaryAccess,
 }
 
+/// Local input modes are preference-controlled, but their backing dictionaries are
+/// immutable runtime resources. Keep a missing optional resource from turning a
+/// trigger key into a swallowed event: the Engine must see that mode disabled until
+/// the complete resource set is present.
+fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
+    let resources = std::path::Path::new(&options.resources);
+    let has_emoji_catalog = resources.join("others.db").is_file();
+    let has_english_dictionary = resources.join("english.db").is_file();
+    let has_japanese_model = resources.join("dict_japanese.dat").is_file();
+    options.local_emoji &= has_emoji_catalog;
+    options.local_kaomoji &= has_emoji_catalog;
+    options.local_temporary_english &= has_english_dictionary;
+    options.local_temporary_japanese &= has_japanese_model;
+}
+
 impl HostSession {
     fn ai_provider_config(&self) -> Option<AiAssistantProviderConfig> {
         let preferences = self
@@ -220,6 +235,7 @@ impl HostSession {
         options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
         options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
         options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
+        apply_local_mode_resource_gates(&mut options);
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.show_helpcode = helpcode.show_in_candidate_window;
@@ -379,7 +395,7 @@ struct HostOptions {
 impl HostOptions {
     fn into_engine_options(self) -> EngineOptions {
         let helpcode = self.preferences.active_helpcode();
-        EngineOptions {
+        let mut options = EngineOptions {
             resources: self.resources,
             user_data: self.user_data,
             cache: self.cache,
@@ -417,7 +433,9 @@ impl HostOptions {
                 msime_client_core::preferences::PunctuationLock::Chinese => 1,
                 msime_client_core::preferences::PunctuationLock::English => 2,
             },
-        }
+        };
+        apply_local_mode_resource_gates(&mut options);
+        options
     }
 }
 
@@ -1348,46 +1366,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
-        let helpcode = options.preferences.active_helpcode();
-        let options = EngineOptions {
-            resources: options.resources,
-            user_data: options.user_data,
-            cache: options.cache,
-            dictionaries: options.dictionaries,
-            scheme: scheme_code(options.preferences.scheme),
-            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
-            shuangpin_preedit_uses_raw: options.preferences.shuangpin_preedit_uses_raw,
-            learning: options.preferences.learning,
-            autocorrect_transposition: options.preferences.quanpin_autocorrect_transposition(),
-            autocorrect_neighbor: options.preferences.quanpin_autocorrect_neighbor(),
-            fuzzy_pinyin_rules: options.preferences.fuzzy_pinyin.active_rules(),
-            wubi_mixed_pinyin: options.preferences.wubi_mixed_pinyin,
-            frequency_mode: options.preferences.frequency.mode.as_str().into(),
-            frequency_trigger_count: options.preferences.frequency.trigger_count,
-            frequency_linear_step: options.preferences.frequency.linear_step,
-            mixed_english: options.preferences.mixed_input.english,
-            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
-            mixed_emoji: options.preferences.mixed_input.emoji,
-            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
-            local_unicode: options.preferences.local_modes.unicode,
-            local_date_time: options.preferences.local_modes.date_time,
-            local_quick_phrase: options.preferences.local_modes.quick_phrase,
-            local_emoji: options.preferences.local_modes.emoji,
-            local_kaomoji: options.preferences.local_modes.kaomoji,
-            local_super_jianpin: options.preferences.local_modes.super_jianpin,
-            local_temporary_english: options.preferences.local_modes.temporary_english,
-            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
-            helpcode: helpcode.enabled,
-            show_helpcode: helpcode.show_in_candidate_window,
-            helpcode_schema: helpcode.schema.as_str().into(),
-            chinese_punctuation: options.preferences.chinese_punctuation,
-            paired_punctuation: options.preferences.paired_punctuation,
-            punctuation_lock: match options.preferences.punctuation_lock {
-                msime_client_core::preferences::PunctuationLock::Follow => 0,
-                msime_client_core::preferences::PunctuationLock::Chinese => 1,
-                msime_client_core::preferences::PunctuationLock::English => 2,
-            },
-        };
+        let options = options.into_engine_options();
         let dictionary_access = DictionaryAccess::try_session(
             std::path::Path::new(&options.user_data),
             std::path::Path::new(&options.dictionaries),
@@ -3529,6 +3508,70 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_mode_resource_gates_preserve_unrelated_modes() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["others.db", "english.db", "dict_japanese.dat"] {
+            std::fs::write(root.path().join(name), b"fixture").unwrap();
+        }
+        let mut options = EngineOptions {
+            resources: root.path().to_string_lossy().into_owned(),
+            user_data: root.path().to_string_lossy().into_owned(),
+            cache: root.path().to_string_lossy().into_owned(),
+            dictionaries: root.path().to_string_lossy().into_owned(),
+            scheme: 0,
+            shuangpin_profile: 0,
+            shuangpin_preedit_uses_raw: true,
+            learning: false,
+            autocorrect_transposition: false,
+            autocorrect_neighbor: false,
+            fuzzy_pinyin_rules: 0,
+            wubi_mixed_pinyin: false,
+            helpcode: false,
+            show_helpcode: false,
+            helpcode_schema: "ziranma".into(),
+            chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: 0,
+            frequency_mode: "disabled".into(),
+            frequency_trigger_count: 1,
+            frequency_linear_step: 1,
+            mixed_english: false,
+            english_minimum_prefix: 2,
+            mixed_emoji: false,
+            mixed_kaomoji: false,
+            local_unicode: true,
+            local_date_time: true,
+            local_quick_phrase: true,
+            local_emoji: true,
+            local_kaomoji: true,
+            local_super_jianpin: true,
+            local_temporary_english: true,
+            local_temporary_japanese: true,
+        };
+        apply_local_mode_resource_gates(&mut options);
+        assert!(options.local_unicode);
+        assert!(options.local_date_time);
+        assert!(options.local_quick_phrase);
+        assert!(options.local_super_jianpin);
+        assert!(options.local_emoji);
+        assert!(options.local_kaomoji);
+        assert!(options.local_temporary_english);
+        assert!(options.local_temporary_japanese);
+
+        std::fs::remove_file(root.path().join("others.db")).unwrap();
+        std::fs::remove_file(root.path().join("dict_japanese.dat")).unwrap();
+        apply_local_mode_resource_gates(&mut options);
+        assert!(!options.local_emoji);
+        assert!(!options.local_kaomoji);
+        assert!(!options.local_temporary_japanese);
+        assert!(options.local_temporary_english);
+        assert!(options.local_unicode);
+        assert!(options.local_date_time);
+        assert!(options.local_quick_phrase);
+        assert!(options.local_super_jianpin);
+    }
 
     #[test]
     fn doubao_frame_codec_is_available_through_c_abi() {
