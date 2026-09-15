@@ -48,7 +48,7 @@ brew install cmake boost fmt spdlog nlohmann-json
 
 换用新的词库版本：`python3 scripts/product_lock.py refresh --dictionary-tag dict-vMAJOR.MINOR.PATCH`，然后 review 产生的 diff。
 
-公共词库源数据、构建器、辅助码与语音模块现在统一来自固定的 [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) submodule。桌面端继续下载锁定的已发布词库；iOS 打包通过同一 Engine 中的 `build_profile.py` 构建移动词库。现有 MSIME-Dict release 的来源和摘要保持不变，不能用新的构建器提交替代它们。
+公共词库源数据、构建器、辅助码与语音模块现在统一来自固定的 [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) 归档，由 `engine-lock.json` 锁定 commit 与 SHA256。桌面端继续下载锁定的已发布词库；iOS 打包通过同一 Engine 中的 `build_profile.py` 构建移动词库。现有 MSIME-Dict release 的来源和摘要保持不变，不能用新的构建器提交替代它们。
 
 ## 为当前用户安装
 
@@ -208,7 +208,7 @@ shasum -a 256 -c MetasequoiaIME-vX.Y.Z-macos-universal.zip.sha256
 
 ### 词库产品边界
 
-macOS 使用固定发布词库；iOS 从同一已校验的数据库调用 `vendor/MetasequoiaImeEngine/build_profile.py --profile mobile --source ...`。初始化工具：`git submodule update --init --recursive`。工具 gitlink 与数据发布源 commit 分别记录，移动产物同时带格式、压缩规则、来源摘要和文件摘要清单。现代发布必须携带清单；已锁定的 `dict-2026.09.05` 是明确的无清单兼容入口。
+macOS 使用固定发布词库；iOS 从同一已校验的数据库调用 `vendor/MetasequoiaImeEngine/build_profile.py --profile mobile --source ...`。初始化工具：`python3 scripts/fetch_engine.py`（CMake 配置时会自动执行）。Engine 归档 pin 与数据发布源 commit 分别记录，移动产物同时带格式、压缩规则、来源摘要和文件摘要清单。现代发布必须携带清单；已锁定的 `dict-2026.09.05` 是明确的无清单兼容入口。
 
 <!-- star-history:start -->
 ## Star History
