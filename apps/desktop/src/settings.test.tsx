@@ -987,6 +987,34 @@ test("screen keyboard matches upstream Shift and Caps posting combinations", asy
   }
 });
 
+test("screen keyboard serializes rapid host commands and drops queued keys after failure", async () => {
+  const deliveries: Array<{ resolve(): void; reject(): void }> = [];
+  const sendKey = vi.fn().mockImplementation(() => new Promise<void>((resolve, reject) => {
+    deliveries.push({ resolve, reject });
+  }));
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "a" }));
+  fireEvent.click(screen.getByRole("button", { name: "b" }));
+  fireEvent.click(screen.getByRole("button", { name: "c" }));
+
+  expect(sendKey).toHaveBeenCalledTimes(1);
+  expect(sendKey.mock.calls[0][0].virtual_key).toBe(0x41);
+  deliveries[0].resolve();
+  await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(2));
+  expect(sendKey.mock.calls[1][0].virtual_key).toBe(0x42);
+
+  deliveries[1].reject();
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("后续排队按键已取消"));
+  expect(sendKey).toHaveBeenCalledTimes(2);
+
+  fireEvent.click(screen.getByRole("button", { name: "d" }));
+  await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(3));
+  expect(sendKey.mock.calls[2][0].virtual_key).toBe(0x44);
+  deliveries[2].resolve();
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送：d"));
+});
+
 test("screen keyboard sends every digit as an unmodified IME selection key", async () => {
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
@@ -996,6 +1024,7 @@ test("screen keyboard sends every digit as an unmodified IME selection key", asy
   for (const [index, digit] of [..."1234567890"].entries()) {
     fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
     fireEvent.click(screen.getByRole("button", { name: [..."!@#$%^&*()"][index] }));
+    await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(index + 1));
     expect(sendKey).toHaveBeenLastCalledWith({
       virtual_key: digit.charCodeAt(0), shift: false,
       modifiers: { ctrl: true, alt: true, win: true }, include_sticky_modifiers: false,
@@ -1009,9 +1038,10 @@ test("screen keyboard Shift key faces match punctuation and preserve virtual key
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
   const keys: [string, string, number][] = [["`", "~", 0xc0], ["-", "_", 0xbd], ["=", "+", 0xbb], ["[", "{", 0xdb], ["]", "}", 0xdd], ["\\", "|", 0xdc], [";", ":", 0xba], ["'", '"', 0xde], [",", "<", 0xbc], [".", ">", 0xbe], ["/", "?", 0xbf]];
-  for (const [normal, shifted, code] of keys) {
+  for (const [index, [normal, shifted, code]] of keys.entries()) {
     fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
     fireEvent.click(screen.getByRole("button", { name: shifted }));
+    await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(index + 1));
     expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: code, shift: true, include_sticky_modifiers: true }));
     expect(screen.getByRole("button", { name: normal })).toBeDefined();
   }

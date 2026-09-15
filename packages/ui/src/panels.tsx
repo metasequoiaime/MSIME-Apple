@@ -293,20 +293,12 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     const request: KeyboardInputRequest = { virtual_key: keyToPress.virtualKey, shift: withShift && includeStickyModifiers, modifiers, include_sticky_modifiers: includeStickyModifiers };
     setNotice(client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`);
     if (client.sendKey) {
-      // A host bridge may resolve asynchronously while the user continues
-      // tapping. Invoke subsequent keys immediately so the native bridge sees
-      // every key in the same order they were tapped; the queue still drains
-      // the first in-flight request and handles failures for queued work.
-      if (queue.running) {
-        void client.sendKey(request).then(() => {
-          if (queue.active) setNotice(`已发送：${description}`);
-        }).catch(() => {
-          if (queue.active) setNotice("按键发送失败，请确认输入位置后继续");
-        });
-      } else {
-        queue.pending.push({ request, description });
-        void drainKeys();
-      }
+      // The native reference sends each complete SendInput sequence
+      // synchronously. Tauri commands are asynchronous, so preserve that
+      // ordering explicitly instead of allowing later taps to overtake an
+      // in-flight key or escape the bounded failure queue.
+      queue.pending.push({ request, description });
+      void drainKeys();
     }
     if (shift) {
       const next = new Set(activeModifiers);
