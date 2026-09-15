@@ -244,7 +244,13 @@ BOOL RegisterServer()
                            &regSubkeyHandle, &copiedStringLen) == ERROR_SUCCESS)
         {
             copiedStringLen = GetModuleFileNameW(Global::dllInstanceHandle, achFileName, ARRAYSIZE(achFileName));
-            copiedStringLen = (copiedStringLen >= (MAX_PATH - 1)) ? MAX_PATH : (++copiedStringLen);
+            // A zero result or truncation must not register a DLL path that
+            // cannot be loaded later by TSF.
+            if (copiedStringLen == 0 || copiedStringLen >= ARRAYSIZE(achFileName))
+            {
+                goto Exit;
+            }
+            ++copiedStringLen;
             if (RegSetValueEx(regSubkeyHandle, NULL, 0, REG_SZ, (const BYTE *)achFileName,
                               (copiedStringLen) * sizeof(WCHAR)) != ERROR_SUCCESS)
             {
