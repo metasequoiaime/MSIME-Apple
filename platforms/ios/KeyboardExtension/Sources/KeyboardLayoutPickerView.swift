@@ -8,7 +8,7 @@ import UIKit
 final class KeyboardLayoutAdjustView: UIView {
   /// 拖多远算一格。高度一比一跟手;间距那两个范围只有三到六个点,跟手就会一碰到头。
   private static let spacingDragScale: Double = 18
-  private static let barHeight: CGFloat = 48
+  private static let barHeight: CGFloat = 52
 
   private enum Axis { case vertical, horizontal }
 
@@ -94,13 +94,14 @@ final class KeyboardLayoutAdjustView: UIView {
       bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
       bar.topAnchor.constraint(equalTo: topAnchor, constant: 4),
       bar.heightAnchor.constraint(equalToConstant: Self.barHeight),
+      // 三个都对同一条中线。把手要占掉下沿那几点,所以这条线比工具条中心高一点,不是 centerY。
       close.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
-      close.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+      close.centerYAnchor.constraint(equalTo: hint.centerYAnchor),
       reset.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
-      reset.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+      reset.centerYAnchor.constraint(equalTo: hint.centerYAnchor),
       hint.leadingAnchor.constraint(equalTo: reset.trailingAnchor, constant: 8),
       hint.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -8),
-      hint.topAnchor.constraint(equalTo: bar.topAnchor, constant: 8),
+      hint.centerYAnchor.constraint(equalTo: bar.centerYAnchor, constant: -5),
       // 把手画在工具条自己的下沿里,不压到底下的快捷栏。整条工具条都能拖 —— 抓一条细横杠不如抓一整条。
       grip.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
       grip.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -6),

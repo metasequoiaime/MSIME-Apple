@@ -158,7 +158,10 @@ final class KeyboardSchemePickerView: UIView {
       card.addSubview(child)
     }
     NSLayoutConstraint.activate([
-      symbol.topAnchor.constraint(equalTo: card.topAnchor, constant: 8), symbol.centerXAnchor.constraint(equalTo: card.centerXAnchor),
+      // 图标加文字这一组整体居中,不是钉在上边。行会平分整块面板的高度,行一高,钉在上边的内容就贴着上沿、底下空一截 —— 选中那张有底色,看起来最明显。常数是「文字高度加间距」的一半,把中线从这一组的中心挪到图标上。
+      symbol.centerYAnchor.constraint(equalTo: card.centerYAnchor, constant: -11),
+      symbol.topAnchor.constraint(greaterThanOrEqualTo: card.topAnchor, constant: 4),
+      symbol.centerXAnchor.constraint(equalTo: card.centerXAnchor),
       symbol.widthAnchor.constraint(equalToConstant: 27), symbol.heightAnchor.constraint(equalToConstant: 27),
       suffix.trailingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 4), suffix.bottomAnchor.constraint(equalTo: symbol.bottomAnchor, constant: 3),
       suffix.widthAnchor.constraint(equalToConstant: 16), suffix.heightAnchor.constraint(equalToConstant: 12),
