@@ -1057,6 +1057,9 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
     require(wait_voice([&] { return voice_provider.started.load() == 1; }),
             "Synthetic voice capture did not start");
+    require(seen.first_candidate_fix_name.empty() &&
+                seen.first_candidate_clear_name.empty(),
+            "Voice overlay retained stale candidate actions");
     voice_provider.release_partial = true;
     require(wait_voice([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
             "Streaming voice did not publish synthetic preedit");

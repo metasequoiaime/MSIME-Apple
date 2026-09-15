@@ -2008,7 +2008,11 @@ IBusProperty *nine_key_spellings(IBusEngine *engine) {
 IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
-  const auto candidates = s.view.is_object()
+  // Voice rendering replaces the normal candidate surface while the Engine
+  // view still contains the last composition. Do not publish actions for
+  // that stale view during the transition; candidate mutations must remain
+  // scoped to a visible IBus page.
+  const auto candidates = !s.voice_active && s.view.is_object()
                               ? s.view.value("candidates", Json::array())
                               : Json::array();
   const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
