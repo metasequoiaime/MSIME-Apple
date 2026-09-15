@@ -49,8 +49,12 @@ typedef struct KeyHandlerEditSessionDTO
 inline ClientKeyEvent client_key_event(const KeyHandlerEditSessionDTO &dto,
                                        ClientFocusLease lease,
                                        std::uint32_t modifiers = 0,
-                                       bool ui_less = false) {
-    return {lease, dto.code, 0, modifiers, static_cast<char16_t>(dto.wch), ui_less};
+                                       bool ui_less = false,
+                                       std::uint32_t scan_code = 0) {
+    // The TSF edit session does not always retain the original LPARAM. Keep
+    // the boundary explicit: callers that observed a scan code can preserve
+    // it, while legacy paths remain ABI-compatible with zero.
+    return {lease, dto.code, scan_code, modifiers, static_cast<char16_t>(dto.wch), ui_less};
 }
 
 class CKeyStateCategory
