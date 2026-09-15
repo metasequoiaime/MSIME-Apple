@@ -311,6 +311,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.reloadSharedPreferences { [weak self] loaded in
       guard let self, loaded else { return }
       self.synchronizeSharedTouchPreferences()
+      self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
     }
     candidateGlossEpoch &+= 1
@@ -737,6 +738,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
       usesTraditionalOutput.toggle()
       ChineseOutputPreference.usesTraditional = usesTraditionalOutput
+      _ = session.setTraditionalChineseOutput(usesTraditionalOutput)
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
@@ -1724,6 +1726,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
+    }
+    if let traditional = preferences["traditional_chinese_output"] as? Bool,
+       traditional != ChineseOutputPreference.usesTraditional {
+      ChineseOutputPreference.usesTraditional = traditional
     }
     if let target = preferences["translation_target_language"] as? String,
        let index = CandidateTranslationPreference.languages.firstIndex(where: { $0.code == target.uppercased() }) {

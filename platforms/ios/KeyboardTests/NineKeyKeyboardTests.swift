@@ -119,6 +119,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(preferences["touch_keyboard_skin"] as? String, "midnight")
   }
 
+  func testTraditionalOutputWritesCanonicalPreference() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-traditional-output-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+
+    XCTAssertTrue(bridge.setTraditionalChineseOutput(true))
+    let preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["traditional_chinese_output"] as? Bool, true)
+  }
+
   func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-fuzzy-\(UUID().uuidString)", isDirectory: true)

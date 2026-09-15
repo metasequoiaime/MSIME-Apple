@@ -314,6 +314,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// Persist the touch host's Chinese output mode in the canonical snapshot.
+  @discardableResult
+  func setTraditionalChineseOutput(_ enabled: Bool) -> Bool {
+    updatePreferences { preferences in
+      preferences["traditional_chinese_output"] = enabled
+    }
+  }
+
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
   }
