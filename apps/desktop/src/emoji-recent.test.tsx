@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EmojiPanel } from "@msime/ui";
 
@@ -27,4 +27,20 @@ test("emoji panel paginates catalog items and resets on search", async () => {
   await waitFor(() => expect(screen.getByText("第 2 / 2 页")).toBeDefined());
   fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "item0" } });
   await waitFor(() => expect(screen.queryByText("第 2 / 2 页")).toBeNull());
+});
+
+test("clipboard panel exposes host paste and keeps copy separate", async () => {
+  const paste = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  render(<EmojiPanel client={{
+    close: async () => {},
+    copyText,
+    clipboard: { list: async () => ["synthetic clipboard entry"], paste },
+  }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(await screen.findByText("synthetic clipboard entry")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "粘贴此条记录到原应用" }));
+  await waitFor(() => expect(paste).toHaveBeenCalledWith("synthetic clipboard entry"));
+  expect(copyText).not.toHaveBeenCalled();
 });

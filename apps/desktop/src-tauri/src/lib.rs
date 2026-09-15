@@ -3337,7 +3337,7 @@ async fn send_text(
 
 #[tauri::command]
 fn supports_clipboard_paste() -> bool {
-    cfg!(target_os = "linux")
+    cfg!(any(target_os = "linux", target_os = "windows"))
 }
 
 #[tauri::command]
@@ -3379,7 +3379,39 @@ async fn paste_clipboard_text(
             code: "unavailable",
         })?
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        if text.is_empty()
+            || text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES
+            || text.contains('\0')
+        {
+            return Err(HostActionError {
+                code: "invalid_text",
+            });
+        }
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?
+            .0;
+        return tauri::async_runtime::spawn_blocking(move || {
+            msime_host_windows::paste_text(target, &text)
+                .then_some(())
+                .ok_or(HostActionError {
+                    code: "unavailable",
+                })
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, text);
         Err(HostActionError {
