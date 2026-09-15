@@ -1155,7 +1155,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private int candidateGlossLineCount() {
-        return candidateTranslationsEnabled ? candidateTranslationTargets.size() : 0;
+        return CandidateTranslationPolicy.glossLines(
+            candidateTranslationTargets, candidateEnglishGloss, candidateTranslationsEnabled);
     }
 
     private void updateCandidateViewportHeight() {

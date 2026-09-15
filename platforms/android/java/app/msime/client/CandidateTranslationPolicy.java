@@ -27,6 +27,16 @@ public final class CandidateTranslationPolicy {
         return String.join("\n", glosses);
     }
 
+    /** Count rows that can actually be filled by the enabled offline/online paths. */
+    public static int glossLines(List<String> targets, boolean offlineEnglish, boolean online) {
+        if (targets == null || targets.isEmpty()) return 0;
+        int lines = 0;
+        for (String target : targets) {
+            if (online || (offlineEnglish && "en".equals(normalize(target)))) lines++;
+        }
+        return lines;
+    }
+
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
