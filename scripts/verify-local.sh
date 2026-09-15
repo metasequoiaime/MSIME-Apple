@@ -74,16 +74,15 @@ compare() {
 collected="$(mktemp)"
 trap 'rm -f "$collected" "$collected".*' EXIT
 
-# A stale submodule fails the build with undeclared-identifier errors that look
+# A stale engine tree fails the build with undeclared-identifier errors that look
 # exactly like a code break - this script's own first run lost time to that.
 # Check it before blaming the source.
 note "vendored engine"
-if [ -n "$(git submodule status vendor/MSIME-Engine | grep '^+' || true)" ]; then
-  fail "vendor/MSIME-Engine is not at the commit this branch records"
-  echo "  run: git submodule update --init vendor/MSIME-Engine"
-  echo "  until then every build error below may be an artefact of the stale tree"
+if python3 scripts/fetch_engine.py; then
+  echo "vendored engine: at the locked commit"
 else
-  echo "vendored engine: at the recorded commit"
+  fail "vendor/MSIME-Engine could not be prepared from engine-lock.json"
+  echo "  until then every build error below may be an artefact of the stale tree"
 fi
 
 note "default config contracts"
