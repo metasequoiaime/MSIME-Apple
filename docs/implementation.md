@@ -884,6 +884,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证通过移动统计标签、桌面统计范围回归、TypeScript 检查和 Vite 构建。未执行 iOS/Android 真机触控、旋转或系统返回手势验证，CI 保持禁用。
 
+### 移动端账号页云功能入口
+
+依据 Apple `AccountSettingsView` 的“云端”分组，Tauri 共享账号页在已登录状态下提供云词库和云剪贴板直达按钮。按钮只调用宿主注入的面板路由：Android 与 iOS 分别打开各自的移动面板状态，不把云端凭据或输入内容交给 React，也不改变匿名账号和未登录页面。
+
+本地验证通过账号页 15 项测试、TypeScript 检查和 Vite 构建。云服务、系统返回和真实设备面板展示仍需产品环境验证，CI 保持禁用。
+
 ### macOS/Windows Tauri 凭据测试入口
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
