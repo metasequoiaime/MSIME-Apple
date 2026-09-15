@@ -1,5 +1,6 @@
 #import "../AppearancePreferences.h"
 #include <cassert>
+#import "TestPreferenceSuite.h"
 
 int main() {
     @autoreleasepool {
@@ -46,6 +47,6 @@ int main() {
         [preferences applySharedToolbarVisibility:YES];
         assert(preferences.floatingToolbarEnabled && notifications == beforeSharedVisibility + 1);
         [NSNotificationCenter.defaultCenter removeObserver:token];
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }

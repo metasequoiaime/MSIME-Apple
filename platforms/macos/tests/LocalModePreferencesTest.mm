@@ -2,6 +2,7 @@
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>
+#import "TestPreferenceSuite.h"
 
 int main() {
     @autoreleasepool {
@@ -142,7 +143,7 @@ int main() {
         }
         assert([session closeWithError:&error] && !error);
         [NSNotificationCenter.defaultCenter removeObserver:observer];
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
 }

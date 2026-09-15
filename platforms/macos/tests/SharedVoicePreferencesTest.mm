@@ -1,5 +1,6 @@
 #import "../SharedVoicePreferences.h"
 #include <cassert>
+#import "TestPreferenceSuite.h"
 
 int main() {
     @autoreleasepool {
@@ -64,6 +65,6 @@ int main() {
         MSIMEApplySharedVoicePreferences(@{@"start_sound": @NO, @"end_sound": @NO}, defaults);
         MSIMEApplySharedVoicePreferences(@{@"start_sound": @"true", @"end_sound": @1}, defaults);
         assert(!MSIMEVoiceCueEnabled(defaults, YES) && !MSIMEVoiceCueEnabled(defaults, NO));
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }

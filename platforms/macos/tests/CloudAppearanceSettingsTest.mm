@@ -1,5 +1,6 @@
 #import "../CloudAppearanceSettings.h"
 #include <cassert>
+#import "TestPreferenceSuite.h"
 int main() {
   @autoreleasepool {
     NSString *suite = [@"msime.synthetic." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -86,6 +87,6 @@ int main() {
     assert(!MSIMEApplyCloudAppearance(values, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
     assert(!MSIMEApplyCloudAppearance(values, defaults));
-    [defaults removePersistentDomainForName:suite];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
   }
 }
