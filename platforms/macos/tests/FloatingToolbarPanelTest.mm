@@ -62,6 +62,10 @@ int main() {
         assert(defaultFrame.origin.x == NSMaxX(visible) - 442.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
+        assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(NO, YES, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(YES, NO, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(YES, YES, YES));
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);

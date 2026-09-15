@@ -2,6 +2,7 @@
 #import "CandidateSkinAppearance.h"
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
+#import <CoreGraphics/CoreGraphics.h>
 
 #include <algorithm>
 #include <cmath>
@@ -58,6 +59,56 @@ NSScreen *ScreenContainingMouse()
     return NSScreen.mainScreen;
 }
 } // namespace
+
+BOOL MetasequoiaFloatingToolbarShouldShow(BOOL configuredEnabled, BOOL imeActive, BOOL fullscreen)
+{
+    return configuredEnabled && imeActive && !fullscreen;
+}
+
+static BOOL FrontmostApplicationOwnsFullscreenDisplay(void)
+{
+    NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (frontmost == nil || frontmost == NSRunningApplication.currentApplication)
+    {
+        return NO;
+    }
+
+    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    if (![windows isKindOfClass:NSArray.class])
+    {
+        return NO;
+    }
+
+    const pid_t pid = frontmost.processIdentifier;
+    for (NSDictionary *window in windows)
+    {
+        if (![window isKindOfClass:NSDictionary.class] ||
+            [window[(id)kCGWindowOwnerPID] intValue] != pid ||
+            [window[(id)kCGWindowLayer] integerValue] != 0)
+        {
+            continue;
+        }
+        CGRect bounds = CGRectZero;
+        if (!CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)window[(id)kCGWindowBounds], &bounds))
+        {
+            continue;
+        }
+        for (NSScreen *screen in NSScreen.screens)
+        {
+            // CGWindow bounds are reported in display coordinates (which may be logical points or
+            // backing pixels depending on the host). Comparing against the logical frame is safe
+            // in both cases; a maximized window remains short of the menu bar/dock on at least one
+            // edge, while a full-screen window covers the complete frame.
+            if (bounds.size.width >= screen.frame.size.width - 2.0 &&
+                bounds.size.height >= screen.frame.size.height - 2.0)
+            {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
 
 static NSRect SizedToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame, NSSize size)
 {
@@ -191,6 +242,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     BOOL _hasHostToolbarSkin;
     msime::mac::SkinTokens _lightToolbarSkin;
     msime::mac::SkinTokens _darkToolbarSkin;
+    BOOL _requestedVisible;
+    BOOL _imeActive;
 }
 
 + (instancetype)sharedPanel
@@ -290,6 +343,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                              selector:@selector(applySkin)
                                                  name:MetasequoiaCandidateSkinDidChangeNotification
                                                object:nil];
+    [[NSWorkspace sharedWorkspace].notificationCenter addObserver:self
+                                                          selector:@selector(refreshVisibility)
+                                                              name:NSWorkspaceDidActivateApplicationNotification
+                                                            object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(refreshVisibility)
+                                                 name:NSApplicationDidChangeScreenParametersNotification
+                                               object:nil];
     [self applySizingPreferences:@{}];
     [self updateEnglishInputMode:NO
               chinesePunctuationEnabled:YES
@@ -301,6 +362,34 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:self];
+}
+
+- (void)refreshVisibility
+{
+    if (self.toolbarDelegate == nil)
+    {
+        [self orderOut:nil];
+        return;
+    }
+    const BOOL show = MetasequoiaFloatingToolbarShouldShow(
+        _requestedVisible, _imeActive, FrontmostApplicationOwnsFullscreenDisplay());
+    if (!show)
+    {
+        [self orderOut:nil];
+        return;
+    }
+    if (self.visible)
+    {
+        [self orderFrontRegardless];
+        return;
+    }
+    BOOL hasSavedFrame = [[NSUserDefaults standardUserDefaults]
+        objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
+    NSScreen *screen = hasSavedFrame ? ScreenContainingFrame(self.frame) : ScreenContainingMouse();
+    if (screen == nil) screen = NSScreen.mainScreen;
+    if (screen != nil) [self setFrame:SizedToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame, _preferredSize) display:NO];
+    [self orderFrontRegardless];
 }
 
 - (void)applySizingPreferences:(NSDictionary *)preferences
@@ -442,7 +531,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
     self.toolbarDelegate = delegate;
-    [self setVisible:visible forDelegate:delegate];
+    _imeActive = YES;
+    _requestedVisible = visible;
+    [self refreshVisibility];
 }
 
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
@@ -451,32 +542,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     {
         return;
     }
-    if (!visible)
-    {
-        [self orderOut:nil];
-        return;
-    }
-    if (self.visible)
-    {
-        // Only clamp the frame when the panel comes on screen; re-showing a visible panel must not move it away from
-        // where the user dragged it.
-        [self orderFrontRegardless];
-        return;
-    }
-
-    BOOL hasSavedFrame =
-        [[NSUserDefaults standardUserDefaults]
-            objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
-    NSScreen *screen = hasSavedFrame ? ScreenContainingFrame(self.frame) : ScreenContainingMouse();
-    if (screen == nil)
-    {
-        screen = NSScreen.mainScreen;
-    }
-    if (screen != nil)
-    {
-        [self setFrame:SizedToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame, _preferredSize) display:NO];
-    }
-    [self orderFrontRegardless];
+    _requestedVisible = visible;
+    [self refreshVisibility];
 }
 
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
@@ -489,6 +556,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         return;
     }
     [self orderOut:nil];
+    _imeActive = NO;
+    _requestedVisible = NO;
     self.toolbarDelegate = nil;
 }
 
