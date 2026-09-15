@@ -17,9 +17,11 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
     private final AndroidAccountSessionStorage storage;
+    private final BackendAnonymousAccount anonymous;
 
     public BackendTranslationClient(Context context) {
         storage = new AndroidAccountSessionStorage(context);
+        anonymous = new BackendAnonymousAccount(context);
     }
 
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
@@ -72,13 +74,14 @@ public final class BackendTranslationClient implements CandidateTranslationStore
 
     private String accessToken() throws Exception {
         String encoded = storage.load();
-        if (encoded == null) throw new IllegalStateException("Account authorization required");
-        JSONObject saved = new JSONObject(encoded);
-        JSONObject tokens = saved.getJSONObject("tokens");
-        String token = tokens.getString("access_token");
-        if (token.length() != 64 || !token.matches("[0-9a-fA-F]{64}"))
-            throw new IllegalStateException("Invalid account session");
-        return token;
+        if (encoded != null) {
+            JSONObject saved = new JSONObject(encoded);
+            JSONObject tokens = saved.getJSONObject("tokens");
+            String token = tokens.getString("access_token");
+            long expiry = saved.optLong("expires_at_unix_ms", Long.MAX_VALUE);
+            if (token.matches("[0-9a-fA-F]{64}") && expiry > System.currentTimeMillis() + 30_000L) return token;
+        }
+        return anonymous.accessToken();
     }
 
     private static byte[] readBounded(InputStream input) throws Exception {
