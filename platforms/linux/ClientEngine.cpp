@@ -5591,6 +5591,27 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = true;
         return;
       }
+      // Settle Space against the candidate page most recently handed to the
+      // IBus panel. Engine may have rebuilt or reordered its live view while
+      // the panel was still processing the previous update; selecting by the
+      // rendered candidate identity keeps the key aligned with what the user
+      // was shown, just like the Windows painted-page selection fence.
+      if (candidate_active && s.rendered_session == s.session &&
+          s.rendered_candidates.is_array() && !s.rendered_candidates.empty()) {
+        for (const auto &candidate : s.rendered_candidates) {
+          if (!candidate.is_object() || !candidate.value("highlighted", false))
+            continue;
+          const auto &id = candidate.value("id", Json::object());
+          if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+            break;
+          handled = apply(engine, msime_client_select(
+              s.session, id.value("generation", uint64_t{0}),
+              id.value("index", size_t{0})));
+          if (handled)
+            return;
+          break;
+        }
+      }
       command = MSIME_COMMIT_CANDIDATE;
       break;
     case IBUS_Left:
