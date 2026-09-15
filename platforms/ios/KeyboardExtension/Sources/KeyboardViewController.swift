@@ -1797,10 +1797,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
-    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.35)
-    configuration.background.strokeWidth = 1
-    configuration.background.cornerRadius = 8
-    configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 3, leading: 2, bottom: 3, trailing: 2)
+    // The scheme shortcut uses the same unboxed treatment as the other shared shortcuts. The
+    // current scheme is already exposed through accessibilityValue and the picker it opens.
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
       attributes.font = .systemFont(ofSize: 16, weight: .medium)

@@ -464,6 +464,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       XCTAssertNil(more.menu)
       XCTAssertNotNil(descendants(more).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
+      XCTAssertEqual(try button("schemeButton", in: controller).configuration?.background.strokeWidth, 0)
       more.sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
