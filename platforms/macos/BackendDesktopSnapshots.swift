@@ -108,13 +108,13 @@ extension BackendAccountClient: DesktopSnapshotAPI {}
   }
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
     guard let operation = request["operation"] as? String else { throw BackendAccountClient.Failure(status: 400) }
-    let token = try await authorize()
     if operation == "snapshot_status" { return ["nativeFiles":true, "request":status as Any? ?? NSNull()] }
     if operation == "snapshot_cancel" {
       job?.cancel(); job = nil
       if status?["status"] as? String == "preparing" || status?["status"] as? String == "queued" { status?["status"] = "cancelled" }
       return ["request":status as Any? ?? NSNull()]
     }
+    let token = try await authorize()
     guard !busy else { throw BackendAccountClient.Failure(status: 409) }
     busy = true; defer { busy = false }
     switch operation {
