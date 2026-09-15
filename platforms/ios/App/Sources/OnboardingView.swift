@@ -51,6 +51,12 @@ struct InputSettingsView: View {
   private var wubiCodeHint = true
   @AppStorage(CandidateGlossPreference.enabledKey, store: CandidateGlossPreference.defaults)
   private var candidateGloss = false
+  @AppStorage(CandidateTranslationPreference.primaryKey, store: CandidateTranslationPreference.defaults)
+  private var translationPrimary = 0
+  @AppStorage(CandidateTranslationPreference.secondaryKey, store: CandidateTranslationPreference.defaults)
+  private var translationSecondary = -1
+  @AppStorage(CandidateTranslationPreference.onlineKey, store: CandidateTranslationPreference.defaults)
+  private var translationOnline = true
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
@@ -113,10 +119,29 @@ struct InputSettingsView: View {
         }
 
         Section("候选词") {
-          Toggle("显示英文释义", isOn: $candidateGloss)
+          Toggle("显示释义", isOn: $candidateGloss)
             .accessibilityIdentifier("candidateGloss")
-          Text("在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。")
+          Text("在候选词下面标出它的意思。英语释义来自随键盘打包的离线词库，不联网。")
             .font(.footnote).foregroundStyle(.secondary)
+          if candidateGloss {
+            Picker("第一种语言", selection: $translationPrimary) {
+              ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
+                Text(language.title).tag(index)
+              }
+            }
+            .accessibilityIdentifier("candidateTranslationPrimaryPicker")
+            Picker("第二种语言", selection: $translationSecondary) {
+              Text("不显示").tag(-1)
+              ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
+                Text(language.title).tag(index)
+              }
+            }
+            .accessibilityIdentifier("candidateTranslationSecondaryPicker")
+            Toggle("联网补充释义", isOn: $translationOnline)
+              .accessibilityIdentifier("candidateTranslationOnline")
+            Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选（不是你按下的字母）发给水杉账号的翻译接口，需要在系统设置里给键盘“允许完全访问”。")
+              .font(.footnote).foregroundStyle(.secondary)
+          }
         }
 
         if enabledSchemes.contains(.wubi) {

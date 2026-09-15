@@ -590,12 +590,9 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_candidate_surface_exposes_native_chips_numbered_only_for_voiceover(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
-        # The chips are built once and relabelled, so assert that each one is handed the candidate,
-        # its annotation and its position, rather than pinning the shape of a single call. The
-        # annotation is one slot serving two things -- the wubi code still to type, or the English
-        # gloss -- so it is the router that has to reach the chip, not either source directly.
-        self.assertIn("candidateAnnotation(at: offset)", controller)
-        self.assertIn("wubiCodeHint(at: index)", controller)
+        # The chips are built once and relabelled, so assert that each one is handed the candidate, what is drawn beside it and its position, rather than pinning the shape of a single call. 释义从候选右边挪到了候选下面自己的行,于是这里是两个来源各自到达 chip:五笔剩余编码仍然贴在词后面,释义最多两行,两者可以同时出现。
+        self.assertIn("hint: wubiCodeHint(at: offset)", controller)
+        self.assertIn("glosses: candidateGlosses(at: offset)", controller)
         self.assertIn("number: offset + 1", controller)
         self.assertIn("configuration.background.cornerRadius", controller)
 
@@ -610,6 +607,43 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("，还需输入 \\(hint)", controller)
         self.assertIn("guard inputScheme == .wubi, !session.isInLocalMode, WubiCodeHintPreference.isEnabled",
                       controller)
+
+    def test_candidate_translation_languages_match_the_macos_table(self):
+        # 两端存的都是这张表的**下标**,顺序一旦分叉,同一个偏好在 macOS 和 iOS 上就是两种语言。
+        header = (IOS_ROOT.parents[1] / "platforms/macos/src/CandidateTranslationLanguage.h").read_text()
+        preference = (IOS_ROOT / "SharedUI/CandidateTranslationPreference.swift").read_text()
+
+        table = header[header.index("kCandidateTranslationLanguages[]"):]
+        table = table[:table.index("};")]
+        macos = re.findall(r'\{"([^"]+)",\s*"([^"]+)",\s*"[^"]+"\}', table)
+        ios = re.findall(r'CandidateTranslationLanguage\(title: "([^"]+)", code: "([^"]+)"\)', preference)
+        self.assertEqual(ios, macos)
+
+    def test_candidate_translation_is_wired_from_the_settings_to_the_keyboard(self):
+        preference = (IOS_ROOT / "SharedUI/CandidateTranslationPreference.swift").read_text()
+        settings = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()
+        controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
+        store = (IOS_ROOT / "KeyboardExtension/Sources/CandidateTranslationStore.swift").read_text()
+        project = (IOS_ROOT / "project.yml").read_text()
+
+        self.assertIn("UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)", preference)
+        self.assertIn('static let primaryKey = "candidate.translationLanguage"', preference)
+        self.assertIn('static let secondaryKey = "candidate.translationSecondaryLanguage"', preference)
+        self.assertIn('static let onlineKey = "candidate.translationOnline"', preference)
+
+        self.assertIn('.accessibilityIdentifier("candidateTranslationPrimaryPicker")', settings)
+        self.assertIn('.accessibilityIdentifier("candidateTranslationSecondaryPicker")', settings)
+        self.assertIn('.accessibilityIdentifier("candidateTranslationOnline")', settings)
+
+        # 键盘扩展要自己拿 token:宿主的钥匙串它读不到,共享的只有 App Group 里那份匿名会话。
+        for source in ["BackendChatClient", "BackendAccountSession", "BackendAnonymousAccount", "BackendLocalStore"]:
+            self.assertIn(f"shared/backend/{source}.swift", project)
+        self.assertIn("BackendAnonymousAccount.sessionStorage()", store)
+        self.assertIn("client.translate(texts: words, target: target, token: token())", store)
+
+        # 没开完全访问就没有网络,连排队都不该排;送出去的也只有含汉字的候选,不是用户按下的字母。
+        self.assertIn("CandidateTranslationPreference.onlineEnabled, hasFullAccess", controller)
+        self.assertIn("words.filter(Self.translatable)", store)
 
     def test_apostrophe_reaches_the_engine_before_punctuation_conversion(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
