@@ -32,6 +32,8 @@ pub enum HostPlatform {
     Linux,
     Android,
     Ios,
+    /// The HarmonyOS phone host. Its keyboard is an InputMethodExtensionAbility panel, so it groups with the mobile hosts rather than the desktop ones. A HarmonyOS 2in1 host would group with the desktop side instead, but it gets its own variant only once that host exists: every capability keyed off `is_desktop` would otherwise claim a surface no HarmonyOS code has written yet.
+    Harmony,
 }
 
 impl HostPlatform {
@@ -42,6 +44,7 @@ impl HostPlatform {
             HostPlatform::Linux => "linux",
             HostPlatform::Android => "android",
             HostPlatform::Ios => "ios",
+            HostPlatform::Harmony => "harmony",
         }
     }
 
@@ -52,6 +55,7 @@ impl HostPlatform {
             "linux" => Ok(HostPlatform::Linux),
             "android" => Ok(HostPlatform::Android),
             "ios" => Ok(HostPlatform::Ios),
+            "harmony" => Ok(HostPlatform::Harmony),
             "" => Err(RouteError::Empty),
             _ => Err(RouteError::Unknown),
         }
@@ -685,10 +689,41 @@ mod tests {
             HostPlatform::Linux,
             HostPlatform::Android,
             HostPlatform::Ios,
+            HostPlatform::Harmony,
         ] {
             assert_eq!(HostPlatform::parse(platform.as_str()), Ok(platform));
         }
         assert_eq!(HostPlatform::parse(""), Err(RouteError::Empty));
         assert_eq!(HostPlatform::parse("bsd"), Err(RouteError::Unknown));
+    }
+
+    /// A newly named host must not claim a surface nobody has written. Every
+    /// capability here stays false until a HarmonyOS host actually consumes it,
+    /// so the shared UI never renders a control that saves and does nothing.
+    #[test]
+    fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
+        assert!(!HostPlatform::Harmony.is_desktop());
+        let harmony = HostCapabilities::for_platform(HostPlatform::Harmony);
+        assert!(!harmony.panel_windows);
+        assert!(!harmony.window_chrome);
+        assert!(!harmony.system_fonts);
+        assert!(
+            !harmony.floating_toolbar
+                && !harmony.floating_toolbar_appearance
+                && !harmony.floating_toolbar_components
+        );
+        assert!(!harmony.restart_input_method);
+        assert!(!harmony.ime_mode_scope);
+        assert!(!harmony.fuzzy_pinyin);
+        assert!(!harmony.mode_switch_shortcuts);
+        assert!(!harmony.panel_shortcuts);
+        assert!(!harmony.number_row_selection);
+        assert!(!harmony.voice_capture_devices);
+        assert!(!harmony.candidate_font_controls);
+        assert!(!harmony.candidate_row_colors);
+        assert!(!harmony.candidate_selection_appearance);
+        assert!(!harmony.candidate_follow_cursor);
+        // Typing statistics are unconditional across every host.
+        assert!(harmony.typing_statistics);
     }
 }
