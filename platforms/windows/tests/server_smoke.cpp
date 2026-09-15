@@ -1,6 +1,7 @@
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
 #include "CandidateWindow.h"
+#include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
@@ -169,6 +170,33 @@ int main() {
       UpdateWindow(clickable.handle());
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
       require(clicks == 2 && !clickable.failed());
+    }
+    {
+      std::optional<ModePresentation> value =
+          ModePresentation{{{43, {4, 5, 6}}, 1, 1}, true, true, false};
+      FloatingToolbarWindow toolbar([&] { return value; },
+                                    [](const ModeClick &) {});
+      const auto foreground = GetForegroundWindow();
+      toolbar.refresh(true);
+      UpdateWindow(toolbar.handle());
+      require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
+      require(GetForegroundWindow() == foreground);
+      toolbar.refresh(true);
+      require(!GetUpdateRect(toolbar.handle(), nullptr, FALSE));
+      for (const auto &[message, wparam] : {
+               std::pair<UINT, WPARAM>{WM_DPICHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_DWMCOMPOSITIONCHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
+                                       PBT_APMRESUMEAUTOMATIC},
+           }) {
+        const auto result = SendMessageW(toolbar.handle(), message, wparam, 0);
+        if (message == WM_POWERBROADCAST)
+          require(result == TRUE);
+        require(GetUpdateRect(toolbar.handle(), nullptr, FALSE));
+        UpdateWindow(toolbar.handle());
+        require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
+      }
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +
                         std::to_wstring(GetTickCount64());
