@@ -15,6 +15,8 @@ int main() {
   assert(candidate_removal_available("😀a"));
   assert(!candidate_removal_available("\xc0\x80"));
   assert(!candidate_removal_available("\xed\xa0\x80"));
+  assert(!candidate_removal_available("ab\xff"));
+  assert(!candidate_removal_available("词\xe4\xb"));
   assert(candidate_dictionary_removal_available(0, 0, "词语"));
   assert(candidate_dictionary_removal_available(0, 1, "词语"));
   assert(candidate_dictionary_removal_available(0, 4, "词语"));

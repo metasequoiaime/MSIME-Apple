@@ -45,10 +45,13 @@ inline bool candidate_removal_available(std::string_view text) {
         (code_point >= 0xd800 && code_point <= 0xdfff))
       return false;
     offset += width;
-    if (++count > 1)
-      return true;
+    ++count;
   }
-  return false;
+  // Match the Windows UTF-8 distance check: every byte in the candidate must
+  // be valid before exposing a destructive dictionary action. Do not return
+  // as soon as two code points are seen, otherwise a valid prefix followed by
+  // malformed bytes could incorrectly enable deletion.
+  return count > 1;
 }
 
 inline bool candidate_dictionary_removal_available(std::uint64_t scheme,
