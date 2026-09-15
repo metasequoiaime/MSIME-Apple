@@ -150,9 +150,11 @@ pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Opti
         || target.is_empty()
         || texts.is_empty()
         || texts.len() > 50
-        || texts
-            .iter()
-            .any(|text| text.chars().count() > MAX_SOURCE_CHARS)
+        || texts.iter().any(|text| {
+            text.is_empty()
+                || text.chars().count() > MAX_SOURCE_CHARS
+                || text.chars().any(char::is_control)
+        })
     {
         return None;
     }
@@ -664,6 +666,11 @@ mod tests {
         assert_eq!(value["ProjectId"], 0);
         assert_eq!(value["SourceTextList"][0], "你好");
         assert!(tencent_tmt_payload("zh", "en", &["字".repeat(41)]).is_none());
+        assert!(tencent_tmt_payload("zh", "en", &[String::new()]).is_none());
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            assert!(tencent_tmt_payload("zh", "en", &[format!("before{control}after")]).is_none());
+        }
     }
 
     #[test]

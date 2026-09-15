@@ -177,6 +177,12 @@ mod tests {
             invalid[field] = value;
             assert!(build(invalid).is_err());
         }
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            let mut invalid = request();
+            invalid["texts"] = json!([format!("before{control}after")]);
+            assert!(build(invalid).is_err());
+        }
         let mut disabled = request();
         disabled["config"] = json!({"enabled":false});
         assert_eq!(build(disabled), Ok(Value::Null));
