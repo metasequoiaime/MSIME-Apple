@@ -42,6 +42,15 @@ test("routes home shortcuts to the shared settings pages", () => {
   expect(onOpenPage.mock.calls).toEqual([["skin"], ["input"], ["screen-keyboard"], ["appearance"], ["input"]]);
 });
 
+test("routes the keyboard card to shared settings when a mobile host cannot open a window", () => {
+  const onOpenPage = vi.fn();
+  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
+
+  expect(onOpenPage).toHaveBeenCalledWith("screen-keyboard");
+});
+
 test("selects thoughtful reply from the home feature entry", () => {
   const onOpenPage = vi.fn();
   const onSelectScheme = vi.fn();
