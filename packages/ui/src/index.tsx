@@ -166,6 +166,9 @@ const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PR
 const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/MSIME-Client/issues";
+const desktopDownloadUrl = "https://msime.app/download/";
+const documentationUrl = "https://msime.app/docs/";
+const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
 
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
@@ -230,6 +233,8 @@ export type Preferences = {
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
+  /** Optional second candidate-translation language; null/absent keeps one gloss row. */
+  translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
@@ -522,6 +527,8 @@ const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count:
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; mouse_wheel?: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
 const translationLanguages: [NonNullable<Preferences["translation_target_language"]>, string][] = [["en", "英语"], ["fr", "法语"], ["ja", "日语"], ["es", "西班牙语"], ["ru", "俄语"], ["de", "德语"], ["ko", "韩语"]];
+const translationSecondaryLanguages: ["" | NonNullable<Preferences["translation_target_language"]>, string][] = [["", "不显示第二种语言"], ...translationLanguages];
+const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter = { enabled: true, keys: "brackets" as const };
 const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equal", "- / ="], ["comma_period", ", / ."], ["brackets", "[ / ]"], ["tab", "Shift+Tab / Tab"], ["page_up_down", "PageUp / PageDown"], ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"], ["arrows", "上 / 下（移动候选项）"]];
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
@@ -566,6 +573,16 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_m
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
+export type MobileKeyboardFeedback = {
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
+  hapticStrength: "light" | "medium" | "strong";
+};
+export type MobileKeyboardFeedbackClient = {
+  load(): Promise<MobileKeyboardFeedback>;
+  save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
+  preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
+};
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -602,6 +619,8 @@ export interface SettingsClient {
   copyText?: (text: string) => Promise<void>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
+  /** Mobile hosts persist keyboard sound and haptic feedback in native preferences. */
+  mobileKeyboardFeedback?: MobileKeyboardFeedbackClient;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
   openVoice?: () => Promise<void>;
@@ -768,7 +787,7 @@ export function translationEndpointIssue(endpoint: string): string {
   return "";
 }
 
-export function SettingsPage({ client, initialPage }: { client: SettingsClient; initialPage?: string }) {
+export function SettingsPage({ client, initialPage, onReplayOnboarding }: { client: SettingsClient; initialPage?: string; onReplayOnboarding?: () => void }) {
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
@@ -855,6 +874,24 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
+  // Mobile hosts use the WebView history stack for the system back gesture. The
+  // native activity can therefore dismiss a nested page without the shared UI
+  // having to know which Android/iOS navigation API is in use.
+  useEffect(() => {
+    if (!mobilePlatform || typeof window === "undefined") return;
+    const current = window.history.state;
+    if (!current || current.msimeSettings !== true) {
+      window.history.replaceState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page }, "");
+    }
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state;
+      if (state?.msimeSettings === true && typeof state.page === "string") {
+        setPage(requestedPage(state.page));
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobilePlatform]);
   const [communityDestination, setCommunityDestination] = useState<AccountCommunityDestination | "all">("all");
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -864,6 +901,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [feedbackKind, setFeedbackKind] = useState("功能异常");
   const [feedbackDetail, setFeedbackDetail] = useState("");
   const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
+  const [mobileKeyboardFeedback, setMobileKeyboardFeedback] = useState<MobileKeyboardFeedback>();
+  const [mobileKeyboardFeedbackBusy, setMobileKeyboardFeedbackBusy] = useState(false);
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
   const [phraseBusy, setPhraseBusy] = useState(false);
@@ -938,6 +977,20 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     }
     return () => { active = false; };
   }, [client]);
+
+  useEffect(() => {
+    if (!mobilePlatform || !client.mobileKeyboardFeedback) {
+      setMobileKeyboardFeedback(undefined);
+      return;
+    }
+    let active = true;
+    void client.mobileKeyboardFeedback.load().then(value => {
+      if (active) setMobileKeyboardFeedback(value);
+    }).catch(() => {
+      if (active) setError("无法读取按键反馈设置，请重试。");
+    });
+    return () => { active = false; };
+  }, [client, mobilePlatform]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 
@@ -992,6 +1045,28 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     finally { setBusy(false); }
   }
 
+  useEffect(() => {
+    if (!mobilePlatform || typeof document === "undefined") return;
+    let hidden = document.hidden;
+    const onVisibilityChange = () => {
+      const nextHidden = document.hidden;
+      const resumed = hidden && !nextHidden;
+      hidden = nextHidden;
+      if (!resumed) return;
+      const currentSnapshot = snapshotRef.current;
+      const currentDraft = draftRef.current;
+      const dirty = !!currentSnapshot && !!currentDraft &&
+        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+      if (dirty) {
+        setNotice("设置已被其他窗口修改。请重新读取后再保存。");
+        return;
+      }
+      void reload();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [client, mobilePlatform]);
+
   async function save() {
     if (!draft || !snapshot || !validCandidateFonts(draft)) return;
     setBusy(true); setError(""); setNotice("");
@@ -1000,6 +1075,31 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  }
+
+  async function saveMobileKeyboardFeedback(next: MobileKeyboardFeedback) {
+    const feedback = client.mobileKeyboardFeedback;
+    if (!feedback) return;
+    const previous = mobileKeyboardFeedback;
+    setMobileKeyboardFeedback(next);
+    setMobileKeyboardFeedbackBusy(true);
+    setError("");
+    try {
+      setMobileKeyboardFeedback(await feedback.save(next));
+    } catch {
+      if (previous) setMobileKeyboardFeedback(previous);
+      setError("无法保存按键反馈设置，请重试。");
+    } finally {
+      setMobileKeyboardFeedbackBusy(false);
+    }
+  }
+
+  async function previewMobileKeyboardHaptics() {
+    const feedback = client.mobileKeyboardFeedback;
+    if (!feedback?.preview || !mobileKeyboardFeedback?.hapticsEnabled) return;
+    setError("");
+    try { await feedback.preview(mobileKeyboardFeedback.hapticStrength); }
+    catch { setError("无法预览按键振动，请重试。"); }
   }
 
   function resetTouchKeyboardSettings() {
@@ -1307,8 +1407,22 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
-  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
+  const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
+  const candidateGlossLanguagesEnabled = candidateTranslations
+    || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
+  const translationSecondaryLanguage = draft?.translation_secondary_language ?? "";
+  const visibleTranslationLanguages = mobilePlatform
+    ? [...mobileTranslationLanguages]
+    : translationLanguages;
+  const visibleSecondaryLanguages = mobilePlatform
+    ? ([...[ ["", "不显示第二种语言"] as ["", string], ...mobileTranslationLanguages],
+      ...(translationSecondaryLanguage === "ru" ? [["ru", "俄语（已保存）"] as ["ru", string]] : [])])
+    : translationSecondaryLanguages;
+  if (mobilePlatform && translationTargetLanguage === "ru" &&
+      !visibleTranslationLanguages.some(([value]) => value === "ru")) {
+    visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
+  }
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
   const systemVoice = macosPlatform && voiceInput.asr_provider === "system";
   const doubaoAuthMode = voiceInput.doubao_auth_mode || (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
@@ -1399,9 +1513,31 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     && (item.id !== "chat" || Boolean(client.chat))
     && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
     && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
+  const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
+  const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
+  // Physical-keyboard shortcuts, helper-code switches, and a desktop floating
+  // toolbar have no mobile surface in the Apple/Android hosts. Keep them in the
+  // desktop sidebar while preventing dead-end entries in the mobile picker.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = ["helpcode", "shortcuts", "floating-toolbar"];
+  const mobileSecondaryPages = availablePages.filter(item =>
+    !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id));
+  const selectPage = (next: SettingsPageId) => {
+    if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
+    if (next === page) return;
+    setPage(next);
+    if (mobilePlatform && typeof window !== "undefined") {
+      const current = window.history.state;
+      const state = { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: next } as Record<string, unknown>;
+      delete state.panel;
+      window.history.pushState(state, "");
+    }
+    if (next === "community") setCommunityDestination("all");
+  };
   useEffect(() => {
-    if (!availablePages.some(item => item.id === page)) setPage("appearance");
-  }, [availablePages, page]);
+    const pageAvailable = availablePages.some(item => item.id === page)
+      && (!mobilePlatform || !mobileHiddenPageIds.includes(page));
+    if (!pageAvailable) setPage(mobilePlatform && client.home ? "home" : "appearance");
+  }, [availablePages, client.home, mobilePlatform, page]);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const apply = () => {
@@ -1436,12 +1572,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     } catch { setError(failure); }
   };
   const openLocalDesigns = () => {
-    setPage("appearance");
+    selectPage("appearance");
     setShowTouchSkinEditor(true);
   };
   const openCommunity = (destination: AccountCommunityDestination) => {
+    selectPage("community");
     setCommunityDestination(destination);
-    setPage("community");
   };
   const initialCommunityCategory = communityDestination === "published-reply" || communityDestination === "saved-reply"
     ? "reply"
@@ -1510,10 +1646,21 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       </span>}
     </header>}
     <div className="settings-body">
+    {mobilePlatform && <nav className="mobile-primary-nav" aria-label="主要功能">
+      {mobilePrimaryPages.map(item => <button key={item.id} type="button" className={page === item.id ? "active" : ""}
+        aria-current={page === item.id ? "page" : undefined} onClick={() => selectPage(item.id)}>
+        {item.id === "home" ? "键盘" : item.id === "typing-statistics" ? "统计" : item.id === "account" ? "账号" : item.title}
+      </button>)}
+      <label className="mobile-secondary-select">更多设置<select aria-label="更多设置" value={mobileSecondaryPages.some(item => item.id === page) ? page : ""}
+        onChange={event => { if (event.target.value) selectPage(event.target.value as SettingsPageId); }}>
+        <option value="">选择页面</option>
+        {mobileSecondaryPages.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+      </select></label>
+    </nav>}
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
-        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityDestination("all"); }}>
+        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => selectPage(item.id)}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>
@@ -1523,19 +1670,24 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
-    {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => setPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => setPage("chat") : undefined} />}
+    {client.home && draft && page === "home" && <HomePage preferences={draft} actions={client.home} onOpenPage={value => selectPage(value as SettingsPageId)} onSelectScheme={selectHomeScheme} onOpenChat={client.chat ? () => selectPage("chat") : undefined} />}
     {(client.account || client.appIcon) && page === "account" && <AccountPage
       client={client.account}
       appIcon={client.appIcon}
       platform={androidPlatform ? "android" : client.host?.platform === "ios" ? "ios" : undefined}
       onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
       onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
+      onOpenCloudDictionary={client.openCloudDictionary ? () => { void client.openCloudDictionary!().catch(() => setError("无法打开云词库，请重试。")); } : undefined}
+      onOpenCloudClipboard={client.openCloudClipboard ? () => { void client.openCloudClipboard!().catch(() => setError("无法打开云剪贴板，请重试。")); } : undefined}
+      onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
+      onOpenDesktopDownload={mobilePlatform && client.openExternalUrl ? () => { void openExternalUrl(desktopDownloadUrl); } : undefined}
+      onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
     />}
-    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
+    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => selectPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}
     {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityDestination} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityDestination === "published-skins"} />}
     {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} />}
-    {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
+    {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} mobile={mobilePlatform} />}
     {draft && page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={{ ...draft, candidate_english_font: host?.platform === "windows" ? draft.candidate_english_font ?? "Segoe UI" : draft.candidate_english_font }} scan={client.scanSkinCatalog} readImage={client.readSkinImage} resolveFonts={client.resolveFontFamilies} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
@@ -1659,6 +1811,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
+        {iosPlatform && <div className="section input-handwriting-info"><div className="section-title">手写输入</div><p>首次在键盘中使用手写时下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google ML Kit 会发送性能及使用统计。</p>{client.openExternalUrl && <button type="button" className="secondary" onClick={() => void openExternalUrl(handwritingSdkPrivacyUrl)}>手写 SDK 隐私说明</button>}</div>}
+        {mobilePlatform && <div className="section input-ai-info"><div className="section-title">高情商回复</div><p>复制对方的话，切换到高情商回复键盘，点“粘贴”后选择回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。</p><button type="button" className="secondary" onClick={() => selectPage("ai")}>配置键盘 AI</button></div>}
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
         {showModeScope && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
         {client.touchKeyboardSchemes && <div className="section touch-keyboard-schemes" role="group" aria-labelledby="touch-keyboard-schemes-title">
@@ -1786,8 +1940,14 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>向在线服务请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateGlossLanguagesEnabled} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{visibleTranslationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {(androidPlatform || iosPlatform) && <>
+            <div className="input-option-divider" />
+            <label className="section-header"><span className="section-title">第二种语言<small>候选词下方可同时显示第二种释义</small></span><select aria-label="候选翻译第二种语言" disabled={!candidateGlossLanguagesEnabled} value={translationSecondaryLanguage} onChange={event => setDraft({ ...draft, translation_secondary_language: event.target.value === "" ? null : event.target.value as Preferences["translation_target_language"] })}>{visibleSecondaryLanguages.map(([value, label]) => <option key={value || "none"} value={value}>{label}</option>)}</select></label>
+          </>}
+          {androidPlatform && <p className="input-setting-description">Android 使用已登录的 MSIME 在线服务处理候选翻译；凭据保存在系统安全存储中，不会进入此设置页。</p>}
         </div>
+        {!androidPlatform && <>
         <div className="section" role="group" aria-label="候选翻译服务">
           <label className="section-header"><span className="section-title">翻译服务</span><select aria-label="候选翻译服务" disabled={!candidateTranslations} value={translationProvider} onChange={event => setTranslationProvider(event.target.value as "none" | "custom" | "tencent" | "niutrans")}>
             <option value="none">关闭</option><option value="tencent">腾讯云机器翻译</option><option value="niutrans">小牛翻译（NiuTrans）</option><option value="custom">自定义 DeepLX 兼容服务</option>
@@ -1830,6 +1990,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <label className="section-header"><span className="section-title">API Key</span><SecretInput label="自定义翻译 API Key" value={customTranslation.api_key} disabled={!candidateTranslations || !customTranslation.enabled} onChange={value => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: value } })} /></label>
           {customTranslation.enabled && credentialTestControl("translation.custom", "测试自定义翻译配置", { endpoint: customTranslation.endpoint, api_key: customTranslation.api_key }, !candidateTranslations || Boolean(translationEndpointIssue(customTranslation.endpoint)))}
         </div>
+        </>}
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
           <div className="input-option-divider" />
@@ -1854,6 +2015,13 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             </div>)}
           </div>
         </div>
+        {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && <div className="section" role="group" aria-label="按键反馈">
+          <div className="section-title">按键反馈</div>
+          <label className="section-header"><span className="section-title">按键音<small>按键音受系统静音设置控制</small></span><input aria-label="按键音" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.soundEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, soundEnabled: event.target.checked })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">按键振动<small>振动效果取决于设备与系统支持</small></span><input aria-label="按键振动" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.hapticsEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticsEnabled: event.target.checked })} /></label>
+          {mobileKeyboardFeedback.hapticsEnabled && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">振动强度</span><select aria-label="振动强度" disabled={mobileKeyboardFeedbackBusy} value={mobileKeyboardFeedback.hapticStrength} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"] })}><option value="light">轻</option><option value="medium">中</option><option value="strong">强</option></select></label>{client.mobileKeyboardFeedback?.preview && <button type="button" className="secondary" disabled={mobileKeyboardFeedbackBusy} onClick={() => void previewMobileKeyboardHaptics()}>试一下振动</button>}</>}
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {
@@ -1981,6 +2149,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
             <p>{platformNetworkDescription}</p>
             <p>更多功能欢迎自由探索～</p>
           </div>
+          {client.openExternalUrl && <div className="document-subsection"><div className="section-title">更多</div>
+            <button type="button" className="secondary" onClick={() => void openExternalUrl(documentationUrl)}>完整文档（网页）</button>
+          </div>}
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
@@ -1991,6 +2162,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(platformLicenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
         <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(clientHostedPlatform ? androidPrivacyUrl : privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>
         </div>
+        {mobilePlatform && <div className="section about-guides" aria-label="帮助与反馈">
+          <button type="button" className="about-link-row" onClick={() => selectPage("help")}><span className="about-link-title">使用帮助</span><span aria-hidden="true">›</span></button>
+          <button type="button" className="about-link-row" onClick={() => selectPage("feedback")}><span className="about-link-title">反馈问题与建议</span><span aria-hidden="true">›</span></button>
+        </div>}
         {!androidPlatform && !macosPlatform && <div className="section" role="group" aria-label="诊断日志">
           <label className="section-header"><span className="section-title">{linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}<small>{linuxPlatform ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。" : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}</small></span><input aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"} className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
           {!linuxPlatform && <><div className="input-option-divider" />

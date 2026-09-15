@@ -1,0 +1,134 @@
+package app.msime.client;
+
+import android.content.Context;
+import android.os.Handler;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+
+/** Debounced, display-only online candidate translation cache. All callbacks run on main. */
+public final class CandidateTranslationStore {
+    public interface Service {
+        List<String> translate(List<String> texts, String target) throws Exception;
+    }
+    public interface Listener {
+        void onArrival(long generation);
+    }
+    public static final long QUIET_INTERVAL_MILLIS = 350;
+    private final Service service;
+    private final ExecutorService worker;
+    private final Handler main;
+    private final Listener listener;
+    private final Map<String, String> cache = new LinkedHashMap<>();
+    private Runnable pending;
+    private String signature;
+
+    public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
+                                     Listener listener) {
+        this(new BackendTranslationClient(context), worker, main, listener);
+    }
+
+    public CandidateTranslationStore(Service service, ExecutorService worker, Handler main,
+                                     Listener listener) {
+        this.service = service;
+        this.worker = worker;
+        this.main = main;
+        this.listener = listener;
+    }
+
+    public static boolean translatable(String value) {
+        if (value == null || value.isEmpty()) return false;
+        return value.codePoints().anyMatch(codePoint ->
+            (codePoint >= 0x4E00 && codePoint <= 0x9FFF)
+                || (codePoint >= 0x3400 && codePoint <= 0x4DBF)
+                || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
+                || (codePoint >= 0x20000 && codePoint <= 0x3FFFF));
+    }
+
+    public String gloss(String word, String target) {
+        return cache.get(key(target, word));
+    }
+
+    public void refresh(List<String> words, String target, long generation) {
+        refresh(words, target == null ? List.of() : List.of(target), generation);
+    }
+
+    public void refresh(List<String> words, List<String> targets, long generation) {
+        cancel();
+        if (words == null || targets == null || targets.isEmpty()) return;
+        ArrayList<String> requestedTargets = new ArrayList<>();
+        for (String target : targets) {
+            if (target != null && !target.isEmpty() && !requestedTargets.contains(target))
+                requestedTargets.add(target);
+        }
+        if (requestedTargets.isEmpty()) return;
+        ArrayList<String> wanted = new ArrayList<>();
+        for (String word : words) {
+            if (translatable(word) && !wanted.contains(word)) wanted.add(word);
+        }
+        if (wanted.isEmpty()) return;
+        pending = () -> send(wanted, requestedTargets, generation);
+        main.postDelayed(pending, QUIET_INTERVAL_MILLIS);
+    }
+
+    public void cancel() {
+        if (pending != null) main.removeCallbacks(pending);
+        pending = null;
+    }
+
+    public void clear() {
+        cancel();
+        cache.clear();
+        signature = null;
+    }
+
+    private void send(List<String> words, List<String> targets, long generation) {
+        pending = null;
+        String stamp = String.join(",", targets) + "|" + generation + "|" + String.join("|", words);
+        if (stamp.equals(signature)) return;
+        Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
+        for (String target : targets) {
+            ArrayList<String> missing = new ArrayList<>();
+            for (String word : words) {
+                if (!cache.containsKey(key(target, word))) missing.add(word);
+            }
+            if (!missing.isEmpty()) requests.put(target, missing);
+        }
+        if (requests.isEmpty()) return;
+        signature = stamp;
+        try {
+            worker.execute(() -> {
+                for (Map.Entry<String, ArrayList<String>> request : requests.entrySet()) {
+                    String target = request.getKey();
+                    ArrayList<String> missing = request.getValue();
+                    try {
+                        List<String> values = service.translate(missing, target);
+                        main.post(() -> absorb(target, generation, missing, values));
+                    } catch (Exception ignored) {
+                        // Optional display data must never disturb input or expose response text.
+                    }
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // A stopped worker is equivalent to an unavailable optional service.
+        }
+    }
+
+    private void absorb(String target, long generation, List<String> words, List<String> values) {
+        if (values == null || words.size() != values.size()) return;
+        boolean arrived = false;
+        for (int index = 0; index < words.size(); index++) {
+            String value = values.get(index);
+            if (value == null || value.isEmpty() || value.equals(words.get(index))
+                    || value.getBytes(StandardCharsets.UTF_8).length > 4096) continue;
+            cache.put(key(target, words.get(index)), value);
+            arrived = true;
+        }
+        if (arrived) listener.onArrival(generation);
+    }
+
+    private static String key(String target, String word) { return target + "|" + word; }
+}

@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.widget.Toast;
 import java.io.File;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -18,21 +19,42 @@ import java.util.Locale;
 public final class VoiceRecognitionActivity extends Activity {
     private static final int REQUEST_RECOGNITION = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.client.voice.LANGUAGE";
+    private static final String EXTRA_REQUEST_ID = "app.msime.client.voice.REQUEST_ID";
     private static final String STATE_LAUNCHED = "recognizer_launched";
+    private static volatile WeakReference<VoiceRecognitionActivity> active =
+        new WeakReference<>(null);
+    private static volatile String activeRequestId;
 
     public static boolean available(Context context) {
         return recognitionIntent("").resolveActivity(context.getPackageManager()) != null;
     }
 
-    public static void launch(Context context, String language) {
+    public static void markLaunched(String requestId) {
+        activeRequestId = requestId;
+    }
+
+    public static void clearRequest(String requestId) {
+        if (requestId != null && requestId.equals(activeRequestId)) activeRequestId = null;
+    }
+
+    public static boolean isRequestActive(String requestId) {
+        return requestId != null && requestId.equals(activeRequestId);
+    }
+
+    public static void launch(Context context, String requestId, String language) {
+        markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra(EXTRA_REQUEST_ID, requestId);
         intent.putExtra(EXTRA_LANGUAGE, safeLanguage(language));
         context.startActivity(intent);
     }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        active = new WeakReference<>(this);
+        String requestId = getIntent().getStringExtra(EXTRA_REQUEST_ID);
+        if (requestId != null) activeRequestId = requestId;
         if (state != null && state.getBoolean(STATE_LAUNCHED, false)) return;
         Intent recognition = recognitionIntent(getIntent().getStringExtra(EXTRA_LANGUAGE));
         if (recognition.resolveActivity(getPackageManager()) == null) {
@@ -58,7 +80,24 @@ public final class VoiceRecognitionActivity extends Activity {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) saveResult(results.get(0));
         }
+        if (requestCode == REQUEST_RECOGNITION) {
+            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        }
         finish();
+    }
+
+    /** Stops the platform recognizer launched for the shared Tauri voice panel. */
+    public static void cancelActive() {
+        VoiceRecognitionActivity activity = active.get();
+        if (activity != null) activity.runOnUiThread(activity::finish);
+    }
+
+    @Override protected void onDestroy() {
+        if (active.get() == this) active = new WeakReference<>(null);
+        if (!isChangingConfigurations()) {
+            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        }
+        super.onDestroy();
     }
 
     private void saveResult(String text) {

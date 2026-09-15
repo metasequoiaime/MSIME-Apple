@@ -34,6 +34,7 @@ enum KeyboardLayoutPreference {
   static let keySpacingKey = "keyboard.spacing.keys"
   static let rowSpacingKey = "keyboard.spacing.rows"
   static let voiceShortcutKey = "keyboard.shortcut.voice"
+  static let heightAdjustmentKey = "keyboard.height.adjustment"
   static let fullWidthInputKey = "keyboard.input.fullWidth"
   // Old presets supply upgrade defaults only. Key placement no longer depends on them.
   static var keySpacing: Double {
@@ -43,6 +44,19 @@ enum KeyboardLayoutPreference {
   static var rowSpacing: Double {
     get { spacing(key: rowSpacingKey, fallback: selected.rowSpacing, range: 4...10) }
     set { defaults.set(min(10, max(4, newValue)), forKey: rowSpacingKey) }
+  }
+  /// Keyboard height adjustment relative to the platform's current default, in points.
+  ///
+  /// The extension adds this value after accounting for orientation and candidate rows, so the
+  /// same setting remains useful when the candidate surface changes height.
+  static var heightAdjustment: Double {
+    get { spacing(key: heightAdjustmentKey, fallback: 0, range: -12...48) }
+    set { defaults.set(min(48, max(-12, newValue)), forKey: heightAdjustmentKey) }
+  }
+  static func resetToDefaults() {
+    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey, voiceShortcutKey] {
+      defaults.removeObject(forKey: stored)
+    }
   }
   static var voiceShortcutEnabled: Bool {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
