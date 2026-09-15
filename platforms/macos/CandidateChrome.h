@@ -40,6 +40,8 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
     // Candidate rows are actionable surfaces. Keep the native macOS pointer
     // affordance used by the retained Apple panel while leaving keyboard focus
     // disabled for IMK input routing.
+    if (!self.enabled)
+        return;
     [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
 }
 - (void)updateTrackingAreas
