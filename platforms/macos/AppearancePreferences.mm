@@ -551,7 +551,12 @@ static BOOL ValidToolbarFontSize(id value) {
     snapshot[@"platform.macos.candidate_font_size"] = @(self.fontSize);
     snapshot[@"platform.macos.candidate_page_size"] = @(self.pageSize);
     snapshot[@"platform.macos.candidate_panel_style"] = @(self.vertical ? 1 : 0);
-    snapshot[@"platform.macos.input_scheme"] = @([@[@"quanpin", @"shuangpin", @"wubi"] indexOfObject:self.inputScheme]);
+    NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
+    NSUInteger schemeIndex = [schemes indexOfObject:self.inputScheme];
+    // The fixed Apple cloud contract has no Japanese entry. Keep its
+    // historical Chinese fallback instead of serializing NSNotFound when a
+    // shared Tauri snapshot currently uses the Japanese Engine scheme.
+    snapshot[@"platform.macos.input_scheme"] = @(schemeIndex == NSNotFound ? 0 : schemeIndex);
     snapshot[@"platform.macos.quanpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"quanpin"][@"schema"]]);
     snapshot[@"platform.macos.shuangpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"shuangpin"][@"schema"]]);
     BOOL allLocalModes = YES;
@@ -765,8 +770,8 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)helpcodeDisplayChanged:(NSButton *)sender {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
-- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value] ? value : @"quanpin"; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
@@ -821,7 +826,7 @@ static BOOL ValidToolbarFontSize(id value) {
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
-    if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if ([@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     id inlinePreedit = preferences[@"tsf_preedit_style"];
@@ -1369,7 +1374,7 @@ static BOOL ValidToolbarFontSize(id value) {
     _controlOptionSpaceShortcutButton.state = self.controlOptionSpaceShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     _characterSetShortcutButton.state = self.characterSetShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
-    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
+    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"japanese": @3};
     [_schemeButton selectItemAtIndex:[schemeIndexes[self.inputScheme] integerValue]];
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
@@ -1419,7 +1424,7 @@ static BOOL ValidToolbarFontSize(id value) {
     _candidateFollowCursorButton = [NSButton checkboxWithTitle:@"候选窗口跟随光标" target:self action:@selector(candidateFollowCursorChanged:)];
     _candidateFollowCursorButton.accessibilityLabel = @"候选窗口跟随光标";
     _schemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔"]];
+    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔", @"日语"]];
     _schemeButton.target = self;
     _schemeButton.action = @selector(schemeChanged:);
     _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1771,7 +1776,7 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)candidateEnglishGlossChanged:(NSButton *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
-- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
+- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.indexOfSelectedItem]; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
