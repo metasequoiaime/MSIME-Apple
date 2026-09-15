@@ -21,6 +21,8 @@ int main() {
   for (const auto &invalid :
        {nlohmann::json{{"candidate_english_font", ""}},
         nlohmann::json{{"candidate_english_font", "bad\nname"}},
+        nlohmann::json{{"candidate_english_font", "bad\tname"}},
+        nlohmann::json{{"candidate_english_font", std::string(129, 'x')}},
         nlohmann::json{{"candidate_english_font", 42}},
         nlohmann::json{{"candidate_font_size", -1}},
         nlohmann::json{{"candidate_font_size", 18.5}},
