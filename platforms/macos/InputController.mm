@@ -1152,6 +1152,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         !MSIMEToolApplicationMatches([(id<IMKTextInput>)targetClient bundleIdentifier], application.bundleIdentifier)) {
         return;
     }
+    // Match the native voice providers and the Windows session: voice starts
+    // from a committed Engine state, so panel text cannot be appended to a
+    // stale preedit or be resent after the panel closes.
+    if (_session) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) {
+            [self toggleVoiceInput:nil];
+            return;
+        }
+        [self apply:finished];
+    }
     [_desktopInputSession stop];
     _desktopInputSession = nil;
     if (_desktopEmojiCompletion) {
