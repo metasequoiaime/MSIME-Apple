@@ -10,78 +10,67 @@ struct AccountSettingsView: View {
     Form {
       AppleAccountSection(signedIn: $signedIn)
 
-      Section("个性化") {
+      // 「个性化」和「创作」各自只装着一行,两个标题加两段留白换来两个入口。它们答的又是同一个问题 —— 这台手机上属于我的东西。
+      Section("本机") {
         NavigationLink(destination: AppIconSettingsView()) {
-          HStack(spacing: 12) {
-            accountIcon("app.badge", color: MetasequoiaTheme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("App 图标").foregroundStyle(.primary)
-              Text("给主屏幕上的水杉换个颜色").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
+          entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge", color: .purple)
         }.accessibilityIdentifier("accountAppIcon")
-      }
-
-      Section("创作") {
         NavigationLink(destination: CustomSkinEditorView()) {
-          HStack(spacing: 12) {
-            accountIcon("paintbrush.pointed.fill", color: MetasequoiaTheme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("我的设计").foregroundStyle(.primary)
-              Text("保存在本机的 \(designs.count) 款皮肤").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
+          entry("我的设计", detail: designs.isEmpty ? "还没有保存的皮肤" : "保存在本机的 \(designs.count) 款皮肤",
+                symbol: "paintbrush.pointed.fill", color: .pink)
         }.accessibilityIdentifier("accountLocalDesigns")
       }
 
       if signedIn {
         Section("云端") {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
-            Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
+            entry("设置同步", symbol: "arrow.triangle.2.circlepath", color: MetasequoiaTheme.accent)
           }.accessibilityIdentifier("accountSettingsSync")
           NavigationLink(destination: CommunityResourcesAccountView()) {
-            Label("词包与回复模板", systemImage: "books.vertical")
+            entry("词包与回复模板", symbol: "books.vertical.fill", color: .brown)
           }.accessibilityIdentifier("accountCommunityResources")
           NavigationLink(destination: CloudDictionaryView()) {
-            Label("云词库", systemImage: "character.book.closed")
+            entry("云词库", symbol: "character.book.closed.fill", color: .teal)
           }.accessibilityIdentifier("accountCloudDictionary")
           NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
-            Label("云剪贴板", systemImage: "doc.on.clipboard")
+            entry("云剪贴板", symbol: "doc.on.clipboard.fill", color: .orange)
           }.accessibilityIdentifier("accountCloudClipboard")
         }
 
-        Section("社区") {
+        // 「我发布的皮肤」「我发布的词库」「收藏的词库」…… 五行里有四个字是重复的,而重复的那部分正是分组本身要说的话。搬进标题,行里就只剩下真正在区分彼此的那两个字。
+        Section("我发布的") {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            Label("我发布的皮肤", systemImage: "paintpalette")
+            entry("皮肤", symbol: "paintpalette.fill", color: .pink)
           }.accessibilityIdentifier("accountPublishedSkins")
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
-              Label("我发布的\(kind.title)", systemImage: kind.icon)
+              entry(kind.title, symbol: kind.icon, color: color(for: kind))
             }
           }
         }
-        Section("收藏") {
+        Section("我收藏的") {
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
-              Label("收藏的\(kind.title)", systemImage: "bookmark")
+              entry(kind.title, symbol: "bookmark.fill", color: color(for: kind))
             }
           }
         }
       }
 
-      Section("关于") {
-          NavigationLink(destination: DesktopDownloadView()) {
-            Label("电脑版下载", systemImage: "desktopcomputer")
-          }.accessibilityIdentifier("desktopDownloadLink")
-          NavigationLink(destination: AboutView()) {
-            Label("关于水杉", systemImage: "info.circle")
-          }.accessibilityIdentifier("aboutSettingsLink")
-        }
-
       Section {
+        NavigationLink(destination: DesktopDownloadView()) {
+          entry("电脑版下载", symbol: "desktopcomputer", color: .gray)
+        }.accessibilityIdentifier("desktopDownloadLink")
+        NavigationLink(destination: AboutView()) {
+          entry("关于水杉", symbol: "info.circle.fill", color: MetasequoiaTheme.accent)
+        }.accessibilityIdentifier("aboutSettingsLink")
         Button { replayOnboarding = true } label: {
-          Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
-        }.accessibilityIdentifier("replayOnboardingLink")
+          entry("重新查看新手引导", symbol: "sparkles", color: .orange)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("replayOnboardingLink")
+      } header: {
+        Text("关于")
       } footer: {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
       }
@@ -94,10 +83,24 @@ struct AccountSettingsView: View {
     }
   }
 
-  private func accountIcon(_ symbol: String, color: Color) -> some View {
-    Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
-      .foregroundStyle(color).frame(width: 42, height: 42)
-      .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+  /// 这一页原本有两种行:两行是 42 点的彩色图标块加副标题,其余十一行是 `Label` 的小符号。同一列表里两种尺寸、两种配色,读起来像两个应用拼在一起。所有行走这一个。
+  private func entry(_ title: String, detail: String? = nil, symbol: String, color: Color) -> some View {
+    HStack(spacing: 12) {
+      Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(color).frame(width: 30, height: 30)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).foregroundStyle(.primary)
+        if let detail {
+          Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+    }
+    .padding(.vertical, 2)
+  }
+
+  private func color(for kind: CommunityResourceKind) -> Color {
+    kind == .dictionary ? .brown : .indigo
   }
 }
 
