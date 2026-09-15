@@ -895,6 +895,17 @@ final class OnboardingUITests: XCTestCase {
 
     tabs.buttons["趋势"].tap()
     XCTAssertTrue(day.waitForExistence(timeout: 3), "切回趋势要能看到柱形")
+
+    // 开关、刷新、清空从每一屏底下挪进了右上角的菜单。
+    XCTAssertFalse(app.switches["typingStatisticsEnabled"].exists)
+    app.buttons["statisticsMenu"].tap()
+    XCTAssertTrue(app.buttons["typingStatisticsEnabled"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["resetTypingStatistics"].exists)
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "统计菜单"
+    menu.lifetime = .keepAlways
+    add(menu)
+    app.buttons["刷新统计"].tap()
   }
 
   @MainActor
