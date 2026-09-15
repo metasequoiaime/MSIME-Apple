@@ -308,6 +308,8 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   const [now, setNow] = useState(() => Date.now());
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [copiedAccountId, setCopiedAccountId] = useState(false);
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);
@@ -437,6 +439,14 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
     setNotice("昵称已更新。");
   });
 
+  const copyAccountId = () => {
+    if (!user || !navigator.clipboard?.writeText) return;
+    void navigator.clipboard.writeText(user.id).then(() => {
+      setCopiedAccountId(true);
+      window.setTimeout(() => setCopiedAccountId(false), 1800);
+    }).catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+  };
+
   const openPublishedSkins = onOpenCommunity
     ? () => onOpenCommunity("published-skins")
     : onOpenPublishedSkins;
@@ -450,13 +460,15 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   return <div className="account-page">
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
-    <section className="section account-hero">
+    <button type="button" className="section account-hero account-profile-card" disabled={!user || busy}
+      aria-label={user ? "编辑个人资料" : undefined} onClick={() => user && setEditingProfile(true)}>
       <div className="account-avatar" aria-hidden="true">{user ? preferredName(user).slice(0, 1) : "杉"}</div>
       <div>
         <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
         <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
       </div>
-    </section>
+      {user && <span className="account-profile-card-chevron" aria-hidden="true">›</span>}
+    </button>
     {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
     {onOpenLocalDesigns && <section className="section account-community-actions">
       <div><h2>我的设计</h2><p>保存在本机的键盘皮肤，不会因登录账号而上传。</p></div>
@@ -481,6 +493,27 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
           <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
         </dl>
       </section>
+      {editingProfile && <div className="account-modal-backdrop" role="presentation" onMouseDown={event => {
+        if (event.target === event.currentTarget && !busy) setEditingProfile(false);
+      }}>
+        <section className="account-modal" role="dialog" aria-modal="true" aria-label="编辑个人资料">
+          <div className="account-modal-heading"><h2>编辑资料</h2><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>关闭</button></div>
+          <div className="account-profile-preview"><div className="account-avatar" aria-hidden="true">{preferredName(user).slice(0, 1)}</div><strong>{name.trim() || "你的昵称"}</strong></div>
+          <label>社区昵称
+            <input aria-label="编辑社区昵称" maxLength={64} value={name} disabled={busy} onChange={event => setName(event.target.value)} />
+          </label>
+          <p className="account-muted">昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+          <dl className="account-details">
+            <div><dt>账号 ID</dt><dd><button type="button" className="account-copy-id" onClick={copyAccountId}>{copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}</button></dd></div>
+            <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
+            <div><dt>加入水杉</dt><dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd></div>
+          </dl>
+          <div className="account-inline-actions"><button type="button" className="account-primary" disabled={busy || name.trim() === user.displayName} onClick={() => {
+            rename();
+            setEditingProfile(false);
+          }}>保存修改</button><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>取消</button></div>
+        </section>
+      </div>}
       <section className="section account-actions">
         <h2>账号</h2>
         <div>

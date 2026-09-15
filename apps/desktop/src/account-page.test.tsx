@@ -80,6 +80,20 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   await waitFor(() => expect(client.logout).toHaveBeenCalledWith(true));
 });
 
+test("profile card opens the shared editor and copies the complete account ID", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(screen.getByRole("dialog", { name: "编辑个人资料" })).not.toBeNull();
+  expect(screen.getByText("加入水杉")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "#FIXTUR" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("fixture-user-id"));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  expect(screen.queryByRole("dialog", { name: "编辑个人资料" })).toBeNull();
+});
+
 test("account deletion requires its destructive confirmation", async () => {
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} />);

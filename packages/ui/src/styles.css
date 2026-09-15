@@ -269,6 +269,16 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .onboarding-section h2 { font-size: 24px; }
 }
 .account-hero { display: flex; align-items: center; gap: 16px; }
+.account-profile-card { width: 100%; border: 0; text-align: left; cursor: pointer; }
+.account-profile-card:disabled { cursor: default; opacity: 1; }
+.account-profile-card-chevron { margin-left: auto; color: var(--text-muted); font-size: 24px; line-height: 1; }
+.account-modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 42%); }
+.account-modal { width: min(520px, 100%); max-height: min(720px, 90vh); overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 22px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--dropdown-bg); color: var(--text-color); box-shadow: 0 18px 60px rgb(0 0 0 / 25%); }
+.account-modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-modal-heading h2 { margin: 0; }
+.account-profile-preview { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+.account-profile-preview .account-avatar { width: 46px; height: 46px; flex-basis: 46px; font-size: 19px; }
+.account-copy-id { border: 0; padding: 0; background: transparent; color: var(--accent-color); font: inherit; cursor: pointer; }
 .account-avatar { display: grid; width: 58px; height: 58px; flex: 0 0 58px; place-items: center; border-radius: 50%; background: var(--accent-strong); color: #fff; font-size: 24px; font-weight: 650; }
 .account-profile, .account-login, .account-actions, .account-settings-sync, .account-privacy { display: flex; flex-direction: column; gap: 16px; }
 .app-icon-settings { display: flex; flex-direction: column; gap: 14px; }
