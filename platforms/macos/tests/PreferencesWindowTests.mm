@@ -2,6 +2,7 @@
 
 #import "../src/FloatingToolbarPreferences.h"
 #import "../src/LocalInputModePreferences.h"
+#import "../src/PersonalDictionaryBridge.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -789,6 +790,61 @@ int main()
                 "The floating-toolbar control did not reflect the stored disabled value.");
         // 「显示这些开关」:工具栏上每个可关的按钮都要有一个勾选框,默认全开,并且在工具栏本身关着的
         // 时候不可点 —— 那时候问「显示哪些」是个不成立的问题。
+        // 用户词库:引擎的 personal_dictionary API 一直在,macOS 从没接过,词库页只有一行状态和一个
+        // 「清除学习数据」。这里断言列表、增删改和导出的入口都在,并且没有选中行时改和删不可点。
+        NSView *personalDictionaryCard = FindViewWithAccessibilityLabel(controller.window.contentView, @"用户词库卡片");
+        require(personalDictionaryCard != nil, "The dictionary page did not expose the user dictionary.");
+        require(FindViewWithAccessibilityLabel(personalDictionaryCard, @"用户词库列表") != nil,
+                "The user dictionary had no list of entries.");
+        NSButton *dictionaryAddButton = FindButtonWithTitle(personalDictionaryCard, @"新增…");
+        NSButton *dictionaryEditButton = FindButtonWithTitle(personalDictionaryCard, @"编辑…");
+        NSButton *dictionaryRemoveButton = FindButtonWithTitle(personalDictionaryCard, @"删除");
+        NSButton *dictionaryExportButton = FindButtonWithTitle(personalDictionaryCard, @"导出…");
+        require(dictionaryAddButton != nil && dictionaryEditButton != nil && dictionaryRemoveButton != nil &&
+                    dictionaryExportButton != nil,
+                "The user dictionary was missing one of its actions.");
+        require(!dictionaryEditButton.enabled && !dictionaryRemoveButton.enabled,
+                "Editing and deleting stayed clickable with no entry selected.");
+        // 列表在切到词库页时才装载:设置窗口一次建出所有页,在构造里查库等于把磁盘 IO 加到「打开设置」
+        // 上;而且窗口是常驻的,不重读的话打字新造的词永远不出现。切过去之后状态行必须有话说。
+        NSTextField *dictionaryStatus =
+            (NSTextField *)FindViewWithAccessibilityLabel(personalDictionaryCard, @"用户词库状态");
+        require([dictionaryStatus isKindOfClass:[NSTextField class]], "The user dictionary had no status line.");
+        NSButton *dictionaryNavigationItem = FindButtonWithTitle(navigation, @"词库");
+        require(dictionaryNavigationItem != nil, "The sidebar had no dictionary destination.");
+        require([NSApp sendAction:dictionaryNavigationItem.action
+                               to:dictionaryNavigationItem.target
+                             from:dictionaryNavigationItem] &&
+                    dictionaryStatus.stringValue.length > 0,
+                "Showing the dictionary page did not load the user dictionary.");
+        // 每一类的编码规则不一样,加词面板要照类别给提示;引擎驳回之前就该说清楚。
+        for (NSInteger kind = MetasequoiaPersonalDictionaryKindPinyin; kind <= MetasequoiaPersonalDictionaryKindEnglish;
+             ++kind)
+        {
+            const MetasequoiaPersonalDictionaryKind typed = (MetasequoiaPersonalDictionaryKind)kind;
+            require(MetasequoiaPersonalDictionaryKindTitle(typed).length > 0 &&
+                        MetasequoiaPersonalDictionaryKindKeyHint(typed).length > 0,
+                    "A user dictionary kind had no name or no key hint.");
+        }
+        // 校验只算不写。空编码、空词条都该被挡下来,而且理由要带出来 —— 「格式不对」不说哪里不对
+        // 等于没说。
+        NSError *validationError = nil;
+        require(![MetasequoiaPersonalDictionary validateEntry:[MetasequoiaPersonalDictionaryEntry
+                                                                  entryWithKind:MetasequoiaPersonalDictionaryKindPinyin
+                                                                            key:@""
+                                                                          value:@"测试"
+                                                                         weight:100000]
+                                                        error:&validationError] &&
+                    validationError.localizedDescription.length > 0,
+                "An entry with no key was accepted, or was rejected without a reason.");
+        require(![MetasequoiaPersonalDictionary validateEntry:[MetasequoiaPersonalDictionaryEntry
+                                                                  entryWithKind:MetasequoiaPersonalDictionaryKindWubi
+                                                                            key:@"abcde"
+                                                                          value:@"测试"
+                                                                         weight:100000]
+                                                        error:nil],
+                "A five-letter wubi code was accepted; the engine allows at most four.");
+
         NSView *floatingItemsCard =
             FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏显示项卡片");
         require(floatingItemsCard != nil, "The floating-toolbar page did not expose which switches the toolbar shows.");
