@@ -2567,6 +2567,33 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
   }
 
+  /// 把格子的宽度钉在候选词那一行上,释义只能用预留的那一段。
+  ///
+  /// 不钉的话宽度就跟着标题里最宽的一行走,而释义是几百毫秒后陆续到的 —— 一页候选于是一个接一个变宽,后面的全部右移。格子是复用的,所以约束找得到就改常数,找不到才建。
+  private func pinWidth(of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int) {
+    let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
+    guard glossLines > 0, let title else {
+      existing?.isActive = false
+      return
+    }
+    let text = NSAttributedString(title)
+    let separator = (text.string as NSString).range(of: "\n")
+    let head = separator.location == NSNotFound
+      ? NSRange(location: 0, length: text.length)
+      : NSRange(location: 0, length: separator.location)
+    let width = KeyboardKeyButton.chipWidth(
+      titleLine: text.attributedSubstring(from: head).size().width,
+      glossLines: glossLines, insets: button.configuration?.contentInsets ?? .zero)
+    if let existing {
+      existing.constant = width
+      existing.isActive = true
+      return
+    }
+    let constraint = button.widthAnchor.constraint(equalToConstant: width)
+    constraint.identifier = "candidateChipWidth"
+    constraint.isActive = true
+  }
+
   private func updateCandidateButton(_ button: KeyboardKeyButton, candidate: String, hint: String,
                                      glosses: [String] = [], number: Int,
                                      converting: Bool = false) {
@@ -2582,7 +2609,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = nil
       configuration.title = display
     } else {
-      // 有第二行要写,换行模式就必须是换行类的:`byTruncatingTail` 会把标题标签钉死成一行,释义被并进同一行再截掉,画出来就是「你…」。行数本身钉不住 —— UIKit 每次更新配置都重设它 —— 所以不折行靠的是格子宽度本来就按最宽的一行给足。
+      // 有第二行要写,换行模式就必须是换行类的:`byTruncatingTail` 会把标题标签钉死成一行,释义被并进同一行再截掉,画出来就是「你…」。行数本身钉不住 —— UIKit 每次更新配置都重设它。
       configuration.titleLineBreakMode = .byWordWrapping
       // 释义单独占一行。挤在候选右边时,「按 according to」这样一格就吃掉半屏宽,一行只剩两三个候选看得见。
       let paragraph = NSMutableParagraphStyle()
@@ -2601,17 +2628,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
       }
+      // 释义先按格子的正文宽度截好再写进去 —— 靠段落样式截不住,它会折行。
+      let caption = UIFont.preferredFont(forTextStyle: .caption2)
+      let content = KeyboardKeyButton.chipContentWidth(
+        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count)
       for gloss in glosses {
         title += AttributedString(
-          "\n" + gloss,
+          "\n" + KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content),
           attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+            .font: caption, .paragraphStyle: paragraph,
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
       }
       configuration.attributedTitle = title
     }
     button.configuration = configuration
+    pinWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
     button.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(display)" : "候选词 \(number)：\(display)，还需输入 \(hint)"
     // 占位的空行不念出来。
