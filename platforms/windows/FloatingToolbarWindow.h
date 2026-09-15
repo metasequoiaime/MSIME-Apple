@@ -1,5 +1,6 @@
 #pragma once
-#include "ModeWindow.h"
+#include "CandidatePalette.h"
+#include "ModeMailbox.h"
 #include "FloatingToolbarSettings.h"
 #include "ToolbarIcons.h"
 #include <functional>
