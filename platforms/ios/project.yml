@@ -15,7 +15,7 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     # Bumped by release-please alongside CMakeLists.txt. It used to be pinned at 0.1.0 while the
     # project shipped 0.45.x, so any iOS artifact would have carried a version that matched nothing.
-    MARKETING_VERSION: 0.48.6 # x-release-please-version
+    MARKETING_VERSION: 0.49.0 # x-release-please-version
     # ML Kit Digital Ink 8.x provides x86_64 simulator binaries, and asks for iOS 15.5.
     SWIFT_VERSION: 6.0
     IPHONEOS_DEPLOYMENT_TARGET: 15.5
