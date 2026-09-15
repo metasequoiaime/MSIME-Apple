@@ -90,7 +90,7 @@ struct AboutView: View {
         Text("水杉是一款开源输入法，支持多种输入方案和个性化皮肤。手机与电脑共用输入引擎，各平台提供原生输入体验。")
         NavigationLink(destination: DesktopDownloadView()) {
           Label("电脑版下载", systemImage: "desktopcomputer")
-        }
+        }.accessibilityIdentifier("desktopDownloadLink")
       }
       // 帮助和反馈原来是两条指向网页的链接。键盘出问题时把人送去浏览器,恰好是最不该发生的时候;
       // 而空白的 issue 表单等于让用户自己猜要附什么,我们拿到的报告也就无从复现。现在都是站内页面,

@@ -10,6 +10,14 @@ private enum ClipboardConfirmation: String, Identifiable {
     case .clear: return "清空云剪贴板？"
     }
   }
+  /// 确认按钮说的是接下来会发生什么。关闭这一项原本复用了清空的文案「确认清空」,而它做的是两件事。
+  var confirmTitle: String {
+    switch self {
+    case .enable: return "开启"
+    case .disable: return "关闭并清空"
+    case .clear: return "确认清空"
+    }
+  }
 }
 
 struct CloudClipboardView: View {
@@ -30,9 +38,12 @@ struct CloudClipboardView: View {
     Form {
       Section {
         if loaded {
-          Button(enabled ? "关闭云剪贴板" : "开启云剪贴板") {
-            confirmation = enabled ? .disable : .enable
-          }
+          // 开关而不是按钮。这一行要回答的是「现在开着还是关着」,而按钮只说得出下一步动作 —— 读到「开启云剪贴板」的人得自己反推出当前是关的。两个方向都先问一次:关掉会连云端历史一起删。对话框没确认时 enabled 不动,开关自己弹回原位。
+          Toggle("云剪贴板", isOn: Binding(
+            get: { enabled },
+            set: { confirmation = $0 ? .enable : .disable }
+          ))
+          .accessibilityIdentifier("cloudClipboardSwitch")
         }
       } footer: {
         Text("只上传你在此页面明确添加的内容，不自动读取系统剪贴板。最多保存 50 条。关闭时会删除云端历史。")
@@ -79,7 +90,7 @@ struct CloudClipboardView: View {
     .confirmationDialog(confirmation?.title ?? "", isPresented: Binding(
       get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })) {
       if let action = confirmation {
-        Button(action == .enable ? "开启" : "确认清空", role: action == .enable ? nil : .destructive) {
+        Button(action.confirmTitle, role: action == .enable ? nil : .destructive) {
           run { token in
             if action == .clear { try await client.deleteClipboard(token: token) }
             else { try await client.setClipboardEnabled(action == .enable, token: token) }

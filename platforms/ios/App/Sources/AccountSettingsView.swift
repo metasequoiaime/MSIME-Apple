@@ -67,9 +67,6 @@ struct AccountSettingsView: View {
       }
 
       Section {
-        NavigationLink(destination: DesktopDownloadView()) {
-          entry("电脑版下载", symbol: "desktopcomputer", color: .gray)
-        }.accessibilityIdentifier("desktopDownloadLink")
         NavigationLink(destination: AboutView()) {
           entry("关于水杉", symbol: "info.circle.fill", color: MetasequoiaTheme.accent)
         }.accessibilityIdentifier("aboutSettingsLink")

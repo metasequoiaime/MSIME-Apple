@@ -185,9 +185,9 @@ final class OnboardingUITests: XCTestCase {
       if app.buttons["aboutSettingsLink"].isHittable { break }
       app.swipeUp()
     }
-    XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
     app.buttons["aboutSettingsLink"].tap()
     XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
   }
 
   @MainActor
@@ -1050,9 +1050,13 @@ final class OnboardingUITests: XCTestCase {
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.tabBars.buttons["我的"].tap()
     for _ in 0..<6 {
-      if app.buttons["desktopDownloadLink"].isHittable { break }
+      if app.buttons["aboutSettingsLink"].isHittable { break }
       app.swipeUp()
     }
+    // 下载指南挂在「关于水杉」里。「我的」页上原本还有一个指向同一页的入口,重复的那个已经去掉。
+    app.buttons["aboutSettingsLink"].tap()
+    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
     app.buttons["desktopDownloadLink"].tap()
     for platform in ["macOS", "Windows", "Linux"] {
       app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
@@ -1064,9 +1068,7 @@ final class OnboardingUITests: XCTestCase {
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    app.buttons["aboutSettingsLink"].tap()
-    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
-    XCTAssertTrue(app.navigationBars["关于水杉"].exists)
+    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
   }
 
   @MainActor
