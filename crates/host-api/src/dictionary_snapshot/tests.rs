@@ -5,12 +5,87 @@ fn snapshot_module_is_present() {
 
 #[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
-    activation_case(false);
-    activation_case(true);
+    activation_case(false, false);
+    activation_case(true, false);
 }
 
-fn activation_case(nested_dictionaries: bool) {
+#[test]
+fn activation_rejects_live_session_before_swapping() {
+    activation_case(false, true);
+    activation_case(true, true);
+}
+
+#[test]
+fn discard_does_not_require_maintenance_lock_for_live_paths() {
     use super::*;
+    use msime_client_core::dictionary_access::DictionaryAccess;
+    use msime_engine_bridge::EngineOptions;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("user");
+    let dictionaries = root.path().join("dictionaries");
+    fs::create_dir_all(&user).unwrap();
+    fs::create_dir_all(&dictionaries).unwrap();
+    let session_access = DictionaryAccess::try_session(&user, &dictionaries)
+        .unwrap()
+        .unwrap();
+    let directory = tempfile::tempdir_in(root.path()).unwrap();
+    let options = EngineOptions {
+        resources: root.path().join("resources").to_string_lossy().into_owned(),
+        user_data: user.to_string_lossy().into_owned(),
+        cache: root.path().join("cache").to_string_lossy().into_owned(),
+        dictionaries: dictionaries.to_string_lossy().into_owned(),
+        scheme: 0,
+        shuangpin_profile: 0,
+        shuangpin_preedit_uses_raw: true,
+        learning: false,
+        autocorrect_transposition: true,
+        autocorrect_neighbor: true,
+        fuzzy_pinyin_rules: 0,
+        wubi_mixed_pinyin: false,
+        helpcode: false,
+        show_helpcode: true,
+        helpcode_schema: "ziranma".into(),
+        chinese_punctuation: true,
+        paired_punctuation: true,
+        punctuation_lock: 0,
+        frequency_mode: "promote".into(),
+        frequency_trigger_count: 1,
+        frequency_linear_step: 1,
+        mixed_english: true,
+        english_minimum_prefix: 5,
+        mixed_emoji: false,
+        mixed_kaomoji: false,
+        local_unicode: true,
+        local_date_time: true,
+        local_quick_phrase: true,
+        local_emoji: true,
+        local_kaomoji: true,
+        local_super_jianpin: true,
+        local_temporary_english: true,
+        local_temporary_japanese: true,
+    };
+    registry().lock().unwrap().insert(
+        456,
+        Prepared {
+            directory,
+            active_options: options.clone(),
+            options,
+            source_version: String::new(),
+        },
+    );
+    assert_eq!(
+        discard(456).unwrap(),
+        serde_json::json!({"discarded": true})
+    );
+    assert!(!registry().lock().unwrap().contains_key(&456));
+    drop(session_access);
+}
+
+fn activation_case(nested_dictionaries: bool, hold_session: bool) {
+    use super::*;
+    use msime_client_core::dictionary_access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
     use std::fs;
     use std::path::Path;
@@ -83,6 +158,25 @@ fn activation_case(nested_dictionaries: bool) {
             source_version: expected.clone(),
         },
     );
+    let session_access = if hold_session {
+        Some(
+            DictionaryAccess::try_session(
+                Path::new(&active_options.user_data),
+                Path::new(&active_options.dictionaries),
+            )
+            .unwrap()
+            .unwrap(),
+        )
+    } else {
+        None
+    };
+    if let Some(session_access) = session_access {
+        assert!(activate(123, &expected).is_err());
+        for name in ["user", "cache", dictionaries] {
+            assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+        }
+        drop(session_access);
+    }
     let wrong = "0".repeat(64);
     assert!(activate(123, &wrong).is_err());
     for name in ["user", "cache", dictionaries] {
@@ -92,6 +186,19 @@ fn activation_case(nested_dictionaries: bool) {
     assert!(activate(123, &expected).is_err());
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+    }
+    let backup_path = |path: &Path| {
+        path.with_file_name(format!(
+            "{}.msime-snapshot-old-123",
+            path.file_name().unwrap().to_string_lossy()
+        ))
+    };
+    for path in [
+        backup_path(&active.join("user")),
+        backup_path(&active.join("cache")),
+        backup_path(&active.join(dictionaries)),
+    ] {
+        assert!(!path.exists());
     }
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();

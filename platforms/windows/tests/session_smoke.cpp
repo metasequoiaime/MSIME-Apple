@@ -44,6 +44,67 @@ template <class F> void rejected(F action) {
   require(failed, "Invalid request was accepted");
 }
 } // namespace
+
+void local_mode_tests(const std::string &options) {
+  using msime::windows::ServerSession;
+  struct ModeCase {
+    char shortcut;
+    const char *name;
+    const char *input;
+  };
+  // These are the documented Windows temporary-mode shortcuts. The Engine
+  // owns their semantics; this test verifies that the Server boundary keeps
+  // the Shift entry gate, candidate view, and commit path intact.
+  constexpr ModeCase cases[] = {
+      {'U', "unicode", "4e2d"},
+      {'T', "date_time", "rq"},
+      {'K', "quick_phrase", "a"},
+      {'E', "emoji", "XIAOLIAN"},
+      {'M', "kaomoji", "hx"},
+      {'J', "super_jianpin", "nh"},
+      {'Y', "temporary_english", "he"},
+      {'R', "temporary_japanese", "ka"},
+  };
+  uint64_t request = 1;
+  for (const auto &mode : cases) {
+    ServerSession session(77, options);
+    uint64_t epoch = 1;
+    session.activate(epoch);
+    auto key = [&](uint32_t keycode, uint32_t text, uint32_t modifiers) {
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.client_id = 77;
+      packet.request_id = request++;
+      packet.keycode = keycode;
+      packet.wch = static_cast<FanyImeWireChar>(text);
+      packet.modifiers_down = modifiers;
+      return session.key(packet, epoch);
+    };
+
+    key(static_cast<uint32_t>(mode.shortcut),
+        static_cast<uint32_t>(mode.shortcut), 1);
+    auto entered = session.view();
+    require(entered.at("local_mode") == mode.name,
+            "Windows shortcut did not enter the expected local mode");
+    for (const unsigned char character : std::string(mode.input)) {
+      const auto upper = character >= 'a' && character <= 'z'
+                             ? static_cast<uint32_t>(character - 'a' + 'A')
+                             : static_cast<uint32_t>(character);
+      key(upper, character, 0);
+    }
+    auto candidates = session.view();
+    require(!candidates.at("candidates").empty(),
+            "Local mode produced no candidates from the locked dictionary");
+    const auto generation = candidates.at("generation").get<uint64_t>();
+    const auto selected = session.select(epoch, generation, 0);
+    require(selected.at("commit").is_string() &&
+                !selected.at("commit").get<std::string>().empty(),
+            "Local mode candidate selection did not commit text");
+    require(selected.at("view").at("local_mode") == "none",
+            "Local mode remained active after candidate commit");
+  }
+}
+
 #ifdef _WIN32
 int wmain(int argc, wchar_t **argv) {
 #else
@@ -1053,6 +1114,8 @@ int main(int argc, char **argv) {
       require(composer.selected_prefix().empty(),
               "Final reply retained stale prefix");
     }
+    if (argc == 2)
+      local_mode_tests(options.dump());
     std::cout << "Windows Server boundary: shared session, routing and input "
                  "acceptance passed\n";
     return 0;
