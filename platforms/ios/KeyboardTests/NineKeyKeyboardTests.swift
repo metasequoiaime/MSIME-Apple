@@ -409,6 +409,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -12)
   }
 
+  func testSymbolKeysShowThePunctuationTheyInsert() throws {
+    XCTAssertEqual(KeyboardViewController.chineseSymbolFaces, [
+      ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
+      "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
+      "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
+    ])
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+
+    func face(_ label: String) -> UIButton? {
+      descendants(controller.view).first { $0.accessibilityLabel == "符号 \(label)" } as? UIButton
+    }
+
+    for (ascii, chinese) in [("\\", "、"), (",", "，"), ("[", "【"), ("<", "《")] {
+      XCTAssertNotNil(face(chinese), "中文模式下应显示 \(chinese)")
+      XCTAssertNil(face(ascii), "中文模式下不该显示 \(ascii)")
+    }
+
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(face("\\"), "英文模式下应显示反斜杠本身")
+    XCTAssertNil(face("、"))
+  }
+
   func testSpacingChangesKeepDefaultKeyPlacementAndComposition() throws {
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
@@ -1089,6 +1119,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         add(attachment)
         try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
         controller.view.layoutIfNeeded()
+        XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityLabel == "符号 \\" })
+        XCTAssertNil(descendants(controller.view).first { $0.accessibilityLabel == "符号 、" })
         try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
         controller.view.layoutIfNeeded()
         XCTAssertTrue(try button("exitLocalModeButton", in: controller).isHidden)

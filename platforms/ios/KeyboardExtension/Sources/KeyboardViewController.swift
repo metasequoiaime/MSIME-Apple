@@ -93,6 +93,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var microsoftFinalKey: UIButton?
   private var letterRowViews: [UIView] = []
   private var symbolRowViews: [UIView] = []
+  // Symbol keys show the punctuation they actually emit in Chinese mode.
+  private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
   private var layoutToggleButton: UIButton?
   private weak var shiftButton: UIButton?
   private weak var enterButton: UIButton?
@@ -221,6 +223,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     Array("1234567890").map(String.init),
     [",", ".", "?", "!", ";", ":", "'", "\"", "@", "/"],
     ["(", ")", "[", "]", "<", ">", "\\", "-", "_", "="],
+  ]
+
+  /// Chinese punctuation faces copied from the Engine's punctuation contract.
+  ///
+  /// The key input remains ASCII so the Engine owns paired punctuation and smart punctuation;
+  /// only the visible face changes. English and local-input modes keep the literal ASCII face.
+  static let chineseSymbolFaces: [String: String] = [
+    ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
+    "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
+    "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
   ]
 
   override func loadView() {
@@ -990,10 +1002,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func makeSymbolRow(_ symbols: [String]) -> UIStackView {
     let row = makeRow()
     for symbol in symbols {
-      row.addArrangedSubview(
-        makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
+      let key = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
           self?.handleSymbol(symbol)
-        })
+        }
+      if let chinese = Self.chineseSymbolFaces[symbol] {
+        symbolKeyFaces.append((key, symbol, chinese))
+      }
+      row.addArrangedSubview(key)
     }
     return row
   }
@@ -2032,6 +2047,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana }
+    // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
+    // input send the literal ASCII key value, so their labels must follow their insertion path.
+    let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode
+    for face in symbolKeyFaces {
+      let title = sendsChinesePunctuation ? face.chinese : face.ascii
+      guard face.key.configuration?.title != title else { continue }
+      face.key.configuration?.title = title
+      face.key.accessibilityLabel = "符号 \(title)"
+    }
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
