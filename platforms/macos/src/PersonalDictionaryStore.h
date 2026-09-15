@@ -25,7 +25,7 @@ FOUNDATION_EXPORT NSString *MetasequoiaPersonalDictionaryKindKeyHint(Metasequoia
                        weight:(int64_t)weight;
 @end
 
-@interface MetasequoiaPersonalDictionary : NSObject
+@interface MetasequoiaPersonalDictionaryStore : NSObject
 // 引擎按 kind/key/value 稳定排序,limit 1..1000。hasMore 告诉调用方还有没有下一页。
 + (nullable NSArray<MetasequoiaPersonalDictionaryEntry *> *)entriesAtOffset:(NSUInteger)offset
                                                                       limit:(NSUInteger)limit
@@ -36,7 +36,8 @@ FOUNDATION_EXPORT NSString *MetasequoiaPersonalDictionaryKindKeyHint(Metasequoia
 + (BOOL)replaceEntry:(MetasequoiaPersonalDictionaryEntry *)previous
            withEntry:(MetasequoiaPersonalDictionaryEntry *)replacement
                error:(NSError **)error;
-// 校验不写库:加词面板用它在提交前就说清哪里不合规。
+// 校验不写库:加词面板用它在提交前就说清哪里不合规。理由来自 shared/apple-bridge 那份已有的中文映射,
+// 不要在这里另写一套 —— iOS 早就用它把引擎的英文错误译成人话了。
 + (BOOL)validateEntry:(MetasequoiaPersonalDictionaryEntry *)entry error:(NSError **)error;
 @end
 
