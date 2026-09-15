@@ -25,9 +25,9 @@ pub fn focus_external(target: InputTarget) -> bool {
     super::focus(target) && unsafe { GetForegroundWindow() == target.0 as _ }
 }
 
-/// Copy a transcript and paste it into the remembered external editor.
+/// Copy bounded text and paste it into the remembered external editor.
 /// Clipboard failure never sends Ctrl+V with unrelated existing contents.
-pub fn paste_voice_text(target: InputTarget, text: &str) -> bool {
+pub fn paste_text(target: InputTarget, text: &str) -> bool {
     if text.is_empty() || text.len() > MAX_TEXT_BYTES || text.contains('\0') {
         return false;
     }
@@ -50,6 +50,11 @@ pub fn paste_voice_text(target: InputTarget, text: &str) -> bool {
             ..Default::default()
         },
     )
+}
+
+/// Paste voice output through the same guarded external-editor path.
+pub fn paste_voice_text(target: InputTarget, text: &str) -> bool {
+    paste_text(target, text)
 }
 
 fn write_unicode_clipboard(text: &str) -> Option<u32> {
