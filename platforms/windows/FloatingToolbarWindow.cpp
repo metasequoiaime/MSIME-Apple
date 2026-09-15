@@ -26,8 +26,10 @@ bool same(const FocusLease &a, const FocusLease &b) {
          same_ticket(a.transport, b.transport);
 }
 // The preference array is ordered as character_set, punctuation, fullwidth,
-// emoji, screen_keyboard, settings. Language and handwriting are always
-// present; the other buttons follow the shared shell order.
+// emoji, screen_keyboard, settings. Language and hide are always present; the
+// other buttons follow the shared shell order. Handwriting, voice and about
+// are not offered here - the shipped toolbar has no voice button at all, and
+// all three stay one click away in the tray menu.
 std::vector<int> slots(const std::array<bool, 6> &items) {
   std::vector<int> result;
   result.push_back(0); // language
@@ -37,9 +39,6 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   if (items[3]) result.push_back(4); // emoji
   if (items[4]) result.push_back(5); // screen keyboard
   if (items[5]) result.push_back(6); // settings
-  result.push_back(7); // handwriting
-  result.push_back(8); // voice
-  result.push_back(9); // about
   result.push_back(10); // hide
   return result;
 }
@@ -51,8 +50,6 @@ bool needs_shell(int button) {
   case kToolbarEmoji:
   case kToolbarScreenKeyboard:
   case kToolbarSettings:
-  case kToolbarHandwriting:
-  case kToolbarAbout:
     return true;
   default:
     return false;
@@ -528,12 +525,6 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
           self->keyboard_action_();
         else if (slot == 6 && self->settings_action_)
           self->settings_action_();
-        else if (slot == 7 && self->handwriting_action_)
-          self->handwriting_action_();
-        else if (slot == 8 && self->voice_action_)
-          self->voice_action_();
-        else if (slot == 9 && self->about_action_)
-          self->about_action_();
         else if (slot == 10 && self->hide_action_)
           self->hide_action_();
       }

@@ -73,10 +73,7 @@ public:
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
   void set_character_set_action(Action action) { character_set_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
-  void set_handwriting_action(Action action) { handwriting_action_ = std::move(action); }
   void set_keyboard_action(Action action) { keyboard_action_ = std::move(action); }
-  void set_voice_action(Action action) { voice_action_ = std::move(action); }
-  void set_about_action(Action action) { about_action_ = std::move(action); }
   void set_hide_action(Action action) { hide_action_ = std::move(action); }
   FloatingToolbarWindow(const FloatingToolbarWindow &) = delete;
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
@@ -103,10 +100,7 @@ private:
   Action settings_action_;
   Action character_set_action_;
   Action emoji_action_;
-  Action handwriting_action_;
   Action keyboard_action_;
-  Action voice_action_;
-  Action about_action_;
   Action hide_action_;
   PositionChanged position_changed_;
   HWND window_ = nullptr;

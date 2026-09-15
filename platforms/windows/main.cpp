@@ -973,19 +973,8 @@ int wmain(int argc, wchar_t **argv) {
       const auto request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
       if (request) (void)launch_shell(*request);
     });
-    toolbar.set_handwriting_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::OpenHandwritingPanel);
-      if (request) (void)launch_shell(*request);
-    });
     toolbar.set_keyboard_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
-      if (request) (void)launch_shell(*request);
-    });
-    toolbar.set_voice_action([&] {
-      (void)voice->toggle();
-    });
-    toolbar.set_about_action([&] {
-      const auto request = shell_surface_request(TrayMenuCommand::OpenAbout);
       if (request) (void)launch_shell(*request);
     });
     toolbar.set_hide_action([&] {

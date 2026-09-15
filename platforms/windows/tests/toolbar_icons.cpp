@@ -70,19 +70,18 @@ int main() {
           toolbar_icon(kToolbarCharacterSet, true), toolbar_icon(kToolbarCharacterSet, false),
           toolbar_icon(kToolbarEmoji, std::nullopt),
           toolbar_icon(kToolbarScreenKeyboard, std::nullopt),
-          toolbar_icon(kToolbarSettings, std::nullopt),
-          toolbar_icon(kToolbarVoice, std::nullopt)}) {
+          toolbar_icon(kToolbarSettings, std::nullopt)}) {
       require(seen.insert(entry.codepoint).second);
     }
 
-    // Handwriting, about and hide have no upstream counterpart and no glyph,
-    // so they stay text. An id outside the table is a question mark rather
-    // than a blank.
-    require(toolbar_icon(kToolbarHandwriting, std::nullopt).codepoint == 0);
-    require(std::wcscmp(toolbar_icon(kToolbarHandwriting, std::nullopt).fallback,
-                        L"✍") == 0);
-    require(toolbar_icon(kToolbarAbout, std::nullopt).codepoint == 0);
+    // Hide has no upstream counterpart and no glyph, so it stays text. An id
+    // outside the table - including the retired handwriting, voice and about
+    // ids - is a question mark rather than a blank.
     require(toolbar_icon(kToolbarHide, std::nullopt).codepoint == 0);
+    require(toolbar_icon(7, std::nullopt).codepoint == 0);
+    require(std::wcscmp(toolbar_icon(7, std::nullopt).fallback, L"?") == 0);
+    require(toolbar_icon(8, std::nullopt).codepoint == 0);
+    require(toolbar_icon(9, std::nullopt).codepoint == 0);
     require(toolbar_icon(99, std::nullopt).codepoint == 0);
     require(std::wcscmp(toolbar_icon(99, true).fallback, L"?") == 0);
 
