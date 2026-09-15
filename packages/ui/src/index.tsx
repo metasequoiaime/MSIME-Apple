@@ -1961,8 +1961,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
               {client.clipboard?.remove && <button type="button" className="secondary" aria-label="删除剪贴板记录" onClick={() => void mutateClipboardHistory(() => client.clipboard!.remove!(entry.text), "无法删除剪贴板记录")}>删除</button>}
             </span>
           </div>)}</div>}
-          {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}
-          {client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}
+          {macosPlatform ? <p className="panel-inline-note">云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法悬浮工具栏或输入法菜单打开对应面板。</p> : <>{client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}{client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}</>}
         </div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
@@ -2037,10 +2036,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
-        <div className="section panel-launch-card">
+        {macosPlatform ? <div className="section panel-launch-card"><div className="section-title">macOS 手写识别板</div><p className="panel-inline-note">手写面板需要当前输入法进程提供 IMK 输入会话；请从输入法悬浮工具栏或输入法菜单打开，识别候选会直接回到当前输入上下文。</p></div> : <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开手写识别板<small>使用鼠标或触控方式手写输入，自动识别候选汉字</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openHandwriting} onClick={() => void openPanel(client.openHandwriting)}>打开</button></div>
           <div className="panel-preview handwriting-preview" aria-label="手写识别板预览"><div className="panel-preview-label">预览</div><div className="handwriting-mock"><div className="handwriting-canvas"><span className="handwriting-stroke">水</span></div><div className="handwriting-candidates"><span>水</span><span>永</span><span>木</span><span>未</span></div></div></div>
-        </div>
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
         {systemVoice ? <div className="section panel-launch-card"><div className="section-title">macOS 系统语音</div><p className="panel-inline-note">保存设置后，在目标应用中启用水杉输入法，使用下方语音快捷键录音。不需要识别 API Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由 macOS 决定，可选文本润色仍使用你配置的云服务。</p></div> : androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : macosPlatform ? <div className="section panel-launch-card"><div className="section-title">macOS 输入法语音</div><p className="panel-inline-note">macOS 的语音录音、云端识别和文本提交由当前输入法进程负责；保存设置后，请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的 Tauri 面板。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}

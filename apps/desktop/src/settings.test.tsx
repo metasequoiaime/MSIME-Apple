@@ -1761,6 +1761,31 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
   await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
 });
 
+test("macOS routes input-session panels through the native input-method process", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openHandwriting: vi.fn(),
+    openCloudClipboard: vi.fn(),
+    openCloudDictionary: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
+  expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
+  expect(screen.getByText(/需要当前输入法进程提供 IMK 输入会话/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(await screen.findByText(/云剪贴板和云词典需要当前输入法进程提供输入会话/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开云词典" })).toBeNull();
+  expect(client.openHandwriting).not.toHaveBeenCalled();
+  expect(client.openCloudClipboard).not.toHaveBeenCalled();
+  expect(client.openCloudDictionary).not.toHaveBeenCalled();
+});
+
 test("native panel views support close, modifier, drawing and undo interactions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const keyboard = render(<KeyboardPanel client={{ close }} />);
