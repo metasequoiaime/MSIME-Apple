@@ -1,0 +1,117 @@
+/**
+ * Paging and recent-selection policy for the Engine-owned emoji catalog, ported from
+ * platforms/android/java/app/msime/client/EmojiCatalogModel.java.
+ *
+ * Lengths are counted in code points, not UTF-16 units: an emoji is routinely several units long and
+ * a sequence with a skin tone or a zero-width joiner is longer still.
+ */
+export const EMOJI_COLUMNS: number = 8;
+export const EMOJI_PAGE_SIZE: number = 64;
+export const EMOJI_RECENTS_LIMIT: number = 24;
+export const MAX_TEXT_CODE_POINTS: number = 32;
+export const MAX_ANNOTATION_CODE_POINTS: number = 1024;
+
+export interface EmojiCategory {
+  readonly group: string;
+  readonly title: string;
+}
+
+export interface EmojiItem {
+  readonly text: string;
+  readonly annotation: string;
+  readonly group: string;
+}
+
+export interface EmojiPage {
+  readonly items: EmojiItem[];
+  readonly nextOffset: number;
+  readonly complete: boolean;
+}
+
+function codePointCount(text: string): number {
+  let count: number = 0;
+  for (const _character of text) {
+    count++;
+  }
+  return count;
+}
+
+// Unicode group order; the database row sort order interleaves Symbols and Flags.
+const CATEGORIES: EmojiCategory[] = [
+  { group: 'Smileys and emotion', title: '笑脸' },
+  { group: 'People and body', title: '人物' },
+  { group: 'Animals and nature', title: '动物' },
+  { group: 'Food and drink', title: '食物' },
+  { group: 'Travel and places', title: '旅行' },
+  { group: 'Activities', title: '活动' },
+  { group: 'Objects', title: '物品' },
+  { group: 'Symbols', title: '符号' },
+  { group: 'Flags', title: '旗帜' }
+];
+
+export class EmojiCatalogModel {
+  static categories(): EmojiCategory[] {
+    return CATEGORIES;
+  }
+
+  static item(text: string, annotation: string, group: string): EmojiItem {
+    if (text.length === 0 || codePointCount(text) > MAX_TEXT_CODE_POINTS) {
+      throw new Error('Invalid emoji catalog text');
+    }
+    if (codePointCount(annotation) > MAX_ANNOTATION_CODE_POINTS) {
+      throw new Error('Invalid emoji annotation');
+    }
+    if (group.length === 0 || group.length > 128) {
+      throw new Error('Invalid emoji group');
+    }
+    return { text: text, annotation: annotation, group: group };
+  }
+
+  /**
+   * A page the Engine returned is checked before it is trusted: an offset that goes backwards, or a
+   * page that claims to be incomplete while advancing nowhere, would loop the caller forever.
+   */
+  static validatePage(items: EmojiItem[], requestedOffset: number, limit: number,
+                      nextOffset: number, complete: boolean): EmojiPage {
+    if (requestedOffset < 0 || limit < 1 || limit > 255 || items.length > limit
+        || nextOffset < requestedOffset || nextOffset > requestedOffset + limit
+        || nextOffset > 2147483647 || (!complete && nextOffset === requestedOffset)) {
+      throw new Error('Invalid emoji catalog page');
+    }
+    return { items: items.slice(), nextOffset: nextOffset, complete: complete };
+  }
+
+  /** Most-recent first, deduplicated, and bounded without retaining invalid persisted values. */
+  static normalizeRecents(stored: string[] | null): string[] {
+    const unique: string[] = [];
+    if (stored !== null) {
+      for (const text of stored) {
+        if (text.length === 0 || codePointCount(text) > MAX_TEXT_CODE_POINTS
+            || unique.includes(text)) {
+          continue;
+        }
+        unique.push(text);
+        if (unique.length === EMOJI_RECENTS_LIMIT) {
+          break;
+        }
+      }
+    }
+    return unique;
+  }
+
+  static recordRecent(stored: string[] | null, selected: string): string[] {
+    if (selected.length === 0 || codePointCount(selected) > MAX_TEXT_CODE_POINTS) {
+      throw new Error('Invalid recent emoji');
+    }
+    const reordered: string[] = [selected];
+    for (const text of EmojiCatalogModel.normalizeRecents(stored)) {
+      if (selected !== text) {
+        reordered.push(text);
+      }
+      if (reordered.length === EMOJI_RECENTS_LIMIT) {
+        break;
+      }
+    }
+    return reordered;
+  }
+}

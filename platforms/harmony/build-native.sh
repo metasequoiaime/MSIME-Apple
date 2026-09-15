@@ -4,9 +4,9 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 abi=${1:-arm64-v8a}
 case "$abi" in
-  arm64-v8a) rust_target=aarch64-unknown-linux-ohos ;;
-  armeabi-v7a) rust_target=armv7-unknown-linux-ohos ;;
-  x86_64) rust_target=x86_64-unknown-linux-ohos ;;
+  arm64-v8a) rust_target=aarch64-unknown-linux-ohos; runtime_triple=aarch64-linux-ohos ;;
+  armeabi-v7a) rust_target=armv7-unknown-linux-ohos; runtime_triple=arm-linux-ohos ;;
+  x86_64) rust_target=x86_64-unknown-linux-ohos; runtime_triple=x86_64-linux-ohos ;;
   *) echo "Supported OpenHarmony ABIs: arm64-v8a, armeabi-v7a, x86_64" >&2; exit 1 ;;
 esac
 # DevEco Studio ships the NDK inside the app bundle. A standalone command-line SDK works too, as
@@ -69,18 +69,23 @@ mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 "$ndk/llvm/bin/llvm-readobj" --file-headers "$output/libmsime_host_api.so" | grep -q "EM_AARCH64\|EM_ARM\|EM_X86_64"
 # The ArkTS side reaches the C ABI through this module. --no-undefined keeps a missing binding a link
-# error here rather than a failed import on the device. Unlike Android, libc++_shared.so is not
-# copied alongside: the NDK ships only the static C++ runtime and the system provides the shared one.
+# error here rather than a failed import on the device.
 "${compiler}++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
   platforms/harmony/native/client_napi.cpp -Icrates/host-api/include \
   -L"$output" -lmsime_host_api -lace_napi.z -o "$output/libmsimeclient.so"
 "$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep -q RegisterClientModule
-# hvigor packs whatever sits in entry/libs/<abi> into the HAP, so stage both objects there. The
+# The C++ runtime has to travel with the module. OpenHarmony does not expose a system libc++_shared.so
+# to applications, so leaving it out makes the NAPI import fail on the device with "Error loading
+# shared library libc++_shared.so" while the build itself stays perfectly green.
+runtime="$ndk/llvm/lib/$runtime_triple/libc++_shared.so"
+[[ -f "$runtime" ]] || { echo "Missing $runtime in this NDK" >&2; exit 1; }
+cp "$runtime" "$output/"
+# hvigor packs whatever sits in entry/libs/<abi> into the HAP, so stage every object there. The
 # directory is build output, not source, and is ignored.
 staged="$repo_root/platforms/harmony/entry/libs/$abi"
 mkdir -p "$staged"
-cp "$output/libmsime_host_api.so" "$output/libmsimeclient.so" "$staged/"
+cp "$output/libmsime_host_api.so" "$output/libmsimeclient.so" "$output/libc++_shared.so" "$staged/"
 echo "OpenHarmony native libraries built: $output"
 echo "Staged for the HAP: $staged"
 echo "Next: platforms/harmony && hvigorw assembleHap (not yet device-verified)"

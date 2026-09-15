@@ -131,8 +131,9 @@ fn main() {
         config
             // Native dependency roots can move; don't retain stale FindPackage paths.
             .configure_arg("--fresh")
-            // The HarmonyOS host injects the platform recognizer, exactly as Android does, so the
-            // vendored zinnia implementation would ship unreachable.
+            // Handwriting is deliberately absent on HarmonyOS. The engine expects the host to inject
+            // a platform recognizer, as Android does, and HarmonyOS has no equivalent to inject; the
+            // vendored zinnia implementation would ship unreachable either way.
             .define("MSIME_ENGINE_BRIDGE_HANDWRITING", "OFF")
             .define(
                 "CMAKE_TOOLCHAIN_FILE",
