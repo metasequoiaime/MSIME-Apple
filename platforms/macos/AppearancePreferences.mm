@@ -40,6 +40,17 @@ static BOOL ValidTextColor(id value) {
     if (![value isKindOfClass:NSString.class] || [value length] != 7 || ![value hasPrefix:@"#"]) return NO;
     return [[value substringFromIndex:1] rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"] invertedSet]].location == NSNotFound;
 }
+static NSColor *CandidateColor(id value, NSColor *fallback) {
+    if (!ValidTextColor(value)) return fallback;
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+}
+static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id current) {
+    id value = preferences[key];
+    if (!value || value == NSNull.null) return NSNull.null;
+    return ValidTextColor(value) ? [value copy] : current;
+}
 static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
@@ -202,6 +213,12 @@ static BOOL ValidToolbarFontSize(id value) {
     NSString *_sharedFontFamily;
     NSArray<NSString *> *_sharedFallbackFonts;
     id _sharedTextColor;
+    id _sharedNumberColor;
+    id _sharedAccentColor;
+    id _sharedSelectedColor;
+    id _sharedHoverColor;
+    id _sharedSurfaceColor;
+    id _sharedBorderColor;
     NSTextField *_textColorField;
     NSColorWell *_textColorWell;
     NSNumber *_sharedPreeditFontSize;
@@ -1040,12 +1057,17 @@ static BOOL ValidToolbarFontSize(id value) {
     [self preferencesChanged];
 }
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color {
-    NSString *value = self.candidateTextColor;
-    if (!value) return color;
-    unsigned int rgb = 0;
-    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
-    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+    return CandidateColor(self.candidateTextColor, color);
 }
+- (NSColor *)candidateNumberColorWithDefault:(NSColor *)color {
+    NSColor *text = CandidateColor(self.candidateTextColor, nil);
+    return CandidateColor(_sharedNumberColor, text ? [text colorWithAlphaComponent:0x9d / 255.0] : color);
+}
+- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color { return CandidateColor(_sharedAccentColor, color); }
+- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSelectedColor, color); }
+- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color { return CandidateColor(_sharedHoverColor, color); }
+- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSurfaceColor, color); }
+- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color { return CandidateColor(_sharedBorderColor, color); }
 - (void)setFontFamily:(NSString *)value {
     if (!ValidFontFamily(value)) { [self refreshControls]; return; }
     _sharedFontFamily = nil;
@@ -1187,6 +1209,12 @@ static BOOL ValidToolbarFontSize(id value) {
     // previously loaded explicit color, without persisting a local override.
     if (!textColor || textColor == NSNull.null) _sharedTextColor = NSNull.null;
     else if (ValidTextColor(textColor)) _sharedTextColor = [textColor copy];
+    _sharedNumberColor = SharedCandidateColor(preferences, @"candidate_number_color", _sharedNumberColor);
+    _sharedAccentColor = SharedCandidateColor(preferences, @"candidate_accent_color", _sharedAccentColor);
+    _sharedSelectedColor = SharedCandidateColor(preferences, @"candidate_selected_color", _sharedSelectedColor);
+    _sharedHoverColor = SharedCandidateColor(preferences, @"candidate_hover_color", _sharedHoverColor);
+    _sharedSurfaceColor = SharedCandidateColor(preferences, @"candidate_surface_color", _sharedSurfaceColor);
+    _sharedBorderColor = SharedCandidateColor(preferences, @"candidate_border_color", _sharedBorderColor);
     id family = preferences[@"candidate_font_family"];
     if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];

@@ -33,6 +33,12 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateNumberColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.

@@ -1363,6 +1363,21 @@ static void RecordBaseDeactivation(id object, SEL selector, id sender) {
 @end
 @implementation DeactivationToolbar
 - (void)deactivateForDelegate:(id)delegate { (void)delegate; ++self.calls; }
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+         englishCandidateMode:(BOOL)englishCandidateMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled {
+    (void)englishInputMode;
+    (void)englishCandidateMode;
+    (void)japaneseInputMode;
+    (void)capsLock;
+    (void)chinesePunctuationEnabled;
+    (void)fullWidthEnabled;
+    (void)traditionalChineseOutputEnabled;
+}
 @end
 
 static void TestStaleClientDeactivation() {
@@ -3414,6 +3429,43 @@ int main(int argc, char **argv) {
             [controller refreshCandidateSkin];
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
             assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
+            if (!vertical.boolValue) {
+                [appearance applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030",
+                    @"candidate_number_color": @"#203040", @"candidate_accent_color": @"#304050",
+                    @"candidate_selected_color": @"#405060", @"candidate_hover_color": @"#506070",
+                    @"candidate_surface_color": @"#607080", @"candidate_border_color": @"#708090"}];
+                NSMutableDictionary *colorView = [pageView mutableCopy];
+                colorView[@"candidates"] = @[@{@"text": @"selected", @"highlighted": @YES},
+                    @{@"text": @"ordinary", @"highlighted": @NO}];
+                [controller setValue:colorView forKey:@"view"];
+                [controller renderCandidates];
+                MSIMECandidateChromeView *chrome = (id)layoutPanel.contentView;
+                MSIMECandidateButton *selectedButton = PageButton(chrome, 0);
+                MSIMECandidateButton *customButton = PageButton(chrome, 1);
+                preeditLabel = nil;
+                for (NSView *child in chrome.subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
+                assert(preeditLabel && [preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
+                caretLabel = (id)preeditLabel;
+                assert([chrome.fillColor isEqual:[appearance candidateSurfaceColorWithDefault:NSColor.clearColor]]);
+                assert([chrome.strokeColor isEqual:[appearance candidateBorderColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.titleColor isEqual:[appearance candidateTextColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.numberColor isEqual:[appearance candidateNumberColorWithDefault:NSColor.clearColor]]);
+                assert([selectedButton.fillColor isEqual:[appearance candidateSelectedColorWithDefault:NSColor.clearColor]]);
+                assert([selectedButton.titleColor isEqual:SkinColor(preeditTokens.selectedText)]);
+                assert([selectedButton.numberColor isEqual:SkinColor(preeditTokens.selectedText)]);
+                assert([customButton.hoverColor isEqual:[appearance candidateHoverColorWithDefault:NSColor.clearColor]]);
+                assert([customButton.barColor isEqual:[appearance candidateAccentColorWithDefault:NSColor.clearColor]]);
+                assert([caretLabel.caretColor isEqual:customButton.barColor]);
+                [appearance applySharedCandidatePreferences:@{}];
+                [controller setValue:pageView forKey:@"view"];
+                [controller renderCandidates];
+                preeditLabel = nil;
+                for (NSView *child in layoutPanel.contentView.subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
+                assert(preeditLabel && [preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
+                caretLabel = (id)preeditLabel;
+            }
             assert(NSContainsRect(layoutPanel.contentView.bounds, preeditLabel.frame));
             for (NSView *child in layoutPanel.contentView.subviews)
                 if ([child isKindOfClass:MSIMECandidateButton.class]) {

@@ -2808,24 +2808,25 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const auto tokens = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
-    content.fillColor = SkinColor(tokens.surface);
-    content.strokeColor = SkinColor(tokens.border);
+    content.fillColor = [_appearance candidateSurfaceColorWithDefault:SkinColor(tokens.surface)];
+    content.strokeColor = [_appearance candidateBorderColorWithDefault:SkinColor(tokens.border)];
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
     for (MSIMECandidateButton *button in content.subviews) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
             ((NSTextField *)(id)button).textColor = [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
-            if ([button isKindOfClass:MSIMECandidatePreeditField.class]) ((MSIMECandidatePreeditField *)(id)button).caretColor = SkinColor(tokens.accent);
+            if ([button isKindOfClass:MSIMECandidatePreeditField.class])
+                ((MSIMECandidatePreeditField *)(id)button).caretColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
-        button.fillColor = SkinColor(tokens.selected);
-        button.hoverColor = SkinColor(tokens.hover);
+        button.fillColor = [_appearance candidateSelectedColorWithDefault:SkinColor(tokens.selected)];
+        button.hoverColor = [_appearance candidateHoverColorWithDefault:SkinColor(tokens.hover)];
         button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
         button.translationColor = [button.titleColor colorWithAlphaComponent:0.65];
         // Windows fixed-position span overrides candidate text, not its number.
         if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
-        button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
-        button.barColor = SkinColor(tokens.accent);
+        button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];
+        button.barColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
         button.showSelectedBar = tokens.showSelectedBar;
         button.contentTintColor = SkinColor(tokens.text);
         button.needsDisplay = YES;
