@@ -1228,6 +1228,35 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "小鹤双拼")
   }
 
+  // 候选条能横向滚，所以放不下的候选应该滚出去，不是在 chip 里折成两行。
+  func testCandidateChipsNeverWrapToASecondLine() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: 320, height: 260 + KeyboardViewController.compositionRowHeight)
+    for digit in "926439" {
+      try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    let chips = descendants(controller.view).compactMap { view -> UIButton? in
+      guard let button = view as? UIButton,
+            let identifier = button.accessibilityIdentifier,
+            identifier.hasPrefix("candidate-") else { return nil }
+      return button
+    }
+    XCTAssertFalse(chips.isEmpty, "The strip offered no candidate to measure.")
+    for chip in chips {
+      let label = try XCTUnwrap(chip.titleLabel)
+      XCTAssertEqual(label.numberOfLines, 1, "A candidate chip may take more than one line.")
+      XCTAssertLessThan(
+        label.bounds.height, label.font.lineHeight * 1.5,
+        "Candidate \(chip.accessibilityIdentifier ?? "?") wrapped instead of keeping its width.")
+    }
+  }
+
   func testKeyPositionsStayFixedWhileComposingAndClearing() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey
