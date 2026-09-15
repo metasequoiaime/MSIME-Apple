@@ -5273,6 +5273,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.view.at("candidates").empty()) {
       if (const auto touch_navigation =
               msime::linux_host::touch_keyboard_command(key)) {
+        // Touch-keyboard page events carry no generation. Keep them aligned
+        // with the page handed to IBus, just like wheel and native page
+        // callbacks, so a delayed event cannot page a newer live view.
+        if (s.rendered_session != s.session || !s.rendered_view.is_object() ||
+            !s.rendered_candidates.is_array() ||
+            s.rendered_candidates.empty() ||
+            s.rendered_view.value("generation", uint64_t{0}) !=
+                s.view.value("generation", uint64_t{0}))
+          return;
         handled = apply(engine, msime_client_command(
                                    s.session, *touch_navigation));
         return;
