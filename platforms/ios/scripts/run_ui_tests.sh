@@ -112,9 +112,27 @@ if [[ "${MSIME_TEST_SCOPE:-all}" == "pr" ]]; then
     -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testInputSchemeVisibilityPersistsAndFallsBack
     -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testAccountEntryExplainsExplicitDataSharing
   )
+elif [[ "${MSIME_TEST_SCOPE:-all}" == "handwriting" ]]; then
+  # The only cases that need ML Kit, and therefore the only ones that need an Intel runner. Nothing
+  # else is built or run here: the interface suite has no ML Kit dependency and belongs on arm64,
+  # where it is not competing with a twenty-five minute Intel build for the same job's minutes.
+  scope_arguments=(-only-testing:MetasequoiaKeyboardTests/HandwritingTests)
 elif [[ "${MSIME_TEST_SCOPE:-all}" != "all" ]]; then
-  echo "Unknown MSIME_TEST_SCOPE: ${MSIME_TEST_SCOPE} (expected all or pr)" >&2
+  echo "Unknown MSIME_TEST_SCOPE: ${MSIME_TEST_SCOPE} (expected all, pr or handwriting)" >&2
   exit 1
+fi
+
+# The interface cases are a cold launch and a walk through the app each, so they are bound by the
+# Simulator rather than the machine: running them one at a time leaves most of a multi-core runner
+# idle. Cloning the Simulator and running test classes across the clones is what that idleness is
+# for. Only where there is a suite worth spreading -- the handwriting scope is three cases, and the
+# clones would cost more to boot than the cases take to run.
+parallel_arguments=()
+if [[ "${MSIME_TEST_SCOPE:-all}" == "all" ]]; then
+  parallel_arguments=(
+    -parallel-testing-enabled YES
+    -maximum-concurrent-test-simulator-destinations "${MSIME_IOS_PARALLEL_SIMULATORS:-4}"
+  )
 fi
 
 # Build and run as two actions against one destination. A single `test` rebuilt everything the
@@ -145,4 +163,5 @@ xcodebuild \
   COMPILER_INDEX_STORE_ENABLE=NO \
   ${scope_arguments[@]+"${scope_arguments[@]}"} \
   ${skip_arguments[@]+"${skip_arguments[@]}"} \
+  ${parallel_arguments[@]+"${parallel_arguments[@]}"} \
   test-without-building
