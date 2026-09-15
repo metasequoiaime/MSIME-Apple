@@ -8,7 +8,8 @@ final class NineKeyKeyboardTests: XCTestCase {
   // whatever the app group was left holding. See InputSchemeTestSupport.
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.key, KeyboardLayoutPreference.keySpacingKey,
-    KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey,
+    KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
+    KeyboardLayoutPreference.voiceShortcutKey,
     KeyboardLayoutPreference.fullWidthInputKey]
   override func tearDown() {
     for key in preferenceKeys {
@@ -361,7 +362,8 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testLegacyLayoutsMigrateIndependentSettings() {
     let defaults = KeyboardLayoutPreference.defaults
     for preset in KeyboardLayoutPreset.allCases {
-      for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey] {
+      for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
+                  KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
         defaults.removeObject(forKey: key)
       }
       KeyboardLayoutPreference.selected = preset
@@ -381,6 +383,30 @@ final class NineKeyKeyboardTests: XCTestCase {
     KeyboardLayoutPreference.rowSpacing = -99
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 4)
+  }
+
+  func testKeyboardHeightFollowsTheSetting() throws {
+    let previous = KeyboardLayoutPreference.heightAdjustment
+    defer { KeyboardLayoutPreference.heightAdjustment = previous }
+
+    func height(for adjustment: Double) -> CGFloat {
+      KeyboardLayoutPreference.heightAdjustment = adjustment
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+      controller.view.layoutIfNeeded()
+      return controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant ?? 0
+    }
+
+    let standard = height(for: 0)
+    XCTAssertGreaterThan(standard, 0)
+    XCTAssertEqual(height(for: 24), standard + 24, accuracy: 0.5)
+    XCTAssertEqual(height(for: -12), standard - 12, accuracy: 0.5)
+
+    KeyboardLayoutPreference.heightAdjustment = 500
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 48)
+    KeyboardLayoutPreference.heightAdjustment = -500
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -12)
   }
 
   func testSpacingChangesKeepDefaultKeyPlacementAndComposition() throws {
@@ -430,16 +456,43 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
     let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
+    let height = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" } as? UISlider)
+    height.value = 24
+    height.sendActions(for: .valueChanged)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
     voice.isOn = true
     voice.sendActions(for: .valueChanged)
     XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
     voice.isOn = false
     voice.sendActions(for: .valueChanged)
     try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertNotNil(try button("scriptShortcut", in: controller))
+  }
+
+  func testKeyboardSettingsResetRestoresIndependentDefaults() throws {
+    KeyboardLayoutPreference.keySpacing = 5
+    KeyboardLayoutPreference.rowSpacing = 8
+    KeyboardLayoutPreference.heightAdjustment = 24
+    KeyboardLayoutPreference.voiceShortcutEnabled = true
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
+    try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("resetKeyboardSettings", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.selected.keySpacing)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, KeyboardLayoutPreference.selected.rowSpacing)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
+    XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled,
+                   KeyboardLayoutPreference.selected == .doubao)
+    for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
+                KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
+      XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
+    }
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" })
   }
 
   func testBrandOpensCompactToolsAndUpdatesFeedbackState() throws {

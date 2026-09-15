@@ -245,7 +245,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       skinBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     installKeyboard()
-    let height = view.heightAnchor.constraint(equalToConstant: 260 + Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount))
+    let height = view.heightAnchor.constraint(equalToConstant:
+      260 + Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
+        + CGFloat(KeyboardLayoutPreference.heightAdjustment))
     height.priority = .init(999)
     height.identifier = "keyboardHeight"
     height.isActive = true
@@ -2676,6 +2678,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let picker = KeyboardLayoutPickerView(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
+      height: KeyboardLayoutPreference.heightAdjustment,
       voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled,
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
@@ -2685,11 +2688,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardLayoutPreference.rowSpacing = spacing
         self?.applyLayoutPreferences()
       },
+      onHeight: { [weak self] adjustment in
+        KeyboardLayoutPreference.heightAdjustment = adjustment
+        self?.sharedKeyboardHeightAdjustment = CGFloat(adjustment)
+        self?.updatePreferredKeyboardHeight()
+      },
       // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
       // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
       onVoice: { [weak self] enabled in
         KeyboardLayoutPreference.voiceShortcutEnabled = enabled
         self?.updateShortcutButtons()
+      },
+      onReset: { [weak self] in
+        guard let self else { return }
+        KeyboardLayoutPreference.resetToDefaults()
+        sharedKeyboardHeightAdjustment = 0
+        applyLayoutPreferences()
+        updatePreferredKeyboardHeight()
+        updateShortcutButtons()
+        showLayoutPicker()
       },
       onClose: { [weak self] in
         guard let self else { return }
