@@ -237,6 +237,35 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
+  /// Persist touch keyboard geometry in the canonical PreferencesStore snapshot.
+  /// Native App Group keys remain a compatibility layer for older hosts, but the
+  /// shared snapshot is the source that is reloaded when the extension appears.
+  @discardableResult
+  func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
+                                heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
+    guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return false }
+    let keySpacingTenths = Int((min(6, max(3, keySpacing)) * 10).rounded())
+    let rowSpacingTenths = Int((min(10, max(4, rowSpacing)) * 10).rounded())
+    let clampedHeight = Int(min(48, max(-12, heightAdjustment)).rounded())
+    return updatePreferences { preferences in
+      preferences["touch_key_spacing_tenths"] = keySpacingTenths
+      preferences["touch_row_spacing_tenths"] = rowSpacingTenths
+      preferences["touch_keyboard_height_adjustment"] = clampedHeight
+      preferences["touch_voice_shortcut"] = voiceEnabled
+    }
+  }
+
+  /// Remove touch geometry overrides so canonical defaults are used again.
+  @discardableResult
+  func resetTouchKeyboardGeometry() -> Bool {
+    updatePreferences { preferences in
+      preferences.removeValue(forKey: "touch_key_spacing_tenths")
+      preferences.removeValue(forKey: "touch_row_spacing_tenths")
+      preferences.removeValue(forKey: "touch_keyboard_height_adjustment")
+      preferences.removeValue(forKey: "touch_voice_shortcut")
+    }
+  }
+
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
   }

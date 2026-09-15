@@ -487,8 +487,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
     let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
     let height = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" } as? UISlider)
+    controller.view.layoutIfNeeded()
+    let initialHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     height.value = 24
     height.sendActions(for: .valueChanged)
+    controller.view.layoutIfNeeded()
+    let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+    XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
     voice.isOn = true
     voice.sendActions(for: .valueChanged)
@@ -523,6 +528,28 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
     }
     XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" })
+  }
+
+  func testTouchGeometryWritesAndResetsCanonicalPreferences() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-touch-geometry-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
+      keySpacing: 99, rowSpacing: -1, heightAdjustment: 99, voiceEnabled: true))
+    let preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual((preferences["touch_key_spacing_tenths"] as? NSNumber)?.intValue, 60)
+    XCTAssertEqual((preferences["touch_row_spacing_tenths"] as? NSNumber)?.intValue, 40)
+    XCTAssertEqual((preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.intValue, 48)
+    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
+
+    XCTAssertTrue(bridge.resetTouchKeyboardGeometry())
+    let reset = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertNil(reset["touch_key_spacing_tenths"])
+    XCTAssertNil(reset["touch_row_spacing_tenths"])
+    XCTAssertNil(reset["touch_keyboard_height_adjustment"])
+    XCTAssertNil(reset["touch_voice_shortcut"])
   }
 
   func testBrandOpensCompactToolsAndUpdatesFeedbackState() throws {

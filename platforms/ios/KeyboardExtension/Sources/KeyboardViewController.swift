@@ -2707,21 +2707,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
         self?.applyLayoutPreferences()
+        self?.persistTouchKeyboardGeometry()
       },
       onRowSpacing: { [weak self] spacing in
         KeyboardLayoutPreference.rowSpacing = spacing
         self?.applyLayoutPreferences()
+        self?.persistTouchKeyboardGeometry()
       },
       onHeight: { [weak self] adjustment in
         KeyboardLayoutPreference.heightAdjustment = adjustment
         self?.sharedKeyboardHeightAdjustment = CGFloat(adjustment)
         self?.updatePreferredKeyboardHeight()
+        self?.persistTouchKeyboardGeometry()
       },
       // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
       // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
       onVoice: { [weak self] enabled in
         KeyboardLayoutPreference.voiceShortcutEnabled = enabled
         self?.updateShortcutButtons()
+        self?.persistTouchKeyboardGeometry()
       },
       onReset: { [weak self] in
         guard let self else { return }
@@ -2730,6 +2734,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         applyLayoutPreferences()
         updatePreferredKeyboardHeight()
         updateShortcutButtons()
+        _ = session.resetTouchKeyboardGeometry()
         showLayoutPicker()
       },
       onClose: { [weak self] in
@@ -2749,6 +2754,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     layoutPicker = picker
     UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  private func persistTouchKeyboardGeometry() {
+    _ = session.setTouchKeyboardGeometry(
+      keySpacing: KeyboardLayoutPreference.keySpacing,
+      rowSpacing: KeyboardLayoutPreference.rowSpacing,
+      heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
+      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
   }
 
   private func showMorePicker() {
