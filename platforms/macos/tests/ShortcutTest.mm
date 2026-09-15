@@ -3790,6 +3790,27 @@ int main(int argc, char **argv) {
                 assert(session.lastCommand == (key.unsignedShortValue == 116 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
             }
         }
+        // Japanese owns the physical ANSI minus/equal keys even when the
+        // active layout reports different characters. They must reach Engine
+        // instead of becoming candidate-page shortcuts.
+        NSMutableDictionary *japanesePagingView = [pageView mutableCopy];
+        japanesePagingView[@"scheme"] = @3;
+        japanesePagingView[@"local_mode"] = @"none";
+        [controller setValue:japanesePagingView forKey:@"view"];
+        [controller renderCandidates];
+        layoutPanel.requestedVisible = YES;
+        for (NSDictionary *fixture in @[@{@"code": @27, @"character": @"-", @"layout": @"x"},
+                                       @{@"code": @24, @"character": @"=", @"layout": @"x"}]) {
+            session.lastCommand = UINT32_MAX;
+            session.asciiCalls = 0;
+            session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": japanesePagingView };
+            NSString *character = fixture[@"character"];
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:fixture[@"layout"] isARepeat:NO keyCode:[fixture[@"code"] unsignedShortValue]];
+            assert([controller handleEvent:event client:client]);
+            assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == [character characterAtIndex:0]);
+        }
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
         appearance.pageShortcut = 0;
         for (NSNumber *modifier in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             layoutPanel.requestedVisible = YES;
