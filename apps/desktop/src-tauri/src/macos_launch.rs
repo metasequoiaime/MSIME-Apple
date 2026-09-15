@@ -1,7 +1,7 @@
 //! Resolve the same prepared configuration used by the macOS input method.
 use serde_json::Value;
 use std::ffi::OsString;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_OPTIONS_BYTES: u64 = 1024 * 1024;
@@ -12,19 +12,46 @@ pub(crate) struct LaunchState {
     pub document: Value,
 }
 
+#[cfg(test)]
 pub(crate) fn resolve(
     application_directory: &Path,
+    options_override: Option<OsString>,
+    state_override: Option<OsString>,
+) -> Result<LaunchState, &'static str> {
+    resolve_with_resources(
+        application_directory,
+        None,
+        options_override,
+        state_override,
+    )
+}
+
+pub(crate) fn resolve_with_resources(
+    application_directory: &Path,
+    resources_directory: Option<&Path>,
     options_override: Option<OsString>,
     state_override: Option<OsString>,
 ) -> Result<LaunchState, &'static str> {
     if !application_directory.is_absolute() {
         return Err("Application data directory must be absolute");
     }
+    let state_directory = state_override.as_deref().map(PathBuf::from);
+    if let Some(state_directory) = state_directory.as_ref() {
+        if !state_directory.is_absolute() {
+            return Err("Runtime preferences directory must be an absolute path");
+        }
+    }
+    let using_default_options = options_override.is_none();
     let options_path = options_override
         .map(PathBuf::from)
         .unwrap_or_else(|| application_directory.join("runtime-options.json"));
     if !options_path.is_absolute() {
         return Err("HostOptions path must be absolute");
+    }
+    if using_default_options && !options_path.exists() {
+        let resources = resources_directory.ok_or("Cannot read prepared HostOptions JSON")?;
+        let state_root = state_directory.as_deref().unwrap_or(application_directory);
+        prepare_default_options(resources, state_root, &options_path)?;
     }
     let file =
         std::fs::File::open(&options_path).map_err(|_| "Cannot read prepared HostOptions JSON")?;
@@ -40,8 +67,8 @@ pub(crate) fn resolve(
     if !document.is_object() {
         return Err("Prepared HostOptions JSON must be an object");
     }
-    let preferences_directory = match state_override {
-        Some(value) => PathBuf::from(value),
+    let preferences_directory = match state_directory {
+        Some(value) => value,
         None => match document.get("preferences_directory") {
             None | Some(Value::Null) => application_directory.to_path_buf(),
             Some(Value::String(value)) if value.is_empty() => application_directory.to_path_buf(),
@@ -57,6 +84,42 @@ pub(crate) fn resolve(
         preferences_directory,
         document,
     })
+}
+
+fn prepare_default_options(
+    resources_directory: &Path,
+    state_root: &Path,
+    options_path: &Path,
+) -> Result<(), &'static str> {
+    std::fs::create_dir_all(state_root).map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    let document = msime_host_api::prepare_host_configuration(resources_directory, state_root)
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    let document: Value =
+        serde_json::from_str(&document).map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    if !document.is_object() {
+        return Err("Cannot prepare default HostOptions JSON");
+    }
+    publish_options(options_path, &document)
+}
+
+fn publish_options(options_path: &Path, document: &Value) -> Result<(), &'static str> {
+    let parent = options_path
+        .parent()
+        .ok_or("Cannot prepare default HostOptions JSON")?;
+    std::fs::create_dir_all(parent).map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    let serialized = serde_json::to_vec_pretty(document)
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    temporary
+        .write_all(&serialized)
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    match temporary.persist_noclobber(options_path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(_) => Err("Cannot prepare default HostOptions JSON"),
+    }
 }
 
 #[cfg(test)]
@@ -75,6 +138,36 @@ mod tests {
         assert_eq!(launch.options_path, path);
         assert_eq!(launch.preferences_directory, root.path());
         assert_eq!(launch.document, document);
+    }
+
+    #[test]
+    fn missing_configuration_is_published_atomically_without_overwriting_existing_state() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime-options.json");
+        let first = json!({"api_version":1,"resources":"first"});
+        let second = json!({"api_version":1,"resources":"second"});
+        publish_options(&path, &first).unwrap();
+        publish_options(&path, &second).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap(),
+            first
+        );
+    }
+
+    #[test]
+    fn explicit_options_override_never_triggers_default_preparation() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app");
+        let explicit = root.path().join("explicit-runtime-options.json");
+        let missing_resources = root.path().join("missing-resources");
+        assert!(resolve_with_resources(
+            &app,
+            Some(&missing_resources),
+            Some(explicit.into_os_string()),
+            None,
+        )
+        .is_err());
+        assert!(!app.exists());
     }
 
     #[test]
