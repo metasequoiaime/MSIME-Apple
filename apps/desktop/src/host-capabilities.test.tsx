@@ -213,6 +213,13 @@ test("Windows candidate appearance keeps native controls", async () => {
   expect(screen.getByLabelText("候选窗口跟随光标")).toBeTruthy();
 });
 
+test("macOS candidate appearance exposes the shared English face control", async () => {
+  mount({ host: capabilities({ platform: "macos", candidate_font_controls: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+});
+
 test("a host that does not place its own card hides the follow-cursor choice", async () => {
   // IBus owns the candidate list's placement, so offering the toggle would be
   // a setting the host cannot honour.

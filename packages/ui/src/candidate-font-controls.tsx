@@ -2,17 +2,18 @@ import { defaultCandidateEnglishFont, defaultCandidateFallbackFonts, defaultCand
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";
 
-export function CandidateFontControls({ value, onChange, readFonts, windows = false }: { value: CandidateFontPreferences; onChange: (patch: CandidateFontPreferences) => void; readFonts?: FontCatalogReader; windows?: boolean }) {
+export function CandidateFontControls({ value, onChange, readFonts, windows = false, englishFont = windows }: { value: CandidateFontPreferences; onChange: (patch: CandidateFontPreferences) => void; readFonts?: FontCatalogReader; windows?: boolean; englishFont?: boolean }) {
   const catalog = useFontCatalog(readFonts);
   const fonts = value.candidate_fallback_fonts ?? [...defaultCandidateFallbackFonts];
+  const englishFontValue = value.candidate_english_font ?? (windows ? defaultCandidateEnglishFont : value.candidate_font_family ?? defaultCandidateFontFamily);
   const move = (index: number, delta: number) => {
     const next = [...fonts];
     [next[index], next[index + delta]] = [next[index + delta], next[index]];
     onChange({ candidate_fallback_fonts: next });
   };
   return <>
-    {windows && <div className="section"><div className="section-header"><span className="section-title">候选窗英文字体<small>优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。保存后自动应用。</small></span>
-      <FontFamilyInput label="候选窗英文字体" value={value.candidate_english_font ?? defaultCandidateEnglishFont} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_english_font: font })} />
+    {englishFont && <div className="section"><div className="section-header"><span className="section-title">候选窗英文字体<small>优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。{windows ? "保存后自动应用。" : "macOS 未设置时跟随候选主字体。"}</small></span>
+      <FontFamilyInput label="候选窗英文字体" value={englishFontValue} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_english_font: font })} />
     </div></div>}
     <div className="section">{!windows && <div className="section-header"><span className="section-title">候选窗主字体</span>
       <FontFamilyInput label="候选窗主字体" value={value.candidate_font_family ?? defaultCandidateFontFamily} fonts={catalog.fonts} enabled={!!readFonts} ready={catalog.status === "ready"} request={catalog.request} onChange={font => onChange({ candidate_font_family: font })} />

@@ -18,8 +18,8 @@ export function quoteFontFamily(value: string): string {
   return '"' + value.replace(/["\\\x00-\x1f\x7f]/g, char => "\\" + char.charCodeAt(0).toString(16) + " ") + '"';
 }
 export function candidateFamilyStyle(value: CandidateFontPreferences): CSSProperties {
-  const selected = value.candidate_english_font ?? value.candidate_font_family;
-  const primary = validFontFamily(selected) ? selected : defaultCandidateFontFamily;
-  const families = [primary, ...(value.candidate_fallback_fonts ?? defaultCandidateFallbackFonts).slice(0, 32).filter(validFontFamily)];
+  const primary = validFontFamily(value.candidate_font_family) ? value.candidate_font_family : defaultCandidateFontFamily;
+  const leading = validFontFamily(value.candidate_english_font) ? [value.candidate_english_font] : [];
+  const families = [...leading, primary, ...(value.candidate_fallback_fonts ?? defaultCandidateFallbackFonts).slice(0, 32).filter(validFontFamily)];
   return { "--appearance-font-family": families.map(quoteFontFamily).join(", ") + ", sans-serif" } as CSSProperties;
 }
