@@ -2660,6 +2660,15 @@ struct VoiceRecognitionUpdate {
 }
 
 #[cfg(unix)]
+fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
+    let mut end = value.len().min(max_bytes);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
+}
+
+#[cfg(unix)]
 fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
@@ -2702,8 +2711,10 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
             if key == "doubao_auth_mode" && !matches!(value, "api_key" | "legacy") {
                 continue;
             }
-            let bounded = value.chars().take(512).collect::<String>();
-            options.insert(key.to_owned(), Value::String(bounded));
+            options.insert(
+                key.to_owned(),
+                Value::String(utf8_prefix(value, 512).to_owned()),
+            );
         }
     }
     let preset = voice.get("polish_prompt_id").and_then(Value::as_str).unwrap_or("cleanup");
@@ -4888,6 +4899,31 @@ mod tests {
         assert!(result.is_ok());
         let options = result.ok().expect("voice options should be valid");
         assert!(options.get("doubao_auth_mode").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn voice_provider_options_bound_strings_by_utf8_bytes() {
+        let multibyte = "界".repeat(200);
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "asr_model": multibyte,
+                "capture_device": "x".repeat(600)
+            }}
+        });
+        let options = super::voice_provider_options(&document).unwrap();
+        let model = options
+            .get("asr_model")
+            .and_then(|value| value.as_str())
+            .unwrap();
+        let device = options
+            .get("capture_device")
+            .and_then(|value| value.as_str())
+            .unwrap();
+
+        assert_eq!(model.len(), 510);
+        assert_eq!(model.chars().count(), 170);
+        assert_eq!(device.len(), 512);
     }
 
     #[cfg(unix)]
