@@ -198,20 +198,18 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
     XCTAssertTrue(app.buttons["keyboardLayoutLink"].exists)
-    XCTAssertFalse(app.buttons["aiSettingsLink"].exists)
+    // 原来这几项藏在「键盘设置」那一页后面,现在直接摆在首页上。
+    XCTAssertTrue(app.buttons["dictionarySettingsLink"].exists)
+    XCTAssertTrue(app.buttons["aiSettingsLink"].exists)
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
+    XCTAssertFalse(app.buttons["keyboardSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .deleteOnSuccess; add(shot)
-    openKeyboardSettingsIfNeeded(app)
-    XCTAssertTrue(app.navigationBars["键盘设置"].waitForExistence(timeout: 5))
     app.buttons["aiSettingsLink"].tap()
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
-    app.navigationBars.buttons.firstMatch.tap()
-    for _ in 0..<3 {
-      if app.buttons["homeThoughtfulReply"].isHittable { break }
-      app.swipeUp()
-    }
-    app.buttons["homeThoughtfulReply"].tap()
+    // 首页原来有一张「高情商回复」卡片,点它会切到那个方案并进试用页;卡片撤了,试用页仍然从 keyboardTryoutLink 进。
+    app.buttons["keyboardTryoutLink"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     app.navigationBars.buttons.firstMatch.tap()
@@ -220,8 +218,6 @@ final class OnboardingUITests: XCTestCase {
       app.swipeDown()
     }
     app.buttons["inputSettingsLink"].tap()
-    XCTAssertEqual(app.buttons["inputScheme_thoughtfulReply"].value as? String, "已选择")
-    app.buttons["inputScheme_quanpin"].tap()
   }
 
   @MainActor
@@ -242,12 +238,12 @@ final class OnboardingUITests: XCTestCase {
     app.terminate()
   }
 
+  /// 设置项都在首页上了,这里只负责把它滚到看得见 —— 原来还要先点开「键盘设置」那一页。
   @MainActor
   private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
-    let settings = app.buttons["keyboardSettingsLink"]
-    guard settings.exists else { return }
-    for _ in 0..<4 { if settings.isHittable { break }; app.swipeUp() }
-    settings.tap()
+    let entry = app.buttons["aiSettingsLink"]
+    guard entry.exists else { return }
+    for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
   }
 
   @MainActor

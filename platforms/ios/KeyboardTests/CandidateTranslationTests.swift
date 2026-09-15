@@ -1,0 +1,293 @@
+import XCTest
+import UIKit
+
+/// 不联网的翻译服务。单测跑在模拟器上,真请求既慢又要一个账号。
+private final class StubTranslationService: CandidateTranslationService, @unchecked Sendable {
+  private let answers: [String: [String: String]]
+  private let lock = NSLock()
+  private var recorded: [(code: String, words: [String])] = []
+
+  init(answers: [String: [String: String]]) { self.answers = answers }
+
+  var calls: [(code: String, words: [String])] { lock.withLock { recorded } }
+
+  func translate(words: [String], target: String) async throws -> [String] {
+    lock.withLock { recorded.append((target, words)) }
+    return words.map { answers[target]?[$0] ?? "" }
+  }
+}
+
+/// 回来的条数比送出去的少一条 —— 释义是按位置配回候选的,错位比没有更糟。
+private struct TruncatingTranslationService: CandidateTranslationService {
+  func translate(words: [String], target: String) async throws -> [String] {
+    Array(words.dropLast()).map { $0 + "?" }
+  }
+}
+
+@MainActor
+final class CandidateTranslationTests: XCTestCase {
+  func testOnlyCandidatesWithHanCharactersGoOutToTheNetwork() {
+    XCTAssertTrue(CandidateTranslationStore.translatable("你好"))
+    XCTAssertTrue(CandidateTranslationStore.translatable("啊"))
+    XCTAssertFalse(CandidateTranslationStore.translatable("nihao"), "拼音缓冲不是词,译过去没有意义")
+    XCTAssertFalse(CandidateTranslationStore.translatable("OpenAI"))
+    XCTAssertFalse(CandidateTranslationStore.translatable("123"))
+    XCTAssertFalse(CandidateTranslationStore.translatable("😀"))
+  }
+
+  func testEachLanguageIsAskedOnceAndTheAnswerIsKept() async throws {
+    let service = StubTranslationService(
+      answers: ["EN": ["你好": "hello"], "JA": ["你好": "こんにちは"]])
+    let store = CandidateTranslationStore(service: service)
+    let arrived = expectation(description: "释义到达")
+    arrived.expectedFulfillmentCount = 2
+    store.onArrival = { arrived.fulfill() }
+
+    store.refresh(words: ["你好", "nihao"], codes: ["EN", "JA"])
+    await fulfillment(of: [arrived], timeout: 5)
+
+    XCTAssertEqual(store.gloss(word: "你好", code: "EN"), "hello")
+    XCTAssertEqual(store.gloss(word: "你好", code: "JA"), "こんにちは")
+    XCTAssertEqual(service.calls.count, 2, "一种语言一个请求,不是一个词一个请求")
+    XCTAssertTrue(service.calls.allSatisfy { $0.words == ["你好"] }, "只有含汉字的候选送得出去")
+
+    // 同一页再排一次:都在缓存里了,不该再问一遍。
+    store.refresh(words: ["你好", "nihao"], codes: ["EN", "JA"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(service.calls.count, 2, "整页都有释义时不该再发请求")
+  }
+
+  func testABatchThatComesBackShortIsDroppedWhole() async throws {
+    let store = CandidateTranslationStore(service: TruncatingTranslationService())
+    store.refresh(words: ["你好", "中国"], codes: ["EN"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertNil(store.gloss(word: "你好", code: "EN"), "条数对不上就整批丢掉,不能错位")
+    XCTAssertNil(store.gloss(word: "中国", code: "EN"))
+  }
+
+  func testAQueuedRequestIsCancelledWhenTheCompositionEnds() async throws {
+    let service = StubTranslationService(answers: ["EN": ["你好": "hello"]])
+    let store = CandidateTranslationStore(service: service)
+    store.refresh(words: ["你好"], codes: ["EN"])
+    store.cancel()
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertTrue(service.calls.isEmpty, "组字结束后这一页已经不在屏幕上了")
+  }
+
+  func testGlossTakesItsOwnLineUnderTheCandidate() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+    CandidateGlossPreference.enabled = true
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 306)
+    controller.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    let chip = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
+    let title = try XCTUnwrap(chip.configuration?.attributedTitle.map { String($0.characters) })
+    let lines = title.split(separator: "\n", omittingEmptySubsequences: false)
+    XCTAssertEqual(lines.count, 2, "释义独占一行,不再挤在候选右边:\(title)")
+    XCTAssertEqual(lines.first, "你好")
+    XCTAssertTrue(lines[1].lowercased().contains("hello"), "释义来自随包的离线词库:\(title)")
+    // 断言画出来的高度,不是 numberOfLines:配置的换行模式会在下一次更新时把行数压回一行,而赋完值立刻去读 numberOfLines 是读得到 2 的 —— 测试因此绿着,屏幕上却是截断的一行。
+    let label = try XCTUnwrap(chip.titleLabel)
+    XCTAssertGreaterThan(label.bounds.height,
+                         UIFont.preferredFont(forTextStyle: .body).lineHeight * 1.4,
+                         "候选和释义要真的画成两行")
+  }
+
+  func testARowIsReservedOnlyForAGlossThatCanActuallyBeFetched() throws {
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+
+    CandidateGlossPreference.enabled = false
+    CandidateTranslationPreference.secondaryIndex = -1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 0, "关着释义时一行都不留")
+
+    CandidateGlossPreference.enabled = true
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "英语走随包的离线词库,没有网络也答得上")
+
+    CandidateTranslationPreference.secondaryIndex = 1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "没有完全访问权限就没有网络,日语那一行永远填不上,不给它留空白")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 2,
+                   "能取到了才长这一行")
+  }
+
+  func testTheKeyboardGrowsByTheRowsTheStripReserves() throws {
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+    CandidateTranslationPreference.secondaryIndex = -1
+
+    func keyboardHeight() -> CGFloat? {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+      controller.viewWillAppear(false)
+      return controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant
+    }
+
+    CandidateGlossPreference.enabled = false
+    let bare = try XCTUnwrap(keyboardHeight())
+    CandidateGlossPreference.enabled = true
+    let glossed = try XCTUnwrap(keyboardHeight())
+    XCTAssertEqual(glossed - bare, KeyboardViewController.glossLineHeight,
+                   "释义那一行是键盘长出来的,不是从按键身上挪的")
+  }
+
+  func testTheExpandedPanelDrawsTheSameGlossesAsTheStrip() throws {
+    // 展开面板是另一套格子。它一直只画五笔剩余编码,于是打开释义之后展开候选,那里仍然什么都没有。
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥好"], hints: ["", ""], glosses: [["hello", "こんにちは"], []],
+      preedit: "nihao", display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+    panel.layoutIfNeeded()
+
+    let glossed = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    let title = try XCTUnwrap(glossed.configuration?.attributedTitle.map { String($0.characters) })
+    XCTAssertEqual(title.split(separator: "\n", omittingEmptySubsequences: false),
+                   ["你好", "hello", "こんにちは"])
+    let label = try XCTUnwrap(glossed.titleLabel)
+    XCTAssertGreaterThan(label.bounds.height,
+                         UIFont.preferredFont(forTextStyle: .body).lineHeight
+                           + UIFont.preferredFont(forTextStyle: .caption2).lineHeight,
+                         "候选加两条释义要真的画成三行")
+
+    let bare = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)
+    XCTAssertEqual(bare.configuration?.title, "泥好", "没有释义的候选还是一行")
+  }
+
+  func testAChipKeepsItsWidthWhateverTheGlossTurnsOutToBe() throws {
+    // 宽度曾经按标题里最宽的一行算,于是释义一到格子就变宽,后面的候选一路右移 —— 和高度跳是同一件事的另一半。现在候选词那一行决定宽度,释义只能用预留的那一段,长了就截断。
+    func width(_ gloss: String) throws -> CGFloat {
+      let panel = KeyboardCandidatePanelView(
+        candidates: ["您好"], hints: [""], glosses: [[gloss]], preedit: "nhao",
+        display: { $0 }, onSelect: { _ in }, onClose: {})
+      panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      panel.layoutIfNeeded()
+      return try XCTUnwrap(
+        descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton).bounds.width
+    }
+
+    let waiting = try width(KeyboardViewController.pendingGlossPlaceholder)
+    let short = try width("hi")
+    let long = try width("hello; how do you do; greetings to you")
+    XCTAssertEqual(short, waiting, accuracy: 0.5, "释义到达前后宽度不该变")
+    XCTAssertEqual(long, waiting, accuracy: 0.5, "释义再长也只能用预留的那一段")
+
+    // 塌成一丁点宽那个老毛病仍然要挡住:候选词至少要写得下。
+    let word = NSAttributedString(string: "您好",
+                                  attributes: [.font: UIFont.preferredFont(forTextStyle: .body)])
+    XCTAssertGreaterThanOrEqual(waiting, word.size().width, "候选词本身必须写得下")
+    // 开着释义时一行摆三个,所以一格不会窄于屏宽的三分之一(减去间距和内边距)。
+    let column = KeyboardKeyButton.glossColumnWidth(
+      visible: 390 - 24, spacing: 6,
+      insets: NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11))
+    XCTAssertGreaterThanOrEqual(waiting, column, "开着释义时一格按屏宽三等分")
+  }
+
+  func testAChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay() throws {
+    // 联网那份几百毫秒后才到,一到格子就从一行变两行 —— 打字过程中候选忽高忽低。还没到的那一行先空着,高度就不跳。
+    let words = ["你好", "泥嚎"]
+    func panel(_ glosses: [[String]]) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: words, hints: ["", ""], glosses: glosses, preedit: "nihao",
+        display: { $0 }, onSelect: { _ in }, onClose: {})
+      view.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      view.layoutIfNeeded()
+      return view
+    }
+    func height(_ view: KeyboardCandidatePanelView, _ identifier: String) throws -> CGFloat {
+      try XCTUnwrap(descendants(view).first { $0.accessibilityIdentifier == identifier } as? UIButton).bounds.height
+    }
+
+    let placeholder = KeyboardViewController.pendingGlossPlaceholder
+    let waiting = panel([[placeholder], [placeholder]])
+    let arrived = panel([["hello"], [placeholder]])
+
+    XCTAssertEqual(try height(waiting, "panelCandidate-1"), try height(arrived, "panelCandidate-1"),
+                   accuracy: 0.5, "释义到达前后,格子高度不该变")
+    XCTAssertEqual(try height(arrived, "panelCandidate-1"), try height(arrived, "panelCandidate-2"),
+                   accuracy: 0.5, "同一页里有释义和没释义的格子一样高")
+
+    let single = panel([[], []])
+    XCTAssertLessThan(try height(single, "panelCandidate-1"), try height(waiting, "panelCandidate-1"),
+                      "关掉释义才回到一行高")
+  }
+
+  func testTheCandidateMenuOffersToInsertTheGlossItself() throws {
+    // macOS 用 Option/Control 加数字键把译文交出去,触摸键盘没有修饰键,挂在候选的长按菜单上。
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+    CandidateGlossPreference.enabled = true
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+    controller.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+
+    let elements = controller.candidateMenuElements(at: 0)
+    let titles = elements.compactMap { ($0 as? UIAction)?.title }
+    XCTAssertTrue(titles.contains { $0.lowercased().contains("hello") },
+                  "长按第一个候选应当能把它的释义交出去:\(titles)")
+    // 长按只给译文:词条管理那几项摊在这里会把主用途埋掉,已经撤了。
+    XCTAssertEqual(elements.count, titles.count, "菜单里除了译文不该再有别的:\(elements.map(\.title))")
+
+    CandidateGlossPreference.enabled = false
+    let plain = KeyboardViewController()
+    plain.loadViewIfNeeded()
+    plain.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+    plain.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(plain.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    plain.view.layoutIfNeeded()
+    XCTAssertTrue(plain.candidateMenuElements(at: 0).isEmpty, "关着释义时长按没有东西可给")
+  }
+
+  func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 99).code, "EN")
+    XCTAssertEqual(CandidateTranslationPreference.language(at: -1).code, "EN")
+    XCTAssertFalse(CandidateTranslationPreference.needsNetwork(.init(title: "英语", code: "EN")))
+    XCTAssertTrue(CandidateTranslationPreference.needsNetwork(.init(title: "日语", code: "JA")))
+  }
+
+  private func descendants(_ view: UIView) -> [UIView] {
+    [view] + view.subviews.flatMap { descendants($0) }
+  }
+}

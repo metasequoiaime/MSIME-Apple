@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
@@ -6,7 +7,6 @@ struct SettingsView: View {
   @State private var skin = KeyboardSkinPreference.selected
   @State private var layout = KeyboardLayoutPreference.geometry
   @State private var design = CustomKeyboardSkinStore.current
-  @State private var replyActive = false
   private var skinName: String {
     skin == .custom ? (CustomSkinLibrary.designs.first { $0.design == design }?.name ?? "自定义皮肤") : skin.title
   }
@@ -18,6 +18,7 @@ struct SettingsView: View {
             Text("从一次顺手的表达开始").font(.subheadline).foregroundStyle(.secondary)
           }.padding(.top, 5)
           keyboardCard
+          // 原来这里是三张卡片加一条「键盘设置」,要用的东西都在那一条后面。现在那一页的项目全摊在首页上:六张卡片,少点一次。
           HStack(spacing: 10) {
             NavigationLink(destination: SkinSettingsView()) {
               quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette", color: MetasequoiaTheme.accent)
@@ -29,39 +30,20 @@ struct SettingsView: View {
               quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("keyboardLayoutLink")
           }.buttonStyle(.plain)
-          Button {
-            if !InputSchemePreference.enabledSchemes.contains(.thoughtfulReply) {
-              InputSchemePreference.enabledSchemes = InputSchemePreference.enabledSchemes + [.thoughtfulReply]
-            }
-            InputSchemePreference.scheme = .thoughtfulReply
-            refresh(); replyActive = true
-          } label: {
-            HStack(spacing: 13) {
-              Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                .font(.system(size: 25)).foregroundStyle(MetasequoiaTheme.accent)
-                .frame(width: 50, height: 50).background(MetasequoiaTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
-              VStack(alignment: .leading, spacing: 5) {
-                Text("高情商回复").font(.headline).foregroundStyle(.primary)
-                Text("切换回复键盘，试试更合适的表达").font(.caption).foregroundStyle(.secondary)
-              }
-              Spacer(minLength: 0)
-              Image(systemName: "arrow.up.right").font(.subheadline.weight(.semibold)).foregroundStyle(MetasequoiaTheme.accent)
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-              .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
-          }.buttonStyle(.plain).accessibilityIdentifier("homeThoughtfulReply")
-          NavigationLink(destination: KeyboardSettingsView()) {
-            HStack(spacing: 12) {
-              Image(systemName: "slider.horizontal.3").font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.accent)
-              VStack(alignment: .leading, spacing: 4) {
-                Text("键盘设置").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                Text("输入偏好、词库、AI 与语音").font(.caption).foregroundStyle(.secondary)
-              }
-              Spacer()
-              Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }.padding(16).background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-          }.buttonStyle(.plain).accessibilityIdentifier("keyboardSettingsLink")
-          NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true), isActive: $replyActive) { EmptyView() }
-            .hidden().accessibilityHidden(true)
+          HStack(spacing: 10) {
+            NavigationLink(destination: DictionarySettingsView()) {
+              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical", color: MetasequoiaTheme.accent)
+            }.accessibilityIdentifier("dictionarySettingsLink")
+            NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
+              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles", color: MetasequoiaTheme.accent)
+            }.accessibilityIdentifier("aiSettingsLink")
+            Button {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              UIApplication.shared.open(url)
+            } label: {
+              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape", color: MetasequoiaTheme.accent)
+            }.accessibilityIdentifier("openKeyboardSettingsButton")
+          }.buttonStyle(.plain)
         }.padding(.horizontal, 16).padding(.bottom, 20)
       }.background(MetasequoiaTheme.canvas)
         .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)

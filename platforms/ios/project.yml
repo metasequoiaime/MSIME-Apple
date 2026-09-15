@@ -169,6 +169,11 @@ targets:
       - path: platforms/ios/KeyboardExtension/Sources
       - path: shared/backend/BackendAccountClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      # 候选释义走账号的 /v1/translate。会话读的是 App Group 里的匿名凭据 —— 宿主的钥匙串扩展看不见。
+      - path: shared/backend/BackendChatClient.swift
+      - path: shared/backend/BackendAccountSession.swift
+      - path: shared/backend/BackendAnonymousAccount.swift
+      - path: shared/backend/BackendLocalStore.swift
       - path: platforms/ios/App/Services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
       - path: platforms/ios/App/Services/AppServicesBridge.mm
