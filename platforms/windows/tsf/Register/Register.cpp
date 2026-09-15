@@ -98,7 +98,7 @@ BOOL UnregisterProfiles()
 
     hr = pITfInputProcessorProfileMgr->UnregisterProfile(Global::MetasequoiaIMECLSID, TEXTSERVICE_LANGID,
                                                          Global::MetasequoiaIMEGuidProfile, 0);
-    if (FAILED(hr))
+    if (FAILED(hr) && hr != TF_E_PROFILE_NOT_FOUND)
     {
         goto Exit;
     }
@@ -109,7 +109,7 @@ Exit:
         pITfInputProcessorProfileMgr->Release();
     }
 
-    return SUCCEEDED(hr) ? TRUE : FALSE;
+    return SUCCEEDED(hr) || hr == TF_E_PROFILE_NOT_FOUND ? TRUE : FALSE;
 }
 
 //+---------------------------------------------------------------------------
