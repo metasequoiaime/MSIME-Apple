@@ -138,6 +138,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 候选格下面留几行释义。跟着设置走,只在 applyCandidateGlossLayout 里变。
   private var glossLineCount = 0
   private var candidateStripHeightConstraint: NSLayoutConstraint?
+  /// 上一次排版用的分格宽度,用来判断布局之后要不要重排。
+  private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -2567,7 +2569,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
   }
 
-  /// 把格子的宽度钉在候选词那一行上,释义只能用预留的那一段。
+  /// 开着释义时一格有多宽:候选条看得见的那一段分成三格。还没布局过(宽度是 0)时答 0,`chipContentWidth` 会退回按候选词本身走,等布局出来 `viewDidLayoutSubviews` 再排一次。
+  private func candidateColumnWidth() -> CGFloat {
+    KeyboardKeyButton.glossColumnWidth(
+      visible: candidateScrollView.bounds.width, spacing: candidateStack.spacing,
+      insets: NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9))
+  }
+
+  /// 把格子的宽度钉在候选词那一行上,释义只能用这一格的宽度。
   ///
   /// 不钉的话宽度就跟着标题里最宽的一行走,而释义是几百毫秒后陆续到的 —— 一页候选于是一个接一个变宽,后面的全部右移。格子是复用的,所以约束找得到就改常数,找不到才建。
   private func pinWidth(of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int) {
@@ -2583,7 +2592,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : NSRange(location: 0, length: separator.location)
     let width = KeyboardKeyButton.chipWidth(
       titleLine: text.attributedSubstring(from: head).size().width,
-      glossLines: glossLines, insets: button.configuration?.contentInsets ?? .zero)
+      glossLines: glossLines, column: candidateColumnWidth(),
+      insets: button.configuration?.contentInsets ?? .zero)
     if let existing {
       existing.constant = width
       existing.isActive = true
@@ -2631,12 +2641,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 释义先按格子的正文宽度截好再写进去 —— 靠段落样式截不住,它会折行。
       let caption = UIFont.preferredFont(forTextStyle: .caption2)
       let content = KeyboardKeyButton.chipContentWidth(
-        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count)
+        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count,
+        column: candidateColumnWidth())
       for gloss in glosses {
+        let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
         title += AttributedString(
-          "\n" + KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content),
+          "\n" + fitted.text,
           attributes: AttributeContainer([
-            .font: caption, .paragraphStyle: paragraph,
+            .font: fitted.font, .paragraphStyle: paragraph,
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
       }
@@ -2730,6 +2742,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    // 候选分格要按候选条看得见的宽度算,而那个宽度第一次布局之后才有。宽度变了(转屏、键盘高度变)就照新的重排一次;没变就不动,否则每次布局都重排,自己把自己叫醒。
+    let column = candidateColumnWidth()
+    if abs(column - appliedCandidateColumnWidth) > 0.5 {
+      appliedCandidateColumnWidth = column
+      renderCandidateStrip()
+    }
     updateLetterRowInsets()
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()

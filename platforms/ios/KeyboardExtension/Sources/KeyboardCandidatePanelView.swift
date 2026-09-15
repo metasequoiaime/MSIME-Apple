@@ -103,16 +103,24 @@ final class KeyboardCandidatePanelView: UIView {
       row.removeFromSuperview()
     }
     let spacing: CGFloat = 6
+    // 开着释义时一行摆三个,和候选条同一个分法 —— 挤满一行会把释义截到看不出意思。
+    let column = glosses.contains { !$0.isEmpty }
+      ? KeyboardKeyButton.glossColumnWidth(
+          visible: available, spacing: spacing,
+          insets: NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11))
+      : 0
     var row = makeRow(spacing: spacing)
     var used: CGFloat = 0
     for (offset, candidate) in candidates.enumerated() {
       let chip = makeChip(
         candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
         glosses: glosses.indices.contains(offset) ? glosses[offset] : [],
-        number: offset + 1)
+        column: column, number: offset + 1)
       // 按自然宽度量,并且不许超过一行的可用宽度。
-      let width = min(naturalWidth(of: chip, glossLines: glosses.indices.contains(offset) ? glosses[offset].count : 0),
-                      available)
+      let width = min(
+        naturalWidth(of: chip, glossLines: glosses.indices.contains(offset) ? glosses[offset].count : 0,
+                     column: column),
+        available)
       // 量出来的宽度直接钉在格子上。多行标题的固有宽度不可靠 —— 实测两行的格子只按第一行报宽,画出来 56pt,候选被截成「您…」;而排版的算术本来就按这个宽度走,钉上去两边才是同一个数。
       chip.widthAnchor.constraint(equalToConstant: width).isActive = true
       if used > 0, used + spacing + width > available {
@@ -131,7 +139,7 @@ final class KeyboardCandidatePanelView: UIView {
   /// 不能问 `systemLayoutSizeFitting`:带释义的标题是多行的,而多行标签在压缩优先级下可以缩到任意窄 —— 量回来的「自然宽度」接近零,于是每个候选都被排成一丁点宽,画出来就是「您…」和整排的「…」。
   ///
   /// 也不能按最宽的那一行量:那样宽度就跟着释义走,答案一到格子就变宽。只量候选词那一行,剩下的交给 `chipWidth` 里的预留值。
-  private func naturalWidth(of chip: UIButton, glossLines: Int) -> CGFloat {
+  private func naturalWidth(of chip: UIButton, glossLines: Int, column: CGFloat) -> CGFloat {
     guard let title = chip.configuration?.attributedTitle.map({ NSAttributedString($0) }) else {
       return chip.intrinsicContentSize.width
     }
@@ -141,7 +149,7 @@ final class KeyboardCandidatePanelView: UIView {
       : NSRange(location: 0, length: text.range(of: "\n").location)
     return KeyboardKeyButton.chipWidth(
       titleLine: title.attributedSubstring(from: firstLine).size().width,
-      glossLines: glossLines, insets: chip.configuration?.contentInsets ?? .zero)
+      glossLines: glossLines, column: column, insets: chip.configuration?.contentInsets ?? .zero)
   }
 
   private func makeRow(spacing: CGFloat) -> UIStackView {
@@ -153,7 +161,8 @@ final class KeyboardCandidatePanelView: UIView {
     return row
   }
 
-  private func makeChip(candidate: String, hint: String, glosses: [String], number: Int) -> KeyboardKeyButton {
+  private func makeChip(candidate: String, hint: String, glosses: [String], column: CGFloat,
+                        number: Int) -> KeyboardKeyButton {
     let text = display(candidate)
     var configuration = UIButton.Configuration.plain()
     // 一律走 attributedTitle,哪怕只有候选词本身:排版要按最宽的一行量出格子宽度,而那个测量读的就是这个串。
@@ -176,12 +185,13 @@ final class KeyboardCandidatePanelView: UIView {
     // 释义自己一行,跟候选条上一样。面板一行排好几个格,挤在候选右边会把一行挤得只剩两三个词。先按格子的正文宽度截好再写进去 —— 靠段落样式截不住,它会折行,那个格子就比同一行的别人高出一截。
     let caption = UIFont.preferredFont(forTextStyle: .caption2)
     let content = KeyboardKeyButton.chipContentWidth(
-      titleLine: NSAttributedString(title).size().width, glossLines: glosses.count)
+      titleLine: NSAttributedString(title).size().width, glossLines: glosses.count, column: column)
     for gloss in glosses {
+      let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
       title += AttributedString(
-        "\n" + KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content),
+        "\n" + fitted.text,
         attributes: AttributeContainer([
-          .font: caption, .paragraphStyle: paragraph,
+          .font: fitted.font, .paragraphStyle: paragraph,
           .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
         ]))
     }

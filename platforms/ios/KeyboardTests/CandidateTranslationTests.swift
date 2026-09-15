@@ -201,7 +201,11 @@ final class CandidateTranslationTests: XCTestCase {
     let word = NSAttributedString(string: "您好",
                                   attributes: [.font: UIFont.preferredFont(forTextStyle: .body)])
     XCTAssertGreaterThanOrEqual(waiting, word.size().width, "候选词本身必须写得下")
-    XCTAssertGreaterThanOrEqual(waiting, KeyboardKeyButton.glossReservedWidth, "释义那一行有预留宽度")
+    // 开着释义时一行摆三个,所以一格不会窄于屏宽的三分之一(减去间距和内边距)。
+    let column = KeyboardKeyButton.glossColumnWidth(
+      visible: 390 - 24, spacing: 6,
+      insets: NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11))
+    XCTAssertGreaterThanOrEqual(waiting, column, "开着释义时一格按屏宽三等分")
   }
 
   func testAChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay() throws {
