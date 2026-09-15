@@ -9,6 +9,13 @@ APPLE_ROOT = TAURI_ROOT / "gen/apple"
 
 
 class IOSProjectConfigTests(unittest.TestCase):
+    def test_tauri_app_declares_export_compliance_without_non_exempt_encryption(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        self.assertIn("ITSAppUsesNonExemptEncryption: false", project)
+        with (APPLE_ROOT / "msime-desktop_iOS/Info.plist").open("rb") as file:
+            info = plistlib.load(file)
+        self.assertIs(info["ITSAppUsesNonExemptEncryption"], False)
+
     def test_privacy_manifest_is_shared_by_tauri_app_and_keyboard(self):
         privacy_path = TAURI_ROOT / "../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
         with privacy_path.resolve().open("rb") as file:
