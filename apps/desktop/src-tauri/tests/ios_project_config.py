@@ -16,6 +16,14 @@ class IOSProjectConfigTests(unittest.TestCase):
             info = plistlib.load(file)
         self.assertIs(info["ITSAppUsesNonExemptEncryption"], False)
 
+    def test_tauri_app_explains_microphone_access_for_voice_input(self):
+        explanation = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
+        project = (APPLE_ROOT / "project.yml").read_text()
+        self.assertIn(f'NSMicrophoneUsageDescription: "{explanation}"', project)
+        with (APPLE_ROOT / "msime-desktop_iOS/Info.plist").open("rb") as file:
+            info = plistlib.load(file)
+        self.assertEqual(info["NSMicrophoneUsageDescription"], explanation)
+
     def test_privacy_manifest_is_shared_by_tauri_app_and_keyboard(self):
         privacy_path = TAURI_ROOT / "../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
         with privacy_path.resolve().open("rb") as file:

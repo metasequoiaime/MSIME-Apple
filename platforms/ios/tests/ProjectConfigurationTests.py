@@ -48,6 +48,16 @@ def source_path_blocks(body, wanted):
 
 
 class ProjectConfigurationTests(unittest.TestCase):
+    def test_app_explains_microphone_access_for_voice_input(self):
+        explanation = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
+        project = (IOS_ROOT / "project.yml").read_text()
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn(f'INFOPLIST_KEY_NSMicrophoneUsageDescription: "{explanation}"', project)
+        self.assertEqual(
+            generated.count(f'INFOPLIST_KEY_NSMicrophoneUsageDescription = "{explanation}";'),
+            2,
+        )
+
     def test_privacy_manifest_is_valid_and_packaged_by_app_and_keyboard(self):
         privacy_path = IOS_ROOT / "SharedResources/PrivacyInfo.xcprivacy"
         with privacy_path.open("rb") as file:

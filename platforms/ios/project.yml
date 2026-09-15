@@ -59,7 +59,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ""
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "用于语音输入"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lmsime_host_api"
