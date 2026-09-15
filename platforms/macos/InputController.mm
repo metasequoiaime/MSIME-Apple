@@ -33,6 +33,7 @@
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
 #import "CandidateChrome.h"
+#import "CandidateTypography.h"
 #import "CandidateTextMetrics.h"
 #include "CandidateSkin.h"
 #include "CandidateWheelRouting.h"
@@ -2674,12 +2675,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     CGFloat totalWidth = 0;
     NSUInteger index = 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+    NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78];
     CGFloat glossHeight = 0;
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, CandidateDisplay(candidate, traditional)];
+        NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
+        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *title = [NSString stringWithFormat:@"%@  %@", number, display];
         rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
-        CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
+        CGFloat itemWidth = ceil([number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
+                                 MSIMECandidateNumberGap + [display sizeWithAttributes:@{NSFontAttributeName: font}].width +
+                                 16 + (geometry.showSelectedBar ? 6 : 0));
         NSString *translation = CandidateTranslation(candidate);
         if (translation.length) {
             NSSize glossSize = [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}];
@@ -2747,6 +2753,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         ++slot;
         if (!vertical) x += itemWidth;
         button.font = font;
+        button.numberFont = numberFont;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = display;
         button.translation = CandidateTranslation(candidate);

@@ -1,5 +1,6 @@
 #import "../CandidatePanel.h"
 #import "../CandidateSkinAppearance.h"
+#import "../CandidateTypography.h"
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -121,8 +122,12 @@ width_dip = 0
             if ([view isKindOfClass:NSButton.class] && view.tag == 0)
                 annotatedButton = (NSButton *)view;
         Require(annotatedButton != nil, "The annotated candidate was not rendered.");
+        NSFont *numberFont = [annotatedButton valueForKey:@"numberFont"];
+        Require(numberFont != nil && fabs(numberFont.pointSize - annotatedButton.font.pointSize * MSIMECandidateNumberScale) < 0.01,
+                "Candidate number font did not use the Windows 80% scale.");
         NSDictionary *measure = @{NSFontAttributeName : annotatedButton.font};
-        const CGFloat needed = 8.0 + 6.0 + [@"1" sizeWithAttributes:measure].width + 6.0 +
+        NSDictionary *numberMeasure = @{NSFontAttributeName : numberFont};
+        const CGFloat needed = 8.0 + 6.0 + [@"1" sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +
                                [@"水杉(Ss)" sizeWithAttributes:measure].width + 8.0;
         Require(annotatedButton.frame.size.width + 0.5 >= needed, "Fluent layout truncated helpcode annotations.");
         [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 5)]];
