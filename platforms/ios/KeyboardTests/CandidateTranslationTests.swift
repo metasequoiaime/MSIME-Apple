@@ -258,10 +258,12 @@ final class CandidateTranslationTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
 
-    let titles = controller.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
+    let elements = controller.candidateMenuElements(at: 0)
+    let titles = elements.compactMap { ($0 as? UIAction)?.title }
     XCTAssertTrue(titles.contains { $0.lowercased().contains("hello") },
                   "长按第一个候选应当能把它的释义交出去:\(titles)")
-    XCTAssertTrue(titles.contains("优先显示"), "原来的词条操作还在")
+    // 长按只给译文:词条管理那几项摊在这里会把主用途埋掉,已经撤了。
+    XCTAssertEqual(elements.count, titles.count, "菜单里除了译文不该再有别的:\(elements.map(\.title))")
 
     CandidateGlossPreference.enabled = false
     let plain = KeyboardViewController()
@@ -273,8 +275,7 @@ final class CandidateTranslationTests: XCTestCase {
         .sendActions(for: .primaryActionTriggered)
     }
     plain.view.layoutIfNeeded()
-    let plainTitles = plain.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
-    XCTAssertFalse(plainTitles.contains { $0.hasPrefix("输入 ") }, "关着释义时没有可交出去的译文:\(plainTitles)")
+    XCTAssertTrue(plain.candidateMenuElements(at: 0).isEmpty, "关着释义时长按没有东西可给")
   }
 
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {

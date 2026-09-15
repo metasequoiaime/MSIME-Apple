@@ -289,40 +289,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testCandidateManagementMenuUsesEngineSupportedLayouts() throws {
-    let previous = InputSchemePreference.scheme
-    // 这条量的是词条管理那几项,所以把释义关掉:开着的话菜单顶上还会多出「输入 <释义>」,那是另一件事,由 CandidateTranslationTests 盯着,它同时也确认这两组并存。
-    let previousGloss = CandidateGlossPreference.enabled
-    defer {
-      InputSchemePreference.scheme = previous
-      CandidateGlossPreference.enabled = previousGloss
-    }
-    CandidateGlossPreference.enabled = false
-    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
-      InputSchemePreference.scheme = scheme
-      let controller = KeyboardViewController()
-      controller.loadViewIfNeeded()
-      for character in (scheme == .nineKey ? "64426" : "nihao") {
-        if scheme == .nineKey {
-          try button("nineKey\(character)", in: controller).sendActions(for: .primaryActionTriggered)
-        } else {
-          let key = try XCTUnwrap(descendants(controller.view).first {
-            $0.accessibilityLabel == "字母 \(String(character).uppercased())"
-          } as? UIButton)
-          key.sendActions(for: .primaryActionTriggered)
-        }
-      }
-      // The chips are reused across keystrokes and build this menu only when it is opened, so the
-      // button's static children are a placeholder. Ask for the elements the way the menu will.
-      let candidate = try button("candidate-1", in: controller)
-      XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement,
-                    "候选菜单应延迟到展开时构建")
-      let elements = controller.candidateMenuElements(at: 0)
-      XCTAssertEqual(elements.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
-      XCTAssertEqual((elements.last as? UIMenu)?.children.first?.title, "确认删除此词条")
-    }
-  }
-
   func testSkinCardsPreviewAndApplyWithoutChangingKeyboardHeight() throws {
     let previous = KeyboardSkinPreference.selected
     defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }

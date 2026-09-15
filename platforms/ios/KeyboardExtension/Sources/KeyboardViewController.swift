@@ -2517,35 +2517,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   func candidateMenuElements(at index: Int) -> [UIMenuElement] {
-    // 上屏译文挂在这里,不看方案也不看本地模式:有释义画出来,就该能把它交出去。
-    let glossActions = glossMenuElements(at: index)
-    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode,
-      visibleCandidates.indices.contains(index)
-    else { return glossActions }
-    let candidate = visibleCandidates[index]
-    let revision = candidateRevision
-    func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
-                destructive: Bool = false) -> UIAction {
-      UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
-        guard let self, candidateRevision == revision,
-              visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
-        let result = session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
-        render(result)
-        if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
-        else if result.diagnosticText == nil {
-          playInputClick()
-          UIAccessibility.post(notification: .announcement, argument: "已\(title)")
-        }
-      }
-    }
-    return glossActions + [
-      action("优先显示", "arrow.up", .promote),
-      action("固定到首位", "pin", .fixFirst),
-      action("取消固定", "pin.slash", .clearPosition),
-      UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
-        action("确认删除此词条", "trash", .remove, destructive: true),
-      ]),
-    ]
+    // 长按只给译文。词条管理(优先显示 / 固定到首位 / 取消固定 / 删除词条)从这里撤掉了 —— 它们把长按的主用途埋在一堆动作底下。引擎那边的 editCandidate 还在,哪天要给它们另开入口,接上就行。
+    glossMenuElements(at: index)
   }
 
   /// 刷新一个候选按钮的文字,位置和动作都不变。
@@ -2688,8 +2661,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !spoken.isEmpty {
       button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
-    button.accessibilityHint =
-      isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode ? "轻点输入，长按管理词条" : nil
+    button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
   }
 
   private func makeSymbolKey(
