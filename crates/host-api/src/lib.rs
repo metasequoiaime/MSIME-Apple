@@ -1826,9 +1826,12 @@ pub unsafe extern "C" fn msime_client_apply_translations(
         let values: Vec<Translation> =
             serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
         if values.len() > 4096
-            || values
-                .iter()
-                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+            || values.iter().any(|item| {
+                item.text.len() > 4096
+                    || item.translation.len() > 4096
+                    || item.text.chars().any(char::is_control)
+                    || item.translation.chars().any(char::is_control)
+            })
         {
             return Err("translation entries exceed limits".into());
         }
@@ -4849,6 +4852,53 @@ mod tests {
         assert_eq!(online["value"]["english_gloss"], false);
         assert!(online["value"]["resources"].is_null());
         assert!(online["value"]["user_data"].is_null());
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn translation_results_reject_control_characters_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let mut view = Value::Null;
+        for byte in b"U4e2d" {
+            view = read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ))["value"]["view"]
+                .clone();
+        }
+        let generation = view["generation"].as_u64().unwrap();
+        let candidate = view["candidates"][0]["text"].as_str().unwrap().to_owned();
+        let apply = |values: Value| {
+            let encoded = serde_json::to_vec(&values).unwrap();
+            read(unsafe {
+                msime_client_apply_translations(handle, generation, encoded.as_ptr(), encoded.len())
+            })
+        };
+
+        let applied = apply(json!([{"text":candidate,"translation":"合成释义"}]));
+        assert_eq!(applied["ok"], true);
+        assert_eq!(applied["value"]["applied"], true);
+        assert_eq!(
+            applied["value"]["view"]["candidates"][0]["translation"],
+            "合成释义"
+        );
+        let before = applied["value"]["view"].clone();
+
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            for invalid in [
+                json!([{"text":format!("{candidate}{control}"),"translation":"safe"}]),
+                json!([{"text":candidate,"translation":format!("before{control}after")}]),
+            ] {
+                let rejected = apply(invalid);
+                assert_eq!(rejected["ok"], false);
+                assert_eq!(rejected["error"], "translation entries exceed limits");
+            }
+        }
+        assert_eq!(read(msime_client_view(handle))["value"], before);
         read(msime_client_destroy(handle));
     }
 
