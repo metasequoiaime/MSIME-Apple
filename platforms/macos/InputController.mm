@@ -1171,6 +1171,22 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 completion(NO);
                 return;
             }
+            NSDictionary *voiceOptions = MSIMEVoiceProviderOptions(@{}, NSUserDefaults.standardUserDefaults);
+            MSIMEVoiceCommitRoute route = MSIMECaptureVoiceCommit(voiceOptions[@"commit_mode"], targetClient);
+            const MSIMEVoiceCommitOutcome outcome = route.deliver(text);
+            if (outcome == MSIMEVoiceCommitOutcome::stale) {
+                // The external editor lost focus after the panel submitted. The
+                // route may have posted a partial result, so never retry through IMK.
+                completion(NO);
+                return;
+            }
+            if (outcome == MSIMEVoiceCommitOutcome::posted) {
+                NSDictionary *options = controller->_session ? MSIMEStatisticsHostOptions(controller->_session) : @{};
+                MSIMERecordTypingStatistics(controller->_preferencesDirectory ?: options[@"preferences_directory"],
+                                            text, msime::mac::TypingSource::Voice);
+                completion(YES);
+                return;
+            }
             @try {
                 [targetClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
                 NSDictionary *options = controller->_session ? MSIMEStatisticsHostOptions(controller->_session) : @{};
