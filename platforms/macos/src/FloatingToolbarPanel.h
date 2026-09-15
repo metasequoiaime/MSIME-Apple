@@ -16,7 +16,10 @@
 - (void)floatingToolbarDidRequestHide:(MetasequoiaFloatingToolbarPanel *)toolbar;
 @end
 
-FOUNDATION_EXPORT NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame);
+// 宽度随显示出来的按钮个数变。齿轮总在,所以 buttonCount 至少是 1。
+FOUNDATION_EXPORT CGFloat MetasequoiaFloatingToolbarWidth(NSInteger buttonCount);
+FOUNDATION_EXPORT NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame,
+                                                         CGFloat width);
 FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target);
 
 @interface MetasequoiaFloatingToolbarPanel : NSPanel

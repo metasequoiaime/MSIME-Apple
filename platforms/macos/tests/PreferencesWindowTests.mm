@@ -1,4 +1,6 @@
 #import "../src/PreferencesWindowController.h"
+
+#import "../src/FloatingToolbarPreferences.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -110,6 +112,18 @@ NSButton *FindButtonWithTitle(NSView *view, NSString *title)
         }
     }
     return nil;
+}
+
+void CollectButtonTitlesWithAction(NSView *view, SEL action, NSMutableArray<NSString *> *titles)
+{
+    if ([view isKindOfClass:[NSButton class]] && ((NSButton *)view).action == action)
+    {
+        [titles addObject:((NSButton *)view).title];
+    }
+    for (NSView *subview in view.subviews)
+    {
+        CollectButtonTitlesWithAction(subview, action, titles);
+    }
 }
 
 NSInteger CountButtonsWithAction(NSView *view, SEL action)
@@ -303,8 +317,18 @@ int main()
         require(generalNavigationItem != nil && appearanceNavigationItem != nil && skinNavigationItem != nil &&
                     dataNavigationItem != nil && updatesNavigationItem != nil,
                 "The settings window did not expose all sidebar destinations.");
-        require(appearanceNavigationItem.state == NSControlStateValueOn,
-                "The settings sidebar did not select appearance initially.");
+        require(generalNavigationItem.state == NSControlStateValueOn,
+                "The settings sidebar did not select the first item initially.");
+        // 侧栏按用途分四组,顺序是产品决定的,不是构造顺序的副产品。按 action 收集真正的导航按钮,
+        // 读它们在栈视图里的排列 —— 断言的是界面上从上到下的样子,不是源码里数组怎么写的。
+        NSMutableArray<NSString *> *navigationOrder = [NSMutableArray array];
+        CollectButtonTitlesWithAction(navigation, @selector(selectPreferencesPage:), navigationOrder);
+        NSArray<NSString *> *expectedOrder = @[
+            @"输入", @"辅助码", @"快捷键", @"语音输入", @"外观", @"皮肤", @"悬浮工具栏", @"词库", @"账号", @"帮助",
+            @"反馈", @"关于与更新"
+        ];
+        require([navigationOrder isEqualToArray:expectedOrder],
+                "The settings sidebar was not grouped as input, appearance, data and help.");
         NSView *generalPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"键盘输入设置页");
         NSView *appearancePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"外观设置页");
         NSView *skinPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"皮肤设置页");
@@ -312,9 +336,9 @@ int main()
         NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"更新与反馈设置页");
         require(generalPage != nil && appearancePage != nil && skinPage != nil && dataPage != nil && updatesPage != nil,
                 "The settings window did not create all functional pages.");
-        require(generalPage.hidden && !appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
+        require(!generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
                     updatesPage.hidden,
-                "The settings window did not open on the appearance page.");
+                "The settings window did not open on the keyboard input page.");
 
         // 帮助和反馈曾经是侧栏上两个直接弹浏览器的动作:点一下,设置窗什么都不变,人被扔进浏览器。
         // 现在它们和别的页一样是真页面,所以要能按下标找到、点了要显示出来。
@@ -725,6 +749,22 @@ int main()
         NSButton *floatingToolbarButton = (NSButton *)floatingToolbarView;
         require(floatingToolbarButton.state == NSControlStateValueOff,
                 "The floating-toolbar control did not reflect the stored disabled value.");
+        // 「显示这些开关」:工具栏上每个可关的按钮都要有一个勾选框,默认全开,并且在工具栏本身关着的
+        // 时候不可点 —— 那时候问「显示哪些」是个不成立的问题。
+        NSView *floatingItemsCard =
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏显示项卡片");
+        require(floatingItemsCard != nil, "The floating-toolbar page did not expose which switches the toolbar shows.");
+        // 在卡片里找,不在整个窗口里找:「简繁输出」在「输入」页上也是一个控件的名字,按名字全窗口搜会先
+        // 撞上那一个。
+        for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+        {
+            NSButton *itemButton = FindButtonWithTitle(floatingItemsCard, MetasequoiaFloatingToolbarItemTitle(item));
+            require(itemButton != nil, "A floating-toolbar switch had no control on the settings page.");
+            require(itemButton.state == NSControlStateValueOn,
+                    "A floating-toolbar switch did not default to being shown.");
+            require(!itemButton.enabled,
+                    "The floating-toolbar switches stayed clickable while the toolbar itself was off.");
+        }
         NSAppearance *darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         __block NSColor *darkCanvasColor = nil;
         __block NSColor *darkPanelColor = nil;
