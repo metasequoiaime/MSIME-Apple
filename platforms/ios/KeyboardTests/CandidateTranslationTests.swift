@@ -203,6 +203,35 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(bare.bounds.width, word.size().width, "没有释义的格子也不该被压窄")
   }
 
+  func testAChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay() throws {
+    // 联网那份几百毫秒后才到,一到格子就从一行变两行 —— 打字过程中候选忽高忽低。还没到的那一行先空着,高度就不跳。
+    let words = ["你好", "泥嚎"]
+    func panel(_ glosses: [[String]]) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: words, hints: ["", ""], glosses: glosses, preedit: "nihao",
+        display: { $0 }, onSelect: { _ in }, onClose: {})
+      view.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      view.layoutIfNeeded()
+      return view
+    }
+    func height(_ view: KeyboardCandidatePanelView, _ identifier: String) throws -> CGFloat {
+      try XCTUnwrap(descendants(view).first { $0.accessibilityIdentifier == identifier } as? UIButton).bounds.height
+    }
+
+    let placeholder = KeyboardViewController.pendingGlossPlaceholder
+    let waiting = panel([[placeholder], [placeholder]])
+    let arrived = panel([["hello"], [placeholder]])
+
+    XCTAssertEqual(try height(waiting, "panelCandidate-1"), try height(arrived, "panelCandidate-1"),
+                   accuracy: 0.5, "释义到达前后,格子高度不该变")
+    XCTAssertEqual(try height(arrived, "panelCandidate-1"), try height(arrived, "panelCandidate-2"),
+                   accuracy: 0.5, "同一页里有释义和没释义的格子一样高")
+
+    let single = panel([[], []])
+    XCTAssertLessThan(try height(single, "panelCandidate-1"), try height(waiting, "panelCandidate-1"),
+                      "关掉释义才回到一行高")
+  }
+
   func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
     XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
     XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")

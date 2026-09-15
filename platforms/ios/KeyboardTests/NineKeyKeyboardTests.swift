@@ -1189,7 +1189,13 @@ final class NineKeyKeyboardTests: XCTestCase {
   // 晕了限制 as 晕了限 over 制 while a same-length neighbour stayed on one line.
   func testCandidateChipsNeverWrapToASecondLine() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    // 这条量的是候选词本身会不会折行,所以把释义关掉:开着的话格子固定带一行预留的释义,多出来的那一行是设计,不是折行。带释义的几何由 CandidateTranslationTests 盯。
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = false
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()

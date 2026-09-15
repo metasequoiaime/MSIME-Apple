@@ -2528,16 +2528,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidateGlosses(at index: Int) -> [String] {
     guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
     let word = visibleCandidates[index]
-    var lines: [String] = []
-    if let primary = gloss(word: word, language: CandidateTranslationPreference.primary, at: index) {
-      lines.append(primary)
-    }
-    if let secondary = CandidateTranslationPreference.secondary,
-       let text = gloss(word: word, language: secondary, at: index) {
-      lines.append(text)
-    }
-    return lines
+    var languages = [CandidateTranslationPreference.primary]
+    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    // 每条留了行的语言都给一行,哪怕这个词的释义还没回来 —— 那一行先空着。
+    //
+    // 联网那份是几百毫秒之后才到的,而它一到格子就从一行变成两行。候选栏的总高度早就按设置留好了,变的是格子自己:于是打字过程中候选忽高忽低,来回跳。宁可先空着。
+    return languages
+      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess) }
+      .map { gloss(word: word, language: $0, at: index) ?? Self.pendingGlossPlaceholder }
   }
+
+  /// 释义还没到的那一行。空串会被排版当成没有这一行,高度就又塌回去了,所以留一个空格。
+  static let pendingGlossPlaceholder = " "
 
   private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
     // 离线词典不解日语:随包的是一本英汉词典,拿它去解假名打出来的候选是答非所问。macOS 也只把日语排除在离线这一条之外,联网那条照旧。
@@ -2612,8 +2614,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.configuration = configuration
     button.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(display)" : "候选词 \(number)：\(display)，还需输入 \(hint)"
-    if !glosses.isEmpty {
-      button.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，")
+    // 占位的空行不念出来。
+    let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    if !spoken.isEmpty {
+      button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
     button.accessibilityHint =
       isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode ? "轻点输入，长按管理词条" : nil

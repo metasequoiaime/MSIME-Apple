@@ -197,8 +197,10 @@ final class KeyboardCandidatePanelView: UIView {
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"
-    if !glosses.isEmpty {
-      chip.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，")
+    // 占位的空行不念出来。
+    let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    if !spoken.isEmpty {
+      chip.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
     return chip
   }

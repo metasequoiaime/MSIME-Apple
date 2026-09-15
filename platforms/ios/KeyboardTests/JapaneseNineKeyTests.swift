@@ -29,7 +29,9 @@ final class JapaneseNineKeyTests: XCTestCase {
     panel.select(5, direction: 4) // ほ
     panel.select(9, direction: 2) // ん
     let first = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
-    XCTAssertTrue(first.configuration?.title?.hasSuffix("日本") == true, first.configuration?.title ?? "No candidate")
+    // 只看第一行:开着释义时格子下面还有一行预留给释义的位置。
+    let title = first.configuration?.title ?? ""
+    XCTAssertTrue(title.split(separator: "\n").first?.hasSuffix("日本") == true, title)
     let screenshot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
       controller.view.layer.render(in: $0.cgContext)
     })
