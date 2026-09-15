@@ -76,4 +76,11 @@ cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$ou
   platforms/harmony/native/client_napi.cpp -Icrates/host-api/include \
   -L"$output" -lmsime_host_api -lace_napi.z -o "$output/libmsimeclient.so"
 "$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep -q RegisterClientModule
-echo "OpenHarmony native libraries built: $output (not yet device-verified)"
+# hvigor packs whatever sits in entry/libs/<abi> into the HAP, so stage both objects there. The
+# directory is build output, not source, and is ignored.
+staged="$repo_root/platforms/harmony/entry/libs/$abi"
+mkdir -p "$staged"
+cp "$output/libmsime_host_api.so" "$output/libmsimeclient.so" "$staged/"
+echo "OpenHarmony native libraries built: $output"
+echo "Staged for the HAP: $staged"
+echo "Next: platforms/harmony && hvigorw assembleHap (not yet device-verified)"

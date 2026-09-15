@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "MSIME input method"
+    },
+    {
+      "name": "keyboard_ability_desc",
+      "value": "MSIME keyboard"
+    },
+    {
+      "name": "keyboard_ability_label",
+      "value": "MSIME"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "libmsimeclient.so",
+  "types": "./index.d.ts",
+  "version": "1.0.0",
+  "description": "Type surface of the MSIME NAPI bridge"
+}

@@ -1,0 +1,28 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "KeyboardExtensionAbility",
+    // phone and 2in1 are the two form factors the shared contract distinguishes: the phone panel is a
+    // soft keyboard, the 2in1 one is a candidate window driven by a physical keyboard.
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "extensionAbilities": [
+      {
+        "name": "KeyboardExtensionAbility",
+        "srcEntry": "./ets/inputmethodextability/KeyboardExtensionAbility.ets",
+        "description": "$string:keyboard_ability_desc",
+        "label": "$string:keyboard_ability_label",
+        "type": "inputMethod",
+        "exported": true
+      }
+    ]
+  }
+}

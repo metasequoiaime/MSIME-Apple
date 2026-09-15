@@ -13,3 +13,8 @@ dist/
 !/apps/desktop/src-tauri/gen/apple/
 /platforms/ios/Pods/
 /platforms/ios/MSIMEClient.xcworkspace/
+/platforms/harmony/.hvigor/
+/platforms/harmony/entry/build/
+/platforms/harmony/entry/libs/
+oh_modules/
+local.properties
