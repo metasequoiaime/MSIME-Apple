@@ -26,7 +26,7 @@ export interface TypingStatisticsClient {
 }
 
 type Period = 7 | 30 | 0;
-type Slice = { id: string; title: string; count: number; color: string };
+type Slice = { id: string; title: string; count: number; color: string; symbol: string };
 
 const palette = ["#19a78d", "#4c8ee8", "#7772df", "#e59b43", "#db6f9f", "#a879d7", "#98705a", "#888b92"];
 const characterKinds = [
@@ -40,6 +40,15 @@ const sources = [
   ["local", "本地输入"], ["ai", "AI 润色"], ["reply", "高情商回复"], ["voice", "语音输入"],
   ["unknown", "历史未分类"],
 ] as const;
+const characterSymbols: Record<string, string> = {
+  han: "汉", latin: "A", otherLetter: "文", number: "123", punctuation: "，",
+  emoji: "😀", symbol: "#", unknown: "?",
+};
+const sourceSymbols: Record<string, string> = {
+  quanpin: "全", nineKey: "9", shuangpin: "鹤", ziranma: "自", microsoft: "微", shoudao: "首",
+  wubi: "五", japanese: "日", handwriting: "手", english: "A", local: "本", ai: "✦", reply: "回",
+  voice: "♪", unknown: "?",
+};
 
 function dayKey(date: Date): string {
   const year = date.getFullYear();
@@ -199,7 +208,7 @@ function Distribution({ title, slices, footer, variant = "bar" }: { title: strin
     {total === 0 && <p className="statistics-empty">暂无输入记录</p>}
     <div className="statistics-legend">
       {visible.map(slice => <div className="statistics-legend-row" key={slice.id} aria-label={`${slice.title} ${slice.count} 字符，${total === 0 ? "无占比" : `${(slice.count / total * 100).toFixed(1)}%`}`}>
-        <span className="statistics-dot" style={{ backgroundColor: slice.color }} aria-hidden="true" />
+        <span className="statistics-dot statistics-symbol" style={{ color: slice.color, backgroundColor: `${slice.color}1a` }} aria-hidden="true">{slice.symbol}</span>
         <span>{slice.title}</span><strong>{slice.count.toLocaleString("zh-CN")}</strong>
         <small>{total === 0 ? "—" : `${(slice.count / total * 100).toFixed(1)}%`}</small>
       </div>)}
@@ -249,17 +258,17 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
   const today = recentDays(1)[0];
   const scopeTitle = selectedDay ? trendDays.find(day => day.key === selectedDay)?.label ?? selectedDay : mobile || period === 0 ? "累计输入" : `近 ${period} 天输入`;
   const maximum = Math.max(1, ...trendDays.map(day => statistics.days[day.key] ?? 0));
-  const characterSlices = characterKinds.map(([id, title], index) => ({ id, title, count: breakdown.characters[id] ?? 0, color: palette[index % palette.length] }));
-  const sourceSlices = sources.map(([id, title], index) => ({ id, title, count: breakdown.sources[id] ?? 0, color: palette[index % palette.length] }));
+  const characterSlices = characterKinds.map(([id, title], index) => ({ id, title, count: breakdown.characters[id] ?? 0, color: palette[index % palette.length], symbol: characterSymbols[id] ?? "?" }));
+  const sourceSlices = sources.map(([id, title], index) => ({ id, title, count: breakdown.sources[id] ?? 0, color: palette[index % palette.length], symbol: sourceSymbols[id] ?? "?" }));
   const languageSlices: Slice[] = [
-    { id: "chinese", title: "中文模式", count: sum(breakdown.sources, ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"]), color: palette[0] },
-    { id: "japanese", title: "日语模式", count: breakdown.sources.japanese ?? 0, color: palette[4] },
-    { id: "english", title: "英文模式", count: breakdown.sources.english ?? 0, color: palette[1] },
-    { id: "local", title: "本地输入", count: breakdown.sources.local ?? 0, color: palette[5] },
-    { id: "ai", title: "AI 润色", count: breakdown.sources.ai ?? 0, color: palette[3] },
-    { id: "reply", title: "高情商回复", count: breakdown.sources.reply ?? 0, color: "#55bfa0" },
-    { id: "voice", title: "语音输入", count: breakdown.sources.voice ?? 0, color: palette[2] },
-    { id: "unknown", title: "历史未分类", count: breakdown.sources.unknown ?? 0, color: palette[7] },
+    { id: "chinese", title: "中文模式", count: sum(breakdown.sources, ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"]), color: palette[0], symbol: "中" },
+    { id: "japanese", title: "日语模式", count: breakdown.sources.japanese ?? 0, color: palette[4], symbol: "日" },
+    { id: "english", title: "英文模式", count: breakdown.sources.english ?? 0, color: palette[1], symbol: "A" },
+    { id: "local", title: "本地输入", count: breakdown.sources.local ?? 0, color: palette[5], symbol: "本" },
+    { id: "ai", title: "AI 润色", count: breakdown.sources.ai ?? 0, color: palette[3], symbol: "✦" },
+    { id: "reply", title: "高情商回复", count: breakdown.sources.reply ?? 0, color: "#55bfa0", symbol: "回" },
+    { id: "voice", title: "语音输入", count: breakdown.sources.voice ?? 0, color: palette[2], symbol: "♪" },
+    { id: "unknown", title: "历史未分类", count: breakdown.sources.unknown ?? 0, color: palette[7], symbol: "?" },
   ];
   let availabilityMessage = "";
   if (status.availability === "neverWritten") availabilityMessage = "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
