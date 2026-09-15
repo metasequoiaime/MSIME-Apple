@@ -104,7 +104,14 @@ GitHub 没有自定义频道，只有 Latest / Pre-release / Draft 三种状态�
 
 自动更新之所以只跟随发布频道，是因为 `Info.plist` 里的 Sparkle feed 指向 `releases/latest/download/appcast.xml`，而 Pre-release 不会成为 Latest，它的 appcast 取不到。想装自动构建的用户需要自己去 Releases 页面下载。
 
-合并到 `main` 会根据 conventional commit 历史更新 Release Please 的 pull request。合并该发布 PR 会更新 `version.txt`、`CMakeLists.txt` 和 `CHANGELOG.md`，创建对应的 `vX.Y.Z` 标签，构建并测试通用架构的输入法 bundle，然后发布带有以下产物的 GitHub Release：
+合并到 `main` **不会**触发 Release Please——`release.yml` 里所有 release-please 的步骤都挂在 `github.event_name == 'workflow_dispatch' && inputs.bump_version` 上。push 到 `main` 只走自动构建那条路，产出一个挂在当前版本号后面加 build 号的 Pre-release。
+
+要发正式版本，手动触发 `Release` workflow：`tag` 留空、勾上 `bump_version`、`platform` 按需要选（默认 `both`）。这一次触发是端到端的，中途不需要人再点什么：
+
+1. release-please 按 conventional commit 历史造出发布 pull request
+2. `merge-release-pr.sh` 测它、合它——`version.txt`、`CMakeLists.txt` 和 `CHANGELOG.md` 在这一步更新
+3. release-please 收尾，创建 `vX.Y.Z` 标签
+4. 构建并测试通用架构的输入法 bundle，发布带有以下产物的 GitHub Release：
 
 ### 版本号怎么推进
 
