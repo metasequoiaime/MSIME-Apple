@@ -3,7 +3,7 @@
 use super::{response, DictionaryAccess, HostOptions};
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{
-    dictionary_state_revision, stage_dictionary_state, EngineOptions, SnapshotReadError,
+    dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -247,6 +247,12 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     if version_without_access(active)? != expected {
         return Err("snapshot source changed");
     }
+    // Construct the replacement engine while the current generation is still
+    // untouched.  A malformed or otherwise unusable generation must not make
+    // the active dictionaries unavailable after publication.
+    let replacement_session = Session::new(staged).map_err(|_| "snapshot engine unavailable")?;
+    // Windows cannot rename SQLite files while the probe keeps them open.
+    drop(replacement_session);
     let suffix = format!(".msime-snapshot-old-{handle}");
     let pairs = [
         (&active.user_data, &staged.user_data),
@@ -303,7 +309,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
         let backup = &backups[index];
-        if std::fs::create_dir_all(&backup).is_err() {
+        if std::fs::create_dir_all(backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
         }
@@ -477,7 +483,7 @@ fn discard(handle: u64) -> Result<Value, &'static str> {
 
 #[no_mangle]
 pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
-    response(|| discard(handle))
+    response(|| discard(handle).map_err(Into::into))
 }
 
 #[no_mangle]

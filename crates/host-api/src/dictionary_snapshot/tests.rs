@@ -149,8 +149,36 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     let staged_options = make(&staged);
     let expected = super::version_without_access(&active_options).unwrap();
     let directory = tempfile::tempdir_in(root.path()).unwrap();
+    let handle = super::NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if !hold_session {
+        // The replacement generation can be syntactically well-formed while
+        // still being rejected by the Engine.  Probe that failure before any
+        // state root is moved and keep the old generation readable.
+        let translation_source = staged.join("user/custom_translations.txt");
+        let translation_target = staged.join(dictionaries).join("custom_translations.txt");
+        fs::write(&translation_source, b"fixture").unwrap();
+        fs::create_dir(&translation_target).unwrap();
+        let unusable_handle = super::NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        registry().lock().unwrap().insert(
+            unusable_handle,
+            Prepared {
+                directory: tempfile::tempdir_in(root.path()).unwrap(),
+                active_options: active_options.clone(),
+                options: staged_options.clone(),
+                source_version: expected.clone(),
+            },
+        );
+        assert!(activate(unusable_handle, &expected).is_err());
+        assert!(registry().lock().unwrap().contains_key(&unusable_handle));
+        for name in ["user", "cache", dictionaries] {
+            assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+        }
+        discard(unusable_handle).unwrap();
+        fs::remove_file(translation_source).unwrap();
+        fs::remove_dir(translation_target).unwrap();
+    }
     registry().lock().unwrap().insert(
-        123,
+        handle,
         Prepared {
             directory,
             active_options: active_options.clone(),
@@ -171,26 +199,26 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
         None
     };
     if let Some(session_access) = session_access {
-        assert!(activate(123, &expected).is_err());
+        assert!(activate(handle, &expected).is_err());
         for name in ["user", "cache", dictionaries] {
             assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
         }
         drop(session_access);
     }
     let wrong = "0".repeat(64);
-    assert!(activate(123, &wrong).is_err());
+    assert!(activate(handle, &wrong).is_err());
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     fs::remove_dir_all(staged.join("cache")).unwrap();
-    assert!(activate(123, &expected).is_err());
+    assert!(activate(handle, &expected).is_err());
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     let backup_path = |path: &Path| {
         path.with_file_name(format!(
-            "{}.msime-snapshot-old-123",
-            path.file_name().unwrap().to_string_lossy()
+            "{}.msime-snapshot-old-{handle}",
+            path.file_name().unwrap().to_string_lossy(),
         ))
     };
     for path in [
@@ -203,7 +231,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();
     assert_eq!(
-        activate(123, &expected).unwrap(),
+        activate(handle, &expected).unwrap(),
         serde_json::json!({"activated": true})
     );
     for name in ["user", "cache", dictionaries] {
@@ -215,6 +243,6 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
             .as_deref(),
         Some(activation_id)
     );
-    assert!(!registry().lock().unwrap().contains_key(&123));
-    assert!(activate(123, &expected).is_err());
+    assert!(!registry().lock().unwrap().contains_key(&handle));
+    assert!(activate(handle, &expected).is_err());
 }
