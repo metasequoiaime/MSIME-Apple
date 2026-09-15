@@ -93,6 +93,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(committed.has_commit);
             assert!(!committed.commit.is_empty());
         }
+        if letter == b'R' {
+            for character in b"ka" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
         let mut disabled = options.clone();
         match index {
             0 => disabled.local_unicode = false,
