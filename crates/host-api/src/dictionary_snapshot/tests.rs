@@ -5,14 +5,16 @@ fn snapshot_module_is_present() {
 
 #[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
-    activation_case(false, false);
-    activation_case(true, false);
+    activation_case(false, false, 123);
+    activation_case(true, false, 123);
 }
 
 #[test]
 fn activation_rejects_live_session_before_swapping() {
-    activation_case(false, true);
-    activation_case(true, true);
+    // The registry is process-global; use a distinct fixture handle so this
+    // test can run in parallel with the successful activation cases.
+    activation_case(false, true, 125);
+    activation_case(true, true, 125);
 }
 
 #[test]
@@ -83,7 +85,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
     drop(session_access);
 }
 
-fn activation_case(nested_dictionaries: bool, hold_session: bool) {
+fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     use super::*;
     use msime_client_core::dictionary_access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
@@ -150,7 +152,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     let expected = super::version_without_access(&active_options).unwrap();
     let directory = tempfile::tempdir_in(root.path()).unwrap();
     registry().lock().unwrap().insert(
-        123,
+        handle,
         Prepared {
             directory,
             active_options: active_options.clone(),
@@ -171,25 +173,25 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
         None
     };
     if let Some(session_access) = session_access {
-        assert!(activate(123, &expected).is_err());
+        assert!(activate(handle, &expected).is_err());
         for name in ["user", "cache", dictionaries] {
             assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
         }
         drop(session_access);
     }
     let wrong = "0".repeat(64);
-    assert!(activate(123, &wrong).is_err());
+    assert!(activate(handle, &wrong).is_err());
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     fs::remove_dir_all(staged.join("cache")).unwrap();
-    assert!(activate(123, &expected).is_err());
+    assert!(activate(handle, &expected).is_err());
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
     }
     let backup_path = |path: &Path| {
         path.with_file_name(format!(
-            "{}.msime-snapshot-old-123",
+            "{}.msime-snapshot-old-{handle}",
             path.file_name().unwrap().to_string_lossy()
         ))
     };
@@ -203,7 +205,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();
     assert_eq!(
-        activate(123, &expected).unwrap(),
+        activate(handle, &expected).unwrap(),
         serde_json::json!({"activated": true})
     );
     for name in ["user", "cache", dictionaries] {
@@ -215,6 +217,6 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
             .as_deref(),
         Some(activation_id)
     );
-    assert!(!registry().lock().unwrap().contains_key(&123));
-    assert!(activate(123, &expected).is_err());
+    assert!(!registry().lock().unwrap().contains_key(&handle));
+    assert!(activate(handle, &expected).is_err());
 }

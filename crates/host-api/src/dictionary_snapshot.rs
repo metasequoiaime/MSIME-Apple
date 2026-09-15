@@ -303,7 +303,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
         let backup = &backups[index];
-        if std::fs::create_dir_all(&backup).is_err() {
+        if std::fs::create_dir_all(backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
         }
@@ -477,7 +477,7 @@ fn discard(handle: u64) -> Result<Value, &'static str> {
 
 #[no_mangle]
 pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
-    response(|| discard(handle))
+    response(|| discard(handle).map_err(|error| error.to_string()))
 }
 
 #[no_mangle]

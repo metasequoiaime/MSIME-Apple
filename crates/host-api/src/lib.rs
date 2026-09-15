@@ -4957,6 +4957,15 @@ mod tests {
     fn translation_queries_follow_active_japanese_mode() {
         for temporary in [false, true] {
             let dir = tempfile::tempdir().unwrap();
+            if temporary {
+                // The host disables the temporary Japanese shortcut when its
+                // model resource is absent.  This test supplies a bounded
+                // placeholder so it exercises the shortcut's generated kana
+                // path without depending on a packaged model.
+                std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+                std::fs::write(dir.path().join("resources/dict_japanese.dat"), b"synthetic")
+                    .unwrap();
+            }
             let preferences = Preferences {
                 scheme: if temporary {
                     InputScheme::Quanpin

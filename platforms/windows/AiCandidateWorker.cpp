@@ -31,7 +31,8 @@ size_t write_response(char *data, size_t size, size_t count, void *context) {
     return 0;
   if (size > kMaximumResponseBytes ||
       response.body.size() > kMaximumResponseBytes ||
-      (size != 0 && count > (kMaximumResponseBytes - response.body.size()) / size))
+      (size != 0 &&
+       count > (kMaximumResponseBytes - response.body.size()) / size))
     return 0;
   response.body.append(data, size * count);
   return size * count;
@@ -294,9 +295,15 @@ void AiCandidateWorker::run() {
       }
       if (is_cancelled())
         continue;
-      std::lock_guard lock(mutex_);
-      cached_query_ = request.query;
-      cached_candidates_ = candidates;
+      // Only successful responses are cacheable.  Keeping an empty result
+      // would permanently suppress retries for this prefix: a transient
+      // provider failure (or a provider that was temporarily unavailable)
+      // would then be mistaken for a valid answer until the query changed.
+      if (!candidates.empty()) {
+        std::lock_guard lock(mutex_);
+        cached_query_ = request.query;
+        cached_candidates_ = candidates;
+      }
     }
     if (candidates.empty() || is_cancelled())
       continue;
