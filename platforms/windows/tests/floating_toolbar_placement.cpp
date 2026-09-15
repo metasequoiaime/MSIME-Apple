@@ -73,6 +73,19 @@ int main() {
     const auto clamped = floating_toolbar_placement(offset);
     require(clamped.x == 2000 && clamped.y == 100);
 
+    // WM_DISPLAYCHANGE re-runs this placement with the new work area even
+    // when the DPI and toolbar state did not change. A remembered position on
+    // a removed monitor must therefore be pulled onto the remaining screen.
+    FloatingToolbarPlacementInput topology = input;
+    topology.work_right = 1280;
+    topology.work_bottom = 680;
+    topology.placed = true;
+    topology.current_x = 1700;
+    topology.current_y = 900;
+    const auto display_changed = floating_toolbar_placement(topology);
+    require(display_changed.x == 1280 - topology.width);
+    require(display_changed.y == 680 - topology.height);
+
     // A work area narrower than the toolbar must not push it off the left edge
     // by inverting the clamp range; the origin wins.
     FloatingToolbarPlacementInput tiny;

@@ -320,6 +320,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (visible) self->refresh(true);
       return 0;
     }
+    case WM_DISPLAYCHANGE: {
+      // A resolution, taskbar or monitor-topology change does not have to
+      // carry a DPI edge. Invalidate the presentation snapshot so refresh()
+      // cannot take its unchanged-state fast path and leave a remembered
+      // toolbar position outside the new work area.
+      const bool visible = IsWindowVisible(window) != FALSE;
+      self->shown_.reset();
+      self->shown_character_set_.reset();
+      if (visible) self->refresh(true);
+      return 0;
+    }
     case WM_PAINT: self->paint(); return 0;
     case WM_ENTERSIZEMOVE:
       self->moving_ = true;
