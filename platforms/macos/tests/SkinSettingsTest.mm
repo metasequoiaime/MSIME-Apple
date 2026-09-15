@@ -15,7 +15,7 @@ version = "1"
 description = "Synthetic package fixture"
 base = "wechat"
 [supports]
-layouts = ["horizontal", "vertical"]
+layouts = ["horizontal"]
 themes = ["dark", "light"]
 [candidate_window]
 min_width_dip = 0
@@ -95,6 +95,13 @@ int main(int argc, const char **argv) {
         assert(switches.lastObject.state == NSControlStateValueOn);
         assert(previews.lastObject.previewSkin.id == "synthetic");
         for (NSUInteger index = 0; index < 4; ++index) assert(switches[index].state == NSControlStateValueOff);
+        preferences.vertical = YES;
+        [cards reload];
+        assert(!switches.lastObject.enabled &&
+               [switches.lastObject.accessibilityValue isEqual:@"当前布局或明暗模式不受支持"]);
+        preferences.vertical = NO;
+        [cards reload];
+        assert(switches.lastObject.enabled);
         std::filesystem::remove_all(root / "synthetic");
         [cards reload];
         assert(switches.count == 4 && !empty.hidden);

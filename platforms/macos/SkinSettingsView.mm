@@ -1,6 +1,7 @@
 #import "SkinSettingsView.h"
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
+#import "CandidateSkinAppearance.h"
 
 #include "CandidateSkin.h"
 
@@ -42,6 +43,17 @@ NSString *BuiltinDescription(const std::string &id)
     }
     return @"默认候选窗与悬浮状态栏";
 }
+
+NSString *JoinedSkinValues(const std::vector<std::string> &values)
+{
+    NSMutableString *result = [NSMutableString string];
+    for (size_t index = 0; index < values.size(); ++index)
+    {
+        if (index > 0) [result appendString:@"/"];
+        [result appendString:@(values[index].c_str())];
+    }
+    return result;
+}
 } // namespace
 
 @interface MetasequoiaSkinSwitch : NSSwitch
@@ -81,6 +93,7 @@ NSString *BuiltinDescription(const std::string &id)
     NSMutableArray<NSTextField *> *_titles;
     NSMutableArray<NSString *> *_skinIds;
     NSMutableArray<NSString *> *_skinNames;
+    NSMutableArray<NSNumber *> *_skinCompatibility;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -106,6 +119,7 @@ NSString *BuiltinDescription(const std::string &id)
     _titles = [NSMutableArray array];
     _skinIds = [NSMutableArray array];
     _skinNames = [NSMutableArray array];
+    _skinCompatibility = [NSMutableArray array];
 
     NSTextField *title = Label(@"皮肤", 24.0, NSFontWeightSemibold, [NSColor labelColor]);
     NSTextField *summary =
@@ -153,7 +167,8 @@ NSString *BuiltinDescription(const std::string &id)
     {
         [self addSection:[self makeCardForId:@(entry.id.c_str())
                                         name:@(entry.name.c_str())
-                                 description:BuiltinDescription(entry.id)]];
+                                 description:BuiltinDescription(entry.id)
+                                compatible:YES]];
     }
 
     NSTextField *externalTitle = Label(@"外部皮肤", 13.0, NSFontWeightSemibold, [NSColor secondaryLabelColor]);
@@ -235,7 +250,10 @@ NSString *BuiltinDescription(const std::string &id)
     [view.widthAnchor constraintEqualToAnchor:_document.widthAnchor constant:-60.0].active = YES;
 }
 
-- (NSView *)makeCardForId:(NSString *)skinId name:(NSString *)name description:(NSString *)description
+- (NSView *)makeCardForId:(NSString *)skinId
+                     name:(NSString *)name
+              description:(NSString *)description
+              compatible:(BOOL)compatible
 {
     NSBox *card = [[NSBox alloc] initWithFrame:NSZeroRect];
     ConfigureCard(card);
@@ -248,7 +266,9 @@ NSString *BuiltinDescription(const std::string &id)
     enable.identifier = skinId;
     enable.target = self;
     enable.action = @selector(enableSkin:);
+    enable.enabled = compatible;
     enable.accessibilityLabel = [@"启用" stringByAppendingString:name];
+    if (!compatible) enable.accessibilityValue = @"当前布局或明暗模式不受支持";
     NSButton *theme = [NSButton buttonWithTitle:@"预览浅色" target:self action:@selector(toggleCardTheme:)];
     theme.bezelStyle = NSBezelStyleRounded;
     theme.identifier = skinId;
@@ -286,6 +306,7 @@ NSString *BuiltinDescription(const std::string &id)
     ]];
     [_skinIds addObject:skinId];
     [_skinNames addObject:name];
+    [_skinCompatibility addObject:@(compatible)];
     [_switches addObject:enable];
     [_previews addObject:preview];
     [_themeButtons addObject:theme];
@@ -348,10 +369,24 @@ NSString *BuiltinDescription(const std::string &id)
 - (void)refreshCardChrome
 {
     NSString *active = _preferences.skinID;
+    const NSUInteger builtInCount = metasequoia::mac::BuiltInSkinEntries().size();
+    const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
+    NSAppearance *appearance = _preferences.candidateAppearanceOverride ?: self.effectiveAppearance;
+    NSString *theme = MetasequoiaAppearanceIsDark(appearance) ? @"dark" : @"light";
+    NSString *layout = _preferences.vertical ? @"vertical" : @"horizontal";
     for (NSUInteger index = 0; index < _skinIds.count; ++index)
     {
+        BOOL compatible = YES;
+        if (index >= builtInCount)
+        {
+            auto package = msime::mac::LoadSkinPackage(root, _skinIds[index].UTF8String);
+            compatible = package.has_value() &&
+                         msime::mac::SupportsSkin(*package, layout.UTF8String, theme.UTF8String);
+            _skinCompatibility[index] = @(compatible);
+        }
         const BOOL selected = [_skinIds[index] isEqualToString:active];
         _switches[index].state = selected ? NSControlStateValueOn : NSControlStateValueOff;
+        _switches[index].enabled = compatible;
         _themeButtons[index].title = [_previews[index] forcedThemeButtonTitle];
         _titles[index].stringValue = [NSString
             stringWithFormat:@"%@（%@）", _skinNames[index], [_previews[index] previewUsesDark] ? @"Dark" : @"Light"];
@@ -365,6 +400,7 @@ NSString *BuiltinDescription(const std::string &id)
     {
         [_skinIds removeLastObject];
         [_skinNames removeLastObject];
+        [_skinCompatibility removeLastObject];
         [_switches removeLastObject];
         [_previews removeLastObject];
         [_themeButtons removeLastObject];
@@ -395,9 +431,18 @@ NSString *BuiltinDescription(const std::string &id)
         NSString *description = package.description.empty()
                                     ? [NSString stringWithFormat:@"基于 %s", package.base.c_str()]
                                     : @(package.description.c_str());
+        NSAppearance *appearance = _preferences.candidateAppearanceOverride ?: self.effectiveAppearance;
+        NSString *theme = MetasequoiaAppearanceIsDark(appearance) ? @"dark" : @"light";
+        NSString *layout = _preferences.vertical ? @"vertical" : @"horizontal";
+        const BOOL compatible = msime::mac::SupportsSkin(package, layout.UTF8String, theme.UTF8String);
+        if (!compatible) {
+            description = [NSString stringWithFormat:@"当前布局或明暗模式不受支持（%@，%@）",
+                                                     JoinedSkinValues(package.layouts), JoinedSkinValues(package.themes)];
+        }
         [cards addObject:[self makeCardForId:@(package.id.c_str())
                                         name:@(package.name.c_str())
-                                 description:description]];
+                                 description:description
+                                compatible:compatible]];
     }
     if (cards.count > 0)
     {
