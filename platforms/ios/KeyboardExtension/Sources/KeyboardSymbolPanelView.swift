@@ -15,19 +15,32 @@ final class KeyboardSymbolPanelView: UIView {
     Category(title: "常用", symbols: [
       "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
       "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
+      "～", "￥", "＆", "＃", "＠", "％", "＋", "－", "＝", "／",
     ]),
     Category(title: "中文", symbols: [
       "〈", "〉", "「", "」", "『", "』", "〔", "〕", "〖", "〗",
-      "￥", "～", "×", "÷", "±", "≈", "≠", "℃", "°", "※",
+      "＜", "＞", "｛", "｝", "［", "］", "︵", "︶", "﹁", "﹂",
+      "￥", "〇", "※", "°", "℃", "±", "×", "÷", "≈", "≠",
+      "≤", "≥", "√", "∞", "∵", "∴", "→", "←", "↑", "↓",
+      "★", "☆", "●", "○", "■", "□", "◆", "◇", "▲", "△",
     ]),
     Category(title: "英文", symbols: [
       ",", ".", "?", "!", ";", ":", "'", "\"", "(", ")",
       "[", "]", "{", "}", "<", ">", "/", "\\", "|", "-",
       "_", "+", "=", "*", "&", "^", "%", "$", "#", "@",
+      "~", "`", "·", "…", "–", "—", "§", "¶", "†", "‡",
+    ]),
+    Category(title: "数字", symbols: [
+      "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+      "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+      "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+      "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ",
+      "½", "⅓", "¼", "‰", "′", "″", "㎡", "㎏", "㎝", "№",
     ]),
     Category(title: "网络", symbols: [
       "@", "#", "/", "\\", ":", "_", "-", "+", "=", "&",
-      "?", "%", "~", "^", "http://", "https://", "www.", ".com", ".cn", ".net",
+      "?", "%", "~", "^", "*", "|", "<", ">", "$", "€",
+      "http://", "https://", "www.", ".com", ".cn", ".net", ".org", ".io", "@qq.com", "@gmail.com",
     ]),
   ]
 
@@ -36,6 +49,7 @@ final class KeyboardSymbolPanelView: UIView {
   private let onClose: () -> Void
   private let skin = KeyboardSkinPreference.selected
   private let grid = UIStackView()
+  private let scroll = UIScrollView()
   private var categoryButtons: [UIButton] = []
   private var selected = 0
   /// 锁上就连着打,不锁打一个就回键盘。默认不锁:多数时候是打一个顿号就接着写字。
@@ -66,8 +80,12 @@ final class KeyboardSymbolPanelView: UIView {
     }
 
     grid.axis = .vertical
-    grid.distribution = .fillEqually
     grid.spacing = 1
+    scroll.showsVerticalScrollIndicator = true
+    scroll.disableEdgeEffects()
+    scroll.accessibilityIdentifier = "symbolGrid"
+    grid.translatesAutoresizingMaskIntoConstraints = false
+    scroll.addSubview(grid)
 
     let back = bar(title: "返回", symbol: nil, identifier: "closeSymbolPanel") { [weak self] in
       self?.onClose()
@@ -89,7 +107,7 @@ final class KeyboardSymbolPanelView: UIView {
     bottom.distribution = .fillEqually
     bottom.spacing = 1
 
-    for item in [categories, grid, bottom] {
+    for item in [categories, scroll, bottom] {
       item.translatesAutoresizingMaskIntoConstraints = false
       addSubview(item)
     }
@@ -98,10 +116,15 @@ final class KeyboardSymbolPanelView: UIView {
       categories.topAnchor.constraint(equalTo: topAnchor),
       categories.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -1),
       categories.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.2),
-      grid.leadingAnchor.constraint(equalTo: categories.trailingAnchor, constant: 1),
-      grid.trailingAnchor.constraint(equalTo: trailingAnchor),
-      grid.topAnchor.constraint(equalTo: topAnchor),
-      grid.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -1),
+      scroll.leadingAnchor.constraint(equalTo: categories.trailingAnchor, constant: 1),
+      scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+      scroll.topAnchor.constraint(equalTo: topAnchor),
+      scroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -1),
+      grid.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+      grid.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+      grid.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+      grid.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+      grid.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
       bottom.leadingAnchor.constraint(equalTo: leadingAnchor),
       bottom.trailingAnchor.constraint(equalTo: trailingAnchor),
       bottom.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -113,8 +136,11 @@ final class KeyboardSymbolPanelView: UIView {
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-  /// 分类里的符号铺成四列。列数固定,一类里符号多就多几行,行高跟着分 —— 面板整块高度是键盘给的,不能让它自己长。
+  /// 符号铺成几列,每一行多高。
+  ///
+  /// 行高是定值而不是把可用高度分掉:分掉的话一类里符号多就压扁,多到一定程度就只能少收 —— 而符号本来就是「还有更多」的东西。定高之后放不下的往下滚。
   private static let columns = 5
+  private static let rowHeight: CGFloat = 46
 
   private func select(_ index: Int) {
     guard Self.categories.indices.contains(index) else { return }
@@ -129,6 +155,7 @@ final class KeyboardSymbolPanelView: UIView {
       grid.removeArrangedSubview(row)
       row.removeFromSuperview()
     }
+    scroll.setContentOffset(.zero, animated: false)
     let symbols = Self.categories[index].symbols
     for start in stride(from: 0, to: symbols.count, by: Self.columns) {
       let row = UIStackView()
@@ -142,6 +169,7 @@ final class KeyboardSymbolPanelView: UIView {
       for _ in symbols[start..<min(start + Self.columns, symbols.count)].count..<Self.columns {
         row.addArrangedSubview(UIView())
       }
+      row.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
       grid.addArrangedSubview(row)
     }
   }

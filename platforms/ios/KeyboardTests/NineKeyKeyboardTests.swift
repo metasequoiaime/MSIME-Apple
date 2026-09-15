@@ -1067,13 +1067,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     let panel = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
     XCTAssertEqual(panel.bounds.size, controller.view.bounds.size, "面板整块盖住键盘区")
-    for identifier in ["symbolCategory_0", "symbolCategory_3", "closeSymbolPanel", "symbolLockKey", "symbolDeleteKey"] {
+    let last = KeyboardSymbolPanelView.categories.count - 1
+    for identifier in ["symbolCategory_0", "symbolCategory_\(last)", "closeSymbolPanel", "symbolLockKey", "symbolDeleteKey"] {
       XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == identifier }, identifier)
     }
+    // 放不下的往下滚,不是压扁 —— 一类里的符号比一屏多。
+    let grid = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "symbolGrid" } as? UIScrollView)
+    XCTAssertGreaterThan(grid.contentSize.height, grid.bounds.height, "符号多到一屏放不下时要能往下滚")
 
     // 分类切过去,网格跟着换。
     let network = try XCTUnwrap(
-      descendants(panel).first { $0.accessibilityIdentifier == "symbolCategory_3" } as? UIButton)
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolCategory_\(last)" } as? UIButton)
     network.sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_http://" })
