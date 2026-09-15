@@ -11,7 +11,8 @@ class VoiceControllerListener final {
 public:
   static std::unique_ptr<VoiceControllerListener>
   create(VoiceControllerMailbox &mailbox, DWORD &error,
-         const std::wstring &name = FanyImeVoiceController::PipeName) {
+         const std::wstring &name =
+             L"\\\\.\\pipe\\FanyImeVoiceControlNamedPipe") {
     auto pipe = PipeListener::create(name, error);
     if (!pipe)
       return {};
