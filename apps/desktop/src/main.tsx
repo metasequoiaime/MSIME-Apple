@@ -1,5 +1,5 @@
 import { createVoiceRecognitionClient } from "./voice-recognition-client";
-import { StrictMode, useEffect, useState, type ReactNode } from "react";
+import { StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -262,6 +262,36 @@ function DesktopSettings() {
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
+  const mobilePanelRef = useRef(mobilePanel);
+  useEffect(() => { mobilePanelRef.current = mobilePanel; }, [mobilePanel]);
+  const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
+    if (typeof window !== "undefined") {
+      const current = window.history.state;
+      const state = { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, panel: next };
+      if (replace) window.history.replaceState(state, "");
+      else window.history.pushState(state, "");
+    }
+    setMobilePanel(next);
+  };
+  const closeMobilePanel = () => {
+    if (typeof window !== "undefined" && window.history.state?.msimeSettings === true && window.history.state?.panel) {
+      window.history.back();
+    } else {
+      setMobilePanel(null);
+    }
+  };
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state;
+      if (state?.msimeSettings === true && typeof state.panel === "string") {
+        setMobilePanel(state.panel as NonNullable<typeof mobilePanel>);
+      } else if (mobilePanelRef.current !== null) {
+        setMobilePanel(null);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
   const [initialPage, setInitialPage] = useState<string | undefined>();
@@ -353,14 +383,14 @@ function DesktopSettings() {
       const mobileHosted = host?.platform === "android"
         ? {
           ...hosted,
-          openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
-          openCloudDictionary: async () => setMobilePanel("cloud-dictionary"),
+          openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
+          openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
         }
         : host?.platform === "ios"
           ? {
             ...hosted,
-            openCloudClipboard: async () => setMobilePanel("cloud-clipboard"),
-            openCloudDictionary: async () => setMobilePanel("cloud-dictionary"),
+            openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
+            openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
           }
         : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
@@ -406,29 +436,29 @@ function DesktopSettings() {
       ...panelClients.cloudClipboard,
       rememberInputTarget: undefined,
       sendText: undefined,
-      close: async () => setMobilePanel(null),
+      close: async () => closeMobilePanel(),
     }} />;
   }
   if (mobilePanel === "cloud-dictionary") {
     return <CloudDictionaryPanel client={{
       ...panelClients.cloudDictionary,
-      openCatalog: async () => setMobilePanel("cloud-dictionary-catalog"),
-      openCandidates: async () => setMobilePanel("cloud-candidates"),
-      close: async () => setMobilePanel(null),
+      openCatalog: async () => navigateMobilePanel("cloud-dictionary-catalog"),
+      openCandidates: async () => navigateMobilePanel("cloud-candidates"),
+      close: async () => closeMobilePanel(),
     }} />;
   }
   if (mobilePanel === "cloud-dictionary-catalog") {
     return <CloudDictionaryCatalogPanel client={{
       ...panelClients.cloudDictionary,
-      back: async () => setMobilePanel("cloud-dictionary"),
-      close: async () => setMobilePanel(null),
+      back: async () => navigateMobilePanel("cloud-dictionary", true),
+      close: async () => closeMobilePanel(),
     }} />;
   }
   if (mobilePanel === "cloud-candidates") {
     return <CloudCandidatesPanel client={{
       ...panelClients.cloudDictionary,
-      back: async () => setMobilePanel("cloud-dictionary"),
-      close: async () => setMobilePanel(null),
+      back: async () => navigateMobilePanel("cloud-dictionary", true),
+      close: async () => closeMobilePanel(),
     }} />;
   }
   return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} onReplayOnboarding={() => setReplayOnboarding(true)} />

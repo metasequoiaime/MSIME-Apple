@@ -860,6 +860,24 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
+  // Mobile hosts use the WebView history stack for the system back gesture. The
+  // native activity can therefore dismiss a nested page without the shared UI
+  // having to know which Android/iOS navigation API is in use.
+  useEffect(() => {
+    if (!mobilePlatform || typeof window === "undefined") return;
+    const current = window.history.state;
+    if (!current || current.msimeSettings !== true) {
+      window.history.replaceState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page }, "");
+    }
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state;
+      if (state?.msimeSettings === true && typeof state.page === "string") {
+        setPage(requestedPage(state.page));
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobilePlatform]);
   const [communityDestination, setCommunityDestination] = useState<AccountCommunityDestination | "all">("all");
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -996,6 +1014,28 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   }
+
+  useEffect(() => {
+    if (!mobilePlatform || typeof document === "undefined") return;
+    let hidden = document.hidden;
+    const onVisibilityChange = () => {
+      const nextHidden = document.hidden;
+      const resumed = hidden && !nextHidden;
+      hidden = nextHidden;
+      if (!resumed) return;
+      const currentSnapshot = snapshotRef.current;
+      const currentDraft = draftRef.current;
+      const dirty = !!currentSnapshot && !!currentDraft &&
+        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+      if (dirty) {
+        setNotice("设置已被其他窗口修改。请重新读取后再保存。");
+        return;
+      }
+      void reload();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [client, mobilePlatform]);
 
   async function save() {
     if (!draft || !snapshot || !validCandidateFonts(draft)) return;
@@ -1422,7 +1462,14 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
   const mobileSecondaryPages = availablePages.filter(item => !mobilePrimaryPageIds.includes(item.id));
   const selectPage = (next: SettingsPageId) => {
+    if (next === page) return;
     setPage(next);
+    if (mobilePlatform && typeof window !== "undefined") {
+      const current = window.history.state;
+      const state = { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: next } as Record<string, unknown>;
+      delete state.panel;
+      window.history.pushState(state, "");
+    }
     if (next === "community") setCommunityDestination("all");
   };
   useEffect(() => {

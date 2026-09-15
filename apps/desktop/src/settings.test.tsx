@@ -978,6 +978,47 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
 });
 
+test("mobile settings pages follow the WebView back stack", async () => {
+  const previous = window.history.state;
+  window.history.replaceState(null, "");
+  try {
+    render(<SettingsPage client={{
+      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+      host: { platform: "ios" } as HostCapabilities,
+      home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+    }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    const more = screen.getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+    fireEvent.change(more, { target: { value: "input" } });
+    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "input" }));
+    act(() => {
+      const state = { msimeSettings: true, page: "appearance" };
+      window.history.replaceState(state, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    });
+    expect(await screen.findByRole("heading", { name: "外观" })).toBeTruthy();
+  } finally {
+    window.history.replaceState(previous, "");
+  }
+});
+
+test("mobile settings reload shared preferences after returning to foreground", async () => {
+  let hidden = false;
+  vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+  const load = vi.fn().mockResolvedValue(initial);
+  render(<SettingsPage client={{
+    load, save: vi.fn(), host: { platform: "android" } as HostCapabilities,
+    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(load).toHaveBeenCalledTimes(1);
+  hidden = true;
+  fireEvent(document, new Event("visibilitychange"));
+  hidden = false;
+  fireEvent(document, new Event("visibilitychange"));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+});
+
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
