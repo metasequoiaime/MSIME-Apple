@@ -50,7 +50,7 @@
 
 ## 下一批实施顺序
 
-增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务验证；ASR 与三类翻译凭据测试仍待迁移。上表的明确缺口描述保留为固定目标提交时的状态。
+增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish`、批量 ASR 与三类翻译凭据测试均已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential_test`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限，响应有界且公开错误不携带响应原文。合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务行为验证。上表的明确缺口描述保留为固定目标提交时的状态。
 
 1. **API 凭据测试真实接入**：来源已有独立设置任务队列；目标先复核可共享的提供方测试实现，补 Windows 路径和失败分类。测试只用合成凭据与本地模拟传输，不把真实凭据写入日志。
 2. **Tauri 语音运行链**：明确控制器与输入目标是两个身份。OS 对端认证、有限消息/队列/关闭时限、request ID 与代际、事件与最终结果都必须连起来。Tauri 面板收结果后提交和原生直接提交只能有一个最终提交所有者，防止双重上屏。
