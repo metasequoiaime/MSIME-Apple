@@ -1427,15 +1427,9 @@ fn restart_input_method() -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "linux")]
     {
-        let status = std::process::Command::new("ibus")
-            .arg("restart")
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        })
+        linux_process::run_status("ibus", &["restart"], std::time::Duration::from_secs(3))
+            .then_some(())
+            .ok_or(HostActionError { code: "unavailable" })
     }
 }
 

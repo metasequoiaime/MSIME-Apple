@@ -4,6 +4,35 @@ use std::io::{ErrorKind, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// Run a session command without capturing output, enforcing a hard deadline.
+/// The child is always reaped so a timed-out helper cannot remain attached to
+/// the desktop command that launched it.
+pub fn run_status(program: &str, arguments: &[&str], timeout: Duration) -> bool {
+    let Ok(mut child) = Command::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
 pub fn read_text(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration) -> Option<String> {
     read_text_bounded(program, arguments, max_bytes, timeout, false)
 }
@@ -129,4 +158,33 @@ pub fn write_input(program: &str, arguments: &[&str], bytes: &[u8], timeout: Dur
     }
     let _ = child.wait();
     result.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_status;
+    use std::time::Duration;
+
+    #[test]
+    fn run_status_reports_success_and_failure_without_output() {
+        assert!(run_status(
+            "/bin/sh",
+            &["-c", "exit 0"],
+            Duration::from_secs(1)
+        ));
+        assert!(!run_status(
+            "/bin/sh",
+            &["-c", "exit 7"],
+            Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn run_status_terminates_a_stalled_command() {
+        assert!(!run_status(
+            "/bin/sh",
+            &["-c", "sleep 1"],
+            Duration::from_millis(20)
+        ));
+    }
 }
