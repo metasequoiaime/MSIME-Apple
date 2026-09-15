@@ -78,4 +78,29 @@ constexpr bool matches_tsf_focus_lease(const TsfFocusLeaseRequest &request,
          token != 0 && request.client == client && request.epoch == epoch &&
          request.token == token;
 }
+
+class TsfFocusLeaseAuthenticator final {
+public:
+  constexpr TsfFocusLeaseAuthenticator() = default;
+  constexpr explicit TsfFocusLeaseAuthenticator(std::uint64_t client,
+                                                 std::uint64_t epoch,
+                                                 std::uint64_t token)
+      : client_(client), epoch_(epoch), token_(token) {}
+
+  constexpr void update(std::uint64_t client, std::uint64_t epoch,
+                        std::uint64_t token) {
+    client_ = client;
+    epoch_ = epoch;
+    token_ = token;
+  }
+
+  constexpr bool authenticate(const TsfFocusLeaseFrame &frame) const {
+    return matches_tsf_focus_lease(decode_tsf_focus_lease(frame), client_, epoch_, token_);
+  }
+
+private:
+  std::uint64_t client_ = 0;
+  std::uint64_t epoch_ = 0;
+  std::uint64_t token_ = 0;
+};
 } // namespace msime::windows
