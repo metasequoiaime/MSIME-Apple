@@ -96,18 +96,33 @@ static BOOL FrontmostApplicationOwnsFullscreenDisplay(void)
         }
         for (NSScreen *screen in NSScreen.screens)
         {
-            // CGWindow bounds are reported in display coordinates (which may be logical points or
-            // backing pixels depending on the host). Comparing against the logical frame is safe
-            // in both cases; a maximized window remains short of the menu bar/dock on at least one
-            // edge, while a full-screen window covers the complete frame.
-            if (bounds.size.width >= screen.frame.size.width - 2.0 &&
-                bounds.size.height >= screen.frame.size.height - 2.0)
-            {
-                return YES;
-            }
+            // CGWindow and CGDisplay bounds share Quartz' global display
+            // coordinate space. Prefer the display rectangle over NSScreen's
+            // AppKit frame so the origin is checked as well as the size; a
+            // maximized or partially off-screen window must not hide the
+            // toolbar merely because it is large enough.
+            NSNumber *number = screen.deviceDescription[@"NSScreenNumber"];
+            CGRect display = number != nil ? CGDisplayBounds((CGDirectDisplayID)number.unsignedIntValue)
+                                           : NSRectToCGRect(screen.frame);
+            if (MetasequoiaWindowCoversDisplay(bounds, display)) return YES;
         }
     }
     return NO;
+}
+
+BOOL MetasequoiaWindowCoversDisplay(CGRect windowBounds, CGRect displayBounds)
+{
+    if (!std::isfinite(windowBounds.origin.x) || !std::isfinite(windowBounds.origin.y) ||
+        !std::isfinite(windowBounds.size.width) || !std::isfinite(windowBounds.size.height) ||
+        !std::isfinite(displayBounds.origin.x) || !std::isfinite(displayBounds.origin.y) ||
+        !std::isfinite(displayBounds.size.width) || !std::isfinite(displayBounds.size.height) ||
+        CGRectIsEmpty(windowBounds) || CGRectIsEmpty(displayBounds))
+        return NO;
+    constexpr CGFloat tolerance = 2.0;
+    return CGRectGetMinX(windowBounds) <= CGRectGetMinX(displayBounds) + tolerance &&
+           CGRectGetMinY(windowBounds) <= CGRectGetMinY(displayBounds) + tolerance &&
+           CGRectGetMaxX(windowBounds) >= CGRectGetMaxX(displayBounds) - tolerance &&
+           CGRectGetMaxY(windowBounds) >= CGRectGetMaxY(displayBounds) - tolerance;
 }
 
 static NSRect SizedToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame, NSSize size)
