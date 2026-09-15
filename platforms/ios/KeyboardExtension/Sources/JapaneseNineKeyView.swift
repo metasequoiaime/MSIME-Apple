@@ -15,15 +15,32 @@ final class JapaneseNineKeyView: UIStackView {
     Key(kana: ["な", "に", "ぬ", "ね", "の"], strokes: ["na", "ni", "nu", "ne", "no"]),
     Key(kana: ["は", "ひ", "ふ", "へ", "ほ"], strokes: ["ha", "hi", "fu", "he", "ho"]),
     Key(kana: ["ま", "み", "む", "め", "も"], strokes: ["ma", "mi", "mu", "me", "mo"]),
-    Key(kana: ["や", "（", "ゆ", "）", "よ"], strokes: ["ya", "", "yu", "", "yo"]),
+    Key(kana: ["や", "「", "ゆ", "」", "よ"], strokes: ["ya", "", "yu", "", "yo"]),
     Key(kana: ["ら", "り", "る", "れ", "ろ"], strokes: ["ra", "ri", "ru", "re", "ro"]),
     Key(kana: ["わ", "を", "ん", "ー", "〜"], strokes: ["wa", "wo", "n'", "", ""]),
+  ]
+  /// The Japanese nine-key keeps its grid when switching away from kana. Empty strokes are
+  /// deliberate: these symbols go straight to the host rather than through the romanization engine.
+  static let digitKeys: [Key] = [
+    Key(kana: ["1", "☆", "♪", "→", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["2", "¥", "$", "€", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["3", "%", "°", "#", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["4", "○", "*", "・", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["5", "+", "-", "=", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["6", "<", "^", ">", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["7", "「", "」", "：", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["8", "〒", "※", "♂", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["9", "（", "）", "／", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["0", "〜", "…", "ー", ""], strokes: ["", "", "", "", ""]),
   ]
   var onInput: ((String) -> Void)?
   var onSymbol: ((String) -> Void)?
   var onDelete: (() -> Void)?
   private var rows: [UIStackView] = []
   private var keyButtons: [UIButton] = []
+  private var variantsKey: UIButton?
+  private var showsDigits = false
+  private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
 
   init(makeKey: (String, String, @escaping () -> Void) -> UIButton) {
     super.init(frame: .zero)
@@ -48,6 +65,7 @@ final class JapaneseNineKeyView: UIStackView {
     side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
     side.addArrangedSubview(makeKanaKey(9, factory: makeKey))
     let variants = makeKey("小゛゜", "小假名、浊音和半浊音", {})
+    variantsKey = variants
     variants.accessibilityIdentifier = "japaneseVariants"
     variants.configuration?.contentInsets = .zero
     variants.titleLabel?.adjustsFontSizeToFitWidth = true
@@ -84,18 +102,45 @@ final class JapaneseNineKeyView: UIStackView {
       UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
     })
     let pan = KanaFlickGesture { [weak self, weak button] direction, ended in
-      if ended { self?.select(index, direction: direction) }
-      button?.configuration?.title = key.kana[ended ? 0 : direction]
+      guard let self else { return }
+      let active = self.activeKeys[index]
+      if ended { self.select(index, direction: direction) }
+      button?.configuration?.title = active.kana[ended ? 0 : direction]
     }
     button.addGestureRecognizer(pan)
     keyButtons.append(button)
     return button
   }
   func select(_ index: Int, direction: Int) {
-    guard Self.keys.indices.contains(index), Self.keys[index].kana.indices.contains(direction) else { return }
-    let key = Self.keys[index]
+    let keys = activeKeys
+    guard keys.indices.contains(index), keys[index].kana.indices.contains(direction) else { return }
+    let key = keys[index]
+    guard !key.kana[direction].isEmpty else { return }
     if key.strokes[direction].isEmpty { onSymbol?(key.kana[direction]) }
     else { onInput?(key.strokes[direction]) }
+  }
+  /// Switches the same physical grid between kana and the Japanese numeric/symbol layer.
+  func setDigits(_ enabled: Bool) {
+    guard enabled != showsDigits else { return }
+    showsDigits = enabled
+    for (index, button) in keyButtons.enumerated() where activeKeys.indices.contains(index) {
+      let key = activeKeys[index]
+      button.configuration?.title = key.kana[0]
+      button.configuration?.subtitle = key.kana.dropFirst().filter { !$0.isEmpty }.joined(separator: " ")
+      button.accessibilityLabel = key.kana.filter { !$0.isEmpty }.joined(separator: "、")
+      button.menu = UIMenu(children: key.kana.enumerated().compactMap { direction, kana in
+        guard !kana.isEmpty else { return nil }
+        return UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
+      })
+    }
+    guard let variantsKey else { return }
+    variantsKey.configuration?.title = enabled ? "（）" : "小゛゜"
+    variantsKey.accessibilityLabel = enabled ? "括弧" : "小假名、浊音和半浊音"
+    variantsKey.menu = enabled
+      ? UIMenu(children: ["（", "）", "「", "」", "『", "』", "【", "】"].map { symbol in
+        UIAction(title: symbol) { [weak self] _ in self?.onSymbol?(symbol) }
+      })
+      : variantsKey.menu
   }
   func applyLayout() {
     let layout = KeyboardLayoutPreference.geometry

@@ -1858,9 +1858,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
-    japaneseKeys?.isHidden = !kana || showsSymbols
+    japaneseKeys?.isHidden = !kana
+    japaneseKeys?.setDigits(showsSymbols)
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
-    japaneseHeight?.isActive = kana && !showsSymbols
+    japaneseHeight?.isActive = kana
     japaneseKeys?.applyLayout()
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
@@ -1893,7 +1894,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         globeWidthConstraint?.isActive = true
       }
       let layout = KeyboardLayoutPreference.geometry
-      nineKeySymbolsButton.isHidden = !(usesNineKeyLayout || (layout.showsFullKeyboardSymbols && !showsSymbols))
+      nineKeySymbolsButton.isHidden = !(usesNineKeyLayout || kana || (layout.showsFullKeyboardSymbols && !showsSymbols))
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && !usesNineKeyLayout
       bottomLanguageButton?.isHidden = false
       bottomLanguageWidth?.isActive = true
@@ -1905,11 +1906,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       quickPunctuationButton.menu = UIMenu(children: punctuation.map { symbol in
         UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
       })
-      actionDeleteButton.isHidden = !showsSymbols
-      symbolDeleteWidth?.isActive = showsSymbols
+      actionDeleteButton.isHidden = !showsSymbols || kana
+      symbolDeleteWidth?.isActive = showsSymbols && !kana
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
-    symbolRowViews.forEach { $0.isHidden = !showsSymbols }
+    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana }
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
@@ -1917,6 +1918,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     layoutToggleButton?.accessibilityLabel =
       showsSymbols ? "切换到字母" : "切换到数字和符号"
+    if kana {
+      nineKeySymbolsButton?.menu = UIMenu(children: quickPunctuationSymbols.map { symbol in
+        UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
+      })
+    }
     updatePreferredKeyboardHeight()
   }
 

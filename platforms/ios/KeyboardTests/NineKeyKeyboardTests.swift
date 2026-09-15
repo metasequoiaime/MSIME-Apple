@@ -901,7 +901,9 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(try button("spaceKey", in: controller).bounds.width, 79.2)
             XCTAssertEqual(punctuation.menu?.children.count, 7)
           }
-          XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !symbols)
+          // The Japanese nine-key owns its delete key inside the kana grid, including its digit
+          // layer; the shared action-row delete remains hidden in both states.
+          XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !symbols || scheme == .japaneseNineKey)
           if !symbols && ![.nineKey, .japaneseNineKey, .handwriting].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)

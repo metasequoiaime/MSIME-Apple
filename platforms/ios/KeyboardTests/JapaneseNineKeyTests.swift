@@ -101,5 +101,24 @@ final class JapaneseNineKeyTests: XCTestCase {
       }
     }
   }
+
+  func testJapaneseNineKeyDigitLayerUsesSymbolsAndKeepsKanaPunctuation() throws {
+    var symbols: [String] = []
+    let panel = JapaneseNineKeyView { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    }
+    panel.onSymbol = { symbols.append($0) }
+    panel.setDigits(true)
+    panel.select(0, direction: 0)
+    panel.select(0, direction: 1)
+    panel.select(0, direction: 4) // Empty fifth slot must not emit an empty symbol.
+    panel.select(9, direction: 3)
+    XCTAssertEqual(symbols, ["1", "☆", "ー"])
+    panel.setDigits(false)
+    panel.select(7, direction: 1)
+    XCTAssertEqual(symbols.last, "「")
+  }
+
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { nodes($0) } }
 }
