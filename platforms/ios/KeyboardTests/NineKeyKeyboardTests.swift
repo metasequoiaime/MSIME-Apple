@@ -605,8 +605,16 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
-        XCTAssertEqual(card.bounds.height, 62, accuracy: 0.1)
+        XCTAssertGreaterThanOrEqual(card.bounds.height, 62)
       }
+      let lowestCard = try ChineseInputScheme.allCases
+        .map { scheme -> CGFloat in
+          let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
+          return card.convert(card.bounds, to: picker).maxY
+        }
+        .max() ?? 0
+      XCTAssertGreaterThan(lowestCard, picker.bounds.height - 80,
+                           "The scheme cards leave an oversized blank area below")
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -787,8 +795,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(toolbar.isHidden)
       let brand = try XCTUnwrap(descendants(toolbar).first { $0.accessibilityIdentifier == "keyboardBrandIcon" } as? UIImageView)
       XCTAssertNotNil(brand.image)
-      XCTAssertEqual(brand.bounds.width, 24, accuracy: 0.1)
-      XCTAssertEqual(brand.bounds.height, 24, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.width, 28, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.height, 28, accuracy: 0.1)
+      XCTAssertEqual(brand.image?.renderingMode, .alwaysTemplate)
       let brandSlot = try XCTUnwrap(brand.superview)
       XCTAssertGreaterThanOrEqual(brand.frame.minX, 6)
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)

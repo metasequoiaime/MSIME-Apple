@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage
 import UIKit
 
 private final class KeyboardBrandButton: UIButton {
@@ -7,8 +8,6 @@ private final class KeyboardBrandButton: UIButton {
   override init(frame: CGRect) {
     super.init(frame: frame)
     brandImageView.contentMode = .scaleAspectFit
-    brandImageView.layer.cornerRadius = 5
-    brandImageView.clipsToBounds = true
     brandImageView.accessibilityIdentifier = "keyboardBrandIcon"
     addSubview(brandImageView)
   }
@@ -17,7 +16,7 @@ private final class KeyboardBrandButton: UIButton {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    brandImageView.bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
+    brandImageView.bounds = CGRect(x: 0, y: 0, width: 28, height: 28)
     brandImageView.center = CGPoint(x: bounds.midX, y: bounds.midY)
   }
 }
@@ -613,9 +612,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    brand.brandImageView.image = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png")
-      .flatMap { UIImage(contentsOfFile: $0)?.preparingThumbnail(of: CGSize(width: 72, height: 72)) }
-      ?? UIImage(systemName: "leaf.fill")
+    brand.brandImageView.image = Self.brandTemplate() ?? UIImage(systemName: "leaf.fill")
+    brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
     let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
@@ -2289,6 +2287,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } catch {
       // Optional display metadata must never interrupt input.
     }
+  }
+
+  /// The source logo is white-backed and has no alpha, so use its luminance as a mask before
+  /// tinting it with the current skin accent. This prevents a white square on dark skins.
+  private static func brandTemplate() -> UIImage? {
+    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
+          let source = UIImage(contentsOfFile: path),
+          let cgImage = source.cgImage else { return nil }
+    let input = CIImage(cgImage: cgImage)
+    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
+          let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
+          let output = CIContext().createCGImage(masked, from: masked.extent) else { return nil }
+    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
   }
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
