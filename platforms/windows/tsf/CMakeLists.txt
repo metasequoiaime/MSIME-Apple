@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientTsf LANGUAGES CXX)
 enable_testing()
 add_subdirectory(tests/registration_profiles)
+add_subdirectory(tests/registration_categories)
 add_test(NAME msime-tsf-version-resource COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/version_resource.cmake")
