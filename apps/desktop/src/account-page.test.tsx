@@ -80,6 +80,20 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   await waitFor(() => expect(client.logout).toHaveBeenCalledWith(true));
 });
 
+test("mobile accounts group session actions in an account menu and offer re-login", async () => {
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="ios" />);
+  await screen.findByRole("heading", { name: "账号" });
+  const summary = screen.getByText("账号操作");
+  expect((summary.closest("details") as HTMLDetailsElement).open).toBe(false);
+  fireEvent.click(summary);
+  expect((summary.closest("details") as HTMLDetailsElement).open).toBe(true);
+  expect(screen.getByRole("menu", { name: "账号操作" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "重新登录" }));
+  await waitFor(() => expect(client.clearExpired).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText("已清除失效登录状态。")).not.toBeNull();
+});
+
 test("profile card opens the shared editor and copies the complete account ID", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });

@@ -311,6 +311,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
 }) {
+  const mobile = platform === "android" || platform === "ios";
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -544,11 +545,19 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       </div>}
       <section className="section account-actions">
         <h2>账号</h2>
-        <div>
+        {mobile ? <details className="account-mobile-menu">
+          <summary>账号操作</summary>
+          <div role="menu" aria-label="账号操作">
+            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={() => signOut(false)}>退出登录</button>
+            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
+            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={clearExpired}>重新登录</button>
+            <button type="button" className="danger-text" role="menuitem" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
+          </div>
+        </details> : <div>
           <button type="button" className="secondary" disabled={busy} onClick={() => signOut(false)}>退出登录</button>
           <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
           <button type="button" className="danger-text" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
-        </div>
+        </div>}
         {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}>
           <p>{confirmation === "delete"
             ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"

@@ -368,6 +368,12 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .account-community-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .account-community-actions > div { min-width: 0; }
 .account-community-actions .secondary { flex: 0 0 auto; margin: 0; }
+.account-mobile-menu { display: flex; flex-direction: column; gap: 10px; }
+.account-mobile-menu summary { width: fit-content; padding: 7px 14px; border: 1px solid var(--control-border); border-radius: 8px; color: var(--text-color); cursor: pointer; list-style: none; }
+.account-mobile-menu summary::-webkit-details-marker { display: none; }
+.account-mobile-menu summary::after { content: "⌄"; margin-left: 8px; color: var(--text-muted); }
+.account-mobile-menu[open] summary::after { content: "⌃"; }
+.account-mobile-menu > div { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .community-page { display: flex; flex-direction: column; gap: 14px; }
 .community-search { display: flex; gap: 8px; }
 .community-search input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--control-border); border-radius: 9px; background: var(--dropdown-bg); color: var(--text-color); font: inherit; }
