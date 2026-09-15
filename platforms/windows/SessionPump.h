@@ -34,6 +34,9 @@ public:
     // submit bounded work to an external provider, but must not perform I/O.
     std::function<void(const FocusLease &, const PendingReply &)> online;
     std::function<void(const FocusLease &, const PendingReply &)> translation;
+    // Bounded pre-dispatch hook for keyboard paths that consume the visible
+    // candidate page (digits/space). It must not perform Engine I/O.
+    std::function<void(const FocusLease &, const FanyImeNamedpipeData &)> before_key;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},
