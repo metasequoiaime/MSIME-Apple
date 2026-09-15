@@ -5,6 +5,7 @@
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
+#include "TrayMenuWindow.h"
 #include "WindowsServer.h"
 #include <cstring>
 #include <filesystem>
@@ -196,6 +197,25 @@ int main() {
         require(GetUpdateRect(toolbar.handle(), nullptr, FALSE));
         UpdateWindow(toolbar.handle());
         require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
+      }
+    }
+    {
+      TrayMenuWindow tray(
+          {}, [](TrayMenuCommand) { return true; }, [] { return true; });
+      for (const auto &[message, wparam] : {
+               std::pair<UINT, WPARAM>{WM_DPICHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_DWMCOMPOSITIONCHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
+                                       PBT_APMRESUMEAUTOMATIC},
+           }) {
+        require(tray.open(100, 100));
+        UpdateWindow(tray.handle());
+        require(tray.visible() && !tray.failed());
+        const auto result = SendMessageW(tray.handle(), message, wparam, 0);
+        if (message == WM_POWERBROADCAST)
+          require(result == TRUE);
+        require(!tray.visible() && !tray.failed());
       }
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +

@@ -336,6 +336,20 @@ LRESULT CALLBACK TrayMenuWindow::procedure(HWND window, UINT message,
       case WM_KILLFOCUS:
         self->hide();
         return 0;
+      case WM_POWERBROADCAST:
+        if (wparam != PBT_APMRESUMEAUTOMATIC &&
+            wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)
+          break;
+        [[fallthrough]];
+      case WM_DISPLAYCHANGE:
+      case WM_DWMCOMPOSITIONCHANGED:
+      case WM_DPICHANGED:
+        // This transient menu does not retain the tray icon anchor needed to
+        // place itself again. Close it and discard the display-bound target;
+        // the next click reopens from the current icon, DPI and work area.
+        self->device_.DiscardTarget();
+        self->hide();
+        return message == WM_POWERBROADCAST ? TRUE : 0;
       case WM_PAINT:
         self->paint();
         return 0;
