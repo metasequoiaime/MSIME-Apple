@@ -49,25 +49,27 @@ final class KeyboardSchemePickerView: UIView {
     var cards: [UIView] = InputSchemePreference.enabledSchemes.map { scheme in
       let glyph: String
       let badge: String
+      // 同一族一个色:全拼绿、双拼蓝、五笔棕、日语粉、手写青、回复橙。十二张卡片原来只有一个前景色,分辨全靠读字。
+      let tint: UIColor
       switch scheme {
-      case .quanpin: glyph = "拼"; badge = "26"
-      case .nineKey: glyph = "拼"; badge = "9"
-      case .shuangpin: glyph = "鹤"; badge = "双"
-      case .ziranma: glyph = "自"; badge = "双"
-      case .microsoft: glyph = "微"; badge = "双"
-      case .shoudao: glyph = "S"; badge = "双"
-      case .wubi: glyph = "五"; badge = "86"
-      case .japanese: glyph = "あ"; badge = "26"
-      case .japaneseNineKey: glyph = "あ"; badge = "9"
-      case .handwriting: glyph = "写"; badge = "手"
-      case .thoughtfulReply: glyph = "聊"; badge = "AI"
+      case .quanpin: glyph = "拼"; badge = "26"; tint = skin.accent
+      case .nineKey: glyph = "拼"; badge = "9"; tint = skin.accent
+      case .shuangpin: glyph = "鹤"; badge = "双"; tint = .systemBlue
+      case .ziranma: glyph = "自"; badge = "双"; tint = .systemBlue
+      case .microsoft: glyph = "微"; badge = "双"; tint = .systemBlue
+      case .shoudao: glyph = "S"; badge = "双"; tint = .systemBlue
+      case .wubi: glyph = "五"; badge = "86"; tint = .systemBrown
+      case .japanese: glyph = "あ"; badge = "26"; tint = .systemPink
+      case .japaneseNineKey: glyph = "あ"; badge = "9"; tint = .systemPink
+      case .handwriting: glyph = "写"; badge = "手"; tint = .systemTeal
+      case .thoughtfulReply: glyph = "聊"; badge = "AI"; tint = .systemOrange
       }
-      return makeCard(title: scheme.title, glyph: glyph, badge: badge,
+      return makeCard(title: scheme.title, glyph: glyph, badge: badge, tint: tint,
         selected: isChineseMode && scheme == selected, identifier: "schemeCard-\(scheme.rawValue)") { onSelect(scheme) }
     }
     if let onSelectEnglish {
       // English is a platform text mode, not a second persisted Engine scheme.
-      cards.insert(makeCard(title: "英文 26 键", glyph: "EN", badge: "26",
+      cards.insert(makeCard(title: "英文 26 键", glyph: "EN", badge: "26", tint: .systemIndigo,
         selected: !isChineseMode, identifier: "schemeEnglishCard", action: onSelectEnglish), at: min(2, cards.count))
     }
     for start in stride(from: 0, to: cards.count, by: 4) {
@@ -113,7 +115,7 @@ final class KeyboardSchemePickerView: UIView {
     fill.isActive = true
   }
 
-  private func makeCard(title: String, glyph: String, badge: String, selected: Bool,
+  private func makeCard(title: String, glyph: String, badge: String, tint: UIColor, selected: Bool,
                         identifier: String, action: @escaping () -> Void) -> UIButton {
     let card = KeyboardKeyButton()
     card.accessibilityIdentifier = identifier
@@ -121,8 +123,9 @@ final class KeyboardSchemePickerView: UIView {
     card.accessibilityValue = selected ? "已选中" : ""
     if selected { card.accessibilityTraits.insert(.selected) }
     card.layer.cornerRadius = 13
-    card.backgroundColor = selected ? accent.withAlphaComponent(0.10) : .clear
-    let color: UIColor = selected ? accent : skin.keyForeground
+    card.backgroundColor = selected ? tint.withAlphaComponent(0.12) : .clear
+    // 未选中也带上自己的颜色,只是淡一些 —— 全用前景色的话,十二张卡片要逐个读字才知道是哪一种。
+    let color: UIColor = selected ? tint : tint.withAlphaComponent(0.78)
     let symbol = UILabel()
     symbol.text = glyph
     symbol.textAlignment = .center
@@ -147,7 +150,7 @@ final class KeyboardSchemePickerView: UIView {
     label.minimumScaleFactor = 0.65
     label.textColor = color
     let check = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
-    check.tintColor = accent
+    check.tintColor = tint
     check.backgroundColor = skin.keyBackground
     check.layer.cornerRadius = 6
     check.isHidden = !selected
@@ -172,6 +175,14 @@ final class KeyboardSchemePickerView: UIView {
       check.widthAnchor.constraint(equalToConstant: 12), check.heightAnchor.constraint(equalToConstant: 12),
     ])
     card.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
+    if selected {
+      // 选中的那张进场弹一下:面板一打开,眼睛先落在当前用的是哪个方案上。
+      card.transform = CGAffineTransform(scaleX: 0.86, y: 0.86)
+      UIView.animate(withDuration: 0.42, delay: 0.04, usingSpringWithDamping: 0.62,
+                     initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+        card.transform = .identity
+      }
+    }
     return card
   }
 
@@ -179,8 +190,9 @@ final class KeyboardSchemePickerView: UIView {
 
   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
     super.traitCollectionDidChange(previousTraitCollection)
-    for (label, selected) in glyphBorders {
-      label.layer.borderColor = (selected ? accent : skin.keyForeground).resolvedColor(with: traitCollection).cgColor
+    for (label, _) in glyphBorders {
+      // 边框颜色就是文字颜色,卡片自己的那一份,换深浅色时跟着重算。
+      label.layer.borderColor = label.textColor.resolvedColor(with: traitCollection).cgColor
     }
   }
 }

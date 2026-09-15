@@ -635,12 +635,18 @@ final class NineKeyKeyboardTests: XCTestCase {
         let selected = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-nineKey" })
         assertColor(picker.backgroundColor, skin.background)
         assertColor(back.tintColor, skin.accent)
-        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.10))
+        // 全拼这一族仍然用皮肤主色 —— 每个方案现在有自己的颜色(双拼蓝、五笔棕、日语粉…),这条盯的是「跟着皮肤走」的那一个。
+        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.12))
         let labels = selected.subviews.compactMap { $0 as? UILabel }.filter { $0.text?.isEmpty == false }
         XCTAssertEqual(labels.count, 3)
         for label in labels {
           assertColor(label.textColor, skin.accent)
         }
+        // 别的方案不再是同一个前景色:五笔是棕的,和皮肤主色不是一回事。
+        let wubi = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-wubi" })
+        let wubiLabel = try XCTUnwrap(wubi.subviews.compactMap { $0 as? UILabel }.first { $0.text == "86 五笔" })
+        XCTAssertNotEqual(wubiLabel.textColor.resolvedColor(with: traits),
+                          skin.keyForeground.resolvedColor(with: traits))
       }
     }
   }

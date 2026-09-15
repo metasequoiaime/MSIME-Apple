@@ -5,6 +5,40 @@ private struct StatisticsSlice: Identifiable {
   let title: String
   let count: Int
   let color: Color
+  /// 这一类自己的图标。原来每行前面都是同一个小圆点,只有颜色不同 —— 十几行看下来分不出谁是谁,得逐行读字。
+  let symbol: String
+}
+
+/// 每一类配一个图标。名字是查出来的意思,不是装饰:九键是九宫格,双拼是两个键,五笔是笔画,手写是笔,语音是波形。
+private enum StatisticsSymbol {
+  static func source(_ source: TypingSource) -> String {
+    switch source {
+    case .quanpin: return "keyboard"
+    case .nineKey: return "square.grid.3x3"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: return "square.on.square"
+    case .wubi: return "scribble"
+    case .japanese: return "character.bubble"
+    case .handwriting: return "hand.draw"
+    case .english: return "abc"
+    case .local: return "clock.arrow.circlepath"
+    case .ai: return "sparkles"
+    case .reply: return "bubble.left.and.bubble.right"
+    case .voice: return "waveform"
+    case .unknown: return "questionmark.circle"
+    }
+  }
+  static func kind(_ kind: TypingCharacterKind) -> String {
+    switch kind {
+    case .han: return "character.textbox"
+    case .latin: return "textformat.abc"
+    case .otherLetter: return "globe"
+    case .number: return "number"
+    case .punctuation: return "quote.opening"
+    case .emoji: return "face.smiling"
+    case .symbol: return "asterisk"
+    case .unknown: return "questionmark.circle"
+    }
+  }
 }
 
 struct TypingStatisticsView: View {
@@ -14,6 +48,8 @@ struct TypingStatisticsView: View {
   @State private var confirmsReset = false
   @State private var tab = Tab.trend
   @State private var selectedDay: Date?
+  /// 占比条和图标的进场动画放过了没有。换标签时先归零再置起,这一块就重放一遍。
+  @State private var revealed = false
 
   /// 三块内容轮流占这一屏,不再一路往下滚。
   private enum Tab: String, CaseIterable {
@@ -66,25 +102,27 @@ struct TypingStatisticsView: View {
   }
   private var characterSlices: [StatisticsSlice] {
     TypingCharacterKind.allCases.enumerated().map { index, kind in
-      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0, color: colors[index % colors.count])
+      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0,
+                      color: colors[index % colors.count], symbol: StatisticsSymbol.kind(kind))
     }
   }
   private var sourceSlices: [StatisticsSlice] {
     TypingSource.allCases.enumerated().map { index, source in
-      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0, color: colors[index % colors.count])
+      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0,
+                      color: colors[index % colors.count], symbol: StatisticsSymbol.source(source))
     }
   }
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal),
-      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink),
-      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue),
-      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple),
-      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange),
-      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint),
-      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo),
-      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal, symbol: "character.textbox"),
+      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink, symbol: "character.bubble"),
+      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue, symbol: "abc"),
+      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple, symbol: "clock.arrow.circlepath"),
+      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange, symbol: "sparkles"),
+      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint, symbol: "bubble.left.and.bubble.right"),
+      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo, symbol: "waveform"),
+      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray, symbol: "questionmark.circle"),
     ]
   }
 
@@ -94,6 +132,7 @@ struct TypingStatisticsView: View {
         Picker("统计内容", selection: $tab) {
           ForEach(Tab.allCases, id: \.self) { Text($0.title).tag($0) }
         }.pickerStyle(.segmented).accessibilityIdentifier("statisticsTab")
+          .onChange(of: tab) { _ in replayReveal() }
         HStack {
           metric("今日输入", count: statistics.count(on: Date()), identifier: "typingToday")
           Spacer()
@@ -163,7 +202,7 @@ struct TypingStatisticsView: View {
         .accessibilityIdentifier("statisticsMenu")
       }
     }
-    .onAppear { reload() }
+    .onAppear { reload(); replayReveal() }
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
@@ -203,19 +242,30 @@ struct TypingStatisticsView: View {
   private func distribution(_ slices: [StatisticsSlice]) -> some View {
     let total = slices.reduce(0) { $0 + $1.count }
     let visible = slices.filter { $0.count > 0 || $0.id != "unknown" }
-    return VStack(spacing: 14) {
+    return VStack(spacing: 12) {
       GeometryReader { geometry in
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
           ForEach(slices.filter { $0.count > 0 }) { slice in
-            slice.color.frame(width: geometry.size.width * Double(slice.count) / Double(max(1, total)))
+            // 占比条从零展开。数字直接跳到位看不出是「一条在按比例分」,长出来才看得见谁占了多少。
+            Capsule().fill(slice.color)
+              .frame(width: revealed ? geometry.size.width * Double(slice.count) / Double(max(1, total)) : 0)
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.secondary.opacity(0.12)).clipShape(Capsule())
       }.frame(height: 18).accessibilityHidden(true)
       if total == 0 { Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary) }
-      ForEach(visible) { slice in
-        HStack(spacing: 8) {
-          Circle().fill(slice.color).frame(width: 8, height: 8)
+      ForEach(Array(visible.enumerated()), id: \.element.id) { index, slice in
+        HStack(spacing: 10) {
+          // 图标带一块自己的底色:同色的圆点十几个排下来,分辨全靠读字。
+          Image(systemName: slice.symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(slice.color)
+            .frame(width: 28, height: 28)
+            .background(slice.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+            .scaleEffect(revealed ? 1 : 0.6)
+            .opacity(revealed ? 1 : 0)
+            // 一行比一行晚一点,眼睛跟着从上往下扫一遍。
+            .animation(.spring(response: 0.42, dampingFraction: 0.72).delay(Double(index) * 0.03), value: revealed)
           Text(slice.title).font(.subheadline)
           Spacer()
           Text("\(slice.count)").monospacedDigit()
@@ -224,6 +274,7 @@ struct TypingStatisticsView: View {
         }.accessibilityElement(children: .combine)
       }
     }.padding(.vertical, 8)
+    .animation(.easeOut(duration: 0.5), value: revealed)
   }
 
   private func metric(_ title: String, count: Int, identifier: String) -> some View {
@@ -234,6 +285,12 @@ struct TypingStatisticsView: View {
       Text("字符").font(.caption).foregroundStyle(.secondary)
     }
   }
+  /// 动画从头放一遍。SwiftUI 只在值真的变了的时候动,所以要先落回起点。
+  private func replayReveal() {
+    revealed = false
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { revealed = true }
+  }
+
   private func reload() { update {} }
   private func update(_ operation: () throws -> Void) {
     availability = store.availability()
