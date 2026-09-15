@@ -143,6 +143,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       }
       if (!route.route)
         return PumpResult::DispatchFailed;
+      if (presentation_.before_key &&
+          packet->event_type == FanyImePipeEventType::KeyEvent)
+        presentation_.before_key(*route.route, *packet);
       std::optional<PendingReply> reply;
       if (!enqueue(
               [&, lease = *route.route, packet = *packet](InputState &state) {

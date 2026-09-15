@@ -58,6 +58,8 @@ public:
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
+  void wait_candidate_render_for_key(const FocusLease &lease,
+                                     const FanyImeNamedpipeData &packet);
   // Called after the native candidate window has successfully presented a
   // frame. The receipt is generation- and lease-bound.
   void candidate_rendered(const FocusLease &lease, uint64_t generation) {

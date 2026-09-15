@@ -36,6 +36,10 @@ CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行�
 
 macOS 云端桌面快照现与固定 Apple 基线的 20 项字段对齐，并保留客户端新增的 `shuangpin_preedit_uses_raw`，共 21 项。补齐全拼/双拼辅助码方案索引、候选学习和本地扩展模式；后者在兼容的单布尔字段与当前八个独立模式之间采用全开/全关映射，应用时保留未知本地模式键。快照、完整类型校验、默认值归一化、导入应用及缓存失效均在同一验证边界内，缺字段旧快照仍拒绝部分替换。`cloud-appearance-settings-test` 使用独立偏好 suite 覆盖 12–32 字号、1–9 页大小、方案索引、布尔类型、非法输入和八模式写回；Swift backend 类型检查通过。该切片验证的是本地桥接和合成云端数据，不代表真实账号服务或已安装输入源验收。
 
+### macOS 共享录音后端消费
+
+macOS IMK 语音运行时现在消费 Tauri 共享 `voice_input.capture_backend`。空值、`auto` 与 `macos` 明确映射到平台 CoreAudio 路径；同步自 Windows 或 Linux 的 `windows`、`pulse`、`pipewire`、`alsa` 等后端不会被静默当成 CoreAudio，而是在开始会话和打开麦克风前显示录音失败并保持当前编辑器焦点。设备仍使用稳定 CoreAudio UID，输入算法、录音和识别状态继续留在既有宿主与共享 Engine 边界。
+
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
@@ -731,6 +735,10 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 ### macOS 语音输入服务
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
+
+### macOS 原生语音备用设置回写共享配置
+
+macOS 原生语音备用窗口写入的有效字段现在会随宿主偏好 CAS 快照回写共享 `voice_input`：提供方、端点、模型、提交方式、CoreAudio 后端/稳定设备 UID、Doubao 选项、润色和快捷键/提示音开关均保持字段级一致。缺失字段不覆盖 Tauri 或其他宿主已有值；类型错误字段被忽略，录音设备仍不静默切换。凭据仅在本机已有值时保留，云端外观快照仍不包含语音凭据或设备路径。`shared-voice-preferences`、`preference-snapshot-merge` 及 macOS 输入法 bundle 构建通过；未执行安装输入源、真实硬件权限或网络服务验收。
 
 ### macOS 语音波形面板主题覆盖（next44）
 

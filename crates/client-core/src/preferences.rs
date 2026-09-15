@@ -1813,6 +1813,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_voice_upgrade_preserves_existing_credentials() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        let voice = value["voice_input"].as_object_mut().unwrap();
+        voice.insert("asr_token".into(), "synthetic-asr-token".into());
+        voice.insert("polish_token".into(), "synthetic-polish-token".into());
+        voice.remove("commit_mode");
+        voice.remove("doubao_auth_mode");
+        voice.remove("asr_tokens");
+        voice.remove("polish_tokens");
+        let restored: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.voice_input.asr_token, "synthetic-asr-token");
+        assert_eq!(restored.voice_input.polish_token, "synthetic-polish-token");
+        assert_eq!(restored.voice_input.commit_mode, "tsf");
+        assert_eq!(restored.voice_input.doubao_auth_mode, "");
+        assert!(restored.voice_input.asr_tokens.is_empty());
+        assert!(restored.voice_input.polish_tokens.is_empty());
+    }
+
+    #[test]
     fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
         // A file written by a build that offered "local_whisper" must still load.
         // No backend implements it: the Linux provider builds

@@ -139,6 +139,12 @@ void candidate_mailbox_tests() {
   require(!mailbox.wait_rendered(first, 1, std::chrono::milliseconds(2)));
   mailbox.rendered(first, 1);
   require(mailbox.wait_rendered(first, 1, std::chrono::milliseconds(2)));
+  // A same-generation asynchronous refresh receives a new render serial;
+  // the old painted frame must not satisfy its gate.
+  require(publish(first, 1));
+  require(!mailbox.wait_rendered(first, 2, std::chrono::milliseconds(2)));
+  mailbox.rendered(first, 2);
+  require(mailbox.wait_rendered(first, 2, std::chrono::milliseconds(2)));
   {
     std::promise<void> held, release;
     auto holding = held.get_future();

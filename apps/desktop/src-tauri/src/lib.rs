@@ -2251,6 +2251,7 @@ fn send_panel_voice_text(
     .map_err(|error| HostActionError {
         code: match error {
             voice_output::OutputError::InvalidText => "invalid_text",
+            voice_output::OutputError::TsfRequiresServer => "tsf_requires_server",
             voice_output::OutputError::Unavailable => "unavailable",
         },
     })
@@ -3483,6 +3484,7 @@ async fn send_voice_text(
             .map_err(|error| HostActionError {
                 code: match error {
                     voice_output::OutputError::InvalidText => "invalid_text",
+                    voice_output::OutputError::TsfRequiresServer => "tsf_requires_server",
                     voice_output::OutputError::Unavailable => "unavailable",
                 },
             })?;

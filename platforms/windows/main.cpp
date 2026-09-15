@@ -32,7 +32,6 @@
 #include "WatchdogPolicy.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
-#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -74,17 +73,6 @@ std::wstring configured_shell_command() {
       static_cast<DWORD>(value.size()));
   return length && length < value.size() ? std::wstring(value.data(), length)
                                          : std::wstring{};
-}
-bool same_ticket_set(
-    const std::vector<msime::windows::PipeTicket> &left,
-    const std::vector<msime::windows::PipeTicket> &right) {
-  if (left.size() != right.size())
-    return false;
-  return std::all_of(left.begin(), left.end(), [&](const auto &ticket) {
-    return std::any_of(right.begin(), right.end(), [&](const auto &other) {
-      return msime::windows::same_ticket(ticket, other);
-    });
-  });
 }
 // Resolve the configured skin through the shared catalog. Appearance is not
 // worth failing a running Server over, so an unreadable root or an unknown
@@ -495,14 +483,9 @@ private:
 int wmain(int argc, wchar_t **argv) {
   using namespace msime::windows;
   if (argc == 2 && std::wstring(argv[1]) == L"--help") {
-    std::cout << "MSIME Client Server\n"
-                 "  --production (or --watchdog-managed) use installed state "
-                 "and production TSF pipes\n"
-                 "  --config <absolute-json-path> run an isolated preview "
-                 "configuration\n"
-                 "  --help show this message\n"
-                 "TSF registration remains the installer's responsibility; "
-                 "Ctrl+C stops the Server.\n"
+    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
+                 "Managed launches use the installed TSF pipe names; preview "
+                 "launches use names from the config. Ctrl+C stops.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";
     return 0;
   }
@@ -569,7 +552,6 @@ int wmain(int argc, wchar_t **argv) {
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
     auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
-    std::vector<msime::windows::PipeTicket> tsf_configured_tickets;
     // The toolbar resolves light/dark from its own preference, independently
     // of the candidate card: toolbar_theme is honoured on macOS and in the
     // settings preview but was ignored by the Windows surface, which simply
@@ -671,8 +653,8 @@ int wmain(int argc, wchar_t **argv) {
           // applies.
           const auto voice_surface_theme =
               preferences.value("voice_theme", std::string("follow"));
-          // Publish the TSF-local settings; the loop broadcasts them after the
-          // server is constructed.
+          // Publish the TSF-local settings; the loop pushes them to the
+          // focused TIP, since the server is constructed after this handler.
           {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             *tsf_config = tsf_local_config(preferences);
@@ -894,7 +876,7 @@ int wmain(int argc, wchar_t **argv) {
         config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); },
         [&](const CandidatePresentation &value) {
-          server.candidate_rendered(value.lease, value.generation);
+          server.candidate_rendered(value.lease, value.render_serial);
         },
         config.navigation.mouse_wheel);
     const auto palette = resolve_palette(config);
@@ -1274,23 +1256,17 @@ int wmain(int argc, wchar_t **argv) {
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
       // but nothing ever supplied its fullscreen argument, leaving the whole
       // predicate dead outside its unit test.
-      // A TIP can register without publishing a preference snapshot. Detect
-      // that topology change so a newly connected TIP receives the current
-      // settings even when the values themselves did not change.
-      const auto registered_tickets = server.current_tsf_tickets();
-      if (!same_ticket_set(registered_tickets, tsf_configured_tickets))
-        tsf_config_dirty->store(true, std::memory_order_release);
-      // Broadcast the TSF-local settings whenever they changed, so every TIP
-      // observes the same punctuation, shuangpin, and preedit behavior.
+      // Push the TSF-local settings whenever they changed, so turning smart
+      // punctuation off takes effect on the text being typed now.
       if (tsf_config_dirty->load(std::memory_order_acquire)) {
-        msime::windows::TsfLocalConfig pending;
-        {
-          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-          pending = *tsf_config;
-        }
-        if (server.send_tsf_config(pending)) {
-          tsf_config_dirty->store(false, std::memory_order_release);
-          tsf_configured_tickets = server.current_tsf_tickets();
+        if (const auto view = server.mode_view()) {
+          msime::windows::TsfLocalConfig pending;
+          {
+            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+            pending = *tsf_config;
+          }
+          if (server.send_tsf_config(view->lease, pending))
+            tsf_config_dirty->store(false, std::memory_order_release);
         }
       }
       // One CN/EN state follows the user between applications when the scope

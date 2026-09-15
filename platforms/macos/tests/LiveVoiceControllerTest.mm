@@ -65,6 +65,7 @@
 - (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
+- (void)applyThemePreferences:(NSDictionary *)preferences { (void)preferences; }
 - (void)restore {}
 @end
 @interface LivePolishFixture : NSObject
@@ -202,6 +203,14 @@ int main(int argc, char **) {
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
         }
+        voiceArguments[@"MSIMEClientVoiceCaptureBackend"] = @"windows";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [controller toggleVoiceInput:nil];
+        assert(!capture.active && presentation.failure == MSIMEVoiceFailureCapture);
+        assert(capture.captureStops == 0 && capture.transcriptionStops == 0);
+        voiceArguments[@"MSIMEClientVoiceCaptureBackend"] = @"macos";
+        [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
+        [presentation dismissFailure];
         [controller toggleVoiceInput:nil]; assert(capture.active);
         assert(cues.starts == 1 && cues.stops == 0);
         MSIMEVoiceAudioBuffer oldMeter = capture.bufferHandler;
