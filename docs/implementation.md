@@ -941,3 +941,9 @@ Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React
 Android 与 iOS 的共享 Tauri 设置页现在把页面和云面板层级写入 WebView history：系统返回或导航手势从云剪贴板、云词库目录/候选页回到上一层，页内“返回”使用 replace 保持栈深度稳定，关闭按钮回退到打开面板前的设置页。桌面侧栏和独立原生面板不使用这套移动 history。移动设置 WebView 从后台恢复到前台时会重新读取共享偏好；若当前编辑器有未保存改动，则保留草稿并提示重新读取，避免覆盖用户输入。
 
 本地验证通过桌面 TypeScript 检查、设置 UI 全量 630 项 Vitest（含移动 history 与前后台恢复回归）和 Vite 构建。Android Activity/IME 与 iOS App/Keyboard Extension 的真实系统返回、进程回收、旋转和跨进程恢复仍需在签名设备验证，CI 保持禁用。
+
+### Android Tauri 设置系统返回
+
+Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设置 WebView 存在 history 时调用 `goBack()`，由 React 的 `popstate` 恢复设置页或云面板层级；没有应用内 history 时暂时关闭回调并交给 Android 默认 Activity 返回，避免递归拦截。WebView 销毁时清除引用，键盘输入法服务和 Engine 会话不随设置页返回重启。设备 smoke 新增从输入页按系统返回回到首页的检查。
+
+本地已通过 Java 设备测试源码的 `git diff --check` 与共享 UI 回归；生成的 Tauri Android Gradle 工程当前缺少本地 `tauri.settings.gradle`，因此 Gradle 编译入口未能运行，不能据此声称 Android 原生构建或真机系统返回验收完成。CI 保持禁用。
