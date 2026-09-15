@@ -33,6 +33,7 @@
 #import "CandidateChrome.h"
 #import "CandidateTextMetrics.h"
 #include "CandidateSkin.h"
+#include "CandidateWheelRouting.h"
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
@@ -124,10 +125,23 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
 }
 
 @interface MSIMECandidatePanel : NSPanel
+@property(nonatomic) BOOL mouseWheelEnabled;
+@property(nonatomic) BOOL hasPreviousPage;
+@property(nonatomic) BOOL hasNextPage;
+@property(nonatomic, copy) void (^pageHandler)(BOOL previous);
 @end
 @implementation MSIMECandidatePanel
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
+- (void)scrollWheel:(NSEvent *)event {
+    const auto action = msime::mac::CandidateWheelPageAction(
+        event.scrollingDeltaY, self.mouseWheelEnabled, self.hasPreviousPage, self.hasNextPage);
+    if (action != msime::mac::CandidateWheelAction::None && self.pageHandler) {
+        self.pageHandler(action == msime::mac::CandidateWheelAction::PreviousPage);
+        return;
+    }
+    [super scrollWheel:event];
+}
 @end
 
 // Match the pinned Windows TextBlock preedit marker spacing in logical points.
@@ -2319,13 +2333,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         width = totalWidth + 2 * inset + (paging ? 56 : 0);
     }
     if (!_panel) {
-        _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        MSIMECandidatePanel *panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        __weak MSIMEInputController *weakSelf = self;
+        panel.pageHandler = ^(BOOL previous) {
+            MSIMEInputController *controller = weakSelf;
+            if (!controller || !controller->_activeClient || !controller->_session || !controller->_panel.isVisible) return;
+            [controller apply:[controller->_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+        };
+        _panel = panel;
         _panel.level = NSPopUpMenuWindowLevel;
         _panel.hasShadow = YES;
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
+    MSIMECandidatePanel *candidatePanel = (MSIMECandidatePanel *)_panel;
+    candidatePanel.mouseWheelEnabled = [_appearance navigationEnabled:@"mouse_wheel"];
+    candidatePanel.hasPreviousPage = page > 0;
+    candidatePanel.hasNextPage = page + 1 < pageCount;
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     const CGFloat decorationHeight = skin.decorationTopDip;

@@ -57,7 +57,8 @@ static NSString *const WordCharacterKey = @"MSIMEClientWordCharacter";
 static NSArray<NSArray<NSString *> *> *NavigationControls() {
     return @[@[@"minus_equal", @"减号/等号翻页"], @[@"comma_period", @"逗号/句号翻页"],
              @[@"brackets", @"方括号翻页"], @[@"tab", @"Tab / Shift-Tab 翻页"],
-             @[@"page_up_down", @"Page Up / Page Down 翻页"], @[@"arrows", @"方向键选择候选"]];
+             @[@"page_up_down", @"Page Up / Page Down 翻页"], @[@"mouse_wheel", @"鼠标滚轮翻页"],
+             @[@"arrows", @"方向键选择候选"]];
 }
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";

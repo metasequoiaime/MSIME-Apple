@@ -1,4 +1,5 @@
 #include "../InputControllerKeyRouting.h"
+#include "../CandidateWheelRouting.h"
 #include <stdexcept>
 
 static void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
@@ -22,4 +23,10 @@ int main() {
     require(!msime::mac::IsJapaneseMinusEqualInput(0, false, '-') && !msime::mac::IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
     require(msime::mac::PhysicalCandidateDigitSlot(18) == 0 && msime::mac::PhysicalCandidateDigitSlot(25) == 8, "physical number row mapping");
     require(msime::mac::PhysicalCandidateDigitSlot(29) == -1 && msime::mac::PhysicalCandidateDigitSlot(0) == -1, "non-candidate key codes rejected");
+    using msime::mac::CandidateWheelAction;
+    require(msime::mac::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
+    require(msime::mac::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");
+    require(msime::mac::CandidateWheelPageAction(-1, false, true, true) == CandidateWheelAction::None, "disabled wheel passthrough");
+    require(msime::mac::CandidateWheelPageAction(1, true, false, true) == CandidateWheelAction::None, "wheel respects first page");
+    require(msime::mac::CandidateWheelPageAction(-1, true, true, false) == CandidateWheelAction::None, "wheel respects last page");
 }
