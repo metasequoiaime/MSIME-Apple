@@ -107,9 +107,12 @@ SkinTokens ToolbarSkinTokens(std::string_view id, bool dark);
 std::optional<Rgba> ParseCssColor(std::string_view text);
 std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoot, const std::string &id,
                                            std::string *error = nullptr);
+bool SupportsSkin(const SkinPackage &package, std::string_view layout, std::string_view theme);
 SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot);
 std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot);
 ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot);
+ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot,
+                         std::string_view layout, std::string_view theme);
 std::filesystem::path DefaultSkinsRoot();
 } // namespace msime::mac
 

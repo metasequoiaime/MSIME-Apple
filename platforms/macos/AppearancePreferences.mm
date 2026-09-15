@@ -567,11 +567,15 @@ static BOOL ValidToolbarFontSize(id value) {
 }
 - (void)resolveSelectedSkin {
     const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
-    _lightSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, false, root);
-    _darkSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, true, root);
+    const std::string_view layout = self.vertical ? "vertical" : "horizontal";
+    _lightSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, false, root, layout, "light");
+    _darkSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, true, root, layout, "dark");
     _decorationImage = nil;
     if (_lightSkin.decorationTopDip > 0 && !_lightSkin.decorationPath.empty()) {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
+    }
+    if (!_decorationImage && _darkSkin.decorationTopDip > 0 && !_darkSkin.decorationPath.empty()) {
+        _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_darkSkin.decorationPath.c_str())];
     }
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
