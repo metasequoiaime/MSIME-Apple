@@ -16,6 +16,10 @@
 
 ## 当前证据
 
+### macOS 候选表面主题覆盖（next41）
+
+共享设置中的 `theme`（`dark`、`light`、`system`）与 `candidate_theme`（`follow`、`dark`、`light`）现由实际 IMK 候选面板消费。候选表面显式深色或浅色时覆盖全局主题；跟随时继承全局；全局为 `system` 时不设置窗口外观，让 AppKit 根据系统外观动态解析。偏好热更新会在不重建 Engine 或改变候选身份的情况下更新面板 appearance，并复用候选皮肤重绘路径。未收到共享主题字段的旧宿主保留其既有面板 appearance，避免测试替身或宿主注入外观被意外清除。`skin-preview`、`shortcut`、真实输入法 bundle 编译与 Rust workspace 测试均覆盖该切片；系统安装后的编辑器端到端验收仍需后续执行。
+
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。

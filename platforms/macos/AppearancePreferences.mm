@@ -199,6 +199,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSNumber *_sharedPreeditFontSize;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
+    NSString *_sharedTheme;
+    NSString *_sharedCandidateTheme;
     NSMutableDictionary *_sharedNavigation;
     NSDictionary *_sharedWordCharacter;
     NSButton *_wordCharacterButton;
@@ -1157,7 +1159,23 @@ static BOOL ValidToolbarFontSize(id value) {
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
     if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9) _sharedPageSize = page;
+    id theme = preferences[@"theme"];
+    if ([@[@"dark", @"light", @"system"] containsObject:theme]) _sharedTheme = [theme copy];
+    id candidateTheme = preferences[@"candidate_theme"];
+    if ([@[@"follow", @"dark", @"light"] containsObject:candidateTheme]) _sharedCandidateTheme = [candidateTheme copy];
     [self refreshControls];
+}
+
+- (NSAppearance *)candidateAppearanceOverride {
+    NSString *surface = _sharedCandidateTheme ?: @"follow";
+    NSString *global = _sharedTheme ?: @"system";
+    NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : global;
+    if ([resolved isEqual:@"dark"]) return [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    if ([resolved isEqual:@"light"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    return nil;
+}
+- (BOOL)candidateAppearanceOverrideConfigured {
+    return _sharedTheme != nil || _sharedCandidateTheme != nil;
 }
 - (void)setPageShortcut:(NSInteger)value {
     value = value == 1 || value == 2 ? value : 0;

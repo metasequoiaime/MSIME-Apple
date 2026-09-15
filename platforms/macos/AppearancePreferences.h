@@ -96,6 +96,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 /// Cache input choices from shared storage without saving them back.
 - (void)applySharedInputPreferences:(NSDictionary *)preferences;
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
+/// The native candidate panel appearance override. A nil value means AppKit follows the system.
+@property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;
+@property(nonatomic, readonly) BOOL candidateAppearanceOverrideConfigured;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 - (BOOL)navigationEnabled:(NSString *)key;

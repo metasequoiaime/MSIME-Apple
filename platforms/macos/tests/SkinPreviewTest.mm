@@ -153,6 +153,30 @@ static NSBitmapImageRep *Draw(MSIMECandidatePreviewView *preview) {
     return bitmap;
 }
 
+static void TestCandidateSurfaceTheme(MSIMEAppearancePreferences *preferences) {
+    NSArray *names = @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua];
+    [preferences applySharedCandidatePreferences:@{@"theme": @"light", @"candidate_theme": @"dark"}];
+    NSString *match = [preferences.candidateAppearanceOverride bestMatchFromAppearancesWithNames:names];
+    assert([match isEqual:NSAppearanceNameDarkAqua]);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"dark", @"candidate_theme": @"light"}];
+    match = [preferences.candidateAppearanceOverride bestMatchFromAppearancesWithNames:names];
+    assert([match isEqual:NSAppearanceNameAqua]);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"dark", @"candidate_theme": @"follow"}];
+    match = [preferences.candidateAppearanceOverride bestMatchFromAppearancesWithNames:names];
+    assert([match isEqual:NSAppearanceNameDarkAqua]);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"light", @"candidate_theme": @"follow"}];
+    match = [preferences.candidateAppearanceOverride bestMatchFromAppearancesWithNames:names];
+    assert([match isEqual:NSAppearanceNameAqua]);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"system", @"candidate_theme": @"follow"}];
+    assert(preferences.candidateAppearanceOverride == nil);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"invalid", @"candidate_theme": @"invalid"}];
+    assert(preferences.candidateAppearanceOverride == nil);
+    [preferences applySharedCandidatePreferences:@{@"theme": @"dark", @"candidate_theme": @"dark"}];
+    [preferences applySharedCandidatePreferences:@{@"theme": @42, @"candidate_theme": @YES}];
+    match = [preferences.candidateAppearanceOverride bestMatchFromAppearancesWithNames:names];
+    assert([match isEqual:NSAppearanceNameDarkAqua]);
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -162,6 +186,7 @@ int main(int argc, const char **argv) {
         assert(mkdtemp(temporary));
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        TestCandidateSurfaceTheme(preferences);
         NSDictionary *input = @{@"shuangpin_preedit_uses_raw": @NO, @"synthetic_unowned": @42};
         assert(preferences.shuangpinPreeditUsesRaw);
         assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@YES]);
