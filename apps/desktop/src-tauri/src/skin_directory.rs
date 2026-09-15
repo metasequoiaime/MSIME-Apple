@@ -22,20 +22,35 @@ pub fn open(root: &Path) -> Result<(), &'static str> {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn launch_directory(directory: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    let program = "open";
     #[cfg(target_os = "linux")]
-    let program = "xdg-open";
-    let status = std::process::Command::new(program)
-        .arg(directory)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(std::io::Error::other("directory opener failed"))
+    {
+        let path = directory
+            .to_str()
+            .ok_or_else(|| std::io::Error::other("directory path is not valid UTF-8"))?;
+        return if crate::linux_process::run_status(
+            "xdg-open",
+            &[path],
+            std::time::Duration::from_secs(3),
+        ) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("directory opener failed"))
+        };
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(directory)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("directory opener failed"))
+        }
     }
 }
 
