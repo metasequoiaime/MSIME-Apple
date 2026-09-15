@@ -5,8 +5,14 @@ fn snapshot_module_is_present() {
 
 #[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
-    activation_case(false);
-    activation_case(true);
+    activation_case(false, false);
+    activation_case(true, false);
+}
+
+#[test]
+fn activation_rejects_live_session_before_swapping() {
+    activation_case(false, true);
+    activation_case(true, true);
 }
 
 #[test]
@@ -77,8 +83,9 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
     drop(session_access);
 }
 
-fn activation_case(nested_dictionaries: bool) {
+fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     use super::*;
+    use msime_client_core::dictionary_access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
     use std::fs;
     use std::path::Path;
@@ -151,6 +158,25 @@ fn activation_case(nested_dictionaries: bool) {
             source_version: expected.clone(),
         },
     );
+    let session_access = if hold_session {
+        Some(
+            DictionaryAccess::try_session(
+                Path::new(&active_options.user_data),
+                Path::new(&active_options.dictionaries),
+            )
+            .unwrap()
+            .unwrap(),
+        )
+    } else {
+        None
+    };
+    if let Some(session_access) = session_access {
+        assert!(activate(123, &expected).is_err());
+        for name in ["user", "cache", dictionaries] {
+            assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+        }
+        drop(session_access);
+    }
     let wrong = "0".repeat(64);
     assert!(activate(123, &wrong).is_err());
     for name in ["user", "cache", dictionaries] {
