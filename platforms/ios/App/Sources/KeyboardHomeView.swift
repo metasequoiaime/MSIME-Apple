@@ -1,6 +1,16 @@
 import SwiftUI
 import UIKit
 
+/// 卡片按下去缩一点。`.plain` 的卡片按下时毫无反应,点没点上全靠下一屏出现与否来判断。
+private struct CardPressStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed ? 0.96 : 1)
+      .opacity(configuration.isPressed ? 0.88 : 1)
+      .animation(.spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
+  }
+}
+
 struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var scheme = InputSchemePreference.scheme
@@ -21,29 +31,29 @@ struct SettingsView: View {
           // 原来这里是三张卡片加一条「键盘设置」,要用的东西都在那一条后面。现在那一页的项目全摊在首页上:六张卡片,少点一次。
           HStack(spacing: 10) {
             NavigationLink(destination: SkinSettingsView()) {
-              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette", color: MetasequoiaTheme.accent)
+              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette.fill", color: .pink)
             }.accessibilityIdentifier("skinSettingsLink")
             NavigationLink(destination: InputSettingsView()) {
-              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: MetasequoiaTheme.accent)
+              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard.fill", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
+              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: .indigo)
             }.accessibilityIdentifier("keyboardLayoutLink")
-          }.buttonStyle(.plain)
+          }.buttonStyle(CardPressStyle())
           HStack(spacing: 10) {
             NavigationLink(destination: DictionarySettingsView()) {
-              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical", color: MetasequoiaTheme.accent)
+              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical.fill", color: .brown)
             }.accessibilityIdentifier("dictionarySettingsLink")
             NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
-              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles", color: MetasequoiaTheme.accent)
+              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles", color: .orange)
             }.accessibilityIdentifier("aiSettingsLink")
             Button {
               guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
               UIApplication.shared.open(url)
             } label: {
-              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape", color: MetasequoiaTheme.accent)
+              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape.fill", color: .gray)
             }.accessibilityIdentifier("openKeyboardSettingsButton")
-          }.buttonStyle(.plain)
+          }.buttonStyle(CardPressStyle())
         }.padding(.horizontal, 16).padding(.bottom, 20)
       }.background(MetasequoiaTheme.canvas)
         .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)
@@ -104,7 +114,12 @@ struct SettingsView: View {
   }
   private func quickEntry(_ title: String, subtitle: String, symbol: String, color: Color) -> some View {
     VStack(alignment: .leading, spacing: 7) {
-      Image(systemName: symbol).font(.system(size: 21, weight: .medium)).foregroundStyle(color)
+      // 图标坐在自己颜色的方块里。六张卡片原来是同一个 accent 色的线条图标,一眼扫过去六个都一样,只能逐张读标题。
+      Image(systemName: symbol)
+        .font(.system(size: 17, weight: .semibold))
+        .foregroundStyle(color)
+        .frame(width: 34, height: 34)
+        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
       Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
       Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
     }.frame(maxWidth: .infinity, alignment: .leading).padding(12)

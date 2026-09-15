@@ -5,6 +5,8 @@ struct KeyboardSkinPreview: View {
   let skin: KeyboardSkin
   let nineKey: Bool
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
+  /// 在系统键盘高度上增减多少。调高度那一页传实时值进来,别处按 0 走。
+  var heightAdjustment: Double = 0
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -12,7 +14,7 @@ struct KeyboardSkinPreview: View {
   }
 
   var body: some View {
-    KeyboardPreviewCanvas { keyboard }
+    KeyboardPreviewCanvas(referenceHeight: 260 + heightAdjustment) { keyboard }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
       .accessibilityIdentifier("fullKeyboardSkinPreview")

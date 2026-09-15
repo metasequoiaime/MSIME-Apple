@@ -321,10 +321,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios\n", project)
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard\n", project)
-        self.assertIn("deploymentTarget:\n    iOS: \"15.5\"", project)
+        self.assertIn("deploymentTarget:\n    iOS: \"17.0\"", project)
         # The Podfile states the same floor, and the pods are compiled against whatever it says. The
         # two drifting apart builds the dependencies for a different iOS than the app declares.
-        self.assertIn("platform :ios, '15.5'", (IOS_ROOT / "Podfile").read_text())
+        self.assertIn("platform :ios, '17.0'", (IOS_ROOT / "Podfile").read_text())
+        # post_install 会把每个 pod 的目标版本重写一遍,漏了它,pod 仍按自己的默认值编。
+        self.assertIn("['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'", (IOS_ROOT / "Podfile").read_text())
 
     def test_testflight_archive_uses_distribution_profiles(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
@@ -644,6 +646,29 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # 没开完全访问就没有网络,连排队都不该排;送出去的也只有含汉字的候选,不是用户按下的字母。
         self.assertIn("CandidateTranslationPreference.onlineEnabled, hasFullAccess", controller)
         self.assertIn("words.filter(Self.translatable)", store)
+
+    def test_the_layout_sliders_drive_a_live_preview(self):
+        # 三个滑块原来调完什么也看不见,要退出去唤起键盘才知道效果。预览必须吃滑块的当前值:读存储也能画,但那是「存进去之后」的值,拖动中间那一段仍然没有反馈。
+        settings = (IOS_ROOT / "App/Sources/KeyboardLayoutSettingsView.swift").read_text()
+        canvas = (IOS_ROOT / "App/Sources/KeyboardPreviewCanvas.swift").read_text()
+        preview = (IOS_ROOT / "App/Sources/KeyboardSkinPreview.swift").read_text()
+
+        # 只看预览本身怎么构造的:同一段里还有拖动手势,而手势往存储里写是它该做的事。
+        start = settings.index("KeyboardSkinPreview(")
+        construction = settings[start:settings.index(")", settings.index("heightAdjustment", start))]
+        self.assertIn("KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing)", construction)
+        self.assertIn("heightAdjustment: height", construction)
+        self.assertNotIn("KeyboardLayoutPreference.", construction)
+        self.assertIn('.accessibilityIdentifier("keyboardLayoutPreview")', settings)
+
+        # 直接拖预览改参数:把手改高度,键盘上左右改键距、上下改行间距。
+        self.assertIn('.accessibilityIdentifier("keyboardHeightGrip")', settings)
+        self.assertIn(".gesture(heightDrag)", settings)
+        self.assertIn(".gesture(spacingDrag)", settings)
+
+        # 高度是画布自己的尺寸,不在 KeyboardGeometry 里,所以要单独传进去。
+        self.assertIn("KeyboardPreviewCanvas(referenceHeight: 260 + heightAdjustment)", preview)
+        self.assertIn("aspectRatio(390.0 / referenceHeight", canvas)
 
     def test_apostrophe_reaches_the_engine_before_punctuation_conversion(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()

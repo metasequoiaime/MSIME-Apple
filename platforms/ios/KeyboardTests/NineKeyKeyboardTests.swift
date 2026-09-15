@@ -361,14 +361,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 292)
         for gap in [3.0, 6.0] {
-          try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-          let slider = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keySpacingSlider" } as? UISlider)
-          slider.value = Float(gap)
-          slider.sendActions(for: .valueChanged)
-          let row = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "rowSpacingSlider" } as? UISlider)
-          row.value = gap == 3 ? 4 : 10
-          row.sendActions(for: .valueChanged)
-          try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+          // 间距原来是拖键盘内那三条滑块设的,现在是在键盘上拖出来的 —— 手势合成不进单测,而这条要验的是「键位跟着间距走」,直接把值写进偏好再让键盘重排就够了。
+          KeyboardLayoutPreference.keySpacing = gap
+          KeyboardLayoutPreference.rowSpacing = gap == 3 ? 4 : 10
+          controller.viewWillAppear(false)
           controller.view.layoutIfNeeded()
           XCTAssertEqual(KeyboardLayoutPreference.geometry.keySpacing, gap)
           let enter = try button("returnKey", in: controller)
@@ -639,12 +635,18 @@ final class NineKeyKeyboardTests: XCTestCase {
         let selected = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-nineKey" })
         assertColor(picker.backgroundColor, skin.background)
         assertColor(back.tintColor, skin.accent)
-        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.10))
+        // 全拼这一族仍然用皮肤主色 —— 每个方案现在有自己的颜色(双拼蓝、五笔棕、日语粉…),这条盯的是「跟着皮肤走」的那一个。
+        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.12))
         let labels = selected.subviews.compactMap { $0 as? UILabel }.filter { $0.text?.isEmpty == false }
         XCTAssertEqual(labels.count, 3)
         for label in labels {
           assertColor(label.textColor, skin.accent)
         }
+        // 别的方案不再是同一个前景色:五笔是棕的,和皮肤主色不是一回事。
+        let wubi = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-wubi" })
+        let wubiLabel = try XCTUnwrap(wubi.subviews.compactMap { $0 as? UILabel }.first { $0.text == "86 五笔" })
+        XCTAssertNotEqual(wubiLabel.textColor.resolvedColor(with: traits),
+                          skin.keyForeground.resolvedColor(with: traits))
       }
     }
   }
@@ -1044,6 +1046,50 @@ final class NineKeyKeyboardTests: XCTestCase {
         chip.configuration?.attributedTitle.map { String($0.characters) } ?? chip.configuration?.title
       }
     XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "九键 65 应当给出 ok:\(chips)")
+  }
+
+  func testSymbolKeyOpensAPanelInsteadOfAMenu() throws {
+    // 「符」原来是一颗弹菜单的键:盖住键盘、要瞄要滑、一次只给一个。
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    let key = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityLabel == "符号" } as? UIButton)
+    XCTAssertNil(key.menu, "这颗键不再弹菜单")
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+
+    key.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    XCTAssertEqual(panel.bounds.size, controller.view.bounds.size, "面板整块盖住键盘区")
+    let last = KeyboardSymbolPanelView.categories.count - 1
+    for identifier in ["symbolCategory_0", "symbolCategory_\(last)", "closeSymbolPanel", "symbolLockKey", "symbolDeleteKey"] {
+      XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    // 放不下的往下滚,不是压扁 —— 一类里的符号比一屏多。
+    let grid = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "symbolGrid" } as? UIScrollView)
+    XCTAssertGreaterThan(grid.contentSize.height, grid.bounds.height, "符号多到一屏放不下时要能往下滚")
+
+    // 分类切过去,网格跟着换。
+    let network = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolCategory_\(last)" } as? UIButton)
+    network.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_http://" })
+
+    // 没锁就是打一个回键盘。
+    let symbol = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_@" } as? UIButton)
+    symbol.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
   }
 
   private func descendants(_ view: UIView) -> [UIView] {
