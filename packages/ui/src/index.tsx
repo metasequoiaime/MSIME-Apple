@@ -1893,9 +1893,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
         {showPanelShortcuts && <div className="section" role="group" aria-label="面板快捷键">
           <div className="section-title">面板快捷键</div>
-          <small>桌面环境转发 Super 组合键时可从当前输入上下文打开面板。</small>
+          <small>{macosPlatform ? "可从当前输入上下文使用 Command 组合键打开面板。" : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}</small>
           <div className="shortcut-list">
-            <div className="shortcut-row"><span>打开屏幕键盘</span><kbd>Ctrl+Shift+Super+K</kbd></div>
+            <div className="shortcut-row"><span>打开屏幕键盘</span><kbd>Ctrl+Shift+{macosPlatform ? "Command" : "Super"}+K</kbd></div>
           </div>
         </div>}
         <div className="section shortcut-section">

@@ -179,8 +179,13 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
-            // Windows now handles Ctrl+Shift+Win+K on its maintenance hook.
-            panel_shortcuts: matches!(platform, HostPlatform::Linux | HostPlatform::Windows),
+            // Windows handles Ctrl+Shift+Win+K on its maintenance hook; Linux
+            // uses the current IBus context, and macOS uses the current IMK
+            // context with Command in place of the Windows/Super modifier.
+            panel_shortcuts: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+            ),
             number_row_selection: platform == HostPlatform::Linux,
             voice_capture_devices: matches!(
                 platform,
@@ -622,6 +627,7 @@ mod tests {
         assert!(macos.candidate_row_colors);
         assert!(macos.candidate_selection_appearance);
         assert!(macos.candidate_follow_cursor);
+        assert!(macos.panel_shortcuts);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
         assert!(

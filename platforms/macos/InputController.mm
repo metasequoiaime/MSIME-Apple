@@ -2062,6 +2062,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
         return YES;
     }
+    if (event.keyCode == 40 &&
+        (event.modifierFlags & (competing | NSEventModifierFlagShift)) ==
+            (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagCommand)) {
+        if (!event.isARepeat) [self showScreenKeyboard:nil];
+        return YES;
+    }
     if (_appearance.englishMode) return NO;
     if (!_session) [self prepareSession];
     if (!_session) return NO;

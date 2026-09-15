@@ -102,8 +102,16 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  expect(screen.getByText("Ctrl+Shift+Super+K", { selector: "kbd" })).toBeTruthy();
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
   capable.unmount();
+
+  const macos = mount({ host: capabilities({ platform: "macos", panel_shortcuts: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.getByText("Ctrl+Shift+Command+K", { selector: "kbd" })).toBeTruthy();
+  expect(screen.queryByText("Ctrl+Shift+Super+K", { selector: "kbd" })).toBeNull();
+  macos.unmount();
 
   // A Linux host that does not declare them keeps them hidden.
   mount({ host: capabilities({ platform: "linux" }) });

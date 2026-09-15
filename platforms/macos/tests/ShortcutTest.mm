@@ -203,6 +203,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @interface ModeController : MSIMEInputController
 @property(nonatomic) NSUInteger preparationCalls;
 @property(nonatomic) NSUInteger paletteCalls;
+@property(nonatomic) NSUInteger screenKeyboardCalls;
 @end
 @implementation ModeController
 - (void)prepareSession {
@@ -210,6 +211,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     if ([self valueForKey:@"session"]) [super prepareSession];
 }
 - (void)showSystemCharacterPalette { ++self.paletteCalls; }
+- (void)showScreenKeyboard:(id)sender { (void)sender; ++self.screenKeyboardCalls; }
 @end
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
@@ -1026,6 +1028,41 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     client.committed = nil;
     assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
     assert(client.committed == nil && control.state == NSControlStateValueOff);
+}
+
+static void TestScreenKeyboardShortcut(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    const BOOL previousEnglishMode = appearance.englishMode;
+    const NSEventModifierFlags chord = NSEventModifierFlagControl |
+        NSEventModifierFlagShift | NSEventModifierFlagCommand;
+
+    appearance.englishMode = NO;
+    assert([controller handleEvent:ModeKey(40, chord, NO) client:client]);
+    assert(controller.screenKeyboardCalls == 1);
+    assert([controller handleEvent:ModeKey(40, chord, YES) client:client]);
+    assert(controller.screenKeyboardCalls == 1);
+    assert([controller handleEvent:ModeKey(40, chord | NSEventModifierFlagCapsLock, NO) client:client]);
+    assert(controller.screenKeyboardCalls == 2);
+
+    appearance.englishMode = YES;
+    assert([controller handleEvent:ModeKey(40, chord, NO) client:client]);
+    assert(controller.screenKeyboardCalls == 3);
+    for (NSNumber *modifiers in @[
+        @(chord & ~NSEventModifierFlagControl),
+        @(chord & ~NSEventModifierFlagShift),
+        @(chord & ~NSEventModifierFlagCommand),
+        @(chord | NSEventModifierFlagOption)
+    ]) {
+        assert(![controller handleEvent:ModeKey(40, modifiers.unsignedIntegerValue, NO) client:client]);
+        assert(controller.screenKeyboardCalls == 3);
+    }
+    assert(![controller handleEvent:ModeKey(39, chord, NO) client:client]);
+    assert(controller.screenKeyboardCalls == 3);
+    appearance.englishMode = previousEnglishMode;
 }
 
 static NSEvent *TapEvent(NSEventType type, unsigned short key, NSEventModifierFlags flags, double time) {
@@ -3574,6 +3611,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
+        TestScreenKeyboardShortcut(appearance);
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
