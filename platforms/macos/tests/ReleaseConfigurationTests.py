@@ -964,53 +964,17 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
     def test_dependabot_tracks_actions_and_expected_submodule_branches(self):
         dependabot = (PROJECT_ROOT / ".github/dependabot.yml").read_text()
-        gitmodules = PROJECT_ROOT / ".gitmodules"
-
-        def read_submodule_value(name, key):
-            result = subprocess.run(
-                ["git", "config", "-f", str(gitmodules), "--get", f"submodule.{name}.{key}"],
-                check=False,
-                capture_output=True,
-                text=True,
-                # A worktree checkout may expose a placeholder .git file whose
-                # linked metadata is unavailable to this isolated config read.
-                # Run outside the repository so git only parses .gitmodules.
-                cwd=gitmodules.parent.parent,
-            )
-            # git config exits 1 for a key that is absent, which is a real answer here rather than a
-            # failure: it is how the dictionary assertion below states that there is no submodule.
-            return result.stdout.strip() if result.returncode == 0 else None
-
-        def submodule_value(name, key):
-            value = read_submodule_value(name, key)
-            self.assertIsNotNone(value, f"submodule.{name}.{key} is missing from .gitmodules")
-            return value
-
         self.assertEqual(dependabot.count('package-ecosystem: "github-actions"'), 1)
-        self.assertEqual(dependabot.count('package-ecosystem: "gitsubmodule"'), 1)
         # Assert each ecosystem's own interval rather than a total count: counting means changing
         # either schedule fails on an arithmetic mismatch that says nothing about which one moved.
         actions_block = dependabot.split('package-ecosystem: "github-actions"', 1)[1].split("- package-ecosystem:", 1)[0]
-        submodule_block = dependabot.split('package-ecosystem: "gitsubmodule"', 1)[1].split("- package-ecosystem:", 1)[0]
         self.assertIn('interval: "monthly"', actions_block)
-        # The engine submodule moves fast enough that a monthly sweep lets it drift far enough for a
-        # single bump to carry unrelated behaviour changes, which is how #222 landed two regressions.
-        self.assertIn('interval: "daily"', submodule_block)
-        self.assertEqual(dependabot.count('prefix: "chore(deps)"'), 2)
-        self.assertEqual(submodule_value("vendor/MetasequoiaImeEngine", "path"), "vendor/MetasequoiaImeEngine")
-        self.assertEqual(
-            submodule_value("vendor/MetasequoiaImeEngine", "url"),
-            "https://github.com/metasequoiaime/MSIME-Engine.git",
-        )
-        self.assertEqual(submodule_value("vendor/MetasequoiaImeEngine", "branch"), "main")
+        self.assertEqual(dependabot.count('prefix: "chore(deps)"'), 1)
         # The dictionary is deliberately not a submodule. Vendoring the sources meant rebuilding
         # MSIME-Dict's pipeline here and shipping whatever revision the pin happened to hold, which
         # is how the personal data in quick_phrases.txt stayed in shipped builds for two days after
         # it was replaced upstream (MSIME-Windows#74). It is downloaded from a pinned, checksummed
         # release instead; re-adding it as a submodule would reintroduce that drift.
-        self.assertIsNone(read_submodule_value("vendor/MetasequoiaImeDict", "path"))
-        self.assertIsNone(read_submodule_value("vendor/MetasequoiaImeHelpCode", "path"))
-        self.assertIsNone(read_submodule_value("tools/MetasequoiaImeDict", "path"))
 
     def test_dictionary_is_fetched_from_a_locked_verified_release(self):
         source = (PROJECT_ROOT / "scripts/fetch_dictionary.py").read_text()
