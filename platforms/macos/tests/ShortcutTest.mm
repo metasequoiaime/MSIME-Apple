@@ -3962,8 +3962,10 @@ int main(int argc, char **argv) {
                 if (valid) {
                     NSColor *color = [scriptButton.titleColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
                     assert(fabs(color.redComponent - 55.0/255) < 0.001 && fabs(color.greenComponent - 154.0/255) < 0.001 && fabs(color.blueComponent - 211.0/255) < 0.001);
+                    assert([scriptButton.translationColor isEqual:[color colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
                     [controller refreshCandidateSkin];
                     assert([scriptButton.titleColor isEqual:color]);
+                    assert([scriptButton.translationColor isEqual:[color colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
                 }
                 assert([word[@"text"] isEqual:@"汉语"]);
             }
