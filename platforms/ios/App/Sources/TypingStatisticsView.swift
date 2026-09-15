@@ -12,8 +12,23 @@ struct TypingStatisticsView: View {
   @State private var statistics = TypingStatistics()
   @State private var errorMessage = ""
   @State private var confirmsReset = false
-  @State private var period = 7
+  @State private var tab = Tab.trend
   @State private var selectedDay: Date?
+
+  /// 三块内容轮流占这一屏,不再一路往下滚。
+  private enum Tab: String, CaseIterable {
+    case trend, kind, mode
+    var title: String {
+      switch self {
+      case .trend: return "趋势"
+      case .kind: return "类型"
+      case .mode: return "模式方案"
+      }
+    }
+  }
+
+  /// 趋势画多少天。原来这里有个 7 / 30 / 累计 的切换,而分类那几块其实只想看累计 —— 一个开关同时管两件事,结果两件都得迁就它。
+  private static let trendDays = 30
   private let store = TypingStatisticsStore()
   private let colors: [Color] = [.teal, .blue, .indigo, .orange, .pink, .purple, .brown, .gray]
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
@@ -35,16 +50,17 @@ struct TypingStatisticsView: View {
     }
   }
   private var dates: [Date] {
-    (0..<(period == 0 ? 30 : period)).reversed().compactMap {
+    (0..<Self.trendDays).reversed().compactMap {
       Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
     }
   }
-  private var scopeDates: [Date]? { selectedDay.map { [$0] } ?? (period == 0 ? nil : dates) }
+  /// 点了某一天就只看那一天,否则看累计。
+  private var scopeDates: [Date]? { selectedDay.map { [$0] } }
   private var breakdown: TypingBreakdown { statistics.breakdown(on: scopeDates) }
   private var scopeTotal: Int { scopeDates?.reduce(0) { $0 + statistics.count(on: $1) } ?? statistics.total }
   private var scopeTitle: String {
     if let selectedDay { return selectedDay.formatted(.dateTime.month().day()) }
-    return period == 0 ? "累计输入" : "近 \(period) 天输入"
+    return "累计输入"
   }
   private var characterSlices: [StatisticsSlice] {
     TypingCharacterKind.allCases.enumerated().map { index, kind in
@@ -73,36 +89,38 @@ struct TypingStatisticsView: View {
   var body: some View {
     Form {
       Section {
-        Picker("统计范围", selection: $period) {
-          Text("7 天").tag(7)
-          Text("30 天").tag(30)
-          Text("累计").tag(0)
-        }.pickerStyle(.segmented).accessibilityIdentifier("statisticsPeriod")
-          .onChange(of: period) { _ in selectedDay = nil }
+        Picker("统计内容", selection: $tab) {
+          ForEach(Tab.allCases, id: \.self) { Text($0.title).tag($0) }
+        }.pickerStyle(.segmented).accessibilityIdentifier("statisticsTab")
         HStack {
           metric("今日输入", count: statistics.count(on: Date()), identifier: "typingToday")
           Spacer()
           metric(scopeTitle, count: scopeTotal, identifier: "typingTotal")
         }.padding(.vertical, 8)
       }
-      Section {
-        trendChart
-        if selectedDay != nil {
-          Button("返回整个时间范围") { selectedDay = nil }
-        }
-      } header: { Text("每日趋势 · 近 \(period == 0 ? 30 : period) 天") }
-        footer: { Text("点按柱形查看当天的分类与占比。") }
-      Section {
-        distribution(characterSlices)
-      } header: { Text("字符类型") }
-      Section {
-        distribution(languageSlices)
-      } header: { Text("语言模式") }
-        footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
-      Section {
-        distribution(sourceSlices)
-      } header: { Text("输入方案") }
-        footer: { Text("拼音方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。") }
+      switch tab {
+      case .trend:
+        Section {
+          trendChart
+          if selectedDay != nil {
+            Button("返回累计") { selectedDay = nil }
+          }
+        } header: { Text("每日趋势 · 近 \(Self.trendDays) 天") }
+          footer: { Text("点按柱形查看当天的分类与占比。") }
+      case .kind:
+        Section {
+          distribution(characterSlices)
+        } header: { Text("字符类型") }
+      case .mode:
+        Section {
+          distribution(languageSlices)
+        } header: { Text("语言模式") }
+          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
+        Section {
+          distribution(sourceSlices)
+        } header: { Text("输入方案") }
+          footer: { Text("拼音方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。") }
+      }
       Section {
         Toggle("记录打字统计", isOn: Binding(get: { statistics.enabled }, set: { enabled in
           update { try store.setEnabled(enabled) }
@@ -139,13 +157,13 @@ struct TypingStatisticsView: View {
     return VStack(alignment: .leading, spacing: 8) {
       Text("最高 \(maximum == 1 && dates.allSatisfy { statistics.count(on: $0) == 0 } ? 0 : maximum) 字符 / 天")
         .font(.caption).foregroundStyle(.secondary)
-      HStack(alignment: .bottom, spacing: period == 7 ? 10 : 3) {
+      // 三十根柱子并排,每根只有几个点宽:数字标在头上会挤成一团,圆角也要小一号。
+      HStack(alignment: .bottom, spacing: 3) {
         ForEach(dates, id: \.self) { date in
           let count = statistics.count(on: date)
           Button { selectedDay = selectedDay == date ? nil : date } label: {
             VStack(spacing: 4) {
-              if period == 7 { Text("\(count)").font(.caption2).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6) }
-              RoundedRectangle(cornerRadius: period == 7 ? 5 : 2)
+              RoundedRectangle(cornerRadius: 2)
                 .fill(selectedDay == date ? Color.orange : MetasequoiaTheme.forest.opacity(selectedDay == nil ? 0.85 : 0.4))
                 .frame(height: max(2, 120 * Double(count) / Double(maximum)))
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).contentShape(Rectangle())
