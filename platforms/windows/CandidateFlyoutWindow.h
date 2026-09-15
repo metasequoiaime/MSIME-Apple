@@ -49,6 +49,7 @@ public:
   bool open(int pointer_x, int pointer_y, size_t code_points) noexcept;
   bool visible() const noexcept;
   void hide() noexcept;
+  HWND handle() const noexcept { return menu_.window; }
 
 private:
   // One drawn list: the menu itself, or its 固定排位 submenu. Both are popup

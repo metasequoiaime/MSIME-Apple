@@ -1,5 +1,6 @@
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
+#include "CandidateFlyoutWindow.h"
 #include "CandidateWindow.h"
 #include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
@@ -250,6 +251,27 @@ int main() {
         require(GetUpdateRect(overlay.handle(), nullptr, FALSE));
         UpdateWindow(overlay.handle());
         require(IsWindowVisible(overlay.handle()));
+      }
+    }
+    {
+      CandidateFlyoutWindow flyout([](const CandidateMenuChoice &) {});
+      for (const auto &[message, wparam] : {
+               std::pair<UINT, WPARAM>{WM_DPICHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_DWMCOMPOSITIONCHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_SETTINGCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
+                                       PBT_APMRESUMEAUTOMATIC},
+           }) {
+        require(flyout.open(100, 100, 2));
+        UpdateWindow(flyout.handle());
+        require(flyout.visible());
+        require(GetCapture() == flyout.handle());
+        const auto result = SendMessageW(flyout.handle(), message, wparam, 0);
+        if (message == WM_POWERBROADCAST)
+          require(result == TRUE);
+        require(!flyout.visible());
+        require(GetCapture() != flyout.handle());
       }
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +
