@@ -460,24 +460,23 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
 }
 
 /// Discard only a process-owned, unpublished preparation. Unknown/consumed IDs fail.
+fn discard(handle: u64) -> Result<Value, &'static str> {
+    let mut entries = registry()
+        .lock()
+        .map_err(|_| "snapshot registry unavailable")?;
+    let prepared = entries.get(&handle).ok_or("unknown snapshot handle")?;
+    // A prepared directory is outside all active roots (validated by prepare),
+    // so cleaning it never touches the live journal or dictionaries. Requiring
+    // the maintenance lock here made cancellation fail while an input session
+    // held its normal shared lock, leaking the process-owned handle.
+    std::fs::remove_dir_all(prepared.directory.path()).map_err(|_| "snapshot cleanup failed")?;
+    entries.remove(&handle);
+    Ok(json!({"discarded": true}))
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
-    response(|| {
-        let mut entries = registry()
-            .lock()
-            .map_err(|_| "snapshot registry unavailable")?;
-        let prepared = entries.get(&handle).ok_or("unknown snapshot handle")?;
-        let _access = DictionaryAccess::try_maintenance(
-            Path::new(&prepared.options.user_data),
-            Path::new(&prepared.options.dictionaries),
-        )
-        .map_err(|_| "snapshot access unavailable")?
-        .ok_or("snapshot access busy")?;
-        std::fs::remove_dir_all(prepared.directory.path())
-            .map_err(|_| "snapshot cleanup failed")?;
-        entries.remove(&handle);
-        Ok(json!({"discarded": true}))
-    })
+    response(|| discard(handle))
 }
 
 #[no_mangle]
