@@ -35,6 +35,7 @@
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
+#include "InputControllerPhysicalKeys.h"
 #include "ModifierTap.h"
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
