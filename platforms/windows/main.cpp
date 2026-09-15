@@ -343,8 +343,9 @@ std::string provider_token(const nlohmann::json &input, const char *slots_key,
 }
 msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
   msime::windows::TsfLocalConfig config;
-  const auto keys = preferences.value("key_bindings", nlohmann::json::object());
-  config.paging_comma_period = keys.value("comma_period", false);
+  const auto navigation =
+      preferences.value("navigation", nlohmann::json::object());
+  config.paging_comma_period = navigation.value("comma_period", true);
   config.preedit_style = msime::windows::tsf_preedit_style(preferences);
   // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
   if (config.preedit_style == "local")
