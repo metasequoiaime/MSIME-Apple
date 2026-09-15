@@ -25,6 +25,9 @@ FOUNDATION_EXPORT NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, N
 /// Windows parity policy: a configured toolbar is visible only while the IME is active and the
 /// foreground display is not owned by a full-screen application.
 FOUNDATION_EXPORT BOOL MetasequoiaFloatingToolbarShouldShow(BOOL configuredEnabled, BOOL imeActive, BOOL fullscreen);
+/// Return whether a foreground window covers the complete display rectangle, allowing a
+/// small coordinate tolerance for the borderless edge used by native full-screen windows.
+FOUNDATION_EXPORT BOOL MetasequoiaWindowCoversDisplay(CGRect windowBounds, CGRect displayBounds);
 FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target);
 
 @interface MetasequoiaFloatingToolbarPanel : NSPanel
