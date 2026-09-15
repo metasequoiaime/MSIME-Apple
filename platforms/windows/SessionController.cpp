@@ -338,6 +338,11 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
     return std::nullopt;
   return value;
 }
+bool SessionController::mode_active() {
+  if (stopping_)
+    return false;
+  return modes_.active();
+}
 std::optional<ModePresentation> SessionController::mode_view() {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Mode read cannot reenter controller callbacks");

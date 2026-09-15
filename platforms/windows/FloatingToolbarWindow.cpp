@@ -77,7 +77,23 @@ void FloatingToolbarWindow::refresh(bool enabled) {
   try {
     if (!enabled) { hide(); return; }
     const auto value = reader_();
-    if (!value) { hide(); return; }
+    // ModeMailbox::snapshot() try-locks the mailbox and the focus gate, so it
+    // returns nothing whenever the input queue happens to hold either - which
+    // is most of the time while the user is typing. That empty read means
+    // "busy", not "no longer active", and hiding on it blinked the toolbar on
+    // almost every key: measured 17 hide/show pairs for one short sentence.
+    // Keep the last state and wait for a read that succeeds - but only while
+    // there is still something to keep it for, or a client that went away
+    // would leave the toolbar on screen for good.
+    if (!value) {
+      // active() waits for the mailbox lock instead of try-ing it, so it
+      // answers what the snapshot cannot: whether a focused client is on file.
+      // Cleared by disconnect and shutdown, so it goes false exactly when the
+      // toolbar has nothing left to describe.
+      const bool active = active_reader_ && active_reader_();
+      if (!active || !shown_) hide();
+      return;
+    }
     const auto character_set = character_set_reader_ ? character_set_reader_()
                                                      : std::nullopt;
     const bool changed = !shown_ || !same(shown_->lease, value->lease) ||

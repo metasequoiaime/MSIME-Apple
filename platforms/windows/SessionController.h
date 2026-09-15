@@ -59,6 +59,9 @@ public:
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
   std::optional<ModePresentation> mode_view();
+  // Definitive: is a focused client's mode on file at all. mode_view() returns
+  // nothing for contention as well, so a UI needs this to tell busy from gone.
+  bool mode_active();
   // External worker only: reads Engine state on its owning input queue.
   // Empty means stale, busy or unavailable; never a guessed mode.
   std::optional<bool> dedicated_english_state(const FocusLease &lease);

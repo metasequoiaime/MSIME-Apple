@@ -52,6 +52,10 @@ public:
   }
   void set_position(std::optional<POINT> position) { dragged_position_ = position; }
   void set_position_changed(PositionChanged callback) { position_changed_ = std::move(callback); }
+  // Tells a busy read apart from a client that is gone; see refresh().
+  void set_active_reader(std::function<bool()> reader) {
+    active_reader_ = std::move(reader);
+  }
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {
     character_set_reader_ = std::move(reader);
   }
@@ -101,6 +105,7 @@ private:
   // True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE, so a programmatic
   // placement is not mistaken for one the user made.
   bool moving_ = false;
+  std::function<bool()> active_reader_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
   // Pointer feedback. Without these the buttons gave no sign of being buttons.

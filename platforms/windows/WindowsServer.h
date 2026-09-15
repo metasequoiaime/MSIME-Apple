@@ -32,6 +32,7 @@ public:
     return controller_->candidate_view();
   }
   std::optional<ModePresentation> mode_view() { return controller_->mode_view(); }
+  bool mode_active() { return controller_->mode_active(); }
   bool focus_current(const FocusLease &lease) {
     return controller_->focus_current(lease);
   }
