@@ -1,4 +1,6 @@
 #import "../src/PreferencesWindowController.h"
+
+#import "../src/FloatingToolbarPreferences.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -747,6 +749,22 @@ int main()
         NSButton *floatingToolbarButton = (NSButton *)floatingToolbarView;
         require(floatingToolbarButton.state == NSControlStateValueOff,
                 "The floating-toolbar control did not reflect the stored disabled value.");
+        // 「显示这些开关」:工具栏上每个可关的按钮都要有一个勾选框,默认全开,并且在工具栏本身关着的
+        // 时候不可点 —— 那时候问「显示哪些」是个不成立的问题。
+        NSView *floatingItemsCard =
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏显示项卡片");
+        require(floatingItemsCard != nil, "The floating-toolbar page did not expose which switches the toolbar shows.");
+        // 在卡片里找,不在整个窗口里找:「简繁输出」在「输入」页上也是一个控件的名字,按名字全窗口搜会先
+        // 撞上那一个。
+        for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+        {
+            NSButton *itemButton = FindButtonWithTitle(floatingItemsCard, MetasequoiaFloatingToolbarItemTitle(item));
+            require(itemButton != nil, "A floating-toolbar switch had no control on the settings page.");
+            require(itemButton.state == NSControlStateValueOn,
+                    "A floating-toolbar switch did not default to being shown.");
+            require(!itemButton.enabled,
+                    "The floating-toolbar switches stayed clickable while the toolbar itself was off.");
+        }
         NSAppearance *darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         __block NSColor *darkCanvasColor = nil;
         __block NSColor *darkPanelColor = nil;

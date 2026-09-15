@@ -1,13 +1,20 @@
 #import "FloatingToolbarPanel.h"
+
+#import "FloatingToolbarPreferences.h"
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
-constexpr CGFloat kToolbarWidth = 272.0;
 constexpr CGFloat kToolbarHeight = 44.0;
+constexpr CGFloat kToolbarButtonWidth = 42.0;
+constexpr CGFloat kToolbarButtonGap = 10.5;
+constexpr CGFloat kToolbarEdgeInset = 10.0;
+// 五个按钮时正好是 272,也就是这一版之前写死的宽度 —— 谁都没改过设置的话,工具栏还是原来那么宽。
+constexpr NSInteger kToolbarMaximumButtonCount = 5;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
 NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL action)
@@ -53,11 +60,17 @@ NSScreen *ScreenContainingMouse()
 }
 } // namespace
 
-NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
+CGFloat MetasequoiaFloatingToolbarWidth(NSInteger buttonCount)
+{
+    const NSInteger count = std::clamp<NSInteger>(buttonCount, 1, kToolbarMaximumButtonCount);
+    return std::round(2.0 * kToolbarEdgeInset + count * kToolbarButtonWidth + (count - 1) * kToolbarButtonGap);
+}
+
+NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame, CGFloat width)
 {
     constexpr CGFloat kDefaultMargin = 20.0;
     constexpr CGFloat kRestoredMargin = 12.0;
-    proposedFrame.size = NSMakeSize(kToolbarWidth, kToolbarHeight);
+    proposedFrame.size = NSMakeSize(width, kToolbarHeight);
     if (!hasSavedFrame)
     {
         proposedFrame.origin.x = NSMaxX(visibleFrame) - proposedFrame.size.width - kDefaultMargin;
@@ -166,7 +179,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 
 - (instancetype)init
 {
-    self = [super initWithContentRect:NSMakeRect(0.0, 0.0, kToolbarWidth, kToolbarHeight)
+    self = [super initWithContentRect:NSMakeRect(0.0, 0.0, MetasequoiaFloatingToolbarWidth(kToolbarMaximumButtonCount),
+                                                 kToolbarHeight)
                             styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                               backing:NSBackingStoreBuffered
                                 defer:NO];
@@ -235,7 +249,16 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                                       selector:@selector(applySkin)
                                                           name:MetasequoiaAppearanceDidChange
                                                         object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(applyItemVisibility)
+                                               name:MetasequoiaFloatingToolbarItemsDidChange
+                                             object:nil];
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                      selector:@selector(applyItemVisibility)
+                                                          name:MetasequoiaFloatingToolbarItemsDidChange
+                                                        object:nil];
     [self applySkin];
+    [self applyItemVisibility];
     [self updateEnglishInputMode:NO
               chinesePunctuationEnabled:YES
                        fullWidthEnabled:NO
@@ -274,6 +297,53 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         }
     }
     _chrome.needsDisplay = YES;
+}
+
+- (NSInteger)visibleButtonCount
+{
+    // 齿轮不可关,所以从 1 起算。
+    NSInteger count = 1;
+    for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+    {
+        if (MetasequoiaFloatingToolbarItemVisible(item))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+- (CGFloat)toolbarWidth
+{
+    return MetasequoiaFloatingToolbarWidth([self visibleButtonCount]);
+}
+
+- (void)applyItemVisibility
+{
+    if (_inputModeButton == nil)
+    {
+        return;
+    }
+    NSDictionary<NSString *, NSButton *> *buttons = @{
+        @"inputMode" : _inputModeButton,
+        @"punctuation" : _punctuationButton,
+        @"fullWidth" : _fullWidthButton,
+        @"traditionalOutput" : _traditionalOutputButton,
+    };
+    for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+    {
+        buttons[item].hidden = !MetasequoiaFloatingToolbarItemVisible(item);
+    }
+    NSRect frame = self.frame;
+    frame.size = NSMakeSize([self toolbarWidth], NSHeight(frame));
+    // 只有已经在屏幕上时才顺手夹回可见区域。还没显示过的面板由 setVisible: 那条路负责摆位置,在这里
+    // 夹一次只会把它按到屏幕角落的边距上。
+    NSScreen *screen = self.visible ? ScreenContainingFrame(frame) : nil;
+    if (screen != nil)
+    {
+        frame = MetasequoiaFloatingToolbarFrame(frame, screen.visibleFrame, YES, [self toolbarWidth]);
+    }
+    [self setFrame:frame display:self.visible];
 }
 
 - (BOOL)canBecomeKeyWindow
@@ -337,7 +407,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     }
     if (screen != nil)
     {
-        [self setFrame:MetasequoiaFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
+        [self setFrame:MetasequoiaFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame,
+                                                       [self toolbarWidth])
+               display:NO];
     }
     [self orderFrontRegardless];
 }

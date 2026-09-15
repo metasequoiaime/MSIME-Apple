@@ -14,6 +14,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #include "CandidatePanelStyle.h"
 #include "CandidateSkin.h"
 #include "FrequencyAdjustmentPreference.h"
+#include "FloatingToolbarPreferences.h"
 #include "HelpcodeSchemaPreference.h"
 #include "InputControllerKeyRouting.h"
 #include "InputBehaviorPreferences.h"
@@ -389,6 +390,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_inputModeHUDButton;
     NSButton *_fullWidthInputButton;
     NSButton *_floatingToolbarButton;
+    NSArray<NSButton *> *_floatingToolbarItemButtons;
     NSButton *_wubiAutoCommitButton;
     NSButton *_wubiMixedPinyinButton;
     NSButton *_wubiCodeHintButton;
@@ -1836,13 +1838,30 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.accessibilityLabel = @"显示悬浮状态栏";
     NSBox *floatingToolbarCard = CardWithViews(@[ _floatingToolbarButton ], 0.0);
     floatingToolbarCard.accessibilityLabel = @"悬浮状态栏卡片";
+    // 工具栏上显示哪几个按钮。齿轮不在其中:它是隐藏工具栏和打开设置的唯一入口,做成可关的就会有人把
+    // 自己关在外面。
+    NSMutableArray<NSButton *> *floatingItemButtons = [NSMutableArray array];
+    NSMutableArray<NSView *> *floatingItemRows = [NSMutableArray array];
+    for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+    {
+        NSButton *button = [NSButton checkboxWithTitle:MetasequoiaFloatingToolbarItemTitle(item)
+                                                target:self
+                                                action:@selector(floatingToolbarItemChanged:)];
+        button.identifier = item;
+        button.accessibilityLabel = MetasequoiaFloatingToolbarItemTitle(item);
+        [floatingItemButtons addObject:button];
+        [floatingItemRows addObject:button];
+    }
+    _floatingToolbarItemButtons = floatingItemButtons;
+    NSBox *floatingItemsCard = CardWithViews(floatingItemRows, 8.0);
+    floatingItemsCard.accessibilityLabel = @"悬浮状态栏显示项卡片";
     NSView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
         _candidatePreview, appearanceCard, CardWithViews(@[ PreferenceRow(@"主题模式", _themeButton) ], 0),
         CardWithViews(@[ PreferenceRow(@"候选项排列方式", _candidatePanelStyleButton) ], 0)
     ]);
     appearancePage.accessibilityLabel = @"外观设置页";
-    NSView *floatingPage =
-        PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[ floatingToolbarCard ]);
+    NSView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。",
+                                           @[ floatingToolbarCard, SectionLabel(@"显示这些开关"), floatingItemsCard ]);
     floatingPage.accessibilityLabel = @"悬浮工具栏设置页";
 
     _skinSettings = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
@@ -2360,6 +2379,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.state = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.state =
+            MetasequoiaFloatingToolbarItemVisible(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateFloatingToolbarItemControlsEnabled];
 }
 
 - (void)chinesePunctuationPreferenceDidChange:(NSNotification *)notification
@@ -2463,6 +2488,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.state = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.state =
+            MetasequoiaFloatingToolbarItemVisible(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateFloatingToolbarItemControlsEnabled];
     _wubiMixedPinyinButton.state = [MetasequoiaPreferencesWindowController storedWubiMixedPinyinEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
@@ -2831,6 +2862,23 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setFloatingToolbarEnabled:button.state == NSControlStateValueOn];
+    [self updateFloatingToolbarItemControlsEnabled];
+}
+
+- (void)floatingToolbarItemChanged:(id)sender
+{
+    NSButton *button = (NSButton *)sender;
+    MetasequoiaSetFloatingToolbarItemVisible(button.identifier, button.state == NSControlStateValueOn);
+}
+
+- (void)updateFloatingToolbarItemControlsEnabled
+{
+    // 工具栏本身关着的时候,「显示哪些」还开着可点是在问一个不成立的问题。
+    const BOOL enabled = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled];
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.enabled = enabled;
+    }
 }
 
 - (void)wubiMixedPinyinChanged:(id)sender
@@ -2935,6 +2983,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
              MetasequoiaInputBehaviorKey,
              kFullWidthInputPreferenceKey,
              kFloatingToolbarPreferenceKey,
+             MetasequoiaFloatingToolbarItemsKey,
              kTraditionalChineseOutputPreferenceKey,
          ])
     {
@@ -2989,6 +3038,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                  object:@([MetasequoiaPreferencesWindowController storedFullWidthInputEnabled])];
     [notifications postNotificationName:MetasequoiaFloatingToolbarDidChangeNotification
                                  object:@([MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled])];
+    // 键已经删了,工具栏得知道要重新读一遍 —— 它在另一个进程里,只发本进程的通知是传不过去的。
+    [notifications postNotificationName:MetasequoiaFloatingToolbarItemsDidChange object:nil];
+    [NSDistributedNotificationCenter.defaultCenter postNotificationName:MetasequoiaFloatingToolbarItemsDidChange
+                                                                 object:nil
+                                                               userInfo:nil
+                                                     deliverImmediately:YES];
     [notifications
         postNotificationName:MetasequoiaTraditionalChineseOutputDidChangeNotification
                       object:@([MetasequoiaPreferencesWindowController storedTraditionalChineseOutputEnabled])];
