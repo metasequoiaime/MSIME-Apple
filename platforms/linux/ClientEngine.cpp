@@ -1975,14 +1975,15 @@ std::string nine_key_spelling_action_name(uint64_t session, uint64_t generation,
 IBusProperty *nine_key_spellings(IBusEngine *engine) {
   const auto &s = state(engine);
   auto menu = ibus_prop_list_new();
-  const auto spellings = s.view.is_object()
-                             ? s.view.value("nine_key_spellings", Json::array())
+  const auto spellings = s.rendered_view.is_object()
+                             ? s.rendered_view.value("nine_key_spellings", Json::array())
                              : Json::array();
   const bool available = s.session && s.focused && !s.blocked && s.input_enabled &&
-                         s.view.value("nine_key", false) && spellings.is_array();
+                         s.rendered_session == s.session && s.rendered_view.is_object() &&
+                         s.rendered_view.value("nine_key", false) && spellings.is_array();
   bool has_items = false;
   if (available) {
-    const auto generation = s.view.value("generation", uint64_t{0});
+    const auto generation = s.rendered_view.value("generation", uint64_t{0});
     for (size_t index = 0; index < spellings.size(); ++index) {
       if (!spellings.at(index).is_string())
         continue;
@@ -2812,6 +2813,7 @@ void clear(IBusEngine *engine) {
   s.rendered_scheme = 255;
   s.rendered_session = 0;
   ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2895,6 +2897,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_session = 0;
     s.rendered_view = nullptr;
     ibus_engine_update_property(engine, candidate_actions(engine));
+    ibus_engine_update_property(engine, nine_key_spellings(engine));
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -2931,6 +2934,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_session = 0;
     s.rendered_view = nullptr;
     ibus_engine_update_property(engine, candidate_actions(engine));
+    ibus_engine_update_property(engine, nine_key_spellings(engine));
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
@@ -3049,6 +3053,7 @@ void render(IBusEngine *engine, const Json &view) {
   s.rendered_scheme = view.value("scheme", 255);
   s.rendered_session = s.session;
   ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
@@ -3691,12 +3696,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     guarded(engine, "nine_key_spelling", [&] {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled ||
-          !s.view.value("nine_key", false))
+          s.rendered_session != s.session || !s.rendered_view.is_object() ||
+          !s.rendered_view.value("nine_key", false))
         return;
-      const auto spellings = s.view.value("nine_key_spellings", Json::array());
+      const auto spellings = s.rendered_view.value("nine_key_spellings", Json::array());
       if (!spellings.is_array())
         return;
-      const auto generation = s.view.value("generation", uint64_t{0});
+      const auto generation = s.rendered_view.value("generation", uint64_t{0});
       for (size_t index = 0; index < spellings.size(); ++index) {
         if (!spellings.at(index).is_string() ||
             candidate_name != nine_key_spelling_action_name(s.session, generation, index))
