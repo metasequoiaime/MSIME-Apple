@@ -5683,6 +5683,86 @@ themes = ['light']
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_xdotool_geometry_requires_complete_numeric_shell_fields() {
+        let geometry = "WINDOW=4194305\nX=120\nY=48\nWIDTH=1280\nHEIGHT=720\nSCREEN=1\n";
+        assert_eq!(
+            parse_xdotool_geometry(geometry),
+            Some((120.0, 48.0, 1280.0, 720.0))
+        );
+
+        for malformed in [
+            "X=120\nY=48\nWIDTH=1280\n",
+            "X=120\nY=48\nWIDTH=1280\nHEIGHT=oops\n",
+            "X=120\nY=48\nWIDTH=1280\nHEIGHT=720\nBROKEN",
+        ] {
+            assert_eq!(parse_xdotool_geometry(malformed), None);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sway_target_and_geometry_walk_nested_and_floating_nodes() {
+        let tree = serde_json::json!({
+            "type": "root",
+            "nodes": [{
+                "type": "workspace",
+                "id": 7,
+                "rect": {"x": 10, "y": 20, "width": 1600, "height": 900},
+                "nodes": [{
+                    "type": "con",
+                    "id": 42,
+                    "focused": true,
+                    "rect": {"x": 110, "y": 220, "width": 900, "height": 600}
+                }],
+                "floating_nodes": [{
+                    "type": "floating_con",
+                    "id": 99,
+                    "rect": {"x": 300, "y": 400, "width": 300, "height": 200}
+                }]
+            }]
+        });
+
+        assert_eq!(focused_sway_container(&tree), Some(42));
+        assert_eq!(
+            sway_rect_for_container(&tree, 42),
+            Some((110.0, 220.0, 900.0, 600.0))
+        );
+        assert_eq!(
+            sway_rect_for_container(&tree, 99),
+            Some((300.0, 400.0, 300.0, 200.0))
+        );
+        assert_eq!(
+            sway_workspace_for_container(&tree, 42, None),
+            Some((10.0, 20.0, 1600.0, 900.0))
+        );
+        assert_eq!(sway_rect_for_container(&tree, 404), None);
+        assert_eq!(sway_workspace_for_container(&tree, 404, None), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sway_workspace_does_not_leak_across_sibling_workspaces() {
+        let tree = serde_json::json!({
+            "type": "root",
+            "nodes": [
+                {"type": "workspace", "id": 1,
+                 "rect": {"x": 0, "y": 0, "width": 800, "height": 600},
+                 "nodes": [{"id": 11, "rect": {"x": 0, "y": 0, "width": 800, "height": 600}}]},
+                {"type": "workspace", "id": 2,
+                 "rect": {"x": 800, "y": 0, "width": 800, "height": 600},
+                 "nodes": [{"id": 22, "rect": {"x": 800, "y": 0, "width": 800, "height": 600}}]}
+            ]
+        });
+
+        assert_eq!(
+            sway_workspace_for_container(&tree, 22, None),
+            Some((800.0, 0.0, 800.0, 600.0))
+        );
+        assert_eq!(sway_workspace_for_container(&tree, 33, None), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn runtime_options_sync_replaces_preferences_atomically() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("runtime-options.json");
