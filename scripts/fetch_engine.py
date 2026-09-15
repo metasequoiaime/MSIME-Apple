@@ -18,15 +18,13 @@ def main():
         with tarfile.open(archive, "r:gz") as handle:
             handle.extractall(td)
         extracted = next(Path(td).glob("MSIME-Engine-*"))
-        if DEST.exists():
-            shutil.rmtree(DEST)
-        shutil.copytree(extracted, DEST)
-    # GitHub source archives omit the Engine's own submodules. Restore those pinned entries so
-    # Xcode and CMake see the same complete tree as a recursive checkout.
-    subprocess.run(["git", "-C", str(DEST), "init", "-q"], check=True)
-    subprocess.run(["git", "-C", str(DEST), "remote", "add", "origin", "https://github.com/metasequoiaime/MSIME-Engine.git"], check=False)
-    subprocess.run(["git", "-C", str(DEST), "fetch", "-q", "--depth", "1", "origin", lock["commit"]], check=True)
-    subprocess.run(["git", "-C", str(DEST), "checkout", "-q", "FETCH_HEAD"], check=True)
+    # GitHub source archives omit the Engine's own submodules. Clone the same locked commit
+    # recursively after verifying its archive, so Xcode and CMake see a complete tree.
+    if DEST.exists():
+        shutil.rmtree(DEST)
+    subprocess.run(["git", "clone", "-q", "--recursive", "https://github.com/metasequoiaime/MSIME-Engine.git", str(DEST)], check=True)
+    subprocess.run(["git", "-C", str(DEST), "checkout", "-q", lock["commit"]], check=True)
+    subprocess.run(["git", "-C", str(DEST), "submodule", "update", "--init", "--recursive", "--depth", "1"], check=True)
     subprocess.run(["git", "-C", str(DEST), "submodule", "update", "--init", "--recursive", "--depth", "1"], check=True)
     print(f"prepared Engine {lock['commit']} at {DEST}")
 
