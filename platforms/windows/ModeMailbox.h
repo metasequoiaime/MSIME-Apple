@@ -68,6 +68,15 @@ public:
     });
     return result;
   }
+  // Whether a focused client's mode is on file at all, which snapshot() cannot
+  // say: it try-locks this mutex and the focus gate, so it reports contention
+  // with the input queue as "nothing" and a UI cannot tell that apart from a
+  // client that is gone. This one takes the lock, which is safe to wait on -
+  // every holder only copies a few fields, never touching a pipe or the Engine.
+  bool active() {
+    std::lock_guard lock(mutex_);
+    return !stopped_ && latest_.has_value();
+  }
   void disconnected(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
     if (latest_ && same_ticket(latest_->lease.transport, ticket))

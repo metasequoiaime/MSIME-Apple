@@ -945,6 +945,7 @@ int wmain(int argc, wchar_t **argv) {
         }
       });
     }
+    toolbar.set_active_reader([&] { return server.mode_active(); });
     toolbar.set_character_set_reader([traditional_output] {
       return std::optional<bool>(
           traditional_output->load(std::memory_order_acquire));
