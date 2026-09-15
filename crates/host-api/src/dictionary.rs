@@ -292,7 +292,9 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             replacement,
             request_id,
         } => {
-            for entry in previous.iter().chain(replacement.iter()) { validate_entry(entry)?; }
+            for entry in previous.iter().chain(replacement.iter()) {
+                validate_entry(entry)?;
+            }
             let previous = previous.map(DictionaryEntry::from);
             let replacement = replacement.map(DictionaryEntry::from);
             edit_personal_dictionary(
@@ -375,8 +377,8 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             // Tell the caller what was skipped instead of reporting a clean import.
             result["failed"] = json!(report.failed);
             result["truncated"] = json!(report.truncated);
-            result["first_failures"] = serde_json::to_value(&report.first_failures)
-                .map_err(|error| error.to_string())?;
+            result["first_failures"] =
+                serde_json::to_value(&report.first_failures).map_err(|error| error.to_string())?;
             Ok(result)
         }
         Operation::ImportPersonal { .. } => {
@@ -553,13 +555,11 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             };
             let words = entries
                 .into_iter()
-                .map(|entry| {
-                    PersonalWord {
-                        kind: personal_kind(entry.kind),
-                        key: entry.key,
-                        value: entry.value,
-                        weight: entry.weight,
-                    }
+                .map(|entry| PersonalWord {
+                    kind: personal_kind(entry.kind),
+                    key: entry.key,
+                    value: entry.value,
+                    weight: entry.weight,
                 })
                 .collect();
             store
@@ -772,14 +772,35 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
 }
 
 fn validate_entry(entry: &Entry) -> Result<(), String> {
-    let key_limit = match entry.kind { Kind::Pinyin => 256, Kind::Wubi => 4, Kind::QuickPhrase => 32, Kind::English => 64 };
+    let key_limit = match entry.kind {
+        Kind::Pinyin => 256,
+        Kind::Wubi => 4,
+        Kind::QuickPhrase => 32,
+        Kind::English => 64,
+    };
     let key_valid = match entry.kind {
-        Kind::Pinyin => entry.key.bytes().all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
-        Kind::Wubi | Kind::QuickPhrase => entry.key.bytes().all(|b| b.is_ascii_lowercase() || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())),
+        Kind::Pinyin => entry
+            .key
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
+        Kind::Wubi | Kind::QuickPhrase => entry.key.bytes().all(|b| {
+            b.is_ascii_lowercase()
+                || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())
+        }),
         Kind::English => entry.key.bytes().all(|b| b.is_ascii_alphabetic()),
     };
-    if entry.key.is_empty() || entry.key.len() > key_limit || !key_valid || entry.value.is_empty() || entry.value.chars().any(char::is_control) || entry.weight < 0 { return Err("invalid dictionary entry".into()); }
-    if matches!(entry.kind, Kind::QuickPhrase) && entry.value.encode_utf16().count() > 199 { return Err("quick phrase too long".into()); }
+    if entry.key.is_empty()
+        || entry.key.len() > key_limit
+        || !key_valid
+        || entry.value.is_empty()
+        || entry.value.chars().any(char::is_control)
+        || entry.weight < 0
+    {
+        return Err("invalid dictionary entry".into());
+    }
+    if matches!(entry.kind, Kind::QuickPhrase) && entry.value.encode_utf16().count() > 199 {
+        return Err("quick phrase too long".into());
+    }
     Ok(())
 }
 
@@ -984,7 +1005,9 @@ mod tests {
         assert_eq!(standard[0].key, "ni'hao");
         assert_eq!(standard[0].weight, 7);
         assert_eq!(standard[1].weight, 10000);
-        assert!(standard.iter().all(|entry| entry.kind == Kind::Pinyin.into()));
+        assert!(standard
+            .iter()
+            .all(|entry| entry.kind == Kind::Pinyin.into()));
         assert_eq!(report.failed, 0);
         assert!(!report.truncated);
 

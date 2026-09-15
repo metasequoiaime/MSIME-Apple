@@ -279,7 +279,8 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     // An entry that leads to another root nested below this one is left alone:
     // that root does its own swap, and it holds its own lock file.
     let leads_to_nested_root = |root: &Path, entry: &Path, all: &[&Path]| {
-        all.iter().any(|other| *other != root && other.starts_with(entry))
+        all.iter()
+            .any(|other| *other != root && other.starts_with(entry))
     };
     for (index, (current, replacement)) in pairs.iter().enumerate() {
         let current = Path::new(current.as_str());

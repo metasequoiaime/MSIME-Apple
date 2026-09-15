@@ -10,14 +10,31 @@ pub struct CaptureDevice {
 }
 
 fn add(devices: &mut Vec<CaptureDevice>, backend: &'static str, id: &str, label: &str) {
-    if devices.len() >= 256 || id.is_empty() || id.len() > 512 || id.chars().count() > 128
+    if devices.len() >= 256
+        || id.is_empty()
+        || id.len() > 512
+        || id.chars().count() > 128
         || id.chars().any(char::is_control)
-        || devices.iter().any(|device| device.backend == backend && device.id == id)
+        || devices
+            .iter()
+            .any(|device| device.backend == backend && device.id == id)
     {
         return;
     }
-    let label: String = label.chars().filter(|c| !c.is_control()).take(160).collect();
-    devices.push(CaptureDevice { backend, id: id.to_owned(), label: if label.is_empty() { id.to_owned() } else { label } });
+    let label: String = label
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(160)
+        .collect();
+    devices.push(CaptureDevice {
+        backend,
+        id: id.to_owned(),
+        label: if label.is_empty() {
+            id.to_owned()
+        } else {
+            label
+        },
+    });
 }
 
 fn output(program: &str, args: &[&str]) -> Option<String> {
@@ -72,20 +89,39 @@ pub fn list() -> Vec<CaptureDevice> {
         .and_then(|text| serde_json::from_str(&text).ok())
     {
         for source in sources {
-            let Some(id) = source.get("name").and_then(Value::as_str) else { continue };
+            let Some(id) = source.get("name").and_then(Value::as_str) else {
+                continue;
+            };
             // Monitor sources record playback, rather than microphone input.
-            if id.ends_with(".monitor") { continue; }
-            add(&mut devices, "pulse", id, source.get("description").and_then(Value::as_str).unwrap_or(id));
+            if id.ends_with(".monitor") {
+                continue;
+            }
+            add(
+                &mut devices,
+                "pulse",
+                id,
+                source
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id),
+            );
         }
     }
-    if let Some(document) = output("pw-dump", &[]).and_then(|text| serde_json::from_str(&text).ok()) {
+    if let Some(document) = output("pw-dump", &[]).and_then(|text| serde_json::from_str(&text).ok())
+    {
         devices.extend(pipewire_devices(&document));
     }
     if let Some(text) = output("arecord", &["-L"]) {
         let mut lines = text.lines().peekable();
         while let Some(line) = lines.next() {
-            if line.is_empty() || line.starts_with(char::is_whitespace) || line == "null" { continue; }
-            let label = lines.peek().filter(|next| next.starts_with(char::is_whitespace)).map(|next| next.trim()).unwrap_or(line);
+            if line.is_empty() || line.starts_with(char::is_whitespace) || line == "null" {
+                continue;
+            }
+            let label = lines
+                .peek()
+                .filter(|next| next.starts_with(char::is_whitespace))
+                .map(|next| next.trim())
+                .unwrap_or(line);
             add(&mut devices, "alsa", line, label);
         }
     }

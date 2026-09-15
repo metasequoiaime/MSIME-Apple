@@ -391,7 +391,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Mutex, mpsc};
+    use std::sync::{mpsc, Mutex};
 
     fn token(byte: u8) -> String {
         std::iter::repeat_n(char::from(byte), 64).collect()
@@ -662,12 +662,10 @@ mod tests {
         let client = BackendAccountClient::loopback(&origin).unwrap();
         let page = client.community_skins(7, "C++ 星", None).unwrap();
         assert_eq!(page.skins.len(), 1);
-        assert!(
-            received
-                .recv()
-                .unwrap()
-                .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1")
-        );
+        assert!(received
+            .recv()
+            .unwrap()
+            .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1"));
     }
 
     #[test]

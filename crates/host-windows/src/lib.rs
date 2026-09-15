@@ -106,15 +106,28 @@ pub fn foreground_is_external() -> bool {
 /// more here than it did upstream.
 fn extended_key(virtual_key: u16) -> bool {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        VK_APPS, VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT,
-        VK_LWIN, VK_NEXT, VK_NUMLOCK, VK_PRIOR, VK_RCONTROL, VK_RIGHT, VK_RMENU,
-        VK_RWIN, VK_UP,
+        VK_APPS, VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN,
+        VK_NEXT, VK_NUMLOCK, VK_PRIOR, VK_RCONTROL, VK_RIGHT, VK_RMENU, VK_RWIN, VK_UP,
     };
     matches!(
         virtual_key,
-        VK_DELETE | VK_LWIN | VK_RWIN | VK_RMENU | VK_RCONTROL | VK_INSERT
-            | VK_HOME | VK_END | VK_PRIOR | VK_NEXT | VK_LEFT | VK_RIGHT | VK_UP
-            | VK_DOWN | VK_NUMLOCK | VK_DIVIDE | VK_APPS
+        VK_DELETE
+            | VK_LWIN
+            | VK_RWIN
+            | VK_RMENU
+            | VK_RCONTROL
+            | VK_INSERT
+            | VK_HOME
+            | VK_END
+            | VK_PRIOR
+            | VK_NEXT
+            | VK_LEFT
+            | VK_RIGHT
+            | VK_UP
+            | VK_DOWN
+            | VK_NUMLOCK
+            | VK_DIVIDE
+            | VK_APPS
     )
 }
 
@@ -123,8 +136,8 @@ fn key_input(
     release: bool,
 ) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        MapVirtualKeyW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-        KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
+        MapVirtualKeyW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+        KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
     };
     let mut flags = if release { KEYEVENTF_KEYUP } else { 0 };
     if extended_key(virtual_key) {
@@ -344,18 +357,43 @@ mod tests {
         // twins: the arrows become 2/4/6/8 and Home/End/PgUp/PgDn/Ins/Del
         // become 7/1/9/3/0/. - so the panel would type digits.
         for key in [
-            VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_HOME, VK_END, VK_PRIOR,
-            VK_NEXT, VK_INSERT, VK_DELETE, VK_APPS, VK_NUMLOCK, VK_DIVIDE,
-            VK_LWIN, VK_RWIN, VK_RMENU, VK_RCONTROL,
+            VK_LEFT,
+            VK_RIGHT,
+            VK_UP,
+            VK_DOWN,
+            VK_HOME,
+            VK_END,
+            VK_PRIOR,
+            VK_NEXT,
+            VK_INSERT,
+            VK_DELETE,
+            VK_APPS,
+            VK_NUMLOCK,
+            VK_DIVIDE,
+            VK_LWIN,
+            VK_RWIN,
+            VK_RMENU,
+            VK_RCONTROL,
         ] {
             assert!(extended_key(key), "{key} should be extended");
         }
         // Ordinary keys must not carry the flag, or they would be misread the
         // other way round.
         for key in [
-            VK_SPACE, VK_RETURN, VK_BACK, VK_TAB, VK_SHIFT, VK_LCONTROL,
-            VK_LMENU, VK_NUMPAD0, VK_NUMPAD9, VK_MULTIPLY, VK_ADD,
-            VK_SUBTRACT, VK_DECIMAL, VK_CAPITAL,
+            VK_SPACE,
+            VK_RETURN,
+            VK_BACK,
+            VK_TAB,
+            VK_SHIFT,
+            VK_LCONTROL,
+            VK_LMENU,
+            VK_NUMPAD0,
+            VK_NUMPAD9,
+            VK_MULTIPLY,
+            VK_ADD,
+            VK_SUBTRACT,
+            VK_DECIMAL,
+            VK_CAPITAL,
         ] {
             assert!(!extended_key(key), "{key} should not be extended");
         }

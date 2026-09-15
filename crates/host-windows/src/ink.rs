@@ -51,9 +51,8 @@ fn looks_like_chinese(name: &str) -> bool {
 
 /// True when the text contains a CJK ideograph.
 fn contains_cjk(text: &str) -> bool {
-    text.chars().any(|ch| {
-        matches!(ch as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF)
-    })
+    text.chars()
+        .any(|ch| matches!(ch as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF))
 }
 
 /// Recognize handwritten strokes, most likely candidate first.
@@ -70,7 +69,9 @@ pub fn recognize(strokes: &[Stroke]) -> Result<Vec<String>, InkError> {
 
 fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {
     let container = InkRecognizerContainer::new().map_err(|_| InkError::Unavailable)?;
-    let recognizers = container.GetRecognizers().map_err(|_| InkError::Unavailable)?;
+    let recognizers = container
+        .GetRecognizers()
+        .map_err(|_| InkError::Unavailable)?;
     let mut chosen = false;
     for recognizer in recognizers {
         let name = recognizer
@@ -114,9 +115,7 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
             .iter()
             .take(MAX_POINTS)
             .filter(|(x, y)| x.is_finite() && y.is_finite())
-            .map(|&(x, y)| {
-                InkPoint::CreateInkPoint(Point { X: x, Y: y }, 0.5).map(Some)
-            })
+            .map(|&(x, y)| InkPoint::CreateInkPoint(Point { X: x, Y: y }, 0.5).map(Some))
             .collect::<Result<_, _>>()
             .map_err(|_| InkError::Unavailable)?;
         if points.len() < 2 {

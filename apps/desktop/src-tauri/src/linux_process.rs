@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 /// The child is always reaped so a timed-out helper cannot remain attached to
 /// the desktop command that launched it.
 pub fn run_status(program: &str, arguments: &[&str], timeout: Duration) -> bool {
-    let arguments: Vec<&OsStr> = arguments.iter().map(|argument| OsStr::new(argument)).collect();
+    let arguments: Vec<&OsStr> = arguments
+        .iter()
+        .map(|argument| OsStr::new(argument))
+        .collect();
     run_status_os(OsStr::new(program), &arguments, timeout)
 }
 
@@ -45,15 +48,31 @@ fn run_status_os(program: &OsStr, arguments: &[&OsStr], timeout: Duration) -> bo
     }
 }
 
-pub fn read_text(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration) -> Option<String> {
+pub fn read_text(
+    program: &str,
+    arguments: &[&str],
+    max_bytes: usize,
+    timeout: Duration,
+) -> Option<String> {
     read_text_bounded(program, arguments, max_bytes, timeout, false)
 }
 
-pub fn read_text_prefix(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration) -> Option<String> {
+pub fn read_text_prefix(
+    program: &str,
+    arguments: &[&str],
+    max_bytes: usize,
+    timeout: Duration,
+) -> Option<String> {
     read_text_bounded(program, arguments, max_bytes, timeout, true)
 }
 
-fn read_text_bounded(program: &str, arguments: &[&str], max_bytes: usize, timeout: Duration, prefix: bool) -> Option<String> {
+fn read_text_bounded(
+    program: &str,
+    arguments: &[&str],
+    max_bytes: usize,
+    timeout: Duration,
+    prefix: bool,
+) -> Option<String> {
     let mut child = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
@@ -120,7 +139,6 @@ fn read_text_bounded(program: &str, arguments: &[&str], max_bytes: usize, timeou
     let _ = child.wait();
     result
 }
-
 
 // Send private input through a bounded anonymous pipe with no diagnostics.
 pub fn write_input(program: &str, arguments: &[&str], bytes: &[u8], timeout: Duration) -> bool {
@@ -207,7 +225,9 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
 
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(OsString::from_vec(vec![b's', b'y', b'n', 0x80]));
+        let path = root
+            .path()
+            .join(OsString::from_vec(vec![b's', b'y', b'n', 0x80]));
         std::fs::create_dir(&path).unwrap();
         assert!(super::run_status_path(
             "/bin/ls",

@@ -985,7 +985,7 @@ impl BackendAccountClient {
                 .take((MAX_DICTIONARY_SNAPSHOT_BYTES + 1) as u64),
             temporary.as_file_mut(),
         )
-            .map_err(|_| AccountError::Unavailable)?;
+        .map_err(|_| AccountError::Unavailable)?;
         if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
             return Err(AccountError::Unavailable);
         }
@@ -1078,13 +1078,12 @@ impl BackendAccountClient {
             word: &'a str,
             weight: i64,
         }
-        let replacement_body = replacement.map(|(replacement_code, replacement_word, weight)| {
-            Replacement {
+        let replacement_body =
+            replacement.map(|(replacement_code, replacement_word, weight)| Replacement {
                 code: replacement_code,
                 word: replacement_word,
                 weight,
-            }
-        });
+            });
         let change = self.json(
             Method::POST,
             &format!(
@@ -1219,12 +1218,8 @@ impl BackendAccountClient {
             "/v1/users/me/dictionary/positions?context={}&offset={offset}&limit=100",
             percent_encode_query(context)
         );
-        let result = self.json::<AccountFixedPositions, ()>(
-            Method::GET,
-            &path,
-            Some(access_token),
-            None,
-        )?;
+        let result =
+            self.json::<AccountFixedPositions, ()>(Method::GET, &path, Some(access_token), None)?;
         validate_fixed_positions(&result)?;
         Ok(result)
     }
@@ -1669,7 +1664,10 @@ fn validate_candidate_value(
 ) -> Result<(), AccountError> {
     validate_bounded_text(code, 256)?;
     validate_bounded_text(word, 1024)?;
-    if code.is_empty() || word.is_empty() || (query.kind == "quick" && word.encode_utf16().count() > 199) {
+    if code.is_empty()
+        || word.is_empty()
+        || (query.kind == "quick" && word.encode_utf16().count() > 199)
+    {
         Err(AccountError::Invalid)
     } else {
         Ok(())
@@ -3016,9 +3014,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         word: &str,
         revision: i64,
     ) -> Result<AccountDictionaryChange, AccountError> {
-        self.authenticated(|api, token| {
-            api.remove_candidate(query, code, word, revision, token)
-        })
+        self.authenticated(|api, token| api.remove_candidate(query, code, word, revision, token))
     }
 
     pub fn fixed_positions(
@@ -3289,7 +3285,9 @@ mod tests {
             "/v1/users/me/dictionaries/pinyin/catalog?q=nihc&offset=0&limit=100&scheme=shuangpin&profile=xiaohe"
         );
         assert!(dictionary_path(DictionaryKind::Wubi, 1_000_001, "").is_err());
-        assert!(dictionary_catalog_path(DictionaryKind::Pinyin, "", 1_000_001, "pinyin", "x").is_err());
+        assert!(
+            dictionary_catalog_path(DictionaryKind::Pinyin, "", 1_000_001, "pinyin", "x").is_err()
+        );
         assert!(validate_dictionary_catalog_query("", 0, "", "x").is_err());
         assert!(validate_dictionary_id(&valid_id).is_ok());
         assert!(validate_dictionary_id(&valid_id.to_uppercase()).is_err());
@@ -3608,10 +3606,7 @@ mod tests {
         assert_eq!(
             merge_account_preferences(
                 &base,
-                &BTreeMap::from([(
-                    "input.schema".into(),
-                    AccountPreferenceValue::Boolean(true),
-                )]),
+                &BTreeMap::from([("input.schema".into(), AccountPreferenceValue::Boolean(true),)]),
                 &schema
             ),
             Err(AccountError::Invalid)
@@ -3634,7 +3629,10 @@ mod tests {
             .expect("refresh should make the write succeed");
         assert_eq!(updated.revision, 43);
         assert_eq!(refreshes.load(Ordering::SeqCst), 1);
-        assert_eq!(AccountError::from_status(StatusCode::CONFLICT), AccountError::Conflict);
+        assert_eq!(
+            AccountError::from_status(StatusCode::CONFLICT),
+            AccountError::Conflict
+        );
         assert_eq!(AccountError::Conflict.code(), "account_conflict");
     }
 
@@ -3896,14 +3894,7 @@ mod tests {
         );
         let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
         let change = client
-            .edit_dictionary_catalog(
-                DictionaryKind::Pinyin,
-                "ni",
-                "你",
-                42,
-                None,
-                &token(b'a'),
-            )
+            .edit_dictionary_catalog(DictionaryKind::Pinyin, "ni", "你", 42, None, &token(b'a'))
             .unwrap();
         assert_eq!(change.revision, 43);
 
@@ -3998,10 +3989,16 @@ mod tests {
         })
         .is_err());
         assert!(validate_ranking_arguments(&query, 42, "pin", 1, 1).is_ok());
-        assert!(validate_ranking_arguments(&AccountCandidateQuery {
-            kind: "quick".into(),
-            ..query.clone()
-        }, 42, "pin", 1, 1)
+        assert!(validate_ranking_arguments(
+            &AccountCandidateQuery {
+                kind: "quick".into(),
+                ..query.clone()
+            },
+            42,
+            "pin",
+            1,
+            1
+        )
         .is_err());
         assert!(validate_candidate_value(&query, "nihc", "你好").is_ok());
         assert!(validate_candidate_value(&query, "", "你好").is_err());
@@ -4033,9 +4030,7 @@ mod tests {
             profile: "xiaohe".into(),
             limit: 100,
         };
-        let candidates = client
-            .personal_candidates(&query, &token(b'a'))
-            .unwrap();
+        let candidates = client.personal_candidates(&query, &token(b'a')).unwrap();
         assert_eq!(candidates.candidates[0].mutation_code(), "ni'hao");
 
         let ranking_body = serde_json::json!({

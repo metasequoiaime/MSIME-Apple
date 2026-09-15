@@ -689,14 +689,20 @@ impl UnixSocketProvider {
         if replies.len() > 11 {
             return None;
         }
-        let ai_limit = query.ai_assistant.as_ref().filter(|ai| ai.enabled)
+        let ai_limit = query
+            .ai_assistant
+            .as_ref()
+            .filter(|ai| ai.enabled)
             .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)));
         let limits = [1, ai_limit];
         let mut source_counts = [0; 2];
         let mut candidates = Vec::new();
         for reply in replies {
-            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1
-                || reply.text.chars().any(char::is_control) {
+            if reply.text.is_empty()
+                || reply.text.len() > 4096
+                || reply.source > 1
+                || reply.text.chars().any(char::is_control)
+            {
                 return None;
             }
             if (reply.source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
@@ -846,10 +852,11 @@ impl UnixSocketProvider {
         }
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.candidates.len() > 12
-            || reply
-                .candidates
-                .iter()
-                .any(|candidate| candidate.is_empty() || candidate.len() > 4096 || candidate.chars().any(char::is_control))
+            || reply.candidates.iter().any(|candidate| {
+                candidate.is_empty()
+                    || candidate.len() > 4096
+                    || candidate.chars().any(char::is_control)
+            })
         {
             return None;
         }
@@ -943,7 +950,9 @@ impl UnixSocketProvider {
         cancelled: Option<&AtomicBool>,
         update: &mut dyn FnMut(&str, bool),
     ) -> Option<String> {
-        self.voice_stream_with_options_events(language, generation, options, cancelled, update, None)
+        self.voice_stream_with_options_events(
+            language, generation, options, cancelled, update, None,
+        )
     }
 
     /// Optionally negotiate recording/recognizing/polishing status events.
@@ -958,7 +967,9 @@ impl UnixSocketProvider {
         update: &mut dyn FnMut(&str, bool),
         status: Option<&mut dyn FnMut(&str)>,
     ) -> Option<String> {
-        self.voice_stream_with_options_feedback(language, generation, options, cancelled, update, status, None)
+        self.voice_stream_with_options_feedback(
+            language, generation, options, cancelled, update, status, None,
+        )
     }
 
     /// Negotiate optional normalized microphone levels separately from transcript text.
@@ -992,9 +1003,15 @@ impl UnixSocketProvider {
             }
         }
         let mut events = Vec::new();
-        if status.is_some() { events.push("status"); }
-        if level.is_some() { events.push("level"); }
-        if !events.is_empty() { request["query"]["events"] = json!(events); }
+        if status.is_some() {
+            events.push("status");
+        }
+        if level.is_some() {
+            events.push("level");
+        }
+        if !events.is_empty() {
+            request["query"]["events"] = json!(events);
+        }
         let request = request.to_string();
         if request.len() > 16_384
             || stream.write_all(request.as_bytes()).is_err()
@@ -1028,8 +1045,12 @@ impl UnixSocketProvider {
                 .unwrap_or("");
             if kind == "level" {
                 let value = value.get("level").and_then(Value::as_f64)?;
-                if !value.is_finite() || !(0.0..=1.0).contains(&value) { return None; }
-                if let Some(callback) = level.as_mut() { callback(value as f32); }
+                if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                    return None;
+                }
+                if let Some(callback) = level.as_mut() {
+                    callback(value as f32);
+                }
                 continue;
             }
             if kind == "status" {
@@ -1387,13 +1408,20 @@ impl Runtime<Session> {
         candidates: &[String],
         source: u8,
     ) -> Result<bool, RuntimeError> {
-        let limit = if source == 0 { 1 } else {
-            query.ai_assistant.as_ref().filter(|ai| ai.enabled)
+        let limit = if source == 0 {
+            1
+        } else {
+            query
+                .ai_assistant
+                .as_ref()
+                .filter(|ai| ai.enabled)
                 .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)))
         };
-        if candidates.is_empty() || candidates.len() > limit
-            || candidates.iter().any(|text| text.is_empty() || text.len() > 4096
-                || text.chars().any(char::is_control))
+        if candidates.is_empty()
+            || candidates.len() > limit
+            || candidates.iter().any(|text| {
+                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+            })
             || source > 1
             || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
             || (source == 1 && !query.ai_eligible)

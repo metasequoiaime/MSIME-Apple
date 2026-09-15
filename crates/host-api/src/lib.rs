@@ -547,9 +547,7 @@ pub struct LocalSymbolCatalogGroup {
 }
 
 /// Preserve Engine-owned symbol parent categories and subgroup order.
-pub fn local_symbol_catalog(
-    resources: &str,
-) -> Result<Vec<LocalSymbolCatalogGroup>, &'static str> {
+pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGroup>, &'static str> {
     if !std::path::Path::new(resources).is_absolute() {
         return Err("resources path must be absolute");
     }
@@ -566,7 +564,13 @@ pub fn local_symbol_catalog(
             }
             remaining_pages -= 1;
             let page = msime_engine_bridge::emoji_catalog_slice(
-                resources, "", "symbols", &group.title, offset, 512, &group.parent,
+                resources,
+                "",
+                "symbols",
+                &group.title,
+                offset,
+                512,
+                &group.parent,
             )
             .map_err(|_| "local symbol catalog unavailable")?;
             items.extend(page.items.into_iter().map(|item| LocalEmojiCatalogItem {
@@ -995,8 +999,7 @@ fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::Fil
     let lock = options
         .open(lock_path)
         .map_err(|_| "clipboard migration unavailable")?;
-    lock.lock()
-        .map_err(|_| "clipboard migration unavailable")?;
+    lock.lock().map_err(|_| "clipboard migration unavailable")?;
     Ok(lock)
 }
 
@@ -1075,8 +1078,7 @@ pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), Stri
     let legacy_path = root.join("Clipboard").join("history.json");
     match std::fs::symlink_metadata(&legacy_path) {
         Ok(metadata) if metadata.file_type().is_file() => {
-            std::fs::remove_file(&legacy_path)
-                .map_err(|_| "mobile clipboard clear failed")?;
+            std::fs::remove_file(&legacy_path).map_err(|_| "mobile clipboard clear failed")?;
         }
         Ok(_) => return Err("mobile clipboard clear failed".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -1229,7 +1231,9 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
         if !path.is_absolute() || removal.directory.len() > 16384 {
             return Err("invalid history directory".into());
         }
-        if removal.text.is_empty() || removal.text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES {
+        if removal.text.is_empty()
+            || removal.text.len() > msime_client_core::clipboard::MAX_TEXT_BYTES
+        {
             return Err("invalid history entry".into());
         }
         if !PreferencesStore::new(path)
@@ -1573,28 +1577,53 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
 /// # Safety
 /// `request` references `length` readable JSON bytes. No buffers are retained.
 #[no_mangle]
-pub unsafe extern "C" fn msime_client_ai_http_request(request: *const u8, length: usize) -> *mut c_char {
+pub unsafe extern "C" fn msime_client_ai_http_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 { return Err("invalid AI request buffer".into()); }
+        if request.is_null() || length > 65536 {
+            return Err("invalid AI request buffer".into());
+        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct Request { config: msime_client_core::preferences::AiAssistantPreferences, input: msime_client_core::ai::AiSuggestionRequest }
-        let request: Request = serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(|_| "invalid AI request document")?;
+        struct Request {
+            config: msime_client_core::preferences::AiAssistantPreferences,
+            input: msime_client_core::ai::AiSuggestionRequest,
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "invalid AI request document")?;
         msime_client_core::ai::chat_completion_http_request(&request.config, &request.input)
-            .map(|value| value.unwrap_or(Value::Null)).map_err(|e| e.to_string())
+            .map(|value| value.unwrap_or(Value::Null))
+            .map_err(|e| e.to_string())
     })
 }
 /// Parse a successful AI HTTP response into a bounded string array, or null.
 /// # Safety
 /// `body` references `length` readable bytes. No buffers are retained.
 #[no_mangle]
-pub unsafe extern "C" fn msime_client_parse_ai_response(body: *const u8, length: usize, limit: u8) -> *mut c_char {
+pub unsafe extern "C" fn msime_client_parse_ai_response(
+    body: *const u8,
+    length: usize,
+    limit: u8,
+) -> *mut c_char {
     response(|| {
-        if body.is_null() || length > 1048576 || !(1..=10).contains(&limit) { return Err("invalid AI response buffer".into()); }
-        Ok(msime_client_core::ai::parse_chat_completion_response(unsafe { std::slice::from_raw_parts(body, length) }, limit)
-            .map(|response| json!(response.candidates.into_iter().map(|candidate| candidate.text).collect::<Vec<_>>()))
-            .unwrap_or(Value::Null))
+        if body.is_null() || length > 1048576 || !(1..=10).contains(&limit) {
+            return Err("invalid AI response buffer".into());
+        }
+        Ok(msime_client_core::ai::parse_chat_completion_response(
+            unsafe { std::slice::from_raw_parts(body, length) },
+            limit,
+        )
+        .map(|response| {
+            json!(response
+                .candidates
+                .into_iter()
+                .map(|candidate| candidate.text)
+                .collect::<Vec<_>>())
+        })
+        .unwrap_or(Value::Null))
     })
 }
 
@@ -1682,8 +1711,10 @@ pub unsafe extern "C" fn msime_client_parse_niutrans_translation_response(
         if body.is_null() || length > 1048576 {
             return Err("invalid NiuTrans response buffer".into());
         }
-        Ok(niutrans_translation::parse(unsafe { std::slice::from_raw_parts(body, length) })
-            .unwrap_or(Value::Null))
+        Ok(
+            niutrans_translation::parse(unsafe { std::slice::from_raw_parts(body, length) })
+                .unwrap_or(Value::Null),
+        )
     })
 }
 
@@ -2985,7 +3016,8 @@ pub unsafe extern "C" fn msime_client_doubao_start_frame(
     let boosting = if boosting_table_id_length == 0 {
         ""
     } else {
-        let bytes = unsafe { std::slice::from_raw_parts(boosting_table_id, boosting_table_id_length) };
+        let bytes =
+            unsafe { std::slice::from_raw_parts(boosting_table_id, boosting_table_id_length) };
         match std::str::from_utf8(bytes) {
             Ok(value) => value,
             Err(_) => return false,
@@ -3096,8 +3128,15 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream(
     context: *mut c_void,
 ) -> *mut c_char {
     unsafe {
-        msime_client_voice_provider_stream_events(query, query_length, socket_path, socket_length,
-                                                  callback, None, context)
+        msime_client_voice_provider_stream_events(
+            query,
+            query_length,
+            socket_path,
+            socket_length,
+            callback,
+            None,
+            context,
+        )
     }
 }
 
@@ -3117,8 +3156,16 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_events(
     context: *mut c_void,
 ) -> *mut c_char {
     unsafe {
-        msime_client_voice_provider_stream_feedback(query, query_length, socket_path, socket_length,
-                                                    callback, status_callback, None, context)
+        msime_client_voice_provider_stream_feedback(
+            query,
+            query_length,
+            socket_path,
+            socket_length,
+            callback,
+            status_callback,
+            None,
+            context,
+        )
     }
 }
 
@@ -3175,12 +3222,16 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
                     "polishing" => 2,
                     _ => return,
                 };
-                unsafe { callback(value, context); }
+                unsafe {
+                    callback(value, context);
+                }
             }
         };
         let mut level = |value: f32| {
             if let Some(callback) = level_callback {
-                unsafe { callback(value, context); }
+                unsafe {
+                    callback(value, context);
+                }
             }
         };
         let value = UnixSocketProvider::new(path).voice_stream_with_options_feedback(
@@ -3189,8 +3240,16 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
             &query.options,
             None,
             &mut update,
-            if status_callback.is_some() { Some(&mut status) } else { None },
-            if level_callback.is_some() { Some(&mut level) } else { None },
+            if status_callback.is_some() {
+                Some(&mut status)
+            } else {
+                None
+            },
+            if level_callback.is_some() {
+                Some(&mut level)
+            } else {
+                None
+            },
         );
         Ok(value
             .map(|text| json!({"text": text}))
@@ -3450,19 +3509,27 @@ mod tests {
 
     #[test]
     fn doubao_frame_codec_is_available_through_c_abi() {
-        let request = msime_client_core::doubao_frame::encode_json_frame(9, 0, 1, br#"{"result":{"text":"fixture"}}"#);
+        let request = msime_client_core::doubao_frame::encode_json_frame(
+            9,
+            0,
+            1,
+            br#"{"result":{"text":"fixture"}}"#,
+        );
         let mut response = request[..4].to_vec();
         response.extend_from_slice(&request[8..12]);
         response.extend_from_slice(&request[12..]);
-        let decoded = read(unsafe {
-            msime_client_doubao_decode_frame(response.as_ptr(), response.len())
-        });
+        let decoded =
+            read(unsafe { msime_client_doubao_decode_frame(response.as_ptr(), response.len()) });
         assert_eq!(decoded["ok"], true);
         assert_eq!(decoded["value"]["last"], false);
-        assert_eq!(decoded["value"]["payload"], r#"{"result":{"text":"fixture"}}"#);
+        assert_eq!(
+            decoded["value"]["payload"],
+            r#"{"result":{"text":"fixture"}}"#
+        );
 
         let error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
-        let decoded_error = read(unsafe { msime_client_doubao_decode_frame(error.as_ptr(), error.len()) });
+        let decoded_error =
+            read(unsafe { msime_client_doubao_decode_frame(error.as_ptr(), error.len()) });
         assert_eq!(decoded_error["value"]["error_code"], 7);
 
         let mut start = vec![0u8; 4096];
@@ -3538,7 +3605,8 @@ mod tests {
         );
         let invalid = [0xff_u8, 0xfe];
         assert_eq!(
-            read(unsafe { msime_client_parse_surface_route(invalid.as_ptr(), invalid.len()) })["ok"],
+            read(unsafe { msime_client_parse_surface_route(invalid.as_ptr(), invalid.len()) })
+                ["ok"],
             false
         );
     }
@@ -3644,7 +3712,6 @@ mod tests {
         assert!(!store.load().unwrap().preferences.clipboard_history);
         assert_eq!(store.load().unwrap().revision, disabled.revision + 1);
         assert!(history.is_dir());
-
     }
 
     #[test]
@@ -3895,7 +3962,10 @@ mod tests {
         );
         read(msime_client_focus(handle, true));
         let typed = read(msime_client_character(handle, b'a', false));
-        assert_eq!(typed["value"]["view"]["touch_keyboard_layout"], "twenty_six_key");
+        assert_eq!(
+            typed["value"]["view"]["touch_keyboard_layout"],
+            "twenty_six_key"
+        );
         assert_eq!(typed["value"]["view"]["reading"], "あ");
 
         let variant = read(msime_client_command(handle, 10));
@@ -4458,12 +4528,17 @@ mod tests {
         assert_eq!(pinned["value"]["entries"][0]["text"], "synthetic current");
         assert_eq!(pinned["value"]["entries"][1]["text"], "synthetic pinned");
         assert_eq!(
-            call(json!({"operation": "remove", "text": "synthetic older"}))["value"]
-                ["removed"],
+            call(json!({"operation": "remove", "text": "synthetic older"}))["value"]["removed"],
             true
         );
-        assert_eq!(call(json!({"operation": "clear"}))["value"]["cleared"], true);
-        assert_eq!(call(json!({"operation": "load"}))["value"]["entries"], json!([]));
+        assert_eq!(
+            call(json!({"operation": "clear"}))["value"]["cleared"],
+            true
+        );
+        assert_eq!(
+            call(json!({"operation": "load"}))["value"]["entries"],
+            json!([])
+        );
     }
 
     #[test]
@@ -5508,15 +5583,14 @@ mod tests {
         assert!(!original.to_string().contains("synthetic-private"));
         let original_bytes = original.to_string();
         let descriptor = read(unsafe {
-            msime_client_ai_request_for_query(
-                handle,
-                original_bytes.as_ptr(),
-                original_bytes.len(),
-            )
+            msime_client_ai_request_for_query(handle, original_bytes.as_ptr(), original_bytes.len())
         });
         assert_eq!(descriptor["ok"], true);
         assert_eq!(descriptor["value"]["method"], "POST");
-        assert_eq!(descriptor["value"]["headers"]["Content-Type"], "application/json");
+        assert_eq!(
+            descriptor["value"]["headers"]["Content-Type"],
+            "application/json"
+        );
         for revision in 1..=5 {
             let old = read(msime_client_online_query(handle))["value"].clone();
             match revision {
@@ -5609,10 +5683,22 @@ mod tests {
     }
     #[test]
     fn learned_translation_buffers_are_bounded() {
-        assert_eq!(read(unsafe { msime_client_ai_http_request(std::ptr::null(), 0) })["ok"], false);
-        assert_eq!(read(unsafe { msime_client_ai_http_request(b"x".as_ptr(), 65537) })["ok"], false);
-        assert_eq!(read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1048577, 1) })["ok"], false);
-        assert_eq!(read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1, 11) })["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_ai_http_request(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_ai_http_request(b"x".as_ptr(), 65537) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1048577, 1) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1, 11) })["ok"],
+            false
+        );
         for (pointer, length) in [(std::ptr::null(), 0), (b"x".as_ptr(), 65537)] {
             assert_eq!(
                 read(unsafe { msime_client_learned_translation_request(pointer, length) })["ok"],
