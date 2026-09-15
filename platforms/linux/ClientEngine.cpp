@@ -2411,10 +2411,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(page, remove);
   }
   auto clear_clipboard = ibus_property_new(
-      "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
-      ibus_text_new_from_static_string("清空历史"), "",
+      (std::string("ClipboardHistory/Clear/") +
+       std::to_string(s.clipboard_generation))
+          .c_str(),
+      PROP_TYPE_NORMAL, ibus_text_new_from_static_string("清空历史"), "",
       ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
-      clipboard_menu_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_menu_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
   ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
@@ -3792,14 +3795,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       property_activate(engine, target, value);
     return;
   }
-  const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
-                               property_name != "ClipboardHistory/Refresh" &&
-                               property_name != "ClipboardHistory/Latest" &&
-                               property_name != "ClipboardHistory/Clear" &&
-                               property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
+  const bool clipboard_item =
+      property_name.rfind("ClipboardHistory/", 0) == 0 &&
+      property_name != "ClipboardHistory/Refresh" &&
+      property_name != "ClipboardHistory/Latest" &&
+      property_name.rfind("ClipboardHistory/Clear/", 0) != 0 &&
+      property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
   const bool clipboard_remove = property_name.rfind("ClipboardHistory/Remove/", 0) == 0;
+  const bool clipboard_clear =
+      property_name.rfind("ClipboardHistory/Clear/", 0) == 0;
   if (!name ||
-       (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
+      (!(clipboard_item || clipboard_remove || clipboard_clear) &&
        property_name != "ClipboardHistory/Refresh" &&
        std::string(name) != "InputMode" &&
        std::string(name) != "ClipboardHistory/Enabled" &&
@@ -3841,8 +3847,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateTheme/dark" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese" &&
-       property_name != "Scheme/Quanpin" && property_name != "Scheme/Shuangpin" &&
-       property_name != "Scheme/Wubi" &&
+       property_name != "Scheme/Quanpin" &&
+       property_name != "Scheme/Shuangpin" && property_name != "Scheme/Wubi" &&
        property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
@@ -4256,7 +4262,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       return;
     }
-    if (property_name == "ClipboardHistory/Clear") {
+    if (clipboard_clear) {
+      const auto expected = std::string("ClipboardHistory/Clear/") +
+                            std::to_string(s.clipboard_generation);
+      if (property_name != expected)
+        return;
       if (!clipboard_delete(s.clipboard_history_path, std::nullopt))
         return;
       s.clipboard_items_cache.clear();

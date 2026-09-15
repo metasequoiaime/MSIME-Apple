@@ -32,6 +32,7 @@ struct Observation {
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
+  std::string clipboard_clear_name;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -43,6 +44,7 @@ struct Observation {
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool clipboard_toggle_sensitive = false;
+  bool clipboard_clear_sensitive = false;
   bool punctuation_enabled = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
@@ -83,6 +85,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
     }
+    if (key == "ClipboardHistory") {
+      seen.clipboard_clear_name.clear();
+      seen.clipboard_clear_sensitive = false;
+    }
     if (seen.first_candidate_fix_name.empty() &&
         (key == "CandidateFix1" || key.rfind("CandidateFix1/", 0) == 0))
       seen.first_candidate_fix_name = key;
@@ -98,6 +104,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
     if (key == "ClipboardHistory/Enabled")
       seen.clipboard_toggle_sensitive = ibus_property_get_sensitive(property);
+    if (key.rfind("ClipboardHistory/Clear/", 0) == 0) {
+      seen.clipboard_clear_name = key;
+      seen.clipboard_clear_sensitive = ibus_property_get_sensitive(property);
+    }
     if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "TraditionalOutput")
@@ -745,6 +755,55 @@ int main(int argc, char **argv) {
                   seen.candidates.front().find("synthetic gloss [2]") !=
                       std::string::npos,
               "Updated translation provider result did not replace the cleared gloss");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
+      const auto history_path = root / "clipboard-generation-history.json";
+      std::ofstream(history_path)
+          << nlohmann::json::array({"synthetic-old"}).dump();
+      auto clipboard = options;
+      clipboard["clipboard_history_path"] = history_path.string();
+      clipboard["preferences"]["clipboard_history"] = true;
+      msime_preview_configure(clipboard.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      auto wait_clipboard = [&](auto ready) {
+        const auto deadline = g_get_monotonic_time() + 3000000;
+        while (!ready() && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {
+          }
+          g_usleep(1000);
+        }
+        return ready();
+      };
+      require(wait_clipboard([&] {
+                return seen.clipboard_clear_sensitive &&
+                       !seen.clipboard_clear_name.empty();
+              }),
+              "Synthetic clipboard history did not publish a clear action");
+      const auto stale_clear = seen.clipboard_clear_name;
+      const auto replacement = history_path.string() + ".next";
+      std::ofstream(replacement)
+          << nlohmann::json::array({"synthetic-new"}).dump();
+      std::filesystem::rename(replacement, history_path);
+      require(wait_clipboard([&] {
+                return seen.clipboard_clear_sensitive &&
+                       seen.clipboard_clear_name != stale_clear;
+              }),
+              "Clipboard replacement did not publish a fresh clear action");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", stale_clear.c_str(), PROP_STATE_UNCHECKED));
+      require(std::filesystem::exists(history_path) &&
+                  nlohmann::json::parse(std::ifstream(history_path)) ==
+                      nlohmann::json::array({"synthetic-new"}),
+              "Stale clipboard clear action deleted refreshed history");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", seen.clipboard_clear_name.c_str(),
+                           PROP_STATE_UNCHECKED));
+      require(!std::filesystem::exists(history_path),
+              "Current clipboard clear action did not delete history");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
