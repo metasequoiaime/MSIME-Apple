@@ -1365,7 +1365,14 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
+    const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
+    const auto committed_before_stale_action = seen.committed;
+    invoke("PropertyActivate",
+           g_variant_new("(su)", stale_candidate_action.c_str(),
+                         PROP_STATE_UNCHECKED));
+    require(seen.committed == committed_before_stale_action,
+            "Stale candidate action mutated a cleared snapshot");
     phrase();
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");

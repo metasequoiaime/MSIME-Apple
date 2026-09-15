@@ -2008,15 +2008,16 @@ IBusProperty *nine_key_spellings(IBusEngine *engine) {
 IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
-  // Voice rendering replaces the normal candidate surface while the Engine
-  // view still contains the last composition. Do not publish actions for
-  // that stale view during the transition; candidate mutations must remain
-  // scoped to a visible IBus page.
-  const auto candidates = !s.voice_active && s.view.is_object()
-                              ? s.view.value("candidates", Json::array())
+  // Candidate actions must describe the same page that was last handed to
+  // IBus. The live Engine view can advance before the panel redraws (and is
+  // retained while voice owns the preedit), so reading it here can bind a
+  // menu action to an invisible or newer candidate.
+  const auto candidates = s.rendered_candidates.is_array()
+                              ? s.rendered_candidates
                               : Json::array();
-  const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
-  const bool actions_available = s.focused && !s.blocked && s.input_enabled && s.session;
+  const auto scheme = s.rendered_scheme;
+  const bool actions_available = s.focused && !s.blocked && s.input_enabled &&
+                                 s.session && s.rendered_session == s.session;
   bool editable_candidates = false;
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
@@ -2810,6 +2811,7 @@ void clear(IBusEngine *engine) {
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
   s.rendered_session = 0;
+  ibus_engine_update_property(engine, candidate_actions(engine));
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2877,7 +2879,6 @@ void sync_global_input_mode(IBusEngine *engine) {
     }
 }
 void render(IBusEngine *engine, const Json &view) {
-  ibus_engine_update_property(engine, candidate_actions(engine));
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
@@ -2893,6 +2894,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
+    ibus_engine_update_property(engine, candidate_actions(engine));
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -2928,6 +2930,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
+    ibus_engine_update_property(engine, candidate_actions(engine));
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
@@ -3045,6 +3048,7 @@ void render(IBusEngine *engine, const Json &view) {
   s.rendered_candidates = candidates;
   s.rendered_scheme = view.value("scheme", 255);
   s.rendered_session = s.session;
+  ibus_engine_update_property(engine, candidate_actions(engine));
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
@@ -3642,7 +3646,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled)
         return;
-      for (const auto &candidate : s.view.at("candidates")) {
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array())
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
         const auto &id = candidate.at("id");
         const bool pin = candidate_name == candidate_action_name("CandidatePin", id);
         const bool remove = candidate_name == candidate_action_name("CandidateRemove", id);
@@ -3660,7 +3666,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         if (id.at("session").get<uint64_t>() != s.session)
           return;
         const auto source = candidate.value("source", 0);
-        if (s.view.value("scheme", 255) == 3 ||
+        if (s.rendered_scheme == 3 ||
             (source != 0 && source != 1 && source != 4))
           return;
         const auto generation = id.at("generation").get<uint64_t>();
