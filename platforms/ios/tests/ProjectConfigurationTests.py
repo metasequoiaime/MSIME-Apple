@@ -1,4 +1,5 @@
 import re
+import plistlib
 import unittest
 from pathlib import Path
 
@@ -47,6 +48,29 @@ def source_path_blocks(body, wanted):
 
 
 class ProjectConfigurationTests(unittest.TestCase):
+    def test_privacy_manifest_is_valid_and_packaged_by_app_and_keyboard(self):
+        privacy_path = IOS_ROOT / "SharedResources/PrivacyInfo.xcprivacy"
+        with privacy_path.open("rb") as file:
+            privacy = plistlib.load(file)
+        accessed = {
+            item["NSPrivacyAccessedAPIType"]: item["NSPrivacyAccessedAPITypeReasons"]
+            for item in privacy["NSPrivacyAccessedAPITypes"]
+        }
+        self.assertEqual(
+            accessed["NSPrivacyAccessedAPICategoryUserDefaults"],
+            ["CA92.1", "1C8F.1"],
+        )
+        self.assertEqual(
+            accessed["NSPrivacyAccessedAPICategorySystemBootTime"], ["35F9.1"]
+        )
+        self.assertFalse(privacy["NSPrivacyTracking"])
+        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [])
+        project = (IOS_ROOT / "project.yml").read_text()
+        self.assertEqual(project.count("path: SharedResources/PrivacyInfo.xcprivacy"), 2)
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("path = PrivacyInfo.xcprivacy", generated)
+        self.assertEqual(generated.count("PrivacyInfo.xcprivacy in Resources"), 4)
+
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
         app = (IOS_ROOT / "App/Resources/MSIMEClientApp.entitlements").read_text()

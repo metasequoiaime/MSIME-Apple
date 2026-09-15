@@ -50,6 +50,8 @@ targets:
         buildPhase: resources
       - path: SharedResources/MLKit-Dependencies.txt
         buildPhase: resources
+      - path: SharedResources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
@@ -100,6 +102,8 @@ targets:
       - path: ../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      - path: SharedResources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard

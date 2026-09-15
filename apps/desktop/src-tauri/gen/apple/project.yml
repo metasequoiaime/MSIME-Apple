@@ -45,6 +45,8 @@ targets:
         buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/MLKit-Dependencies.txt
         buildPhase: resources
+      - path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: assets
         buildPhase: resources
         type: folder
@@ -141,6 +143,8 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      - path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard

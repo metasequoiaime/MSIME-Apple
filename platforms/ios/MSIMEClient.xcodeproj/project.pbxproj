@@ -26,6 +26,8 @@
 		099230A209EA2621ACDAEDB0 /* HandwritingDownloadSession.m in Sources */ = {isa = PBXBuildFile; fileRef = 4BC0252681EA7E2DEB8AB638 /* HandwritingDownloadSession.m */; };
 		0C3C45CA265519E5575EBAA8 /* CommunitySkinTrialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85DA37367688484F56FA2B6 /* CommunitySkinTrialView.swift */; };
 		0C9C715C6873A048404711FC /* MLKit-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0CEF8AF829C71A478389FF85 /* MLKit-Dependencies.txt */; };
+		0A1200000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A1100000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		0A1300000000000000000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A1100000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		0DD4D26A75FCC2172C1AD583 /* PersonalDictionaryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D420506ABBA095DB243FF90 /* PersonalDictionaryImport.swift */; };
 		0E6F0501ADFFBFCC10C0FC89 /* WAVPCMExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1EE202AB0F9C21903EE72F2 /* WAVPCMExtractor.swift */; };
 		106FD28CAD49CC96D0EE576E /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */; };
@@ -472,6 +474,7 @@
 		0802B2518C3D9BAAE2234B8B /* EnglishMixedCandidatesMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnglishMixedCandidatesMigrationTests.swift; sourceTree = "<group>"; };
 		0B3A6B581AE1022D8046393B /* EngineResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EngineResources; path = ../../target/ios/EngineResources; sourceTree = SOURCE_ROOT; };
 		0CEF8AF829C71A478389FF85 /* MLKit-Dependencies.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "MLKit-Dependencies.txt"; sourceTree = "<group>"; };
+		0A1100000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0D051D288F9888171C74A55D /* KeyboardInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardInputView.swift; sourceTree = "<group>"; };
 		120F6FF0501F18C777329C9C /* VoiceTextHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextHandoffTests.swift; sourceTree = "<group>"; };
 		152BF78634D4A0FE10FEDABB /* CloudDictionaryCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryCatalogView.swift; sourceTree = "<group>"; };
@@ -879,6 +882,7 @@
 			children = (
 				0CEF8AF829C71A478389FF85 /* MLKit-Dependencies.txt */,
 				189E59DDD068F5FEFC679880 /* MLKit-NOTICES.txt */,
+				0A1100000000000000000001 /* PrivacyInfo.xcprivacy */,
 			);
 			path = SharedResources;
 			sourceTree = "<group>";
@@ -1241,6 +1245,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DC63E00CD3DF68287FC69F43 /* EngineResources in Resources */,
+				0A1300000000000000000003 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1250,6 +1255,7 @@
 			files = (
 				0C9C715C6873A048404711FC /* MLKit-Dependencies.txt in Resources */,
 				DEEBF12508000FA00E13F8C2 /* MLKit-NOTICES.txt in Resources */,
+				0A1200000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 				C877822640F80D6EAC190986 /* dictionary-manifest.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

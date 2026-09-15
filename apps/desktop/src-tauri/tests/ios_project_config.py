@@ -9,6 +9,19 @@ APPLE_ROOT = TAURI_ROOT / "gen/apple"
 
 
 class IOSProjectConfigTests(unittest.TestCase):
+    def test_privacy_manifest_is_shared_by_tauri_app_and_keyboard(self):
+        privacy_path = TAURI_ROOT / "../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
+        with privacy_path.resolve().open("rb") as file:
+            privacy = plistlib.load(file)
+        self.assertFalse(privacy["NSPrivacyTracking"])
+        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [])
+        project = (APPLE_ROOT / "project.yml").read_text()
+        reference = "path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
+        self.assertEqual(project.count(reference), 2)
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("path = PrivacyInfo.xcprivacy", generated)
+        self.assertEqual(generated.count("PrivacyInfo.xcprivacy in Resources"), 4)
+
     def test_platform_config_uses_the_shipping_identity_and_supported_version(self):
         config = json.loads((TAURI_ROOT / "tauri.ios.conf.json").read_text())
         self.assertEqual(config["identifier"], "com.metasequoiaime.client")
