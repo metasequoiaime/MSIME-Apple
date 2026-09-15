@@ -52,6 +52,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateGlossRequestedGeneration: UInt64?
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
+  private weak var compositionContainer: UIView?
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
@@ -500,6 +501,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeCandidateStrip() -> UIView {
     let container = UIView()
+    compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
@@ -1393,10 +1395,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         guard hasFullAccess else { replyModel.status = "粘贴与 AI 需要允许完全访问"; return }
         replyModel.setText(UIPasteboard.general.string ?? "")
-      }, generate: { [weak self] style in self?.generateReply(style: style) },
-      schemes: { [weak self] in self?.showSchemePicker() },
-      skins: { [weak self] in self?.showSkinPicker() },
-      dismiss: { [weak self] in self?.dismissKeyboard() }))
+      }, generate: { [weak self] style in self?.generateReply(style: style) }))
     replyPanel = panel
     addChild(panel)
     panel.view.accessibilityIdentifier = "replyKeyboard"
@@ -1406,7 +1405,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NSLayoutConstraint.activate([
       panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.view.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor),
       panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     panel.didMove(toParent: self)

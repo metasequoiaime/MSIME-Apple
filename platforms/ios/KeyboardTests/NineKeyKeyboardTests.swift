@@ -125,6 +125,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.loadViewIfNeeded()
     XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "高情商回复")
     XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
+    let reply = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "replyKeyboard" })
+    let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
+    controller.view.layoutIfNeeded()
+    XCTAssertGreaterThanOrEqual(reply.convert(reply.bounds, to: controller.view).minY,
+                                strip.convert(strip.bounds, to: controller.view).maxY - 0.5)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "replySchemes" })
     XCTAssertTrue(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
     InputSchemePreference.enabledSchemes = [.quanpin]
     controller.viewWillAppear(false)
