@@ -5,6 +5,7 @@
 #include "CandidateLayoutSettings.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
+#include "CandidateShadow.h"
 #include <functional>
 #include <memory>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
@@ -119,6 +120,7 @@ private:
   // Pixels reserved above the card for the artwork, computed when the card is
   // sized and reused when it is painted so the two cannot disagree.
   float decoration_offset_ = 0.0f;
+  CandidateShadowInsets shadow_insets_{};
   // Owner-drawn menu labels, kept alive for the duration of the popup: the
   // draw messages carry pointers into this list.
   // Built on first use: most sessions never open the right-click menu, and

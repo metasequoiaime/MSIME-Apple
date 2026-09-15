@@ -56,6 +56,8 @@ int main() {
                1.0f));
   require(defaults.show_selected_bar && defaults.radius == 6.0f &&
           defaults.border_width == 1.5f && defaults.item_radius == 4.0f);
+  require(std::fabs(defaults.shadow_outer_alpha - 0.34f) < 0.002f &&
+          std::fabs(defaults.shadow_inner_alpha - 0.22f) < 0.002f);
 
   // The light branch replaces only the colors the shipped presenter overrides.
   const auto light_defaults = candidate_light_palette();
@@ -66,6 +68,8 @@ int main() {
   require(light_defaults.accent == defaults.accent &&
           light_defaults.radius == defaults.radius &&
           light_defaults.show_selected_bar == defaults.show_selected_bar);
+  require(std::fabs(light_defaults.shadow_outer_alpha - 0.18f) < 0.002f &&
+          std::fabs(light_defaults.shadow_inner_alpha - 0.10f) < 0.002f);
 
   // A package overrides only what it declares.
   CandidatePaletteOverrides overrides;
