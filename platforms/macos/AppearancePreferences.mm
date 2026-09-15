@@ -237,6 +237,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
+    NSString *_sharedInlinePreeditStyle;
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
@@ -766,6 +767,12 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (MSIMEInlinePreeditStyle)inlinePreeditStyle {
+    NSString *value = _sharedInlinePreeditStyle ?: @"raw";
+    if ([value isEqual:@"raw"]) return MSIMEInlinePreeditStyleRaw;
+    if ([value isEqual:@"empty"]) return MSIMEInlinePreeditStyleEmpty;
+    return MSIMEInlinePreeditStylePinyin;
+}
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
@@ -813,6 +820,8 @@ static BOOL ValidToolbarFontSize(id value) {
     if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    id inlinePreedit = preferences[@"tsf_preedit_style"];
+    if ([@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit]) _sharedInlinePreeditStyle = [inlinePreedit copy];
     [self refreshControls];
 }
 - (NSString *)defaultImeMode {

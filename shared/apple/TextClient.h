@@ -10,7 +10,18 @@
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range;
 @end
 
+typedef NS_ENUM(NSInteger, MSIMEInlinePreeditStyle) {
+    MSIMEInlinePreeditStyleRaw,
+    MSIMEInlinePreeditStylePinyin,
+    MSIMEInlinePreeditStyleEmpty,
+};
+
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client);
+/// Applies a transition using the shared inline preedit display preference.
+/// The legacy entry point above remains the pinyin-display default for callers
+/// that do not consume shared preferences yet.
+void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
+                                          MSIMEInlinePreeditStyle style);
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
 

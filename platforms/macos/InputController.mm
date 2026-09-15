@@ -1989,7 +1989,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
     if (!snapshot || error || !_activeClient || _activeClient != client || _session != session) return;
+    NSDictionary *preferences = snapshot[@"preferences"];
+    NSMutableDictionary *inputPreferences = [preferences isKindOfClass:NSDictionary.class] ? [preferences mutableCopy] : nil;
+    id inlinePreedit = inputPreferences[@"tsf_preedit_style"];
+    if (![inlinePreedit isKindOfClass:NSString.class] ||
+        ![@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit])
+        inputPreferences[@"tsf_preedit_style"] = @"raw";
     if (!session) {
+        if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
         return;
     }
@@ -1997,8 +2004,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
     // Failed loads/updates retain the existing window appearance and runtime.
     if (result && !updateError) {
+        if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
         _view = [session viewWithError:nil] ?: result[@"view"];
+        if (_view) {
+            MSIMEApplyTransitionWithPreeditStyle(@{@"view": _view}, (id<MSIMETextClient>)_activeClient,
+                                                 _appearance.inlinePreeditStyle);
+        }
         [self refreshFloatingToolbarState];
         [self renderCandidates];
         [self synchronizeCloudCandidates];
@@ -2602,7 +2614,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
     }
-    MSIMEApplyTransition(displayTransition, (id<MSIMETextClient>)_activeClient);
+    MSIMEApplyTransitionWithPreeditStyle(displayTransition, (id<MSIMETextClient>)_activeClient,
+                                         _appearance.inlinePreeditStyle);
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length]) {
         const auto source = sourceOverride == msime::mac::TypingSource::Unknown
             ? MSIMEResolveTypingSource(transition[@"commit_context"], previousView, MSIMEStatisticsHostOptions(_session), _appearance.englishMode)

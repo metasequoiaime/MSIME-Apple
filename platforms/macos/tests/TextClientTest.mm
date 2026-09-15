@@ -445,6 +445,15 @@ int main() {
         MSIMEApplyTransition(@{@"commit": @"合成", @"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, client);
         assert([client.committed isEqual:@"合成"] && client.marked.length == 0 && client.selection.location == 0);
         assert(client.events.count >= 2 && [client.events[client.events.count - 2] isEqual:@"commit"] && [client.events.lastObject isEqual:@"marked"]);
+        // The shared inline-preedit preference selects the actual marked text,
+        // while preserving the display-specific caret contract.
+        NSDictionary *styled = @{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @1}};
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleRaw);
+        assert([client.marked isEqual:@"b;"] && client.selection.location == 1);
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStylePinyin);
+        assert([client.marked isEqual:@"bing"] && client.selection.location == 4);
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
+        assert(client.marked.length == 0 && client.selection.location == 0);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);
