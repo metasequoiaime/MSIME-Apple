@@ -48,7 +48,10 @@ BOOL RegisterProfiles()
     WCHAR achIconFile[MAX_PATH] = {'\0'};
     DWORD cchA = 0;
     cchA = GetModuleFileName(Global::dllInstanceHandle, achIconFile, MAX_PATH);
-    cchA = cchA >= MAX_PATH ? (MAX_PATH - 1) : cchA;
+    if (cchA == 0 || cchA >= MAX_PATH)
+    {
+        goto Exit;
+    }
     achIconFile[cchA] = '\0';
 
     size_t lenOfDesc = 0;
