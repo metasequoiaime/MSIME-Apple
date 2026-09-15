@@ -964,6 +964,7 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_character_set_action([&] {
       (void)character_set_clicks.submit(CharacterSetClick{});
     });
+    toolbar.set_shell_available(shell.has_value());
     toolbar.set_settings_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
       if (request) (void)launch_shell(*request);

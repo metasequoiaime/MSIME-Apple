@@ -59,6 +59,17 @@ public:
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {
     character_set_reader_ = std::move(reader);
   }
+  // Whether the shared desktop shell is installed beside the Server. Without
+  // it the buttons that ask the shell to open a surface cannot do anything,
+  // and the tray already shows its matching rows disabled rather than taking
+  // a click and silently dropping it.
+  void set_shell_available(bool available) {
+    if (shell_available_ == available)
+      return;
+    shell_available_ = available;
+    if (window_)
+      InvalidateRect(window_, nullptr, FALSE);
+  }
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
   void set_character_set_action(Action action) { character_set_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
@@ -105,6 +116,7 @@ private:
   // True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE, so a programmatic
   // placement is not mistaken for one the user made.
   bool moving_ = false;
+  bool shell_available_ = true;
   std::function<bool()> active_reader_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
