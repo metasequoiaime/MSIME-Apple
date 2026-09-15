@@ -90,85 +90,94 @@ struct StatisticsTrendChart: View {
 
 /// 日历热力图,照 GitHub 的排法:一列是一个自然周,一行是周几,周日在最上,上面标月份、左边标周几。点一格看那一天。
 ///
-/// 先前是「从第一条记录起每七天切一列」:列和星期对不上,头尾都是残的,整块看过去是一片零碎的空白。星期对齐之后每列都是完整的一周,空着的只有窗口开始之前和今天之后那几格。
+/// 列数按可用宽度铺满,不按「有多少天记录」算 —— 只用了一周的人,按记录算就只有一两列,右边整片空着。没有记录的日子画成最浅的一档,和 GitHub 上没提交的日子一样,那是信息不是空白。
 struct StatisticsHeatmap: View {
-  let days: [StatisticsChart.Day]
+  /// 某一天多少字。热力图自己决定画哪些天,所以要的是一个能按日期问的闭包,不是排好的数组。
+  let count: (Date) -> Int
   let selected: Date?
   let accent: Color
   let onSelect: (Date) -> Void
 
   private static let cell: CGFloat = 15
   private static let spacing: CGFloat = 3
+  private static let labelWidth: CGFloat = 12
+  /// 最多画一年:引擎的每日明细就保留 366 天。
+  private static let maximumWeeks = 53
   private var calendar: Calendar { Calendar.current }
-  private var maximum: Int { max(1, days.map(\.count).max() ?? 1) }
 
-  /// 一列一周、每列七格。窗口之外的格子是 nil,留空而不是画成「那天零字」。
-  private var columns: [[StatisticsChart.Day?]] {
-    guard let first = days.first?.date, let last = days.last?.date else { return [] }
-    let firstDay = calendar.startOfDay(for: first)
-    let lastDay = calendar.startOfDay(for: last)
-    let byDay = Dictionary(days.map { (calendar.startOfDay(for: $0.date), $0) }, uniquingKeysWith: { current, _ in current })
-    // 退到那一周的周日,列才对得上星期。
-    let lead = calendar.component(.weekday, from: firstDay) - 1
-    guard var cursor = calendar.date(byAdding: .day, value: -lead, to: firstDay) else { return [] }
-    var result: [[StatisticsChart.Day?]] = []
-    while cursor <= lastDay {
-      var week: [StatisticsChart.Day?] = []
-      for offset in 0..<7 {
-        guard let date = calendar.date(byAdding: .day, value: offset, to: cursor) else { continue }
-        week.append(date < firstDay || date > lastDay ? nil : byDay[date])
+  /// 这一屏放得下几列。放不下的可以左右拖,放得下就铺满。
+  private func weekCount(for width: CGFloat) -> Int {
+    let usable = width - Self.labelWidth - 6
+    let perColumn = Self.cell + Self.spacing
+    return max(4, min(Self.maximumWeeks, Int(usable / perColumn)))
+  }
+
+  /// 从今天所在的那一周往回数 `weeks` 列,每列七天。今天之后的格子留空。
+  private func columns(weeks: Int) -> [[Date?]] {
+    let today = calendar.startOfDay(for: Date())
+    let weekday = calendar.component(.weekday, from: today) - 1
+    guard let thisSunday = calendar.date(byAdding: .day, value: -weekday, to: today),
+          let start = calendar.date(byAdding: .day, value: -7 * (weeks - 1), to: thisSunday)
+    else { return [] }
+    return (0..<weeks).map { column in
+      (0..<7).map { row in
+        guard let date = calendar.date(byAdding: .day, value: column * 7 + row, to: start) else { return nil }
+        return date > today ? nil : date
       }
-      result.append(week)
-      guard let next = calendar.date(byAdding: .day, value: 7, to: cursor) else { break }
-      cursor = next
     }
-    return result
+  }
+
+  private func peak(_ grid: [[Date?]]) -> Int {
+    max(1, grid.flatMap { $0 }.compactMap { $0 }.map(count).max() ?? 1)
   }
 
   /// 这一列要不要标月份:出现新的月份就标,和 GitHub 一样。
-  private func monthLabel(at index: Int, in columns: [[StatisticsChart.Day?]]) -> String? {
-    guard let current = columns[index].compactMap({ $0 }).first?.date else { return nil }
+  private func monthLabel(at index: Int, in grid: [[Date?]]) -> String? {
+    guard let current = grid[index].compactMap({ $0 }).first else { return nil }
     let month = calendar.component(.month, from: current)
-    guard index > 0, let previous = columns[index - 1].compactMap({ $0 }).first?.date else { return "\(month) 月" }
+    guard index > 0, let previous = grid[index - 1].compactMap({ $0 }).first else { return "\(month) 月" }
     return calendar.component(.month, from: previous) == month ? nil : "\(month) 月"
   }
 
   var body: some View {
-    let grid = columns
-    return VStack(alignment: .leading, spacing: 6) {
-      // 周几那一列钉在外面 —— 放进滚动区里,一滚到最近的几周,它就跟着跑出屏幕了。
-      HStack(alignment: .top, spacing: 6) {
-        weekdayLabels
-        ScrollViewReader { proxy in
-          ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: Self.spacing) {
-              ForEach(Array(grid.enumerated()), id: \.offset) { index, week in
-                VStack(alignment: .leading, spacing: Self.spacing) {
-                  Text(monthLabel(at: index, in: grid) ?? " ")
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: Self.cell, height: 12, alignment: .leading)
-                  ForEach(0..<7, id: \.self) { row in cellView(week[row]) }
-                }.id(index)
+    VStack(alignment: .leading, spacing: 6) {
+      GeometryReader { geometry in
+        let grid = columns(weeks: weekCount(for: geometry.size.width))
+        let maximum = peak(grid)
+        // 周几那一列钉在滚动区外面 —— 放进去的话,一滚到最近几周它就跟着跑出屏幕。
+        HStack(alignment: .top, spacing: 6) {
+          weekdayLabels
+          ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack(alignment: .top, spacing: Self.spacing) {
+                ForEach(Array(grid.enumerated()), id: \.offset) { index, week in
+                  VStack(alignment: .leading, spacing: Self.spacing) {
+                    Text(monthLabel(at: index, in: grid) ?? " ")
+                      .font(.system(size: 9)).foregroundStyle(.secondary)
+                      .fixedSize(horizontal: true, vertical: false)
+                      .frame(width: Self.cell, height: 12, alignment: .leading)
+                    ForEach(0..<7, id: \.self) { row in cellView(week[row], maximum: maximum) }
+                  }.id(index)
+                }
               }
             }
+            .disablingScrollEdgeEffects()
+            .onAppear { proxy.scrollTo(max(0, grid.count - 1), anchor: .trailing) }
           }
-          .disablingScrollEdgeEffects()
-          .onAppear { proxy.scrollTo(max(0, grid.count - 1), anchor: .trailing) }
         }
-      }
+      }.frame(height: 12 + 7 * Self.cell + 6 * Self.spacing)
       legend
     }
     .accessibilityIdentifier("statisticsHeatmap")
   }
 
-  /// 只标一三五 —— 七行都标就把格子挤没了,GitHub 也是隔行标。
+  /// 只标一三五 —— 七行都标会把格子挤没,GitHub 也是隔行标。
   private var weekdayLabels: some View {
     VStack(spacing: Self.spacing) {
       ForEach(0..<7, id: \.self) { row in
         Text(["", "一", "", "三", "", "五", ""][row])
           .font(.system(size: 9)).foregroundStyle(.secondary)
-          .frame(width: 12, height: Self.cell)
+          .frame(width: Self.labelWidth, height: Self.cell)
       }
     }.padding(.top, 15)
   }
@@ -185,21 +194,23 @@ struct StatisticsHeatmap: View {
     }
   }
 
-  @ViewBuilder private func cellView(_ day: StatisticsChart.Day?) -> some View {
-    if let day {
-      let level = Double(day.count) / Double(maximum)
-      Button { onSelect(day.date) } label: {
+  @ViewBuilder private func cellView(_ date: Date?, maximum: Int) -> some View {
+    if let date {
+      let value = count(date)
+      let level = Double(value) / Double(maximum)
+      Button { onSelect(date) } label: {
         RoundedRectangle(cornerRadius: 3)
-          .fill(day.count == 0 ? Color.secondary.opacity(0.12) : accent.opacity(0.25 + 0.75 * level))
+          .fill(value == 0 ? Color.secondary.opacity(0.12) : accent.opacity(0.25 + 0.75 * level))
           .frame(width: Self.cell, height: Self.cell)
           .overlay(RoundedRectangle(cornerRadius: 3)
-            .strokeBorder(Color.orange, lineWidth: isSelected(day.date) ? 2 : 0))
+            .strokeBorder(Color.orange, lineWidth: isSelected(date) ? 2 : 0))
       }
       .buttonStyle(.plain)
-      .accessibilityLabel(day.date.formatted(.dateTime.month().day()))
-      .accessibilityValue("\(day.count) 字符")
-      .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(day.date))")
+      .accessibilityLabel(date.formatted(.dateTime.month().day()))
+      .accessibilityValue("\(value) 字符")
+      .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(date))")
     } else {
+      // 今天之后:留空,那些日子还没发生。
       Color.clear.frame(width: Self.cell, height: Self.cell)
     }
   }

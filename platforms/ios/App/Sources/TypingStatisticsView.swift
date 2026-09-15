@@ -159,7 +159,7 @@ struct TypingStatisticsView: View {
             Button("返回累计") { selectedDay = nil }
           }
         } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
-          footer: { Text("有多少记录画多少，最多一年。方块每天一格、一列一周，可以左右拖；点一个方块只看那一天的分类与占比。") }
+          footer: { Text("折线画到最早那条记录，最多一年。方块每天一格、一列一周，铺满一屏后可以左右拖，没有记录的日子是最浅的一档；点一个方块只看那一天的分类与占比。") }
       case .kind:
         Section {
           distribution(characterSlices, chart: .pie)
@@ -233,7 +233,8 @@ struct TypingStatisticsView: View {
         .animation(.easeOut(duration: 0.7), value: revealed)
       // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
       Text("每天一格，一列一周").font(.caption).foregroundStyle(.secondary)
-      StatisticsHeatmap(days: days, selected: selectedDay, accent: MetasequoiaTheme.forest) { date in
+      StatisticsHeatmap(count: { statistics.count(on: $0) }, selected: selectedDay,
+                        accent: MetasequoiaTheme.forest) { date in
         selectedDay = selectedDay == date ? nil : date
       }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
