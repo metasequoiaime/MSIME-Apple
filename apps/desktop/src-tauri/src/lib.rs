@@ -3465,11 +3465,16 @@ async fn paste_clipboard_text(
 #[tauri::command]
 async fn send_voice_text(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     typing_statistics: tauri::State<'_, TypingStatisticsState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = &window;
+    #[cfg(target_os = "macos")]
+    let _ = (&state, &typing_statistics, &store);
     #[cfg(target_os = "windows")]
     {
         let _ = app;
@@ -3556,7 +3561,9 @@ async fn send_voice_text(
             code: "unavailable",
         })?;
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit(app, window, text).await;
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         #[cfg(target_os = "ios")]
         {

@@ -1114,6 +1114,11 @@ static NSHashTable *LiveDictionaryControllers()
     }];
 }
 
+- (void)showVoicePanel
+{
+    [self toggleVoiceInput:nil];
+}
+
 - (void)showVoiceSettings:(id)sender
 {
     (void)sender;
