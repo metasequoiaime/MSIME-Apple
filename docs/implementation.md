@@ -46,6 +46,8 @@ macOS 语音设置页不再显示无法提交到 IMK 输入会话的共享 Tauri
 
 同一输入会话边界也应用于 macOS 手写、云剪贴板和云词典：从共享设置页移除无法获得原生会话的 Tauri 面板按钮，改为指向输入法悬浮工具栏或菜单。Windows/Linux 的共享面板路由不变；macOS 从原生输入法入口启动时仍通过带会话描述的 Tauri route 使用共享 UI。
 
+macOS 关于页不再显示 Windows Server、TSF 或 Linux IBus 的诊断开关；这些配置没有 macOS 原生消费者，避免把未接通的设置伪装成可用功能。现有 macOS 原生诊断仍由输入法进程自身管理。
+
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。

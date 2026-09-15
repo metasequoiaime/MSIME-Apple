@@ -878,6 +878,19 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
+test("macOS does not expose Windows or Linux diagnostic switches", async () => {
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+  expect(screen.queryByRole("group", { name: "诊断日志" })).toBeNull();
+  expect(screen.queryByLabelText("Server 端日志")).toBeNull();
+  expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
+  expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
+});
+
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
