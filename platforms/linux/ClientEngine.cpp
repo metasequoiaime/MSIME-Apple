@@ -3978,6 +3978,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        // Persist first. The save callback applies the accepted snapshot and
+        // recreates the runtime through apply_live_preferences; a failed or
+        // conflicting write must not leave a session-only value visible.
+        save_menu_preference(engine, MenuPreference::LocalMode,
+                             Json{{"key", key}, {"enabled", enabled}});
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3986,9 +3994,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::LocalMode,
-                             Json{{"key", key}, {"enabled", enabled}});
       return;
     }
     if (property_name == "WordCharacter") {
