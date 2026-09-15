@@ -198,9 +198,14 @@ LONG RecurseDeleteKey(_In_ HKEY hParentKey, _In_ LPCTSTR lpszKey)
     WCHAR stringBuffer[256] = {'\0'};
     DWORD size = ARRAYSIZE(stringBuffer);
 
-    if (RegOpenKey(hParentKey, lpszKey, &regKeyHandle) != ERROR_SUCCESS)
+    const LONG openResult = RegOpenKey(hParentKey, lpszKey, &regKeyHandle);
+    if (openResult == ERROR_FILE_NOT_FOUND || openResult == ERROR_PATH_NOT_FOUND)
     {
         return ERROR_SUCCESS;
+    }
+    if (openResult != ERROR_SUCCESS)
+    {
+        return openResult;
     }
 
     res = ERROR_SUCCESS;
