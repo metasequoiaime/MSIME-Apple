@@ -264,7 +264,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload }: {
+export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -275,6 +275,7 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
   onOpenDesktopDownload?: () => void;
+  onReplayOnboarding?: () => void;
 }) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
@@ -293,10 +294,11 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
     onOpenCloudClipboard={onOpenCloudClipboard}
     onOpenAbout={onOpenAbout}
     onOpenDesktopDownload={onOpenDesktopDownload}
+    onReplayOnboarding={onReplayOnboarding}
   />;
 }
 
-function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload }: {
+function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -307,6 +309,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
   onOpenDesktopDownload?: () => void;
+  onReplayOnboarding?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -616,6 +619,9 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         {onOpenAbout && <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>关于水杉</button>}
         {onOpenDesktopDownload && <button type="button" className="secondary" disabled={busy} onClick={onOpenDesktopDownload}>电脑版下载</button>}
       </div>
+    </section>}
+    {onReplayOnboarding && <section className="section account-about-actions">
+      <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>重新查看新手引导</button>
     </section>}
     <section className="section account-privacy">
       <h2>本地数据与云端作品</h2>
