@@ -38,6 +38,8 @@ use msime_client_core::preferences::{
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+#[cfg(any(target_os = "ios", test))]
+use msime_tauri_mobile_platform::IosVoiceRequestHeader;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
 // The packaged recognizer runs on every host; only the socket provider is unix.
@@ -2757,6 +2759,11 @@ struct IosVoiceProviderConfiguration {
     endpoint: String,
     model: String,
     token: String,
+    headers: Vec<IosVoiceRequestHeader>,
+    enable_itn: bool,
+    enable_punctuation: bool,
+    enable_ddc: bool,
+    boosting_table_id: String,
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -2765,6 +2772,10 @@ fn ios_voice_provider_configuration(
 ) -> Result<IosVoiceProviderConfiguration, HostActionError> {
     let voice = &preferences.voice_input;
     let (default_endpoint, default_model) = match voice.asr_provider.as_str() {
+        "doubao" => (
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+            "",
+        ),
         "openai" => (
             "https://api.openai.com/v1/audio/transcriptions",
             "whisper-1",
@@ -2800,22 +2811,57 @@ fn ios_voice_provider_configuration(
             .trim(),
         value => value,
     };
+    let boosting_table_id = voice.doubao_boosting_table_id.trim();
     if endpoint.len() > 2_048
         || model.len() > 512
         || token.len() > 16 * 1024
+        || boosting_table_id.len() > 4_096
         || endpoint.chars().any(char::is_control)
         || model.chars().any(char::is_control)
         || token.chars().any(char::is_control)
+        || boosting_table_id.chars().any(char::is_control)
     {
         return Err(HostActionError {
             code: "invalid_voice",
         });
     }
+    let headers = if voice.asr_provider == "doubao" {
+        let resource_id = match voice.asr_resource_id.trim() {
+            "" => "volc.seedasr.sauc.duration",
+            value => value,
+        };
+        msime_client_core::doubao_auth::headers(
+            &voice.doubao_auth_mode,
+            &voice.asr_app_key,
+            token,
+            resource_id,
+        )
+        .ok_or(HostActionError {
+            code: "invalid_voice",
+        })?
+        .into_iter()
+        .map(|(name, value)| IosVoiceRequestHeader {
+            name: name.into(),
+            value,
+        })
+        .collect()
+    } else {
+        Vec::new()
+    };
     Ok(IosVoiceProviderConfiguration {
         provider: voice.asr_provider.clone(),
         endpoint: endpoint.to_owned(),
         model: model.to_owned(),
-        token: token.to_owned(),
+        token: if voice.asr_provider == "doubao" {
+            String::new()
+        } else {
+            token.to_owned()
+        },
+        headers,
+        enable_itn: voice.doubao_enable_itn,
+        enable_punctuation: voice.doubao_enable_punc,
+        enable_ddc: voice.doubao_enable_ddc,
+        boosting_table_id: boosting_table_id.to_owned(),
     })
 }
 
@@ -3120,6 +3166,11 @@ async fn recognize_voice(
                 endpoint: configuration.endpoint,
                 model: configuration.model,
                 token: configuration.token,
+                headers: configuration.headers,
+                enable_itn: configuration.enable_itn,
+                enable_punctuation: configuration.enable_punctuation,
+                enable_ddc: configuration.enable_ddc,
+                boosting_table_id: configuration.boosting_table_id,
             })
             .await
             .map_err(|_| HostActionError {
@@ -5156,6 +5207,7 @@ mod tests {
         );
         assert_eq!(configuration.model, "whisper-1");
         assert_eq!(configuration.token, "synthetic-current");
+        assert!(configuration.headers.is_empty());
 
         preferences.voice_input.asr_provider = "groq".into();
         preferences.voice_input.asr_endpoint = "https://fixture.invalid/transcribe".into();
@@ -5169,13 +5221,48 @@ mod tests {
         assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
         assert_eq!(configuration.model, "fixture-model");
         assert_eq!(configuration.token, "synthetic-slot");
+        assert!(configuration.headers.is_empty());
     }
 
     #[test]
-    fn ios_voice_batch_configuration_rejects_doubao_until_websocket_support_lands() {
-        let preferences = msime_client_core::preferences::Preferences::default();
-        let error = super::ios_voice_provider_configuration(&preferences).unwrap_err();
-        assert_eq!(error.code, "unsupported_voice");
+    fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
+        let mut preferences = msime_client_core::preferences::Preferences::default();
+        preferences.voice_input.asr_token = "synthetic-key".into();
+        preferences.voice_input.asr_app_key = "stale-app".into();
+        preferences.voice_input.doubao_auth_mode = "api_key".into();
+        preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
+        let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, "doubao");
+        assert_eq!(
+            configuration.endpoint,
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+        );
+        assert!(configuration.model.is_empty());
+        assert!(configuration.token.is_empty());
+        assert!(configuration.enable_itn);
+        assert!(configuration.enable_punctuation);
+        assert!(!configuration.enable_ddc);
+        assert_eq!(configuration.boosting_table_id, "fixture-table");
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-key" && header.value == "synthetic-key"));
+        assert!(!configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-app-key"));
+
+        preferences.voice_input.doubao_auth_mode = "legacy".into();
+        preferences.voice_input.asr_app_key = "synthetic-app".into();
+        let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-app-key" && header.value == "synthetic-app"));
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-access-key"));
     }
 
     #[test]

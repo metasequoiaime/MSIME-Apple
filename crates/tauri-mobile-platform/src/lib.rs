@@ -31,6 +31,10 @@ const MAX_IOS_VOICE_MODEL_BYTES: usize = 512;
 const MAX_IOS_VOICE_TOKEN_BYTES: usize = 16 * 1024;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_TEXT_CHARS: usize = 10_000;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_HEADER_BYTES: usize = 8_192;
+#[cfg(any(target_os = "ios", test))]
+const MAX_IOS_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +49,13 @@ pub struct IosKeyboardPreferences {
     pub custom_keyboard_skin: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IosVoiceRequestHeader {
+    pub name: String,
+    pub value: String,
+}
+
 #[cfg(any(target_os = "ios", test))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -54,27 +65,72 @@ pub struct IosVoiceTranscriptionRequest {
     pub endpoint: String,
     pub model: String,
     pub token: String,
+    pub headers: Vec<IosVoiceRequestHeader>,
+    pub enable_itn: bool,
+    pub enable_punctuation: bool,
+    pub enable_ddc: bool,
+    pub boosting_table_id: String,
 }
 
 #[cfg(any(target_os = "ios", test))]
 impl IosVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
-        !self.request_id.is_empty()
+        let common = !self.request_id.is_empty()
             && self.request_id.len() <= 64
             && self
                 .request_id
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && matches!(self.provider.as_str(), "openai" | "siliconflow" | "groq")
-            && self.endpoint.starts_with("https://")
             && self.endpoint.len() <= MAX_IOS_VOICE_ENDPOINT_BYTES
             && !self.endpoint.chars().any(char::is_control)
-            && !self.model.trim().is_empty()
             && self.model.len() <= MAX_IOS_VOICE_MODEL_BYTES
             && !self.model.chars().any(char::is_control)
             && self.token.len() <= MAX_IOS_VOICE_TOKEN_BYTES
             && !self.token.chars().any(char::is_control)
+            && self.boosting_table_id.len() <= MAX_IOS_VOICE_BOOSTING_TABLE_BYTES
+            && !self.boosting_table_id.chars().any(char::is_control);
+        if !common {
+            return false;
+        }
+        if matches!(self.provider.as_str(), "openai" | "siliconflow" | "groq") {
+            return self.endpoint.starts_with("https://")
+                && !self.model.trim().is_empty()
+                && self.headers.is_empty()
+                && self.boosting_table_id.is_empty();
+        }
+        self.provider == "doubao"
+            && self.endpoint.starts_with("wss://")
+            && self.model.is_empty()
+            && self.token.is_empty()
+            && valid_doubao_headers(&self.headers)
     }
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn valid_doubao_headers(headers: &[IosVoiceRequestHeader]) -> bool {
+    if !(3..=4).contains(&headers.len())
+        || headers.iter().any(|header| {
+            !matches!(
+                header.name.as_str(),
+                "x-api-key"
+                    | "x-api-app-key"
+                    | "x-api-access-key"
+                    | "x-api-resource-id"
+                    | "x-api-request-id"
+            ) || header.value.is_empty()
+                || header.value.len() > MAX_IOS_VOICE_HEADER_BYTES
+                || header.value.chars().any(char::is_control)
+        })
+    {
+        return false;
+    }
+    let count = |name: &str| headers.iter().filter(|header| header.name == name).count();
+    let shared = count("x-api-resource-id") == 1 && count("x-api-request-id") == 1;
+    let api_key =
+        count("x-api-key") == 1 && count("x-api-app-key") == 0 && count("x-api-access-key") == 0;
+    let legacy =
+        count("x-api-key") == 0 && count("x-api-app-key") == 1 && count("x-api-access-key") == 1;
+    shared && (api_key || legacy)
 }
 
 #[cfg(any(target_os = "ios", test))]
@@ -415,8 +471,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
-        migrated_account_session_payload, IosKeyboardPreferences, IosVoiceTranscriptionRequest,
-        IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
+        migrated_account_session_payload, IosKeyboardPreferences, IosVoiceRequestHeader,
+        IosVoiceTranscriptionRequest, IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
         MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
@@ -439,6 +495,11 @@ mod tests {
             endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
             model: "fixture-model".into(),
             token: "synthetic-token".into(),
+            headers: Vec::new(),
+            enable_itn: true,
+            enable_punctuation: true,
+            enable_ddc: false,
+            boosting_table_id: String::new(),
         };
         assert!(request.is_valid());
         for provider in ["openai", "siliconflow", "groq"] {
@@ -448,7 +509,7 @@ mod tests {
             }
             .is_valid());
         }
-        for provider in ["doubao", "system", "custom", ""] {
+        for provider in ["system", "custom", ""] {
             assert!(!IosVoiceTranscriptionRequest {
                 provider: provider.into(),
                 ..request.clone()
@@ -462,6 +523,65 @@ mod tests {
         .is_valid());
         assert!(!IosVoiceTranscriptionRequest {
             model: "fixture\nmodel".into(),
+            ..request
+        }
+        .is_valid());
+    }
+
+    #[test]
+    fn ios_voice_requests_accept_only_provider_bound_doubao_headers() {
+        let headers = vec![
+            IosVoiceRequestHeader {
+                name: "x-api-key".into(),
+                value: "synthetic-key".into(),
+            },
+            IosVoiceRequestHeader {
+                name: "x-api-resource-id".into(),
+                value: "fixture-resource".into(),
+            },
+            IosVoiceRequestHeader {
+                name: "x-api-request-id".into(),
+                value: "00000000-0000-4000-8000-000000000000".into(),
+            },
+        ];
+        let request = IosVoiceTranscriptionRequest {
+            request_id: "fixture-request-1".into(),
+            provider: "doubao".into(),
+            endpoint: "wss://fixture.invalid/asr".into(),
+            model: String::new(),
+            token: String::new(),
+            headers,
+            enable_itn: true,
+            enable_punctuation: true,
+            enable_ddc: false,
+            boosting_table_id: "fixture-table".into(),
+        };
+        assert!(request.is_valid());
+        assert!(!IosVoiceTranscriptionRequest {
+            endpoint: "https://fixture.invalid/asr".into(),
+            ..request.clone()
+        }
+        .is_valid());
+        assert!(!IosVoiceTranscriptionRequest {
+            token: "synthetic-duplicate".into(),
+            ..request.clone()
+        }
+        .is_valid());
+        assert!(!IosVoiceTranscriptionRequest {
+            headers: vec![
+                IosVoiceRequestHeader {
+                    name: "authorization".into(),
+                    value: "synthetic-key".into(),
+                },
+                IosVoiceRequestHeader {
+                    name: "x-api-resource-id".into(),
+                    value: "fixture-resource".into(),
+                },
+                IosVoiceRequestHeader {
+                    name: "x-api-request-id".into(),
+                    value: "fixture-request".into(),
+                },
+            ],
             ..request
         }
         .is_valid());

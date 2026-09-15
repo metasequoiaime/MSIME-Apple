@@ -21,19 +21,29 @@ private struct SaveVoiceTextArgs: Decodable {
   let text: String
 }
 
+private struct VoiceRequestHeader: Decodable {
+  let name: String
+  let value: String
+}
+
 private struct VoiceTranscriptionArgs: Decodable {
   let requestId: String
   let provider: String
   let endpoint: String
   let model: String
   let token: String
+  let headers: [VoiceRequestHeader]
+  let enableItn: Bool
+  let enablePunctuation: Bool
+  let enableDdc: Bool
+  let boostingTableId: String
 }
 
 private struct VoiceControlArgs: Decodable {
   let requestId: String?
 }
 
-private struct VoicePluginFailure: Error {
+struct VoicePluginFailure: Error {
   let code: String
 }
 
@@ -132,6 +142,7 @@ private final class IOSVoiceTranscriptionSession {
   var file: URL?
   var timeout: DispatchWorkItem?
   var transport: VoiceTranscriptionTransport?
+  var doubaoTransport: IOSVoiceDoubaoTransport?
   var stopRequested = false
 
   init(args: VoiceTranscriptionArgs, invoke: Invoke) {
@@ -154,18 +165,43 @@ private final class IOSVoiceTranscriptionService {
             (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) ||
               (byte >= 97 && byte <= 122) || byte == 45
           }),
-          ["openai", "siliconflow", "groq"].contains(args.provider),
-          !model.isEmpty, model.utf8.count <= 512,
+          model.utf8.count <= 512,
           !model.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
           args.token.utf8.count <= 16 * 1024,
           !args.token.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          args.boostingTableId.utf8.count <= 4_096,
+          !args.boostingTableId.unicodeScalars.contains(
+            where: { CharacterSet.controlCharacters.contains($0) }),
           endpoint.utf8.count <= 2_048,
           let components = URLComponents(string: endpoint),
-          components.scheme?.lowercased() == "https", components.host?.isEmpty == false,
+          components.host?.isEmpty == false,
           components.user == nil, components.password == nil, components.fragment == nil else {
       return false
     }
-    return true
+    if ["openai", "siliconflow", "groq"].contains(args.provider) {
+      return components.scheme?.lowercased() == "https" && !model.isEmpty &&
+        args.headers.isEmpty && args.boostingTableId.isEmpty
+    }
+    guard args.provider == "doubao", components.scheme?.lowercased() == "wss",
+          model.isEmpty, args.token.isEmpty, (3...4).contains(args.headers.count) else {
+      return false
+    }
+    let allowed = Set([
+      "x-api-key", "x-api-app-key", "x-api-access-key",
+      "x-api-resource-id", "x-api-request-id",
+    ])
+    guard args.headers.allSatisfy({
+      allowed.contains($0.name) && !$0.value.isEmpty && $0.value.utf8.count <= 8_192 &&
+        !$0.value.unicodeScalars.contains(
+          where: { CharacterSet.controlCharacters.contains($0) })
+    }), Set(args.headers.map(\.name)).count == args.headers.count else { return false }
+    let names = Set(args.headers.map(\.name))
+    let shared = names.contains("x-api-resource-id") && names.contains("x-api-request-id")
+    let apiKey = names == Set(["x-api-key", "x-api-resource-id", "x-api-request-id"])
+    let legacy = names == Set([
+      "x-api-app-key", "x-api-access-key", "x-api-resource-id", "x-api-request-id",
+    ])
+    return shared && (apiKey || legacy)
   }
 
   func start(_ args: VoiceTranscriptionArgs, invoke: Invoke) {
@@ -243,7 +279,9 @@ private final class IOSVoiceTranscriptionService {
   }
 
   private func finishRecording(_ session: IOSVoiceTranscriptionSession) {
-    guard active === session, session.transport == nil else { return }
+    guard active === session, session.transport == nil, session.doubaoTransport == nil else {
+      return
+    }
     session.timeout?.cancel()
     session.timeout = nil
     session.recorder?.stop()
@@ -254,8 +292,15 @@ private final class IOSVoiceTranscriptionService {
     session.file = nil
     let audio = try? Data(contentsOf: file, options: .mappedIfSafe)
     try? FileManager.default.removeItem(at: file)
-    guard let audio, audio.count >= 44, audio.count <= Self.maximumAudioBytes,
-          let request = transcriptionRequest(session.args, audio: audio) else {
+    guard let audio, audio.count >= 44, audio.count <= Self.maximumAudioBytes else {
+      fail(session, code: "voice_recording")
+      return
+    }
+    if session.args.provider == "doubao" {
+      startDoubao(session, audio: audio)
+      return
+    }
+    guard let request = transcriptionRequest(session.args, audio: audio) else {
       fail(session, code: "voice_recording")
       return
     }
@@ -270,6 +315,31 @@ private final class IOSVoiceTranscriptionService {
         session.invoke.reject(failure.code, code: failure.code)
       }
     }
+  }
+
+  private func startDoubao(_ session: IOSVoiceTranscriptionSession, audio: Data) {
+    let headers = Dictionary(uniqueKeysWithValues:
+      session.args.headers.map { ($0.name, $0.value) })
+    guard let transport = IOSVoiceDoubaoTransport(
+      endpoint: session.args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines),
+      headers: headers, enableITN: session.args.enableItn,
+      punctuation: session.args.enablePunctuation, DDC: session.args.enableDdc,
+      boostingTable: session.args.boostingTableId, wav: audio,
+      completion: { [weak self, weak session] result in
+        guard let self, let session, self.active === session else { return }
+        self.active = nil
+        session.doubaoTransport = nil
+        switch result {
+        case .success(let text): session.invoke.resolve(["text": text])
+        case .failure(let failure):
+          session.invoke.reject(failure.code, code: failure.code)
+        }
+      }) else {
+      fail(session, code: "voice_recording")
+      return
+    }
+    session.doubaoTransport = transport
+    transport.start()
   }
 
   private func transcriptionRequest(_ args: VoiceTranscriptionArgs, audio: Data) -> URLRequest? {
@@ -311,6 +381,8 @@ private final class IOSVoiceTranscriptionService {
     session.timeout = nil
     session.transport?.cancel()
     session.transport = nil
+    session.doubaoTransport?.cancel()
+    session.doubaoTransport = nil
     session.recorder?.stop()
     session.recorder = nil
     if let file = session.file {

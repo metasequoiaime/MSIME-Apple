@@ -24,12 +24,13 @@ class IOSProjectConfigTests(unittest.TestCase):
             info = plistlib.load(file)
         self.assertEqual(info["NSMicrophoneUsageDescription"], explanation)
 
-    def test_tauri_voice_panel_uses_bounded_native_recording_and_batch_asr(self):
+    def test_tauri_voice_panel_uses_bounded_native_recording_and_all_asr_transports(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         plugin_rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        doubao = (plugin / "ios/Sources/IOSVoiceDoubaoTransport.swift").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
 
         self.assertIn("sdk: AVFoundation.framework", project)
@@ -46,8 +47,18 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('request.setValue("multipart/form-data; boundary=', swift)
         self.assertIn("willPerformHTTPRedirection", swift)
         self.assertIn("private static let maximumResponseBytes = 1024 * 1024", swift)
-        self.assertIn('["openai", "siliconflow", "groq"]', swift)
-        self.assertNotIn('["openai", "siliconflow", "groq", "doubao"]', swift)
+        self.assertIn('["openai", "siliconflow", "groq"].contains(args.provider)', swift)
+        self.assertIn('args.provider == "doubao"', swift)
+        self.assertIn('components.scheme?.lowercased() == "wss"', swift)
+        self.assertIn('@_silgen_name("msime_client_doubao_start_frame")', doubao)
+        self.assertIn('@_silgen_name("msime_client_doubao_audio_frame")', doubao)
+        self.assertIn('@_silgen_name("msime_client_doubao_decode_frame")', doubao)
+        self.assertIn("URLSessionWebSocketTask", doubao)
+        self.assertIn("task.maximumMessageSize = Self.maximumFrameBytes", doubao)
+        self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
+        self.assertIn("willPerformHTTPRedirection", doubao)
+        self.assertIn("IosVoiceRequestHeader", rust_entry)
+        self.assertIn("msime_client_core::doubao_auth::headers(", rust_entry)
         self.assertIn('#[cfg(all(unix, not(target_os = "ios")))]', rust_entry)
         self.assertIn("ios_voice_provider_configuration(&snapshot.preferences)", rust_entry)
         self.assertIn('phase: Some("recording".into())', rust_entry)
