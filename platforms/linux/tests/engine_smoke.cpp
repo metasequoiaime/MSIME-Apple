@@ -814,6 +814,64 @@ int main(int argc, char **argv) {
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive &&
                 seen.clipboard_toggle_sensitive,
             "Initial input and clipboard properties were not available");
+    {
+      const auto panel_marker = root / "panel-launches.log";
+      const auto panel_launcher = root / "panel-launcher";
+      std::ofstream(panel_launcher)
+          << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" >> \""
+          << panel_marker.string() << "\"\n";
+      std::filesystem::permissions(panel_launcher,
+                                   std::filesystem::perms::owner_read |
+                                       std::filesystem::perms::owner_write |
+                                       std::filesystem::perms::owner_exec,
+                                   std::filesystem::perm_options::replace);
+      auto panel_routes = [&] {
+        std::vector<std::string> routes;
+        std::ifstream input(panel_marker);
+        for (std::string route; std::getline(input, route);)
+          routes.push_back(std::move(route));
+        return routes;
+      };
+      auto wait_panel = [&](auto ready) {
+        const auto deadline = g_get_monotonic_time() + 2000000;
+        while (!ready() && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {
+          }
+          g_usleep(1000);
+        }
+        return ready();
+      };
+      g_setenv("MSIME_CLIENT_SETTINGS_COMMAND", panel_launcher.c_str(), TRUE);
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      require(wait_panel([&] { return panel_routes().size() == 1; }) &&
+                  panel_routes().front() == "emoji",
+              "Active toolbar panel action did not launch its route");
+      invoke("FocusOut");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      g_usleep(100000);
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
+      require(panel_routes().size() == 1,
+              "Stale toolbar panel action launched after focus out");
+      invoke("FocusIn");
+      invoke("Set", g_variant_new(
+                        "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                        g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      g_usleep(100000);
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
+      require(panel_routes().size() == 1,
+              "Toolbar panel action launched in a restricted field");
+      invoke("Set",
+             g_variant_new(
+                 "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                 g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
+      g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
+    }
     auto relative_preferences = options;
     relative_preferences["preferences_directory"] = "relative";
     invoke("FocusOut");

@@ -3772,6 +3772,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     return;
   }
   if (property_name.rfind("Toolbar/", 0) == 0) {
+    if (!s.focused || s.blocked)
+      return;
     if (property_name == "Toolbar/Emoji") {
       launch_desktop_panel("emoji");
       return;
