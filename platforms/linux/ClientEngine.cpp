@@ -5664,11 +5664,15 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
     s.invalidate_providers();
     s.ai_context.clear();
   }
-  if (s.applied_preferences_snapshot.is_object() &&
-      s.applied_preferences_snapshot.value("custom_translation", Json(nullptr)) !=
-          preferences.value("custom_translation", Json(nullptr))) {
-    s.invalidate_providers();
-    s.translation_reset_pending = true;
+  if (s.applied_preferences_snapshot.is_object()) {
+    for (const auto *key : {"custom_translation", "niutrans", "tencent_tmt"}) {
+      if (s.applied_preferences_snapshot.value(key, Json(nullptr)) ==
+          preferences.value(key, Json(nullptr)))
+        continue;
+      s.invalidate_providers();
+      s.translation_reset_pending = true;
+      break;
+    }
   }
   s.applied_preferences_snapshot = preferences;
   s.refresh_host_preferences(preferences);

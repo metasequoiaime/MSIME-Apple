@@ -665,6 +665,86 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
+    {
+      const auto socket = (root / "translation-preferences.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.tag_responses = true;
+      const auto directory = root / "translation-preferences";
+      std::filesystem::create_directory(directory);
+      auto translated = options;
+      translated["translation_provider_socket"] = socket;
+      translated["preferences_directory"] = directory.string();
+      translated["preferences"]["candidate_translations"] = true;
+      translated["preferences"]["candidate_english_gloss"] = false;
+      translated["preferences"]["translation_target_language"] = "fr";
+      translated["preferences"]["custom_translation"]["enabled"] = false;
+      translated["preferences"]["niutrans"]["enabled"] = false;
+      auto save = [&](unsigned revision) {
+        std::ofstream(directory / "next.json") << nlohmann::json{
+            {"format_version", 1}, {"revision", revision},
+            {"preferences", translated.at("preferences")}}.dump();
+        std::filesystem::rename(directory / "next.json",
+                                directory / "preferences.json");
+      };
+      save(1);
+      msime_preview_configure(translated.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto first_deadline =
+          g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+      while ((seen.candidates.empty() ||
+              seen.candidates.front().find("synthetic gloss [1]") ==
+                  std::string::npos) &&
+             g_get_monotonic_time() < first_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 1 && !seen.candidates.empty() &&
+                  seen.candidates.front().find("synthetic gloss [1]") !=
+                      std::string::npos,
+              "Initial translation provider result did not render");
+      provider.hold_responses = true;
+      translated["preferences"]["niutrans"] = {
+          {"enabled", true}, {"app_id", "synthetic-app"},
+          {"apikey", "synthetic-key"}};
+      save(2);
+      const auto changed_deadline =
+          g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+      auto old_translation_visible = [&] {
+        return std::any_of(
+            seen.candidates.begin(), seen.candidates.end(),
+            [](const std::string &text) {
+              return text.find("synthetic gloss [1]") != std::string::npos;
+            });
+      };
+      while ((provider.requests < 2 || old_translation_visible()) &&
+             g_get_monotonic_time() < changed_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 2,
+              "NiuTrans preference change did not request a new translation");
+      require(!old_translation_visible(),
+              "NiuTrans preference change left the previous provider gloss visible");
+      provider.hold_responses = false;
+      const auto replacement_deadline =
+          g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+      while ((seen.candidates.empty() ||
+              seen.candidates.front().find("synthetic gloss [2]") ==
+                  std::string::npos) &&
+             g_get_monotonic_time() < replacement_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(!seen.candidates.empty() &&
+                  seen.candidates.front().find("synthetic gloss [2]") !=
+                      std::string::npos,
+              "Updated translation provider result did not replace the cleared gloss");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
     msime_preview_configure(options.dump());
     engine = create_engine();
     seen = Observation{};
