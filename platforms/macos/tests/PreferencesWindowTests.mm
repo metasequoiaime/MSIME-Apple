@@ -1,6 +1,7 @@
 #import "../src/PreferencesWindowController.h"
 
 #import "../src/FloatingToolbarPreferences.h"
+#import "../src/LocalInputModePreferences.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -313,7 +314,7 @@ int main()
         NSButton *appearanceNavigationItem = FindButtonWithTitle(navigation, @"外观");
         NSButton *skinNavigationItem = FindButtonWithTitle(navigation, @"皮肤");
         NSButton *dataNavigationItem = FindButtonWithTitle(navigation, @"词库");
-        NSButton *updatesNavigationItem = FindButtonWithTitle(navigation, @"关于与更新");
+        NSButton *updatesNavigationItem = FindButtonWithTitle(navigation, @"关于");
         require(generalNavigationItem != nil && appearanceNavigationItem != nil && skinNavigationItem != nil &&
                     dataNavigationItem != nil && updatesNavigationItem != nil,
                 "The settings window did not expose all sidebar destinations.");
@@ -324,8 +325,8 @@ int main()
         NSMutableArray<NSString *> *navigationOrder = [NSMutableArray array];
         CollectButtonTitlesWithAction(navigation, @selector(selectPreferencesPage:), navigationOrder);
         NSArray<NSString *> *expectedOrder = @[
-            @"输入", @"辅助码", @"快捷键", @"语音输入", @"外观", @"皮肤", @"悬浮工具栏", @"词库", @"账号", @"帮助",
-            @"反馈", @"关于与更新"
+            @"输入", @"辅助码", @"快捷键", @"实用功能", @"语音输入", @"外观", @"皮肤", @"悬浮工具栏", @"词库", @"账号",
+            @"帮助", @"反馈", @"关于"
         ];
         require([navigationOrder isEqualToArray:expectedOrder],
                 "The settings sidebar was not grouped as input, appearance, data and help.");
@@ -333,7 +334,7 @@ int main()
         NSView *appearancePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"外观设置页");
         NSView *skinPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"皮肤设置页");
         NSView *dataPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"词库与数据设置页");
-        NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"更新与反馈设置页");
+        NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"关于设置页");
         require(generalPage != nil && appearancePage != nil && skinPage != nil && dataPage != nil && updatesPage != nil,
                 "The settings window did not create all functional pages.");
         require(!generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
@@ -464,11 +465,44 @@ int main()
 
         // Off by default: turning it on hands Shift+U/T/K/J to the engine's local input modes, and
         // those keystrokes insert a bare capital today, so it must never arrive switched on.
-        NSButton *localInputModesButton =
-            FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式（Shift+U/T/K/J）");
+        NSButton *localInputModesButton = FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式");
         require(localInputModesButton != nil, "The settings window did not expose the local input mode switch.");
         require(localInputModesButton.state == NSControlStateValueOff,
                 "The local input mode switch did not default to off.");
+        // 逐项开关:每个模式一个勾选框,默认开(总开关关着时它们不可点,所以「默认开」不等于默认生效),
+        // 在卡片里找而不是全窗口找 —— 这些标题在别处也可能出现。
+        // 双拼预编辑:引擎一直有 shuangpin_preedit_uses_raw,设置里从来没有过对应控件,于是所有人都吃
+        // 默认值。默认是「原始按键」,改成「拼音分词」要写进偏好。
+        NSPopUpButton *shuangpinPreeditButton =
+            (NSPopUpButton *)FindViewWithAccessibilityLabel(controller.window.contentView, @"双拼预编辑");
+        require([shuangpinPreeditButton isKindOfClass:[NSPopUpButton class]],
+                "The appearance page did not expose the shuangpin preedit choice.");
+        require(shuangpinPreeditButton.indexOfSelectedItem == 0,
+                "The shuangpin preedit choice did not default to the raw keys the engine uses.");
+        [shuangpinPreeditButton selectItemAtIndex:1];
+        require([NSApp sendAction:shuangpinPreeditButton.action
+                               to:shuangpinPreeditButton.target
+                             from:shuangpinPreeditButton] &&
+                    !MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES),
+                "Choosing spelled-out pinyin for the shuangpin preedit did not persist.");
+        [shuangpinPreeditButton selectItemAtIndex:0];
+        require([NSApp sendAction:shuangpinPreeditButton.action
+                               to:shuangpinPreeditButton.target
+                             from:shuangpinPreeditButton] &&
+                    MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES),
+                "Choosing raw keys for the shuangpin preedit did not persist.");
+
+        NSView *localModeItemsCard =
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"本地输入模式项目卡片");
+        require(localModeItemsCard != nil, "The utilities page did not expose the individual local input modes.");
+        for (NSString *item in MetasequoiaLocalInputModeKeys())
+        {
+            NSButton *itemButton = FindButtonWithTitle(localModeItemsCard, MetasequoiaLocalInputModeTitle(item));
+            require(itemButton != nil, "A local input mode had no control on the utilities page.");
+            require(itemButton.state == NSControlStateValueOn, "A local input mode did not default to enabled.");
+            require(!itemButton.enabled,
+                    "The per-mode switches stayed clickable while the whole family was switched off.");
+        }
         // A real click flips the state before the action runs, so the test has to do the same.
         localInputModesButton.state = NSControlStateValueOn;
         require([NSApp sendAction:localInputModesButton.action
@@ -648,9 +682,13 @@ int main()
             require(cardEntry.hidden || NSWidth(cardEntry.frame) == NSWidth(wubiSettingsRowInCard.superview.bounds),
                     "A scheme card row or separator did not fill its card width.");
         }
-        NSRect feedbackCardRect = [updatesPage convertRect:feedbackCard.bounds fromView:feedbackCard];
-        require(NSMaxY(feedbackCardRect) <= NSMaxY(updatesPage.bounds),
-                "The feedback card overflowed the updates page.");
+        // 页面是滚动视图,卡片落在可视区之外是正常的 —— 「关于」页现在有标识、更新、许可与隐私、反馈
+        // 四张卡,本来就一屏放不下。真正的不变量是没有被裁在滚动内容之外。
+        NSView *updatesDocument = [(NSScrollView *)updatesPage documentView];
+        require(updatesDocument != nil, "The about page was not scrollable.");
+        NSRect feedbackCardRect = [updatesDocument convertRect:feedbackCard.bounds fromView:feedbackCard];
+        require(NSMaxY(feedbackCardRect) <= NSMaxY(updatesDocument.bounds) + 0.5,
+                "The feedback card overflowed the about page's scrollable content.");
         require(dataPrivacyCard != nil, "The data page did not expose its final preference card.");
         NSRect dataPrivacyRectInWindow = [controller.window.contentView convertRect:dataPrivacyCard.bounds
                                                                            fromView:dataPrivacyCard];
@@ -937,6 +975,16 @@ int main()
                                                    effectiveRange:nil];
         require([feedbackTitleColor isEqual:[NSColor linkColor]],
                 "The updates-page actions did not remain visually distinct from disabled controls.");
+        // 点下去要真的到反馈页。这个入口曾经用「最后一页」定位反馈页,后来语音输入被追加到末尾,于是
+        // 它打开的是语音输入页 —— 只断言 action 是 showFeedback: 抓不到这种事。
+        NSView *feedbackPageView = FindViewWithAccessibilityLabel(controller.window.contentView, @"反馈页");
+        NSView *voicePageView = FindViewWithAccessibilityLabel(controller.window.contentView, @"语音输入设置页");
+        require(feedbackPageView != nil && voicePageView != nil, "The feedback or voice page was missing.");
+        require([NSApp sendAction:((NSButton *)feedbackView).action
+                               to:((NSButton *)feedbackView).target
+                             from:feedbackView] &&
+                    !feedbackPageView.hidden && voicePageView.hidden,
+                "The about page's feedback action did not open the feedback page.");
 
         __block bool resetStartedAfterCancel = false;
         id cancelObserver =
