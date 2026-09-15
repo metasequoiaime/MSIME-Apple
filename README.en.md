@@ -47,7 +47,7 @@ Short version: the keyboard engine sends nothing. Typed text, candidates, learne
 
 ```sh
 brew install boost fmt spdlog nlohmann-json cmake
-git submodule update --init --recursive
+python3 scripts/fetch_engine.py
 python3 platforms/macos/tests/create_fixture_dictionary.py /tmp/dict/msime.db
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
