@@ -16,4 +16,13 @@ int main() {
   assert(frame[0] == 0x53 && frame[1] == 0x4c);
   request.version_value = 2;
   assert(!valid_tsf_focus_lease_request(request));
+  request.version_value = TsfFocusLeaseRequest::version;
+  request.reserved = 1;
+  assert(!valid_tsf_focus_lease_request(request));
+  request.reserved = 0;
+  request.magic_value ^= 1;
+  assert(!valid_tsf_focus_lease_request(request));
+  request.magic_value = TsfFocusLeaseRequest::magic;
+  request.client = 0;
+  assert(!valid_tsf_focus_lease_request(request));
 }

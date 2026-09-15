@@ -18,6 +18,7 @@ struct TsfFocusLeaseRequest {
 };
 
 using TsfFocusLeaseFrame = std::array<std::uint8_t, 32>;
+static_assert(TsfFocusLeaseFrame{}.size() == 32);
 
 constexpr void write_u16(std::uint8_t *out, std::uint16_t value) {
   out[0] = static_cast<std::uint8_t>(value);
