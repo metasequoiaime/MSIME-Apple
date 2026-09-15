@@ -42,6 +42,8 @@ macOS IMK 语音运行时现在消费 Tauri 共享 `voice_input.capture_backend`
 
 macOS 设置页现在也显示共享的腾讯云翻译凭据探测入口；探测请求通过已有 Tauri `test_api_credential` 路由发送当前 SecretId、SecretKey 和地域，不改变 macOS 的原生 IMK 边界。
 
+macOS 语音设置页不再显示无法提交到 IMK 输入会话的共享 Tauri 语音面板按钮。云端识别和结果提交继续由当前输入法进程负责，设置页改为明确提示使用输入法快捷键或悬浮工具栏；Windows/Linux 的共享语音面板入口保持不变。
+
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。

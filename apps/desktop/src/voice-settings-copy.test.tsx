@@ -63,6 +63,14 @@ test("Windows is not told its voice input runs through a Linux provider", async 
   expect(screen.getByText(/随识别请求发送给豆包/)).toBeTruthy();
 });
 
+test("macOS keeps voice submission in the native input-method process", async () => {
+  await openVoice("macos");
+  expect(screen.getByText("macOS 输入法语音")).toBeTruthy();
+  expect(screen.getByText(/由当前输入法进程负责/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  expect(screen.queryByText("打开语音输入")).toBeNull();
+});
+
 test("Linux keeps the wording that is accurate there", async () => {
   await openVoice("linux");
   expect(screen.getByText("Linux provider 行为")).toBeTruthy();
