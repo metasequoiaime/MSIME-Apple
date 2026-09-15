@@ -4681,12 +4681,21 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
             #[cfg(target_os = "macos")]
-            let macos_launch = macos_launch::resolve(
-                &app.path().app_data_dir()?,
-                std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
-                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS")),
-                std::env::var_os("MSIME_CLIENT_STATE_DIR"),
-            )?;
+            let macos_launch = {
+                let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"));
+                let resources_directory = if options_override.is_none() {
+                    Some(app.path().resource_dir()?.join("EngineResources"))
+                } else {
+                    None
+                };
+                macos_launch::resolve_with_resources(
+                    &app.path().app_data_dir()?,
+                    resources_directory.as_deref(),
+                    options_override,
+                    std::env::var_os("MSIME_CLIENT_STATE_DIR"),
+                )?
+            };
             #[cfg(target_os = "macos")]
             let directory = macos_launch.preferences_directory.clone();
             #[cfg(target_os = "android")]
