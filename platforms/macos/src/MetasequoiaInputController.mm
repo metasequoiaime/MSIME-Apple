@@ -247,6 +247,12 @@ static NSHashTable *LiveDictionaryControllers()
                                                  selector:@selector(prepareForLearnedDataReset:)
                                                      name:MetasequoiaWillResetLearnedDataNotification
                                                    object:nil];
+        // 设置窗多数时候就在这个进程里(输入菜单那条路),但 open-settings.sh 会另起一个。那时清空学习
+        // 数据或改用户词库的是另一个进程,只听本地通知的话这边会抱着旧缓存继续答出已经被删掉的词。
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                          selector:@selector(prepareForLearnedDataReset:)
+                                                              name:MetasequoiaWillResetLearnedDataNotification
+                                                            object:nil];
         for (NSNotificationName notificationName in @[
                  MetasequoiaFloatingToolbarDidChangeNotification,
                  @"MetasequoiaChinesePunctuationDidChangeNotification",

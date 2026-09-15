@@ -24,6 +24,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #import "CandidateSkinAppearance.h"
 #import "CandidateSkinPreviewView.h"
 #import "DictionaryInstaller.h"
+#import "PersonalDictionaryView.h"
 #import "SkinSettingsView.h"
 #import "UpdateController.h"
 #import "VoiceSettings.h"
@@ -379,6 +380,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_shuangpinHelpcodeHintsButton;
     NSButton *_localInputModesButton;
     NSPopUpButton *_shuangpinPreeditButton;
+    MetasequoiaPersonalDictionaryView *_personalDictionaryView;
     NSArray<NSButton *> *_localInputModeItemButtons;
     NSPopUpButton *_quanpinHelpcodeSchemaButton;
     NSPopUpButton *_shuangpinHelpcodeSchemaButton;
@@ -2015,9 +2017,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     ]);
     generalPage.accessibilityLabel = @"键盘输入设置页";
     resetCard.accessibilityLabel = @"数据与隐私卡片";
-    NSView *dataPage =
-        PreferencesPage(@"词库与数据", @"管理候选学习、辅助码与本机词库状态。",
-                        @[ SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"数据与隐私"), resetCard ]);
+    // 用户词库以前只能靠打字积累、靠「清除学习数据」整片抹掉,单条看不到也改不了 —— 引擎的
+    // personal_dictionary API 一直在,只是 macOS 这边从没接过。
+    _personalDictionaryView = [[MetasequoiaPersonalDictionaryView alloc] initWithFrame:NSZeroRect];
+    NSBox *personalDictionaryCard = CardWithViews(@[ _personalDictionaryView ], 0.0);
+    personalDictionaryCard.accessibilityLabel = @"用户词库卡片";
+    NSView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
+        SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"用户词库"), personalDictionaryCard,
+        SectionLabel(@"数据与隐私"), resetCard
+    ]);
     dataPage.accessibilityLabel = @"词库与数据设置页";
 
     _versionLabel = [NSTextField labelWithString:@"开发构建"];
@@ -2250,6 +2258,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     {
         const BOOL selected = index == pageIndex;
         _preferencePages[index].hidden = !selected;
+    }
+    if (pageIndex == kDataPageIndex)
+    {
+        // 每次切过来都重读:窗口是常驻的,打字新造的词不重读就永远不出现在列表里。
+        [_personalDictionaryView reload];
     }
     // 账号视图靠宿主窗口当登录的 presentationAnchor,嵌进来之后它自己没有 window 可指。
     if (pageIndex == kAccountPageIndex)
