@@ -564,16 +564,11 @@ int wmain(int argc, wchar_t **argv) {
     auto mode_scope_global = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("ime_mode_scope", std::string("app")) == "global");
-    auto menu_light = std::make_shared<std::atomic<bool>>([&] {
+    auto menu_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
       const auto theme = stored.value("menu_theme", std::string("follow"));
-      if (theme == "light")
-        return true;
-      if (theme == "dark")
-        return false;
       const auto global = stored.value("theme", std::string("dark"));
-      return global == "light" ||
-             (global == "system" && !system_prefers_dark());
+      return surface_theme_mode(theme, global);
     }());
     auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
       const auto &stored = prepared.at("value").at("preferences");
@@ -618,7 +613,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
          toolbar_enabled, follow_cursor, voice_light, candidate_fonts,
-         toolbar_theme, menu_light, mode_scope_global, tsf_config, candidate_layout,
+         toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
          tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
           const auto preferences =
@@ -643,12 +638,8 @@ int wmain(int argc, wchar_t **argv) {
             const auto theme =
                 preferences.value("menu_theme", std::string("follow"));
             const auto global = preferences.value("theme", std::string("dark"));
-            menu_light->store(
-                theme == "light" ||
-                    (theme != "dark" &&
-                     (global == "light" ||
-                      (global == "system" && !system_prefers_dark()))),
-                std::memory_order_release);
+            menu_theme->store(surface_theme_mode(theme, global),
+                              std::memory_order_release);
           }
           {
             const auto theme =
@@ -1036,7 +1027,8 @@ int wmain(int argc, wchar_t **argv) {
         },
         [&] { return toolbar_visible; });
     // The menu follows its own theme and the active skin, like the toolbar.
-    bool menu_dark_applied = !menu_light->load(std::memory_order_acquire);
+    bool menu_dark_applied = !surface_theme_is_light(
+        menu_theme->load(std::memory_order_acquire), system_dark);
     std::string menu_skin_applied = config.skin_id;
     tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
@@ -1250,7 +1242,8 @@ int wmain(int argc, wchar_t **argv) {
       if (auto settings = toolbar_settings->take())
         toolbar.set_settings(*settings);
       voice_overlay.set_light_theme(voice_light->load(std::memory_order_acquire));
-      if (const bool dark = !menu_light->load(std::memory_order_acquire);
+      if (const bool dark = !surface_theme_is_light(
+              menu_theme->load(std::memory_order_acquire), system_dark);
           dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
         menu_dark_applied = dark;
         menu_skin_applied = candidate_skin_applied;
@@ -1336,13 +1329,28 @@ int wmain(int argc, wchar_t **argv) {
       const uint64_t now = GetTickCount64();
       if (const auto anchor = tray_mailbox.take()) {
         switch (tray_menu_request_action(tray.visible(), now, tray_shown_at)) {
-        case TrayMenuRequestAction::Show:
+        case TrayMenuRequestAction::Show: {
+          // The reference presenter resolves its theme on every opening.
+          // Sample Windows now rather than relying on the periodic candidate
+          // theme check, so a menu opened immediately after a system theme
+          // change never flashes the previous palette.
+          const bool dark = !surface_theme_is_light(
+              menu_theme->load(std::memory_order_acquire),
+              system_prefers_dark());
+          if (dark != menu_dark_applied ||
+              menu_skin_applied != candidate_skin_applied) {
+            menu_dark_applied = dark;
+            menu_skin_applied = candidate_skin_applied;
+            tray.set_palette(
+                candidate_builtin_palette(menu_skin_applied, dark));
+          }
           if (tray.open(anchor->center_x, anchor->top)) {
             tray_shown_at = now;
             pointer_left_at = now;
             tray_foreground = GetForegroundWindow();
           }
           break;
+        }
         case TrayMenuRequestAction::Hide:
           tray.hide();
           break;
