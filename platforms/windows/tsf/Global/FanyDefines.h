@@ -8,26 +8,6 @@
 namespace Global
 {
 inline std::wstring ZEN_BROWSER = L"zen.exe";
-// Some hosts cannot correctly consume the caret move used by paired
-// punctuation. Keep this policy at the TSF host boundary so the key handler
-// can fall back to its ordinary punctuation behavior for those processes.
-inline const wchar_t *const PAIRED_PUNCTUATION_EXCLUDED_APPS[] = {L"EXCEL.EXE"};
-
-inline bool IsPairedPunctuationExcludedProcess(const std::wstring &processName)
-{
-    if (processName.empty())
-    {
-        return false;
-    }
-    for (const wchar_t *excluded : PAIRED_PUNCTUATION_EXCLUDED_APPS)
-    {
-        if (CompareStringOrdinal(processName.c_str(), -1, excluded, -1, TRUE) == CSTR_EQUAL)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 // inline std::unordered_set<std::wstring> VSCodeSeries = {L"Code.exe", L"Code - Insiders.exe", L"VSCodium.exe"};
 // inline bool IsVSCodeLike = false;
 inline LONG INVALID_Y = -100000;
