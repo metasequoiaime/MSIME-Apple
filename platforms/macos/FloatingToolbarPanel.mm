@@ -353,6 +353,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                                object:nil];
     [self applySizingPreferences:@{}];
     [self updateEnglishInputMode:NO
+              japaneseInputMode:NO
+                       capsLock:NO
               chinesePunctuationEnabled:YES
                        fullWidthEnabled:NO
         traditionalChineseOutputEnabled:NO];
@@ -512,7 +514,23 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
-    _inputModeButton.title = englishInputMode ? @"英" : @"中";
+    [self updateEnglishInputMode:englishInputMode
+              japaneseInputMode:NO
+                       capsLock:NO
+              chinesePunctuationEnabled:chinesePunctuationEnabled
+                       fullWidthEnabled:fullWidthEnabled
+        traditionalChineseOutputEnabled:traditionalChineseOutputEnabled];
+}
+
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
+{
+    NSString *inputModeTitle = capsLock ? @"A" : (englishInputMode ? @"英" : (japaneseInputMode ? @"日" : @"中"));
+    _inputModeButton.title = inputModeTitle;
     _inputModeButton.accessibilityLabel = englishInputMode ? @"切换到中文输入" : @"切换到英文输入";
     _punctuationButton.title = chinesePunctuationEnabled ? @"。" : @".";
     _punctuationButton.accessibilityLabel = chinesePunctuationEnabled ? @"切换到西文标点" : @"切换到中文标点";

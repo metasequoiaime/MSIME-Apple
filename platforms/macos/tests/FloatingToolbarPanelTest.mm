@@ -233,6 +233,28 @@ int main() {
         assert([fullWidth.toolTip isEqualToString:fullWidth.accessibilityLabel]);
         assert([traditional.toolTip isEqualToString:traditional.accessibilityLabel]);
 
+        [panel updateEnglishInputMode:NO
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"日"]);
+        [panel updateEnglishInputMode:NO
+                    japaneseInputMode:YES
+                             capsLock:YES
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"A"]);
+        [panel updateEnglishInputMode:YES
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"英"]);
+
         FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
         panel.toolbarDelegate = delegate;
         SendButton(inputMode);
