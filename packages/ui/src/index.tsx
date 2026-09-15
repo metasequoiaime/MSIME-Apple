@@ -1566,6 +1566,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       platform={androidPlatform ? "android" : client.host?.platform === "ios" ? "ios" : undefined}
       onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
       onOpenCommunity={client.communitySkins && client.communityResources ? openCommunity : undefined}
+      onOpenCloudDictionary={client.openCloudDictionary ? () => { void client.openCloudDictionary!().catch(() => setError("无法打开云词库，请重试。")); } : undefined}
+      onOpenCloudClipboard={client.openCloudClipboard ? () => { void client.openCloudClipboard!().catch(() => setError("无法打开云剪贴板，请重试。")); } : undefined}
     />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}

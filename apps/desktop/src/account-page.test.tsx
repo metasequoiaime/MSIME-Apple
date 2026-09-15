@@ -151,6 +151,17 @@ test("logged-in accounts expose local designs and every community collection", a
   ]);
 });
 
+test("logged-in mobile accounts expose direct cloud dictionary and clipboard entries", async () => {
+  const openCloudDictionary = vi.fn();
+  const openCloudClipboard = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} onOpenCloudDictionary={openCloudDictionary} onOpenCloudClipboard={openCloudClipboard} />);
+  fireEvent.click(await screen.findByRole("button", { name: "云词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  expect(openCloudDictionary).toHaveBeenCalledTimes(1);
+  expect(openCloudClipboard).toHaveBeenCalledTimes(1);
+});
+
 test("local designs remain available without an account", async () => {
   const openLocalDesigns = vi.fn();
   render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);

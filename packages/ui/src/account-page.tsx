@@ -264,13 +264,15 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   </section>;
 }
 
-export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  onOpenCloudDictionary?: () => void;
+  onOpenCloudClipboard?: () => void;
 }) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
@@ -285,16 +287,20 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
     onOpenPublishedSkins={onOpenPublishedSkins}
     onOpenLocalDesigns={onOpenLocalDesigns}
     onOpenCommunity={onOpenCommunity}
+    onOpenCloudDictionary={onOpenCloudDictionary}
+    onOpenCloudClipboard={onOpenCloudClipboard}
   />;
 }
 
-function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity }: {
+function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard }: {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
+  onOpenCloudDictionary?: () => void;
+  onOpenCloudClipboard?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -548,6 +554,11 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         </div>}
       </section>
       {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
+      {(onOpenCloudDictionary || onOpenCloudClipboard) && <section className="section account-community-actions">
+        <div><h2>云端</h2><p>访问账号中的云词库和云剪贴板。</p></div>
+        {onOpenCloudDictionary && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudDictionary}>云词库</button>}
+        {onOpenCloudClipboard && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudClipboard}>云剪贴板</button>}
+      </section>}
       {(openPublishedSkins || onOpenCommunity) && <section className="section account-community-actions">
         <div><h2>我的社区作品</h2><p>管理你公开发布或收藏的社区作品。</p></div>
         {openPublishedSkins && <button type="button" className="secondary" disabled={busy} onClick={openPublishedSkins}>我发布的皮肤</button>}
