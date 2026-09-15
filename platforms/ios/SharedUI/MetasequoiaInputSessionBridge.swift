@@ -305,6 +305,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
+  /// The native App Group value remains a compatibility mirror for old hosts.
+  @discardableResult
+  func setTouchKeyboardSkin(_ skin: KeyboardSkin) -> Bool {
+    updatePreferences { preferences in
+      preferences["touch_keyboard_skin"] = skin.rawValue
+    }
+  }
+
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
   }

@@ -108,6 +108,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(schemes["selected"] as? String, "microsoft")
   }
 
+  func testTouchSkinWritesCanonicalPreference() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-touch-skin-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+
+    XCTAssertTrue(bridge.setTouchKeyboardSkin(.midnight))
+    let preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["touch_keyboard_skin"] as? String, "midnight")
+  }
+
   func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-fuzzy-\(UUID().uuidString)", isDirectory: true)

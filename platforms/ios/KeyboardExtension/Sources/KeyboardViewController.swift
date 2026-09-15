@@ -2851,6 +2851,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let picker = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected, onSelect: { [weak self] skin in
       guard let self else { return }
       KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      _ = session.setTouchKeyboardSkin(skin)
       closeKeyboardPicker()
       applyKeyboardSkin()
       playInputClick()
