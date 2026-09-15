@@ -175,6 +175,19 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
 
   useEffect(() => { void update(() => client.load()); }, [client]);
 
+  useEffect(() => {
+    if (!mobile) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "hidden") void update(() => client.load());
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [client, mobile]);
+
   if (!status) return <div className="statistics-page">{error ? <p role="alert" className="error">{error}</p> : <p role="status">正在读取打字统计…</p>}</div>;
   const statistics = status.statistics;
   const scopeKeys = selectedDay ? [selectedDay] : mobile || period === 0 ? null : trendDays.map(day => day.key);
