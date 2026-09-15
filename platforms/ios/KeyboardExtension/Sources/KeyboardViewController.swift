@@ -77,6 +77,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let moreShortcut = KeyboardBrandButton()
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
+  private var handwritingResults: [String] = []
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
@@ -363,6 +364,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.finishComposition())
       insertOwnText(ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput), source: .handwriting)
       playInputClick()
+    }
+    handwriting.onResults = { [weak self] words in
+      guard let self, inputScheme == .handwriting, isChineseMode else { return }
+      handwritingResults = words
+      updateCandidateStrip(preedit: "", candidates: words)
     }
     handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
     handwriting.onDelete = { [weak self] in self?.handleBackspace() }
@@ -2336,6 +2342,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
         self.playInputClick()
+        // Handwriting candidates are not Engine candidates, so their visible index must route back
+        // through the handwriting panel rather than through session.selectCandidate.
+        if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
+          if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
     button.titleLabel?.numberOfLines = 1
@@ -2470,9 +2482,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = Self.compositionRowHeight
-    let height: CGFloat = handwriting.isHidden
+    // Handwriting shares the candidate strip and therefore the common portrait height. Landscape
+    // keeps a small allowance so the writing canvas remains usable in the shorter keyboard.
+    let height: CGFloat = handwriting.isHidden || !landscape
       ? (landscape ? 216 + extra : 260 + extra)
-      : (landscape ? 260 + extra : 360 + extra)
+      : 240 + extra
     let adjustedHeight = height + sharedKeyboardHeightAdjustment
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
   }
