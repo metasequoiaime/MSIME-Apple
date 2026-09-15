@@ -5,14 +5,16 @@ fn snapshot_module_is_present() {
 
 #[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
-    activation_case(false, false);
-    activation_case(true, false);
+    activation_case(false, false, 123);
+    activation_case(true, false, 123);
 }
 
 #[test]
 fn activation_rejects_live_session_before_swapping() {
-    activation_case(false, true);
-    activation_case(true, true);
+    // The registry is process-global; use a distinct fixture handle so this
+    // test can run in parallel with the successful activation cases.
+    activation_case(false, true, 125);
+    activation_case(true, true, 125);
 }
 
 #[test]
@@ -83,7 +85,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
     drop(session_access);
 }
 
-fn activation_case(nested_dictionaries: bool, hold_session: bool) {
+fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     use super::*;
     use msime_client_core::dictionary_access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
@@ -149,7 +151,6 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool) {
     let staged_options = make(&staged);
     let expected = super::version_without_access(&active_options).unwrap();
     let directory = tempfile::tempdir_in(root.path()).unwrap();
-    let handle = super::NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if !hold_session {
         // The replacement generation can be syntactically well-formed while
         // still being rejected by the Engine.  Probe that failure before any
