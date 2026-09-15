@@ -969,3 +969,9 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 补齐共享设置页中绕过 history 的深层入口：首页快捷卡片、聊天登录、账号关于、社区资源/皮肤和本地皮肤编辑器现在统一通过移动导航函数进入页面。这样从账号进入关于或从首页进入输入/皮肤后，Android 系统返回和 iOS 导航手势都能回到来源页；桌面端仍使用原有侧栏状态。社区目的地在导航后再写入，保留“我的/已保存”等深链筛选条件。
 
 本地验证通过设置页 TypeScript 检查、设置 UI 136 项全量测试及新增移动深链返回回归。真实 iOS 手势、Android Activity 返回动画和旋转后的 history 恢复仍需设备验证，CI 保持禁用。
+
+### 移动端帮助页完整文档入口（2026-09-16）
+
+依据 Apple `HelpView` 的“完整文档（网页）”入口，共享 Tauri 帮助页新增同名外链按钮。按钮只通过宿主注入的 `openExternalUrl` 打开 `https://msime.app/docs/`，不把网页内容嵌入 WebView，也不改变输入、账号或 Engine 状态；宿主未提供外链能力时不显示按钮。桌面与 Android/iOS 共享同一入口，保持平台帮助文案差异。
+
+本地验证通过桌面帮助页定向 Vitest（桌面与 Android 场景）和 TypeScript 类型检查；未执行 iOS/Android 真机浏览器跳转或系统外链策略验收，CI 保持禁用。

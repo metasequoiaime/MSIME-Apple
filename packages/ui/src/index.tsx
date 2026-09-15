@@ -167,6 +167,7 @@ const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/MSIME-Client/issues";
 const desktopDownloadUrl = "https://msime.app/download/";
+const documentationUrl = "https://msime.app/docs/";
 
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
@@ -2136,6 +2137,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <p>{platformNetworkDescription}</p>
             <p>更多功能欢迎自由探索～</p>
           </div>
+          {client.openExternalUrl && <div className="document-subsection"><div className="section-title">更多</div>
+            <button type="button" className="secondary" onClick={() => void openExternalUrl(documentationUrl)}>完整文档（网页）</button>
+          </div>}
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">

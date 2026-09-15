@@ -1720,6 +1720,8 @@ test("help, about and feedback pages expose their Windows content and actions", 
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("快速上手")).toBeDefined();
   expect(screen.getByText(/Win \+ Space/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "完整文档（网页）" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/docs/"));
 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("Metasequoia IME")).toBeDefined();
@@ -1746,6 +1748,8 @@ test("Android help and about pages use mobile instructions and project links", a
   expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/语言和输入法/)).toBeDefined();
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "完整文档（网页）" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/docs/"));
 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText(/Android 触屏输入体验/)).toBeDefined();
