@@ -16,8 +16,8 @@ static NSView *FindControl(NSView *root, NSString *label) {
     return nil;
 }
 
-static NSString *RenderedFamily(NSFont *font) {
-    NSAttributedString *text = [[NSAttributedString alloc] initWithString:@"合" attributes:@{NSFontAttributeName:font}];
+static NSString *RenderedFamilyForText(NSFont *font, NSString *value) {
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:value attributes:@{NSFontAttributeName:font}];
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)text);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     assert(CFArrayGetCount(runs) == 1);
@@ -27,6 +27,8 @@ static NSString *RenderedFamily(NSFont *font) {
     CFRelease(line);
     return family;
 }
+
+static NSString *RenderedFamily(NSFont *font) { return RenderedFamilyForText(font, @"合"); }
 
 static NSColor *TestCandidateColor(NSString *value) {
     unsigned int rgb = 0;
@@ -43,8 +45,15 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert(sans && serif);
     __block NSUInteger notifications = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
-    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_fallback_fonts": @[sans, serif]}];
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_english_font": @"Helvetica", @"candidate_fallback_fonts": @[sans, serif]}];
     assert(notifications == 0 && list.numberOfItems == 2);
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
+    NSDictionary *fontMerge = [preferences sharedPreferencesByMerging:@{}];
+    assert([fontMerge[@"candidate_english_font"] isEqual:@"Helvetica"]);
+    assert([RenderedFamilyForText([preferences candidateFontOfSize:18 englishFirst:YES], @"Latin") isEqual:@"Helvetica"]);
+    [preferences applySharedCandidatePreferences:@{}];
+    assert(!preferences.candidateEnglishFont);
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:sans]);
     [list selectItemAtIndex:1];
     [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontUp:") to:preferences from:nil];
@@ -64,6 +73,10 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
         [preferences applySharedCandidatePreferences:@{@"candidate_fallback_fonts": invalid}];
         assert([preferences.fallbackFonts isEqual:saved]);
     }
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"bad\nname"}];
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
     NSMutableArray *limit = [NSMutableArray array];
     for (NSUInteger i = 0; i < 32; ++i) [limit addObject:sans];
     preferences.fallbackFonts = limit;

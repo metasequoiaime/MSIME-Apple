@@ -2605,14 +2605,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
     NSArray *candidates = _view[@"candidates"];
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
-        NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize];
+        NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize englishFirst:YES];
         CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
         BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
         for (NSDictionary *candidate in candidates)
             rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplay(candidate, traditional), font) + 12);
         if (!_appearance.vertical) {
             CGFloat glossHeight = 0;
-            NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78];
+            NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
             for (NSDictionary *candidate in candidates) {
                 NSString *translation = CandidateTranslation(candidate);
                 if (translation.length) glossHeight = MAX(glossHeight, [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}].height + 4);
@@ -2623,7 +2623,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
-        NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
+        NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize englishFirst:YES];
         clearance += MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0);
     }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
@@ -2660,11 +2660,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
     const CGFloat inset = MAX(2.0, geometry.pad);
-    NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize];
+    NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
-    NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
+    NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize englishFirst:YES];
     CGFloat preeditHeight = preedit.length ? MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0) : 0;
     CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
@@ -2676,7 +2676,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger index = 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
-    NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78];
+    NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
     CGFloat glossHeight = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];

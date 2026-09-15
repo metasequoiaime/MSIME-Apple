@@ -35,6 +35,7 @@ static BOOL ValidMixedPrefix(id value) {
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
+static NSString *const CandidateEnglishFontKey = @"MSIMEClientCandidateEnglishFont";
 static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
 static BOOL ValidTextColor(id value) {
     if (![value isKindOfClass:NSString.class] || [value length] != 7 || ![value hasPrefix:@"#"]) return NO;
@@ -54,7 +55,8 @@ static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id curr
 static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
-           [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128;
+           [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128 &&
+           [value rangeOfCharacterFromSet:[NSCharacterSet controlCharacterSet]].location == NSNotFound;
 }
 static BOOL ValidFallbackFonts(id value) {
     if (![value isKindOfClass:NSArray.class] || [value count] > 32) return NO;
@@ -211,6 +213,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
+    id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
     id _sharedTextColor;
     id _sharedNumberColor;
@@ -241,6 +244,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSPopUpButton *_profileButton;
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
+    NSComboBox *_englishFontFamilyControl;
     NSComboBox *_fontFamilyControl;
     NSPopUpButton *_fallbackList;
     NSComboBox *_fallbackFamilyControl;
@@ -405,6 +409,8 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     merged[@"candidate_font_size"] = @(self.fontSize);
     if (_sharedFontFamily || [_defaults objectForKey:FontFamilyKey]) merged[@"candidate_font_family"] = self.fontFamily;
+    if (_sharedCandidateEnglishFont || [_defaults objectForKey:CandidateEnglishFontKey])
+        merged[@"candidate_english_font"] = self.candidateEnglishFont ?: (id)NSNull.null;
     if (_sharedTextColor || [_defaults objectForKey:TextColorKey]) merged[@"candidate_text_color"] = self.candidateTextColor ?: (id)NSNull.null;
     if (_sharedFallbackFonts || [_defaults objectForKey:FallbackFontsKey]) merged[@"candidate_fallback_fonts"] = self.fallbackFonts;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
@@ -1046,6 +1052,10 @@ static BOOL ValidToolbarFontSize(id value) {
     id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
     return ValidFontFamily(value) ? value : @"Segoe UI";
 }
+- (NSString *)candidateEnglishFont {
+    id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
+    return ValidFontFamily(value) ? value : nil;
+}
 - (NSString *)candidateTextColor {
     id value = _sharedTextColor ?: [_defaults objectForKey:TextColorKey];
     return ValidTextColor(value) ? value : nil;
@@ -1074,12 +1084,27 @@ static BOOL ValidToolbarFontSize(id value) {
     [_defaults setObject:[value copy] forKey:FontFamilyKey];
     [self preferencesChanged];
 }
+- (void)setCandidateEnglishFont:(NSString *)value {
+    if (value && !ValidFontFamily(value)) { [self refreshControls]; return; }
+    _sharedCandidateEnglishFont = nil;
+    // An empty marker lets the native fallback explicitly clear a previously
+    // shared value without putting NSNull into NSUserDefaults.
+    [_defaults setObject:value.length ? [value copy] : @"" forKey:CandidateEnglishFontKey];
+    [self preferencesChanged];
+}
 - (NSFont *)candidateFontOfSize:(CGFloat)size {
+    return [self candidateFontOfSize:size englishFirst:NO];
+}
+- (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst {
     // Resolve a family without silently substituting a different installed family.
     // Preserve unavailable cross-platform names in preferences. Resolve installed
     // supplementary families in order, retaining system fallback at the end.
     NSMutableArray<NSFontDescriptor *> *resolved = [NSMutableArray array];
-    for (NSString *family in [@[self.fontFamily] arrayByAddingObjectsFromArray:self.fallbackFonts]) {
+    NSMutableArray<NSString *> *families = [NSMutableArray array];
+    if (englishFirst && self.candidateEnglishFont.length) [families addObject:self.candidateEnglishFont];
+    [families addObject:self.fontFamily];
+    [families addObjectsFromArray:self.fallbackFonts];
+    for (NSString *family in families) {
         NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
         NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
         if (matched) [resolved addObject:matched];
@@ -1088,7 +1113,7 @@ static BOOL ValidToolbarFontSize(id value) {
     if (!resolved.count) return system;
     NSFontDescriptor *primary = resolved.firstObject;
     [resolved removeObjectAtIndex:0];
-    if (self.fallbackFonts.count) {
+    if (families.count > 1 || resolved.count) {
         [resolved addObject:system.fontDescriptor];
         primary = [primary fontDescriptorByAddingAttributes:@{NSFontCascadeListAttribute:resolved}];
     }
@@ -1217,6 +1242,13 @@ static BOOL ValidToolbarFontSize(id value) {
     _sharedBorderColor = SharedCandidateColor(preferences, @"candidate_border_color", _sharedBorderColor);
     id family = preferences[@"candidate_font_family"];
     if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
+    id englishFamily = preferences[@"candidate_english_font"];
+    if (!englishFamily) {
+        // An omitted optional field clears a previously loaded shared value,
+        // while leaving a legacy native-only value usable on first load.
+        if (_sharedCandidateEnglishFont) _sharedCandidateEnglishFont = NSNull.null;
+    } else if (englishFamily == NSNull.null) _sharedCandidateEnglishFont = NSNull.null;
+    else if (ValidFontFamily(englishFamily)) _sharedCandidateEnglishFont = [englishFamily copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
@@ -1330,6 +1362,7 @@ static BOOL ValidToolbarFontSize(id value) {
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
+    _englishFontFamilyControl.stringValue = self.candidateEnglishFont ?: @"";
     _fontFamilyControl.stringValue = self.fontFamily;
     _textColorField.stringValue = self.candidateTextColor ?: @"";
     _textColorWell.color = [self candidateTextColorWithDefault:NSColor.labelColor];
@@ -1391,6 +1424,13 @@ static BOOL ValidToolbarFontSize(id value) {
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
+    _englishFontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    [_englishFontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
+    _englishFontFamilyControl.completes = YES;
+    _englishFontFamilyControl.accessibilityLabel = @"候选窗英文字体";
+    _englishFontFamilyControl.toolTip = @"优先用于拉丁字符；未安装时回退到候选主字体和补充字体；留空表示不设置独立英文字体";
+    _englishFontFamilyControl.target = self;
+    _englishFontFamilyControl.action = @selector(englishFontFamilyChanged:);
     _fontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
     [_fontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
     _fontFamilyControl.completes = YES;
@@ -1569,6 +1609,7 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选位置"], _candidateFollowCursorButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
+        @[[NSTextField labelWithString:@"候选窗英文字体"], _englishFontFamilyControl],
         @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
         @[[NSTextField labelWithString:@"候选文字颜色"], textColorControls],
         @[[NSTextField labelWithString:@"补充字体（最多 32 项）"], fallbackAdd],
@@ -1794,6 +1835,9 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)fontChanged:(NSPopUpButton *)sender {
     NSInteger index = sender.indexOfSelectedItem;
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
+}
+- (void)englishFontFamilyChanged:(NSComboBox *)sender {
+    self.candidateEnglishFont = sender.stringValue.length ? sender.stringValue : nil;
 }
 - (void)fontFamilyChanged:(NSComboBox *)sender { self.fontFamily = sender.stringValue; }
 - (void)textColorChanged:(NSTextField *)sender { self.candidateTextColor = sender.stringValue.length ? sender.stringValue : nil; }
