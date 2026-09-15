@@ -4,12 +4,29 @@ import PhotosUI
 import UniformTypeIdentifiers
 import ImageIO
 
+/// 编辑器的顶层分栏。
+///
+/// 原先这是一个 `String`,取值有六个,而标签栏只画得出四个:「设计」和「我的」没有格子,只能从背景页里的按钮或工具菜单进,进去之后 `activeCategory` 又把它们映射回「背景」—— 人站在一个标签栏说他不在的页面上,而唯一的出路是点那个已经高亮着的格子。每个屏幕都有自己的格子,这件事就不会发生。
+private enum SkinEditorTab: String, CaseIterable, Identifiable {
+  case template = "模板", background = "背景", keys = "按键", text = "文本", library = "我的"
+  var id: String { rawValue }
+  var symbol: String {
+    switch self {
+    case .template: return "square.grid.2x2"
+    case .background: return "rectangle.on.rectangle"
+    case .keys: return "square.on.square"
+    case .text: return "textformat"
+    case .library: return "square.stack"
+    }
+  }
+}
+
 struct CustomSkinEditorView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var design = CustomKeyboardSkinStore.current
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
   @State private var confirmReset = false
-  @State private var section = "背景"
+  @State private var section = SkinEditorTab.background
   @State private var undo: [CustomKeyboardSkin] = []
   @State private var redo: [CustomKeyboardSkin] = []
   @State private var sliderStart: CustomKeyboardSkin?
@@ -23,10 +40,6 @@ struct CustomSkinEditorView: View {
   @State private var showPhotos = false
   @State private var publishingSkin: SavedKeyboardSkin?
   @State private var message: String?
-  @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults) private var soundEnabled = true
-  @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults) private var hapticsEnabled = false
-  @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults) private var hapticStrength = KeyboardHapticStrength.medium.rawValue
-  @State private var feedback: UIImpactFeedbackGenerator?
 
 
   private func apply(_ next: CustomKeyboardSkin, record: Bool = true) {
@@ -62,23 +75,22 @@ struct CustomSkinEditorView: View {
     Binding(get: { design[keyPath: path] }, set: { update(path, $0) })
   }
 
-  private var activeCategory: String { ["设计", "我的"].contains(section) ? "背景" : section }
-
   private var categoryBar: some View {
     HStack(spacing: 0) {
-      ForEach([("背景", "rectangle.on.rectangle"), ("按键", "square.on.square"), ("文本", "textformat"), ("音效", "music.note")], id: \.0) { title, symbol in
-        Button { section = title } label: {
+      ForEach(SkinEditorTab.allCases) { tab in
+        let active = section == tab
+        Button { section = tab } label: {
           VStack(spacing: 5) {
             Group {
-              if title == "文本" { Text("T").font(.system(size: 24, weight: .medium, design: .serif)) }
-              else { Image(systemName: symbol).font(.system(size: 22, weight: .regular)) }
-            }.frame(height: 26)
-            Text(title).font(.system(size: 13, weight: activeCategory == title ? .semibold : .regular))
-          }.frame(maxWidth: .infinity).frame(height: 64)
-            .foregroundStyle(activeCategory == title ? MetasequoiaTheme.forest : Color.secondary)
+              if tab == .text { Text("T").font(.system(size: 22, weight: .medium, design: .serif)) }
+              else { Image(systemName: tab.symbol).font(.system(size: 20, weight: .regular)) }
+            }.frame(height: 24)
+            Text(tab.rawValue).font(.system(size: 12, weight: active ? .semibold : .regular))
+          }.frame(maxWidth: .infinity).frame(height: 62)
+            .foregroundStyle(active ? MetasequoiaTheme.forest : Color.secondary)
             .contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityIdentifier("skinEditorTab_" + title)
-          .accessibilityAddTraits(activeCategory == title ? .isSelected : [])
+        }.buttonStyle(.plain).accessibilityIdentifier("skinEditorTab_" + tab.rawValue)
+          .accessibilityAddTraits(active ? .isSelected : [])
       }
     }.background(Color(uiColor: .systemBackground))
   }
@@ -91,9 +103,13 @@ struct CustomSkinEditorView: View {
           guard let previous = undo.popLast() else { return }; redo.append(design); apply(previous, record: false)
         } label: { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 38) }
           .disabled(undo.isEmpty || sliderStart != nil).accessibilityLabel("撤销设计").accessibilityIdentifier("undoSkinDesign")
+        Button {
+          guard let next = redo.popLast() else { return }; undo.append(design); apply(next, record: false)
+        } label: { Image(systemName: "arrow.uturn.forward").frame(width: 36, height: 38) }
+          .disabled(redo.isEmpty || sliderStart != nil).accessibilityLabel("重做设计").accessibilityIdentifier("redoSkinDesign")
         Picker("预览布局", selection: $nineKey) {
           Text("26 键").tag(false); Text("9 键").tag(true)
-        }.pickerStyle(.segmented).frame(width: 124).accessibilityIdentifier("skinEditorPreviewLayout")
+        }.pickerStyle(.segmented).frame(width: 118).accessibilityIdentifier("skinEditorPreviewLayout")
         Spacer(minLength: 0)
         Button { selected = KeyboardSkin.custom.rawValue } label: {
           Label(selected == KeyboardSkin.custom.rawValue ? "正在使用" : "使用皮肤", systemImage: "checkmark.circle.fill")
@@ -107,19 +123,9 @@ struct CustomSkinEditorView: View {
 
   private var backgroundGallery: some View {
     Section {
-      Button { showAI = true } label: {
-        Label("AI 皮肤抽卡", systemImage: "sparkles").font(.headline)
-          .frame(maxWidth: .infinity).padding(.vertical, 10)
-      }.accessibilityIdentifier("openAISkinDesigner")
-
-      HStack(spacing: 12) {
-        Button { section = "设计" } label: {
-          Label("设计模板", systemImage: "square.grid.2x2").frame(maxWidth: .infinity).frame(height: 44)
-        }.accessibilityIdentifier("skinEditorTemplates")
-        Button { showPhotos = true } label: {
-          Label("相册", systemImage: "photo.badge.plus").frame(maxWidth: .infinity).frame(height: 44)
-        }.accessibilityIdentifier("skinEditorAlbum")
-      }.buttonStyle(.bordered).tint(MetasequoiaTheme.forest)
+      Button { showPhotos = true } label: {
+        Label("从相册选一张", systemImage: "photo.badge.plus").frame(maxWidth: .infinity).frame(height: 44)
+      }.buttonStyle(.bordered).tint(MetasequoiaTheme.forest).accessibilityIdentifier("skinEditorAlbum")
       LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
         ForEach(Array(backgroundPresets.enumerated()), id: \.offset) { index, preset in
           let active = design.photo == nil && design.background == preset.0 && design.gradientEnd == preset.1
@@ -149,29 +155,19 @@ struct CustomSkinEditorView: View {
      (0x160A3F, 0xA747DF, "紫夜渐变"), (0xC5F5FF, 0xFAD8F6, "极光渐变"), (0x185C47, 0x80BFA8, "森林渐变")]
   }
 
-  private var soundControls: some View {
-    Section {
-      Toggle("按键音", isOn: $soundEnabled).accessibilityIdentifier("skinEditorSound")
-      Toggle("按键振动", isOn: $hapticsEnabled).accessibilityIdentifier("skinEditorHaptics")
-      Picker("振动强度", selection: $hapticStrength) {
-        ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
-      }.disabled(!hapticsEnabled)
-      Button("试一下振动") {
-        if hapticsEnabled {
-          let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
-          feedback = UIImpactFeedbackGenerator(style: strength.style)
-          feedback?.prepare(); feedback?.impactOccurred(intensity: strength.intensity)
-        }
-      }.disabled(!hapticsEnabled)
-    } header: { Text("打字反馈") } footer: {
-      Text("音效与振动是所有皮肤共用的键盘设置。按键音受系统静音状态影响，振动需在支持的真机上体验。")
-    }
-  }
-
   private var editorControls: some View {
   Form {
-    if section == "背景" { backgroundGallery }
-    if section == "设计" {
+    if section == .background { backgroundGallery }
+    if section == .template {
+      // 整套设计的三个来源放在一起:抽一张、挑一款、或者推倒重来。原先 AI 和模板顶在「背景」那一组上面,而它们换掉的远不止背景。
+      Section {
+        Button { showAI = true } label: {
+          Label("AI 皮肤抽卡", systemImage: "sparkles").font(.headline)
+            .frame(maxWidth: .infinity).padding(.vertical, 10)
+        }.accessibilityIdentifier("openAISkinDesigner")
+      } footer: {
+        Text("选择模板后，继续到背景、按键和文本里细调。修改自动保存；撤销可找回刚才的设计，到「我的」命名保存可以留下多套方案。")
+      }
       Section("水杉设计 · 14 款") {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
           ForEach(CustomKeyboardSkin.curatedTemplates + Array(CustomKeyboardSkin.templates.prefix(6)), id: \.0) { title, template in
@@ -184,10 +180,13 @@ struct CustomSkinEditorView: View {
           }
         }
       }
-      Section { Text("选择模板后，继续调整背景、按键和文本。修改自动保存；撤销可找回刚才的设计，命名保存可保留多套方案。").font(.footnote).foregroundStyle(.secondary) }
-      Section { Button("重置我的皮肤", role: .destructive) { confirmReset = true } }
+      Section {
+        SettingsActionRow(title: "重置我的皮肤", detail: "回到默认外观，已保存的方案不受影响",
+                          symbol: "arrow.counterclockwise", destructive: true) { confirmReset = true }
+          .accessibilityIdentifier("resetCustomSkin")
+      }
     }
-    if section == "背景" {
+    if section == .background {
       Section("背景底色") {
         ColorPicker("背景起始色", selection: color(\.background), supportsOpacity: false)
         Toggle("渐变背景", isOn: Binding(get: { design.gradientEnd != nil }, set: { update(\.gradientEnd, $0 ? design.background : nil) }))
@@ -218,7 +217,7 @@ struct CustomSkinEditorView: View {
         }
       }
     }
-    if section == "文本" {
+    if section == .text {
 Section("文字与提示") {
   Toggle("等宽字形", isOn: value(\.monospaced)).accessibilityIdentifier("customSkinMonospaced")
   ColorPicker("按键文字", selection: color(\.keyForeground), supportsOpacity: false)
@@ -237,7 +236,7 @@ Section("文字与提示") {
   }
 }
 }
-if section == "按键" {
+if section == .keys {
 Section("按键配色") {
   ColorPicker("键帽颜色", selection: color(\.keyBackground), supportsOpacity: false)
   ColorPicker("功能键颜色", selection: color(\.actionBackground), supportsOpacity: false)
@@ -273,7 +272,7 @@ Section("键帽设计") {
   ColorPicker("边框颜色", selection: Binding(get: { Color(uiColor: CustomKeyboardSkin.color(design.customBorderColor ?? design.accent)) }, set: { update(\.customBorderColor, CustomKeyboardSkin.rgb(UIColor($0))) }), supportsOpacity: false)
 }
 }
-if section == "我的" {
+if section == .library {
   Section("我的皮肤 · \(saved.count)/12") {
     if saved.isEmpty { Text("还没有命名保存的皮肤。调整满意后，点击右上角“保存”。").foregroundStyle(.secondary) }
     ForEach(saved) { item in
@@ -296,7 +295,6 @@ if section == "我的" {
     }
   }
 }
-    if section == "音效" { soundControls }
   }
   .id(section)
   .accessibilityIdentifier("skinEditorControls")
@@ -326,19 +324,11 @@ if section == "我的" {
     }
     .navigationTitle("自定义皮肤")
     .navigationBarTitleDisplayMode(.inline)
+    // 这一页自己的底栏已经钉在下沿:撤销、重做、预览布局、使用皮肤,再加一整块键盘预览。系统的标签栏压在它下面就是两条栏叠着,而 iOS 26 的标签栏是浮在内容上的,会直接盖掉预览的最后一行。
+    .toolbar(.hidden, for: .tabBar)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
         HStack(spacing: 10) {
-          Menu {
-            Button("AI 皮肤抽卡", systemImage: "sparkles") { showAI = true }
-            Button("设计模板", systemImage: "square.grid.2x2") { section = "设计" }
-            Button("我的皮肤", systemImage: "square.stack") { section = "我的" }
-            Button("重做", systemImage: "arrow.uturn.forward") {
-              guard let next = redo.popLast() else { return }; undo.append(design); apply(next, record: false)
-            }.disabled(redo.isEmpty || sliderStart != nil)
-            Button("重置我的皮肤", role: .destructive) { confirmReset = true }
-          } label: { Image(systemName: "ellipsis.circle") }
-            .accessibilityIdentifier("skinEditorTools")
           Button { renaming = nil; name = "我的设计 \(saved.count + 1)"; showSave = true } label: {
             Text("保存").font(.subheadline.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 7)
               .foregroundStyle(.white).background(MetasequoiaTheme.forest, in: Capsule())
@@ -347,7 +337,7 @@ if section == "我的" {
       }
     }
     .sheet(isPresented: $showAI, onDismiss: { saved = CustomSkinLibrary.designs }) {
-      AISkinGenerationView { next in apply(next); selected = KeyboardSkin.custom.rawValue; section = "按键" }
+      AISkinGenerationView { next in apply(next); selected = KeyboardSkin.custom.rawValue; section = .keys }
     }
     .sheet(item: $publishingSkin) { item in SavedSkinPublishFlow(skinID: item.id) }
     .sheet(isPresented: $showPhotos) {
@@ -376,7 +366,7 @@ if section == "我的" {
             }
             if renaming == nil { selected = KeyboardSkin.custom.rawValue }
             showSave = false
-            section = "我的"
+            section = .library
           }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("confirmSaveCustomSkin")
         }.navigationTitle(renaming == nil ? "保存我的皮肤" : "重命名")

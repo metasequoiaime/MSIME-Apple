@@ -12,22 +12,17 @@ private func isCancellation(_ error: Error) -> Bool {
 
 struct AccountSettingsView: View {
   @State private var signedIn = false
-  @State private var designs = CustomSkinLibrary.designs
   @State private var replayOnboarding = false
 
   var body: some View {
     Form {
       AppleAccountSection(signedIn: $signedIn)
 
-      // 「个性化」和「创作」各自只装着一行,两个标题加两段留白换来两个入口。它们答的又是同一个问题 —— 这台手机上属于我的东西。
-      Section("本机") {
+      // 皮肤编辑器的入口只留皮肤页那一个。这里原来还有一个「我的设计」指向同一个编辑器,于是同一件事在两个标签页下各有一条路。
+      Section("个性化") {
         NavigationLink(destination: AppIconSettingsView()) {
           entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge", color: .purple)
         }.accessibilityIdentifier("accountAppIcon")
-        NavigationLink(destination: CustomSkinEditorView()) {
-          entry("我的设计", detail: designs.isEmpty ? "还没有保存的皮肤" : "保存在本机的 \(designs.count) 款皮肤",
-                symbol: "paintbrush.pointed.fill", color: .pink)
-        }.accessibilityIdentifier("accountLocalDesigns")
       }
 
       if signedIn {
@@ -83,7 +78,6 @@ struct AccountSettingsView: View {
     }
     .navigationTitle("我的")
     .background(MetasequoiaTheme.canvas)
-    .task { designs = CustomSkinLibrary.designs }
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
     }
@@ -349,6 +343,8 @@ struct AccountProfileEditor: View {
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
+    // 保存栏已经占着下沿,标签栏再浮一条上来,两条栏会叠在一起。
+    .toolbar(.hidden, for: .tabBar)
     .confirmationDialog("要放弃这次修改吗？", isPresented: $confirmDiscard, titleVisibility: .visible) {
       Button("放弃修改", role: .destructive) { dismiss() }
       Button("继续编辑", role: .cancel) {}

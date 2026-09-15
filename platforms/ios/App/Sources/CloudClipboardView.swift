@@ -1,25 +1,5 @@
 import SwiftUI
 
-private enum ClipboardConfirmation: String, Identifiable {
-  case enable, disable, clear
-  var id: String { rawValue }
-  var title: String {
-    switch self {
-    case .enable: return "开启云剪贴板？"
-    case .disable: return "关闭并清空云剪贴板？"
-    case .clear: return "清空云剪贴板？"
-    }
-  }
-  /// 确认按钮说的是接下来会发生什么。关闭这一项原本复用了清空的文案「确认清空」,而它做的是两件事。
-  var confirmTitle: String {
-    switch self {
-    case .enable: return "开启"
-    case .disable: return "关闭并清空"
-    case .clear: return "确认清空"
-    }
-  }
-}
-
 struct CloudClipboardView: View {
   let session: BackendAccountSession
   let client: BackendAccountClient
@@ -31,7 +11,7 @@ struct CloudClipboardView: View {
   @State private var text = ""
   @State private var busy = false
   @State private var message: String?
-  @State private var confirmation: ClipboardConfirmation?
+  @State private var confirmsClear = false
   @State private var pending: Task<Void, Never>?
 
   private var canUpload: Bool {
@@ -42,10 +22,10 @@ struct CloudClipboardView: View {
     Form {
       Section {
         if loaded {
-          // 开关而不是按钮。这一行要回答的是「现在开着还是关着」,而按钮只说得出下一步动作 —— 读到「开启云剪贴板」的人得自己反推出当前是关的。两个方向都先问一次:关掉会连云端历史一起删。对话框没确认时 enabled 不动,开关自己弹回原位。
+          // 开关而不是按钮。这一行要回答的是「现在开着还是关着」,而按钮只说得出下一步动作 —— 读到「开启云剪贴板」的人得自己反推出当前是关的。拨动即生效,不经过确认;关掉会连云端历史一起删,这一点写在下面的说明里,拨之前就看得到。失败时 enabled 跟着服务端的回答走,开关自己弹回原位。
           Toggle("云剪贴板", isOn: Binding(
             get: { enabled },
-            set: { confirmation = $0 ? .enable : .disable }
+            set: { on in run { token in try await client.setClipboardEnabled(on, token: token) } }
           ))
           .accessibilityIdentifier("cloudClipboardSwitch")
         }
@@ -94,7 +74,7 @@ struct CloudClipboardView: View {
             Text(search.isEmpty ? "还没有保存任何内容" : "没有匹配「\(search)」的内容").foregroundStyle(.secondary)
           }
           if !items.isEmpty {
-            SettingsActionRow(title: "清空历史", symbol: "trash.fill", destructive: true) { confirmation = .clear }
+            SettingsActionRow(title: "清空历史", symbol: "trash.fill", destructive: true) { confirmsClear = true }
           }
         } header: {
           Text("云端历史")
@@ -116,17 +96,12 @@ struct CloudClipboardView: View {
     .navigationTitle("云剪贴板")
     .task { run { _ in } }
     .onDisappear { pending?.cancel(); items = []; text = "" }
-    .confirmationDialog(confirmation?.title ?? "", isPresented: Binding(
-      get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })) {
-      if let action = confirmation {
-        Button(action.confirmTitle, role: action == .enable ? nil : .destructive) {
-          run { token in
-            if action == .clear { try await client.deleteClipboard(token: token) }
-            else { try await client.setClipboardEnabled(action == .enable, token: token) }
-          }
-        }
+    // 清空是一行独立的按钮,不是开关,确认留着:它删的是同一批内容,而按下去之前没有任何别的迹象。
+    .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
+      Button("确认清空", role: .destructive) {
+        run { token in try await client.deleteClipboard(token: token) }
       }
-      Button("取消", role: .cancel) { confirmation = nil }
+      Button("取消", role: .cancel) { }
     }
   }
   @MainActor private func run(_ action: @escaping (String) async throws -> Void) {
