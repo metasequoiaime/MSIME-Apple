@@ -14,7 +14,7 @@
 #include "FullscreenForeground.h"
 #include "MaintenanceHotkey.h"
 #include "ModeAuthority.h"
-#include "ModeWindow.h"
+#include "ModeMailbox.h"
 #include "PreviewConfig.h"
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
@@ -925,9 +925,6 @@ int wmain(int argc, wchar_t **argv) {
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
     candidates.set_skin_decoration(skin_decoration.image, skin_decoration.top_dip,
                                    skin_decoration.width_dip);
-    ModeWindow modes([&] { return server.mode_view(); },
-                     [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    modes.set_palette(resolved_palette);
     auto current_candidate_theme = candidate_theme_values(
         prepared.at("value").at("preferences"));
     bool candidate_theme_dirty = true;
@@ -1187,7 +1184,7 @@ int wmain(int argc, wchar_t **argv) {
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
-           !modes.failed() && !mode_clicks.failed() &&
+           !mode_clicks.failed() &&
            !character_set_clicks.failed() && !english_reads.failed() && !toolbar.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
@@ -1248,14 +1245,12 @@ int wmain(int argc, wchar_t **argv) {
                 assets.decoration.top_dip, assets.decoration.width_dip);
             candidate_skin_applied = theme_config.skin_id;
           }
-          modes.set_palette(next_palette);
           candidate_dark_applied = dark;
           candidate_horizontal_applied = candidate_horizontal;
           candidate_theme_dirty = false;
         }
       }
       candidates.refresh();
-      modes.refresh();
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       if (auto settings = toolbar_settings->take())
@@ -1382,7 +1377,6 @@ int wmain(int argc, wchar_t **argv) {
     if (voice_controller)
       voice_controller->stop();
     voice_controller_dispatch.retire();
-    modes.hide();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a
     // late anchor cannot reach a card that is being destroyed.
@@ -1403,7 +1397,7 @@ int wmain(int argc, wchar_t **argv) {
       return msime::windows::watchdog::restart_exit_code;
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
-                   !modes.failed() && !mode_clicks.failed() &&
+                   !mode_clicks.failed() &&
                    !character_set_clicks.failed() && !english_reads.failed()
                ? 0
                : 1;

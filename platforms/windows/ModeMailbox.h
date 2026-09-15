@@ -1,6 +1,8 @@
 #pragma once
+#include "CandidateClickWorker.h"
 #include "FocusGate.h"
 #include "MainTransport.h"
+#include "ReplyCodec.h"
 
 namespace msime::windows {
 struct ModePresentation {
@@ -8,6 +10,15 @@ struct ModePresentation {
   // Activation does not carry these values. Unknown is not an assumed default.
   std::optional<bool> chinese, chinese_punctuation, fullwidth;
 };
+// One mode command from a UI surface. Lives beside the mailbox it answers
+// rather than with any one surface: the floating toolbar is the only sender
+// now that the development mode panel is gone, but the command is the
+// mailbox's contract, not the toolbar's.
+struct ModeClick {
+  FocusLease lease;
+  WorkerMode mode;
+};
+using ModeClickWorker = SingleClickWorker<ModeClick>;
 // Single active-owner projection, independent of candidate/composition state.
 class ModeMailbox final {
 public:
