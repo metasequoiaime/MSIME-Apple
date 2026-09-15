@@ -51,6 +51,7 @@ BOOL RegisterProfiles()
     cchA = GetModuleFileName(Global::dllInstanceHandle, achIconFile, MAX_PATH);
     if (cchA == 0 || cchA >= MAX_PATH)
     {
+        hr = E_FAIL;
         goto Exit;
     }
     achIconFile[cchA] = '\0';
