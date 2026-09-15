@@ -11,7 +11,6 @@ inline constexpr int invalid_candidate_anchor_y = -100000;
 struct PresentationCandidate {
   uint64_t session;
   uint64_t generation;
-  uint64_t render_serial = 0;
   size_t index;
   std::string text;
   bool highlighted;
@@ -24,6 +23,9 @@ struct CandidatePresentation {
   FocusLease lease;
   uint64_t session;
   uint64_t generation;
+  // Monotonic identity for the complete rendered snapshot, including async
+  // provider updates that keep the same Engine generation.
+  uint64_t render_serial = 0;
   bool visible = false;
   int x = 0;
   int y = 0;
