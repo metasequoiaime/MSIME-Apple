@@ -162,6 +162,31 @@ private final class IOSVoiceTranscriptionSession {
 private final class IOSVoiceTranscriptionService {
   private static let maximumAudioBytes = 2_100_000
   private var active: IOSVoiceTranscriptionSession?
+  private var backgroundObserver: NSObjectProtocol?
+
+  init() {
+    backgroundObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.cancelForBackground()
+    }
+  }
+
+  deinit {
+    if let backgroundObserver {
+      NotificationCenter.default.removeObserver(backgroundObserver)
+    }
+  }
+
+  /// A settings app can be suspended while recording or waiting for a network
+  /// response. Cancel the native session at the process lifecycle boundary so
+  /// microphone capture, temporary audio and pending provider requests do not
+  /// outlive the visible app. The shared panel receives the normal cancellation
+  /// error and can be reopened without a stale busy state.
+  private func cancelForBackground() {
+    guard let session = active else { return }
+    cancel(requestId: session.args.requestId)
+  }
 
   private func valid(_ args: VoiceTranscriptionArgs) -> Bool {
     let endpoint = args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
