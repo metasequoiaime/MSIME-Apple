@@ -5,8 +5,8 @@
 ## 已核对证据
 
 - MSIME-Windows 远端实际默认分支为 `develop`，本次查询固定头为 `04a8df56f86312474a069f4335a1b58da7afaa9e`。该版本是后续完整功能对照基线，不表示本文已完成 Windows 全功能审计。
-- `BackendSnapshotView.swift` 的 `downloadForLocal` / `applyLocal` 调用 `BackendLocalSnapshot.swift`，后者动态查找 `MSIMEMacDictionarySync`。
-- 此类仅在保留的 `DictionaryRuntime.mm` 内实现；当前 `CMakeLists.txt` 的 app 编译 `ClientDictionaryRuntime.mm`，不编译该文件。Swift 编译成功不能证明本地恢复可用。
+- `BackendSnapshotView.swift` 的 `downloadForLocal` / `applyLocal` 调用 `BackendLocalSnapshot.swift`，后者动态查找新宿主共享的 `MSIMEClientSession`；激活前通过 `snapshotActivationReady` 检查会话是否空闲。
+- 当前 `CMakeLists.txt` 的 app 通过 `apple-client` 静态库包含 `MSIMEClientSession.mm`，并编译 `ClientDictionaryRuntime.mm`。旧的 `DictionaryRuntime.mm` / `MSIMEMacDictionarySync` 仍是保留的 Metasequoia 宿主适配，不能加入新宿主替代共享会话边界。
 - 旧实现依赖 `RuntimePaths::legacy()`、bundle 词库摘要和 `MetasequoiaInputController.suspendForCloudDictionarySwitch`；当前宿主是 `MSIMEInputController`，会话由 host-api 管理。直接加入旧文件不构成正确接入。
 - `shared/apple-bridge/DictionarySnapshotBridge` 有准备记录流、计算状态版本和丢弃非活动代次的参考实现；不能绕过现有共享资源/词库访问边界直接发布旧宿主安装。
 - `crates/host-api/include/msime_client.h` 与 `shared/apple/MSIMEClientSession.h` 已提供快照版本、准备句柄、丢弃和激活接口；`ClientDictionaryRuntime.mm` 已使用该客户端宿主边界。

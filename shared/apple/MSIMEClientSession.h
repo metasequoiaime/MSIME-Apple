@@ -124,6 +124,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (NSDictionary<NSString *, id> *)applySnapshot:(NSDictionary<NSString *, id> *)parameters;
 /// Current validated host options for the live input session, or an error dictionary.
 + (nullable NSDictionary<NSString *, id> *)activeHostOptions;
+/// Return whether the active session is idle enough for dictionary activation.
+/// The check is main-thread-only and never finishes a user's composition.
++ (NSDictionary<NSString *, id> *)snapshotActivationReady;
 /// Prepare a bounded, checksummed record stream synchronously; invoke off-main-thread.
 + (nullable NSDictionary<NSString *, id> *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
                                                        nextRecord:(MSIMESnapshotNextRecord)nextRecord
