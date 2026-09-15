@@ -18,6 +18,7 @@ final class JapaneseNineKeyView: UIStackView {
     Key(kana: ["や", "「", "ゆ", "」", "よ"], strokes: ["ya", "", "yu", "", "yo"]),
     Key(kana: ["ら", "り", "る", "れ", "ろ"], strokes: ["ra", "ri", "ru", "re", "ro"]),
     Key(kana: ["わ", "を", "ん", "ー", "〜"], strokes: ["wa", "wo", "n'", "", ""]),
+    Key(kana: ["、", "。", "？", "！", "…"], strokes: ["", "", "", "", ""]),
   ]
   /// The Japanese nine-key keeps its grid when switching away from kana. Empty strokes are
   /// deliberate: these symbols go straight to the host rather than through the romanization engine.
@@ -32,6 +33,7 @@ final class JapaneseNineKeyView: UIStackView {
     Key(kana: ["8", "〒", "※", "♂", ""], strokes: ["", "", "", "", ""]),
     Key(kana: ["9", "（", "）", "／", ""], strokes: ["", "", "", "", ""]),
     Key(kana: ["0", "〜", "…", "ー", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["、", "。", "？", "！", "…"], strokes: ["", "", "", "", ""]),
   ]
   var onInput: ((String) -> Void)?
   var onSymbol: ((String) -> Void)?
@@ -61,12 +63,6 @@ final class JapaneseNineKeyView: UIStackView {
         row.addArrangedSubview(makeKanaKey(index, factory: makeKey))
       }
     }
-    let side = UIStackView()
-    side.axis = .vertical; side.distribution = .fillEqually; side.spacing = 7
-    rows.append(side)
-    addArrangedSubview(side)
-    side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
-    side.addArrangedSubview(makeKanaKey(9, factory: makeKey))
     let variants = makeKey("小゛゜", "小假名、浊音和半浊音", { [weak self] in
       guard let self else { return }
       if showsDigits { onSymbol?("（") }
@@ -78,8 +74,22 @@ final class JapaneseNineKeyView: UIStackView {
     variants.titleLabel?.adjustsFontSizeToFitWidth = true
     variants.titleLabel?.minimumScaleFactor = 0.6
     variants.isEnabled = false
-    variants.showsMenuAsPrimaryAction = false
-    side.addArrangedSubview(variants)
+
+    // The fourth row keeps Japanese punctuation on the nine-key surface instead of hiding it
+    // behind the general symbol page. The modifier occupies the first cell, followed by わ and
+    // the sentence-ending punctuation key.
+    let fourth = UIStackView()
+    fourth.distribution = .fillEqually; fourth.spacing = 6
+    rows.append(fourth); grid.addArrangedSubview(fourth)
+    fourth.addArrangedSubview(variants)
+    fourth.addArrangedSubview(makeKanaKey(9, factory: makeKey))
+    fourth.addArrangedSubview(makeKanaKey(10, factory: makeKey))
+
+    let side = UIStackView()
+    side.axis = .vertical; side.distribution = .fillEqually; side.spacing = 7
+    rows.append(side)
+    addArrangedSubview(side)
+    side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
     let delete = makeKey("⌫", "删除", { [weak self] in self?.onDelete?() })
     delete.accessibilityIdentifier = "japaneseDelete"
     side.addArrangedSubview(delete)

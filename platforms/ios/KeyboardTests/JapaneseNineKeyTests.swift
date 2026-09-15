@@ -92,7 +92,7 @@ final class JapaneseNineKeyTests: XCTestCase {
         panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
         panel.applyLayout(); panel.layoutIfNeeded()
         let buttons = nodes(panel).compactMap { $0 as? UIButton }
-        XCTAssertEqual(buttons.count, 12)
+        XCTAssertEqual(buttons.count, 13)
         for button in buttons {
           XCTAssertGreaterThan(button.bounds.height, 45)
           XCTAssertGreaterThan(button.bounds.width, 44)
@@ -118,6 +118,8 @@ final class JapaneseNineKeyTests: XCTestCase {
     panel.setDigits(false)
     panel.select(7, direction: 1)
     XCTAssertEqual(symbols.last, "「")
+    panel.select(10, direction: 1)
+    XCTAssertEqual(symbols.last, "。")
   }
 
   func testKanaVariantButtonDelegatesToEngineOnlyWhileComposing() throws {

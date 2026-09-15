@@ -388,7 +388,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
-    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    // The kana surface now has a dedicated punctuation row beneath the three kana rows.
+    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 4, constant: 21)
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
@@ -1870,7 +1871,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
     japaneseKeys?.isHidden = !kana
     japaneseKeys?.setDigits(showsSymbols)
-    japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
+    japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 3
     japaneseHeight?.isActive = kana
     japaneseKeys?.applyLayout()
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
