@@ -253,7 +253,7 @@ struct MacAccountView: View {
 
   private var appleSubtitle: String? {
     if model.providers["apple"] != true { return "此登录方式尚未启用" }
-    if !MacAccountModel.appleSignInAuthorized { return "此构建未获授权，请使用正式发布版本" }
+    if !MacAccountModel.appleSignInAuthorized { return "此版本不支持 Apple 登录，请使用邮箱或手机号" }
     return "绑定后这个账号就能在其他设备上找回"
   }
 
