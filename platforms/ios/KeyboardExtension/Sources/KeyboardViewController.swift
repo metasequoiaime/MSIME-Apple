@@ -2504,7 +2504,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       .map { $0.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty }
       .map { gloss in
-        UIAction(title: "输入 \(gloss)", image: UIImage(systemName: "character.bubble")) { [weak self] _ in
+        // 标题就是释义本身。菜单里只剩这几项,再写「输入」两个字是在说一件看得见的事。
+        UIAction(title: gloss, image: UIImage(systemName: "character.bubble")) { [weak self] _ in
           guard let self, candidateRevision == revision,
                 visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
           playInputClick()
