@@ -3567,7 +3567,9 @@ fn voice_input_language(
 }
 
 fn external_url_is_safe(url: &str) -> bool {
-    url.starts_with("https://")
+    url.strip_prefix("https://")
+        .is_some_and(|rest| !rest.is_empty() && rest.as_bytes()[0] != b'/')
+        && url.starts_with("https://")
         && !url.bytes().any(|byte| {
             byte <= b' '
                 || matches!(
@@ -5187,6 +5189,8 @@ mod tests {
             assert!(super::external_url_is_safe(url));
         }
         for url in [
+            "https://",
+            "https:///path",
             "http://example.com",
             "https://example.com/help path",
             "https://example.com/a&b",
