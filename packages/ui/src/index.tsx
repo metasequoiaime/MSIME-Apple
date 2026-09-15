@@ -32,6 +32,7 @@ export { AccountPage, type AccountChallenge, type AccountClient, type AccountCom
 export { ChatPage, type ChatClient, type ChatMessage, type ChatModel, type ChatModels } from "./chat-page";
 export { HomePage, type HomePageActions } from "./home-page";
 export { WelcomeFlowPage, type OnboardingActions, type OnboardingInputScheme } from "./onboarding-page";
+export { SettingsStartupPage } from "./settings-startup-page";
 export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinDownload, type CommunitySkinPage, type CommunitySkinTrial } from "./community-skins";
 export { CommunityHomePage, CommunityResourcesPage, type CommunityLocalDictionaryClient, type CommunityResource, type CommunityResourceApplication, type CommunityResourceClient, type CommunityResourceContent, type CommunityResourceKind, type CommunityResourcePage, type CommunityResourceScope, type CommunitySharedWord } from "./community-resources";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
