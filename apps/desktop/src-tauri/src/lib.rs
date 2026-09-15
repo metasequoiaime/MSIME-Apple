@@ -1716,13 +1716,12 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
 
 #[cfg(target_os = "linux")]
 fn run_ydotool(args: &[String]) -> Result<(), HostActionError> {
-    std::process::Command::new("ydotool")
-        .args(args)
-        .status()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .success()
+    let arguments: Vec<&str> = args.iter().map(String::as_str).collect();
+    linux_process::run_status(
+        "ydotool",
+        &arguments,
+        std::time::Duration::from_secs(3),
+    )
         .then_some(())
         .ok_or(HostActionError {
             code: "unavailable",
