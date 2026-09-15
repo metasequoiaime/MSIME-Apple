@@ -1431,10 +1431,7 @@ fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
         const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
-        let payload: Vec<u8> = "RestartServer"
-            .encode_utf16()
-            .flat_map(|unit| unit.to_le_bytes())
-            .collect();
+        let payload = windows_restart_payload();
         for attempt in 0..5 {
             match fs::OpenOptions::new().write(true).open(PIPE_NAME) {
                 Ok(mut pipe) => {
@@ -1478,6 +1475,13 @@ fn restart_input_method() -> Result<(), HostActionError> {
                 code: "unavailable",
             })
     }
+}
+
+fn windows_restart_payload() -> Vec<u8> {
+    "RestartServer"
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
@@ -3574,7 +3578,9 @@ fn voice_input_language(
 }
 
 fn external_url_is_safe(url: &str) -> bool {
-    url.starts_with("https://")
+    url.strip_prefix("https://")
+        .is_some_and(|rest| !rest.is_empty() && rest.as_bytes()[0] != b'/')
+        && url.starts_with("https://")
         && !url.bytes().any(|byte| {
             byte <= b' '
                 || matches!(
@@ -5150,6 +5156,38 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_restart_payload_is_exact_utf16_without_terminator() {
+        let payload = super::windows_restart_payload();
+        let expected: Vec<u8> = "RestartServer"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        assert_eq!(payload, expected);
+        assert_eq!(payload.len(), "RestartServer".encode_utf16().count() * 2);
+    }
+
+    #[test]
+    fn external_links_require_clean_https_urls() {
+        for url in [
+            "https://example.com/help",
+            "https://updates.example.com/v1?channel=stable",
+        ] {
+            assert!(super::external_url_is_safe(url));
+        }
+        for url in [
+            "https://",
+            "https:///path",
+            "http://example.com",
+            "https://example.com/help path",
+            "https://example.com/a&b",
+            "https://example.com/\"quoted\"",
+            "https://example.com/\\escape",
+        ] {
+            assert!(!super::external_url_is_safe(url));
+        }
+    }
+
     #[test]
     fn ios_clipboard_history_is_permission_gated_not_preference_gated() {
         assert!(!super::clipboard_history_uses_preference(

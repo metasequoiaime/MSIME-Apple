@@ -28,6 +28,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut enabled = Session::new(&options)?;
         enabled.character(letter, true)?;
         assert_eq!(enabled.snapshot()?.local_mode, name);
+        if letter == b'U' {
+            for digit in b"4e2d" {
+                enabled.character(*digit, false)?;
+            }
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert_eq!(committed.commit, "中");
+        }
+        if letter == b'T' {
+            for character in b"rq" {
+                enabled.character(*character, false)?;
+            }
+            assert!(!enabled.snapshot()?.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'K' {
+            enabled.character(b'a', false)?;
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'E' {
+            for character in b"XIAOLIAN" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'M' {
+            for character in b"hx" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'J' {
+            for character in b"nh" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'Y' {
+            for character in b"he" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
+        if letter == b'R' {
+            for character in b"ka" {
+                enabled.character(*character, false)?;
+            }
+            let snapshot = enabled.snapshot()?;
+            assert!(!snapshot.candidates.is_empty());
+            let committed = enabled.select(0)?;
+            assert!(committed.has_commit);
+            assert!(!committed.commit.is_empty());
+        }
         let mut disabled = options.clone();
         match index {
             0 => disabled.local_unicode = false,

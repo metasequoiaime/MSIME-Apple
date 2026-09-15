@@ -1394,10 +1394,6 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         )
         .map_err(|_| "dictionary access unavailable".to_owned())?
         .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
-        let default_english = matches!(
-            applied.default_ime_mode,
-            msime_client_core::preferences::DefaultImeMode::English
-        );
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         let default_nine_key = matches!(applied.scheme, InputScheme::Quanpin)
             && matches!(applied.touch_keyboard_layout, TouchKeyboardLayout::NineKey);
@@ -1406,9 +1402,16 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 .set_nine_key_enabled(true)
                 .map_err(|e| e.to_string())?;
         }
-        engine
-            .set_dedicated_english(default_english)
-            .map_err(|e| e.to_string())?;
+        // 默认输入状态 says which state a new focus session starts in, and the
+        // host applies it as its own English passthrough - letters go straight
+        // to the document, with no session involved. It is not the Engine's
+        // dedicated English mode, which keeps a session and answers with
+        // English word candidates. Seeding one from the other left a session
+        // that could never reach Chinese: the host's toggle only flips
+        // passthrough, so the "Chinese" half of it was English candidates, and
+        // nothing on the way back clears a mode the user never turned on.
+        // Dedicated English starts off and is only ever set by the menu row or
+        // the hotkey that owns it.
         let runtime =
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
@@ -1425,7 +1428,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     punctuation_override: None,
                     paired_punctuation_override: None,
                     punctuation_lock_override: None,
-                    english_mode: default_english,
+                    english_mode: false,
                     page_size_override: None,
                     nine_key_override: None,
                     voice: VoiceSessionState::default(),
@@ -5360,6 +5363,36 @@ mod tests {
         let disabled = read(msime_client_set_english_mode(handle, false));
         assert_eq!(disabled["ok"], true);
         assert_eq!(disabled["value"]["dedicated_english"], false);
+        read(msime_client_destroy(handle));
+    }
+
+    // 默认输入状态 = 英文 is the host's passthrough state: the host keeps the
+    // letters and no session sees them. It must not put the session itself
+    // into dedicated English. A session that starts there answers the first
+    // key with English word candidates, and the host's own CN/EN toggle does
+    // not clear it - so the toggle flips between passthrough English and
+    // English candidates, and Chinese is unreachable.
+    #[test]
+    fn english_default_ime_mode_leaves_dedicated_english_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host_preferences(
+            dir.path(),
+            Preferences {
+                default_ime_mode: msime_client_core::preferences::DefaultImeMode::English,
+                ..Preferences::default()
+            },
+        );
+        read(msime_client_focus(handle, true));
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["dedicated_english"],
+            false
+        );
+        let typed = read(msime_client_character(handle, b'n', false));
+        assert_eq!(typed["value"]["view"]["dedicated_english"], false);
+        // Still reachable - it just has to be asked for, by the menu row or
+        // the hotkey that owns it.
+        let enabled = read(msime_client_set_english_mode(handle, true));
+        assert_eq!(enabled["value"]["dedicated_english"], true);
         read(msime_client_destroy(handle));
     }
 

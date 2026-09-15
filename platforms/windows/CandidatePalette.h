@@ -46,7 +46,7 @@ inline CandidateColor parse_css_color(const std::string &text,
     const auto open = value.find('(');
     const auto close = value.rfind(')');
     if (open == std::string::npos || close == std::string::npos ||
-        close <= open)
+        close <= open || close + 1 != value.size())
       return fallback;
     std::string inner = value.substr(open + 1, close - open - 1);
     for (char &ch : inner)
@@ -57,6 +57,9 @@ inline CandidateColor parse_css_color(const std::string &text,
     if (!(stream >> r >> g >> b))
       return fallback;
     stream >> a;
+    std::string trailing;
+    if (stream >> trailing)
+      return fallback;
     return {r / 255.0f, g / 255.0f, b / 255.0f, a};
   }
   if (!value.empty() && value.front() == '#')

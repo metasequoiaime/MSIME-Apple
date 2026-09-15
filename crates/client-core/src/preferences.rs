@@ -269,11 +269,17 @@ impl TouchKeyboardSchemePreferences {
     }
 }
 
+/// Which state a new focus session starts in.
+///
+/// Chinese, because that is what this input method is for: opening in English means the first thing
+/// a new user does is find the switch. The macOS host already resolved anything but an explicit
+/// "english" to Chinese on its own, so this is the shared default agreeing with the one host that
+/// had already decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
-    Chinese,
     #[default]
+    Chinese,
     English,
 }
 
@@ -2153,10 +2159,12 @@ mod tests {
             .remove("default_ime_mode");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), bytes).unwrap();
+        // A document written before the field existed takes the default, which is Chinese.
         assert_eq!(
             store.load().unwrap().preferences.default_ime_mode,
-            DefaultImeMode::English
+            DefaultImeMode::Chinese
         );
+        // An explicit English is still English; only the absent case moved.
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
         value["default_ime_mode"] = "english".into();
         let saved = store

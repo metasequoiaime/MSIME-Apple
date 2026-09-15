@@ -12,6 +12,8 @@ typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
 @interface MSIMEVoiceWaveOverlay : NSPanel
 // Host presentation only; all calls are made on the main thread.
 @property(nonatomic, copy) void (^actionHandler)(BOOL cancel);
+- (void)applyThemePreferences:(NSDictionary *)preferences;
+- (BOOL)isLightTheme;
 - (void)dismissProcessing;
 - (void)setListening:(BOOL)listening;
 - (void)setProcessing:(BOOL)polishing;

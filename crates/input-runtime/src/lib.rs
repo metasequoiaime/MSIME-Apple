@@ -989,7 +989,10 @@ impl UnixSocketProvider {
         mut status: Option<&mut dyn FnMut(&str)>,
         mut level: Option<&mut dyn FnMut(f32)>,
     ) -> Option<String> {
-        if language.len() > 64 || cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+        if generation == 0
+            || language.len() > 64
+            || cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
+        {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
@@ -1094,6 +1097,9 @@ impl UnixSocketProvider {
     /// The generation is included so a provider cannot cancel a newer session.
     #[cfg(unix)]
     pub fn voice_cancel(&self, generation: u64) -> bool {
+        if generation == 0 {
+            return false;
+        }
         let mut stream = match UnixStream::connect(&self.path) {
             Ok(stream) => stream,
             Err(_) => return false,
@@ -1120,6 +1126,9 @@ impl UnixSocketProvider {
     /// final transcription back to the caller.
     #[cfg(unix)]
     pub fn voice_stop(&self, generation: u64) -> bool {
+        if generation == 0 {
+            return false;
+        }
         let mut stream = match UnixStream::connect(&self.path) {
             Ok(stream) => stream,
             Err(_) => return false,
@@ -2229,6 +2238,21 @@ mod tests {
             )
             .is_none());
         server.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn voice_control_rejects_zero_generation_without_connecting() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("voice-control.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let provider = UnixSocketProvider::new(&socket);
+        assert!(!provider.voice_cancel(0));
+        assert!(!provider.voice_stop(0));
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
     }
     impl InputEngine for Fixture {
         fn balance_paired_punctuation_after_auto_close(

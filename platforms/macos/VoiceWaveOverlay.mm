@@ -1,19 +1,41 @@
 #import "VoiceWaveOverlay.h"
+static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
+{
+    NSAppearance *resolved = appearance ?: NSApp.effectiveAppearance ?: NSAppearance.currentDrawingAppearance;
+    NSString *match = [resolved bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    return [match isEqualToString:NSAppearanceNameDarkAqua];
+}
 @interface MSIMEVoiceWaveView : NSView
 @property(nonatomic) float level;
 @property(nonatomic) BOOL listening;
+@property(nonatomic) BOOL lightTheme;
+@property(nonatomic) BOOL followsSystemAppearance;
 @property(nonatomic, copy) NSString *status;
 @end
 @implementation MSIMEVoiceWaveView
 - (void)drawRect:(NSRect)r {
     (void)r;
-    [[NSColor colorWithWhite:0.08 alpha:.95] setFill];
+    const BOOL light = self.followsSystemAppearance ? !VoiceAppearanceIsDark(self.effectiveAppearance) : self.lightTheme;
+    NSColor *background = light
+        ? [NSColor colorWithSRGBRed:0.98 green:0.98 blue:0.99 alpha:.95]
+        : [NSColor colorWithSRGBRed:0.07 green:0.08 blue:0.10 alpha:.95];
+    [background setFill];
     [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:10 yRadius:10] fill];
-    [[NSColor systemBlueColor] setFill];
+    NSColor *bars = light
+        ? [NSColor colorWithSRGBRed:0.35 green:0.18 blue:0.42 alpha:1]
+        : NSColor.whiteColor;
+    [bars setFill];
     CGFloat height = self.listening ? MAX(3, MIN(28, self.level * 28)) : 6;
     NSRectFill(NSMakeRect(16, self.bounds.size.height - 22 - height / 2, 6, height));
+    NSColor *text = light
+        ? [NSColor colorWithSRGBRed:0.20 green:0.20 blue:0.24 alpha:1]
+        : NSColor.whiteColor;
     [self.status drawInRect:NSMakeRect(34, self.bounds.size.height - 32, self.bounds.size.width - 42, 20)
-        withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13], NSForegroundColorAttributeName:NSColor.whiteColor}];
+        withAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:13], NSForegroundColorAttributeName:text}];
+}
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    if (self.followsSystemAppearance) [self setNeedsDisplay:YES];
 }
 @end
 @implementation MSIMEVoiceWaveOverlay {
@@ -25,6 +47,7 @@
     BOOL _dismissed;
     NSButton *_cancelButton;
     NSButton *_confirmButton;
+    BOOL _followsSystemAppearance;
 }
 - (instancetype)init {
     self = [super initWithContentRect:NSMakeRect(0,0,156,44)
@@ -57,6 +80,39 @@
         }
     }
     return self;
+}
+- (BOOL)isLightTheme { return _view.lightTheme; }
+- (void)applyViewColors {
+    const BOOL light = _view.followsSystemAppearance ? !VoiceAppearanceIsDark(self.effectiveAppearance) : _view.lightTheme;
+    _transcriptView.textColor = light
+        ? [NSColor colorWithSRGBRed:0.20 green:0.20 blue:0.24 alpha:1]
+        : NSColor.whiteColor;
+    NSAppearance *buttonAppearance = light
+        ? [NSAppearance appearanceNamed:NSAppearanceNameAqua]
+        : [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    for (NSButton *button in @[_cancelButton, _confirmButton]) {
+        button.appearance = buttonAppearance;
+        button.contentTintColor = light
+            ? [NSColor colorWithSRGBRed:0.20 green:0.20 blue:0.24 alpha:1]
+            : NSColor.whiteColor;
+    }
+}
+- (void)applyThemePreferences:(NSDictionary *)preferences {
+    id surface = preferences[@"voice_theme"];
+    id global = preferences[@"theme"];
+    id resolved = ([surface isKindOfClass:NSString.class] &&
+                   ([surface isEqual:@"dark"] || [surface isEqual:@"light"])) ? surface : global;
+    _followsSystemAppearance = [resolved isEqual:@"system"];
+    if ([resolved isEqual:@"light"])
+        self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if (_followsSystemAppearance)
+        self.appearance = nil;
+    else
+        self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    _view.followsSystemAppearance = _followsSystemAppearance;
+    _view.lightTheme = !VoiceAppearanceIsDark(self.effectiveAppearance);
+    [self applyViewColors];
+    [_view setNeedsDisplay:YES];
 }
 - (NSString *)statusText { return _view.status; }
 - (NSString *)transcriptText { return _transcriptView.string; }

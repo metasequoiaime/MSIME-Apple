@@ -10,6 +10,23 @@ inline NSMenuItem *CreateInputModeItem(NSString *title, SEL action, id target, B
     return item;
 }
 
+/// Match the Windows menu surface precedence: explicit menu theme, then the
+/// global theme, with a nil appearance delegating system mode to AppKit.
+inline void ApplyMetasequoiaMenuTheme(NSMenu *menu, NSDictionary *preferences)
+{
+    if (menu == nil) return;
+    id surface = preferences[@"menu_theme"];
+    id global = preferences[@"theme"];
+    id resolved = ([surface isKindOfClass:NSString.class] &&
+                   ([surface isEqual:@"dark"] || [surface isEqual:@"light"])) ? surface : global;
+    if ([resolved isEqual:@"light"])
+        menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if ([resolved isEqual:@"system"])
+        menu.appearance = nil;
+    else
+        menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+}
+
 inline NSMenu *CreateMetasequoiaInputMenu(id target, BOOL englishMode, BOOL traditionalOutput)
 {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];

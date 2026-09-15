@@ -167,6 +167,7 @@ struct State {
   Json view;
   bool focused = false;
   std::string focused_context;
+  std::string focused_client;
   bool blocked = false;
   bool private_input = false;
   guint preferences_timer = 0;
@@ -1485,6 +1486,8 @@ std::optional<std::string> surrounding_following_character(const State &s) {
 }
 bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
+  if (msime::linux_host::paired_punctuation_excluded_client(s.focused_client))
+    return false;
   if (key > 0x7f) return false;
   std::uint32_t paired_modifiers = 0;
   if (flags & IBUS_CONTROL_MASK)
@@ -3560,6 +3563,7 @@ void focus_out(IBusEngine *engine) {
     s.focused = false;
     ++s.focus_epoch;
     s.focused_context.clear();
+    s.focused_client.clear();
     s.surrounding_utf16 = false;
     s.stop_clipboard_monitor();
     s.native_compose.reset();
@@ -5307,7 +5311,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     const auto &editing_text = s.view.at("editing_text").get<std::string>();
-    if (s.chinese_punctuation && s.paired_punctuation &&
+    const bool paired_punctuation_enabled =
+        s.paired_punctuation &&
+        !msime::linux_host::paired_punctuation_excluded_client(
+            s.focused_client);
+    if (s.chinese_punctuation && paired_punctuation_enabled &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
         (key == IBUS_quotedbl ||
          (key == IBUS_apostrophe && editing_text.empty()))) {
@@ -5323,7 +5331,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
     }
-    if (s.chinese_punctuation && s.paired_punctuation &&
+    if (s.chinese_punctuation && paired_punctuation_enabled &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
         (key == '(' || key == '[' || key == '<' || key == '{')) {
       const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
@@ -6113,6 +6121,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
         s.focused_context != (context ? context : ""))
       focus_out(engine);
     s.focused_context = context ? context : "";
+    s.focused_client = client ? client : "";
     s.surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
     focus_in(engine);
   };

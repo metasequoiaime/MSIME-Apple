@@ -39,8 +39,13 @@ export function compareVersions(left: Version, right: Version): number {
 const installerNamePattern = /^MetasequoiaIME_Setup_v[\w.-]+\.exe$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/i;
 
+function isHttpsUrl(value: string): boolean {
+  return value.startsWith("https://") && !/[\s"'`<>\\|&]/.test(value);
+}
+
 export function validateManifest(manifest: UpdateManifest, releasesPageUrl: string): ValidatedUpdate | null {
   if (typeof manifest.version !== "string" || typeof manifest.releaseUrl !== "string") return null;
+  if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(manifest.releaseUrl)) return null;
   if (manifest.releaseUrl !== releasesPageUrl && !manifest.releaseUrl.startsWith(`${releasesPageUrl}/`)) return null;
   const version = parseVersion(manifest.version);
   if (!version) return null;
@@ -55,6 +60,7 @@ export function validateManifest(manifest: UpdateManifest, releasesPageUrl: stri
 
 export function validateGitHubRelease(release: GitHubRelease, releasesPageUrl: string): ValidatedUpdate | null {
   if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") return null;
+  if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(release.html_url)) return null;
   if (!release.html_url.startsWith(`${releasesPageUrl}/tag/`)) return null;
   const version = parseVersion(release.tag_name);
   if (!version) return null;

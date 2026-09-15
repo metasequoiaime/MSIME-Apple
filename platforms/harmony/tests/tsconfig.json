@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
+    "module": "commonjs",
+    "strict": true,
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "outDir": "../../../target/harmony-tests"
+  },
+  "include": ["ohos.d.ts", "keyboard-logic.test.ts", "../entry/src/main/ets/keyboard/*.ts"]
+}

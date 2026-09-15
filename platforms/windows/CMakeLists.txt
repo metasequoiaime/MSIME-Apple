@@ -634,6 +634,15 @@ if(WIN32)
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
   add_executable(msime-client-server main.cpp)
+  # The product mark, which the toolbar loads out of the running executable.
+  # Compiled into the Server itself rather than shipped beside it: an icon the
+  # installer could forget to copy is an icon that silently stops appearing.
+  enable_language(RC)
+  target_sources(msime-client-server PRIVATE ServerResources.rc)
+  target_include_directories(msime-client-server PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+  set_property(SOURCE ServerResources.rc APPEND PROPERTY OBJECT_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/ServerResources.h"
+    "${CMAKE_CURRENT_LIST_DIR}/installer/assets/icons/msime.ico")
   include(ServerManifest.cmake)
   add_executable(msime-client-prepare prepare_host.cpp)
   target_include_directories(msime-client-prepare PRIVATE ../../crates/host-api/include)

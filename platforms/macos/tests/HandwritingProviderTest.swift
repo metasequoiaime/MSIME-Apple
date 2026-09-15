@@ -10,7 +10,19 @@ import Foundation
 }
 
 @main enum HandwritingProviderTest {
-  static func main() throws {
+  @MainActor static func main() throws {
+    let appearance = MacHandwritingAppearance()
+    assert(appearance.colorScheme == .dark)
+    appearance.apply(["theme": "light", "handwriting_theme": "dark"])
+    assert(appearance.colorScheme == .dark)
+    appearance.apply(["theme": "dark", "handwriting_theme": "light"])
+    assert(appearance.colorScheme == .light)
+    appearance.apply(["theme": "dark", "handwriting_theme": "follow"])
+    assert(appearance.colorScheme == .dark)
+    appearance.apply(["theme": "system", "handwriting_theme": "follow"])
+    assert(appearance.colorScheme == nil)
+    appearance.apply(["theme": "light", "handwriting_theme": "invalid"])
+    assert(appearance.colorScheme == .light)
     let strokes = [MacInkStroke(points: [CGPoint(x: 10, y: 12), CGPoint(x: 20, y: 24)])]
     let candidates = try MacHandwritingProvider.recognize(strokes, socketPath: "/tmp/synthetic-handwriting.sock")
     assert(candidates == ["synthetic-candidate"])

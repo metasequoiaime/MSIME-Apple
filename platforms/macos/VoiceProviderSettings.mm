@@ -1,4 +1,5 @@
 #import "VoiceProviderSettings.h"
+#import "VoiceCaptureDevice.h"
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 
@@ -152,6 +153,9 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
             : NO;
     value.polishEndpoint = StringSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
     value.polishModel = StringSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
+    id sharedCaptureDevice = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
+    value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
+        ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
     value.token = ReadToken(@"asr", value.endpoint);
     value.polishToken = ReadToken(@"polish", value.polishEndpoint);
     return value;
@@ -195,9 +199,12 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         @"modelPath" : self.modelPath,
         @"polishEnabled" : @(self.polishEnabled),
         @"polishEndpoint" : self.polishEndpoint,
-        @"polishModel" : self.polishModel
+        @"polishModel" : self.polishModel,
+        @"captureDevice" : self.captureDevice ?: @""
     }
                                               forKey:@"voiceInput"];
+    [[NSUserDefaults standardUserDefaults] setObject:self.captureDevice ?: @""
+                                              forKey:@"MSIMEClientVoiceCaptureDevice"];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceProviderSettingsDidChangeNotification object:self];
     return YES;
 }
@@ -208,6 +215,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
 @implementation MetasequoiaVoiceProviderSettingsWindow
 {
     NSPopUpButton *_provider;
+    NSPopUpButton *_captureDevice;
     NSTextField *_endpoint, *_model, *_modelPath, *_polishEndpoint, *_polishModel;
     NSSecureTextField *_token, *_polishToken;
     NSButton *_polish;
@@ -238,7 +246,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
 }
 - (instancetype)init
 {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 610, 505)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 610, 580)
                                                    styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
@@ -246,37 +254,43 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     if (self)
     {
         window.title = @"语音输入设置";
-        _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 455, 435, 28) pullsDown:NO];
+        _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 530, 435, 28) pullsDown:NO];
         _provider.accessibilityLabel = @"识别方式";
         [_provider addItemsWithTitles:@[ @"豆包", @"OpenAI", @"SiliconFlow", @"Groq", @"本地 Whisper" ]];
         _provider.target = self;
         _provider.action = @selector(providerChanged:);
         [window.contentView addSubview:_provider];
-        _endpoint = [self field:@"识别服务地址" y:415 secure:NO];
-        _model = [self field:@"识别模型" y:380 secure:NO];
-        _token = (NSSecureTextField *)[self field:@"API 密钥" y:345 secure:YES];
-        _modelPath = [self field:@"Whisper 模型" y:310 secure:NO];
-        _modelPath.frame = NSMakeRect(150, 310, 330, 25);
+        _endpoint = [self field:@"识别服务地址" y:490 secure:NO];
+        _model = [self field:@"识别模型" y:455 secure:NO];
+        _token = (NSSecureTextField *)[self field:@"API 密钥" y:420 secure:YES];
+        _modelPath = [self field:@"Whisper 模型" y:385 secure:NO];
+        _modelPath.frame = NSMakeRect(150, 385, 330, 25);
         NSButton *browse = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browse:)];
-        browse.frame = NSMakeRect(488, 310, 97, 25);
+        browse.frame = NSMakeRect(488, 385, 97, 25);
         [window.contentView addSubview:browse];
+        NSTextField *captureLabel = [NSTextField labelWithString:@"录音设备"];
+        captureLabel.frame = NSMakeRect(20, 350, 125, 22);
+        [window.contentView addSubview:captureLabel];
+        _captureDevice = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 345, 435, 28) pullsDown:NO];
+        _captureDevice.accessibilityLabel = @"录音设备";
+        [window.contentView addSubview:_captureDevice];
         _polish = [NSButton checkboxWithTitle:@"识别后整理文本（向此服务发送转写文本）"
                                        target:self
                                        action:@selector(updateEnabled:)];
-        _polish.frame = NSMakeRect(20, 265, 570, 25);
+        _polish.frame = NSMakeRect(20, 305, 570, 25);
         [window.contentView addSubview:_polish];
-        _polishEndpoint = [self field:@"整理服务地址" y:225 secure:NO];
-        _polishModel = [self field:@"整理模型" y:190 secure:NO];
-        _polishToken = (NSSecureTextField *)[self field:@"整理 API 密钥" y:155 secure:YES];
+        _polishEndpoint = [self field:@"整理服务地址" y:265 secure:NO];
+        _polishModel = [self field:@"整理模型" y:230 secure:NO];
+        _polishToken = (NSSecureTextField *)[self field:@"整理 API 密钥" y:195 secure:YES];
         _endpoint.delegate = self;
         _polishEndpoint.delegate = self;
         _status = [NSTextField
             wrappingLabelWithString:@"Control+Option+V 开始/结束，Esc "
                                     @"取消。云端识别会发送本次录音；本地识别使用所选模型。密钥保存在系统钥匙串中。"];
-        _status.frame = NSMakeRect(20, 65, 570, 70);
+        _status.frame = NSMakeRect(20, 80, 570, 90);
         [window.contentView addSubview:_status];
         NSButton *save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
-        save.frame = NSMakeRect(490, 20, 95, 30);
+        save.frame = NSMakeRect(490, 25, 95, 30);
         [window.contentView addSubview:save];
         [window center];
     }
@@ -292,6 +306,32 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     _model.stringValue = value.model;
     _token.stringValue = value.token;
     _modelPath.stringValue = value.modelPath;
+    [_captureDevice removeAllItems];
+    NSMenuItem *automatic = [[NSMenuItem alloc] initWithTitle:@"系统默认" action:nil keyEquivalent:@""];
+    automatic.representedObject = @"";
+    [_captureDevice.menu addItem:automatic];
+    BOOL foundCaptureDevice = value.captureDevice.length == 0;
+    for (NSDictionary *device in MSIMEListVoiceCaptureDevices()) {
+        NSString *uid = device[@"uid"], *name = device[@"name"];
+        NSString *title = [device[@"default"] boolValue]
+            ? [NSString stringWithFormat:@"%@（当前系统默认）", name] : name;
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+        item.representedObject = uid;
+        [_captureDevice.menu addItem:item];
+        if ([uid isEqual:value.captureDevice]) {
+            [_captureDevice selectItem:item];
+            foundCaptureDevice = YES;
+        }
+    }
+    if (!foundCaptureDevice) {
+        NSMenuItem *unavailable = [[NSMenuItem alloc]
+            initWithTitle:@"已保存的录音设备（当前不可用）" action:nil keyEquivalent:@""];
+        unavailable.representedObject = value.captureDevice;
+        [_captureDevice.menu addItem:unavailable];
+        [_captureDevice selectItem:unavailable];
+    } else if (value.captureDevice.length == 0) {
+        [_captureDevice selectItem:automatic];
+    }
     _polish.state = value.polishEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _polishEndpoint.stringValue = value.polishEndpoint;
     _polishModel.stringValue = value.polishModel;
@@ -359,6 +399,8 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     value.polishEndpoint = _polishEndpoint.stringValue;
     value.polishModel = _polishModel.stringValue;
     value.polishToken = _polishToken.stringValue;
+    id captureDevice = _captureDevice.selectedItem.representedObject;
+    value.captureDevice = [captureDevice isKindOfClass:NSString.class] ? captureDevice : @"";
     NSError *error = nil;
     _status.stringValue = [value save:&error] ? @"设置已保存。" : error.localizedDescription;
 }

@@ -2,6 +2,33 @@ import AppKit
 import SwiftUI
 import Vision
 
+@MainActor final class MacHandwritingAppearance: ObservableObject {
+  static let shared = MacHandwritingAppearance()
+  @Published private(set) var colorScheme: ColorScheme? = .dark
+
+  func apply(_ preferences: NSDictionary) {
+    let surface = preferences["handwriting_theme"] as? String
+    let global = preferences["theme"] as? String
+    let resolved = (surface == "dark" || surface == "light") ? surface : global
+    let next: ColorScheme?
+    switch resolved {
+    case "light": next = .light
+    case "system": next = nil
+    default: next = .dark
+    }
+    if colorScheme != next { colorScheme = next }
+  }
+}
+
+enum MacHandwritingPalette {
+  static func color(_ rgb: UInt32) -> Color {
+    Color(.sRGB, red: Double((rgb >> 16) & 255) / 255,
+      green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255)
+  }
+  static func background(light: Bool) -> Color { color(light ? 0xF7F7FA : 0x202027) }
+  static func ink(light: Bool) -> Color { color(light ? 0x202027 : 0xF5F5F7) }
+}
+
 enum MacHandwritingProvider {
   private static func localImage(for strokes: [MacInkStroke], size: Int = 420) -> CGImage? {
     guard !strokes.isEmpty,
@@ -73,15 +100,16 @@ struct MacInkStroke: Identifiable {
 
 private struct MacInkCanvas: NSViewRepresentable {
   @Binding var strokes: [MacInkStroke]
-  func makeNSView(context: Context) -> CanvasView { let view = CanvasView(); view.onChange = { strokes = $0 }; return view }
-  func updateNSView(_ view: CanvasView, context: Context) { view.strokes = strokes; view.needsDisplay = true }
+  var dark: Bool
+  func makeNSView(context: Context) -> CanvasView { let view = CanvasView(); view.dark = dark; view.onChange = { strokes = $0 }; return view }
+  func updateNSView(_ view: CanvasView, context: Context) { view.dark = dark; view.strokes = strokes; view.needsDisplay = true }
   final class CanvasView: NSView {
     var strokes: [MacInkStroke] = []
+    var dark = false
     var onChange: (([MacInkStroke]) -> Void)?
     private var active: [CGPoint] = []
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-      let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
       (dark ? NSColor(calibratedWhite: 0.145, alpha: 1) : .white).setFill(); dirtyRect.fill()
       if strokes.isEmpty && active.isEmpty {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor]
@@ -103,6 +131,7 @@ private struct MacInkCanvas: NSViewRepresentable {
 }
 
 struct MacHandwritingCanvasView: View {
+  @Environment(\.colorScheme) private var colorScheme
   @Binding var strokes: [MacInkStroke]
   var onSubmit: ([MacInkStroke]) -> Void
   var candidates: [String] = []
@@ -111,7 +140,7 @@ struct MacHandwritingCanvasView: View {
   var body: some View {
     VStack(spacing: 8) {
       HStack(alignment: .top, spacing: 28) {
-        MacInkCanvas(strokes: $strokes).frame(width: 250, height: 250).background(.background).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+        MacInkCanvas(strokes: $strokes, dark: colorScheme == .dark).frame(width: 250, height: 250).background(.background).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
         VStack(alignment: .leading, spacing: 10) {
           Text("识别结果").font(.title3.weight(.semibold))
           LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
@@ -132,6 +161,8 @@ extension Notification.Name { static let msimeHandwritingCandidateSelected = Not
 
 /// Own the window's presentation state separately from the reusable ink canvas.
 struct MacHandwritingToolView: View {
+  @ObservedObject var appearance = MacHandwritingAppearance.shared
+  @Environment(\.colorScheme) private var systemColorScheme
   var onCandidate: ((String) -> Bool)?
   @State private var strokes: [MacInkStroke] = []
   @State private var candidates: [String] = []
@@ -155,6 +186,9 @@ struct MacHandwritingToolView: View {
       if busy { ProgressView("正在识别…") }
       if let message { Text(message).foregroundStyle(.secondary) }
     }.padding(20).frame(width: 640, height: 460)
+    .background(MacHandwritingPalette.background(light: (appearance.colorScheme ?? systemColorScheme) == .light))
+    .foregroundStyle(MacHandwritingPalette.ink(light: (appearance.colorScheme ?? systemColorScheme) == .light))
+    .preferredColorScheme(appearance.colorScheme)
     .onChange(of: strokes.count) { _ in candidates = []; if !strokes.isEmpty { recognize(strokes) } }
     .onChange(of: socketPath) { _ in candidates = []; message = nil }
     .onDisappear { pending?.cancel(); pending = nil; candidates = []; strokes = [] }

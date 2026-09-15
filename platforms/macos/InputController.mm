@@ -12,6 +12,7 @@
 #import "DictionaryWindowController.h"
 #import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
+#import "InputMenu.h"
 #import "PreferencesWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "DesktopInputSession.h"
@@ -351,6 +352,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
+    NSDictionary *_voiceThemePreferences;
+    NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
     MSIMECloudCandidateRequest *_cloudRequest;
@@ -864,6 +867,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
@@ -1146,7 +1150,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_voiceService.active) [_voiceService cancelWithError:nil];
     [_voiceAudioMuter restore]; [self voiceCaptureDidEnd];
     if (!_activeClient) return;
-    if (!_voiceOverlay) _voiceOverlay = [MSIMEVoiceWaveOverlay new];
+    if (!_voiceOverlay) {
+        _voiceOverlay = [MSIMEVoiceWaveOverlay new];
+        [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
+    }
     [_voiceOverlay showFailure:failure];
 }
 - (void)cancelDoubaoVoiceInput {
@@ -1540,7 +1547,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
     if (!_voiceCuePlayer) _voiceCuePlayer = [[MSIMEVoiceCuePlayer alloc] init];
     if (!_voiceAudioMuter) _voiceAudioMuter = [[MSIMEVoiceAudioMuter alloc] init];
-    if (!_voiceOverlay) _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
+    if (!_voiceOverlay) {
+        _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
+        [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
+    }
     if (_httpVoiceRequest) { [self finishHTTPVoiceInput]; return; }
     if (_doubaoVoiceRequest) { [self finishDoubaoVoiceInput]; return; }
     if (_liveVoiceToken) { [self finishLiveVoiceInput]; return; }
@@ -1840,6 +1850,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    if ([preferences isKindOfClass:NSDictionary.class]) {
+        _voiceThemePreferences = [preferences copy];
+        _menuThemePreferences = [preferences copy];
+        if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
+    }
     if (MSIMEApplySharedVoicePreferences(preferences[@"voice_input"], NSUserDefaults.standardUserDefaults))
         _voicePermissionToken = nil;
     if (!MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults))
@@ -1893,6 +1908,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
         [shared performSelector:@selector(applyEmojiPreferences:) withObject:preferences];
+    if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
+        [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
     [_toolbar applyThemePreferences:preferences];
     [_toolbar applySizingPreferences:preferences];
@@ -2616,10 +2633,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"候选操作"];
     menu.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
     [menu addItem:item(@"置顶", 0)];
     NSMenuItem *fixed = [[NSMenuItem alloc] initWithTitle:@"固定排位" action:nil keyEquivalent:@""];
     NSMenu *positions = [[NSMenu alloc] initWithTitle:@"固定排位"];
     positions.autoenablesItems = NO;
+    ApplyMetasequoiaMenuTheme(positions, _menuThemePreferences ?: @{});
     for (NSInteger position = 1; position <= 5; ++position)
         [positions addItem:item([NSString stringWithFormat:@"第 %ld 位", (long)position], 10 + position)];
     [positions addItem:NSMenuItem.separatorItem];

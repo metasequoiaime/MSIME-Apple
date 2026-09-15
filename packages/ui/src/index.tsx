@@ -1658,7 +1658,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
-        <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "english"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
         {showModeScope && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
         {client.touchKeyboardSchemes && <div className="section touch-keyboard-schemes" role="group" aria-labelledby="touch-keyboard-schemes-title">
           <div className="section-title" id="touch-keyboard-schemes-title">输入方案</div>

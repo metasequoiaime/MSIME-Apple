@@ -16,5 +16,6 @@ dist/
 /platforms/harmony/.hvigor/
 /platforms/harmony/entry/build/
 /platforms/harmony/entry/libs/
+/platforms/harmony/entry/src/main/resources/resfile/
 oh_modules/
 local.properties

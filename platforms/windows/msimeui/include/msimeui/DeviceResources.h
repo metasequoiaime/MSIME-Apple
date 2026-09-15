@@ -31,6 +31,11 @@ class DeviceResources
                                      DWRITE_TEXT_ALIGNMENT textAlignment, DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment,
                                      DWRITE_WORD_WRAPPING wordWrapping);
     ID2D1Bitmap *GetBitmapFromFile(const std::wstring &filePath, D2D1_SIZE_F *size = nullptr);
+    // An icon already loaded from a module's resources. `key` names the cache
+    // entry; the caller owns the HICON, which is only read here. Icons come
+    // from the executable rather than a file so that a surface drawing its
+    // product mark does not depend on the installer having copied an asset.
+    ID2D1Bitmap *GetBitmapFromIcon(HICON icon, const std::wstring &key, D2D1_SIZE_F *size = nullptr);
     // UI thread only; drop file-backed images without discarding the device.
     void ClearBitmapCache() { bitmapCache_.clear(); }
     bool UsesComposition() const;
