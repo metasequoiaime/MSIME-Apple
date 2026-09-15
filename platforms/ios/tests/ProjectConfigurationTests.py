@@ -651,11 +651,18 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         canvas = (IOS_ROOT / "App/Sources/KeyboardPreviewCanvas.swift").read_text()
         preview = (IOS_ROOT / "App/Sources/KeyboardSkinPreview.swift").read_text()
 
-        body = settings[settings.index("private var preview"):settings.index("private var form")]
-        self.assertIn("KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing)", body)
-        self.assertIn("heightAdjustment: height", body)
-        self.assertNotIn("KeyboardLayoutPreference.", body)
+        # 只看预览本身怎么构造的:同一段里还有拖动手势,而手势往存储里写是它该做的事。
+        start = settings.index("KeyboardSkinPreview(")
+        construction = settings[start:settings.index(")", settings.index("heightAdjustment", start))]
+        self.assertIn("KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing)", construction)
+        self.assertIn("heightAdjustment: height", construction)
+        self.assertNotIn("KeyboardLayoutPreference.", construction)
         self.assertIn('.accessibilityIdentifier("keyboardLayoutPreview")', settings)
+
+        # 直接拖预览改参数:把手改高度,键盘上左右改键距、上下改行间距。
+        self.assertIn('.accessibilityIdentifier("keyboardHeightGrip")', settings)
+        self.assertIn(".gesture(heightDrag)", settings)
+        self.assertIn(".gesture(spacingDrag)", settings)
 
         # 高度是画布自己的尺寸,不在 KeyboardGeometry 里,所以要单独传进去。
         self.assertIn("KeyboardPreviewCanvas(referenceHeight: 260 + heightAdjustment)", preview)

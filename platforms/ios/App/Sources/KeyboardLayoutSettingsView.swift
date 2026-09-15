@@ -6,6 +6,15 @@ struct KeyboardLayoutSettingsView: View {
   @State private var height = KeyboardLayoutPreference.heightAdjustment
   @State private var skin = KeyboardSkinPreference.selected
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
+  /// 一次拖动开始时的取值。DragGesture 给的是从按下那一刻算起的累计位移,所以基准要自己记。
+  @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
+  /// 这一次拖的是哪个方向,按下之后就不再改 —— 否则手一歪,行间距和键距会互相抢。
+  @State private var dragAxis: Axis?
+
+  private enum Axis { case vertical, horizontal }
+
+  /// 拖多远算一格。高度是一比一跟手的,间距那两个范围只有三到六个点,跟手就会一碰就到头。
+  private static let spacingDragScale: Double = 18
 
   var body: some View {
     VStack(spacing: 0) {
@@ -20,13 +29,92 @@ struct KeyboardLayoutSettingsView: View {
 
   /// 实时预览:三个滑块的当前值直接画出来,不读存储 —— 读存储也能对,但那是「存进去之后」的值,拖动中间那一段就没有反馈。
   private var preview: some View {
-    KeyboardSkinPreview(
-      skin: skin, nineKey: nineKey,
-      layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing),
-      heightAdjustment: height
-    )
-    .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
-    .accessibilityIdentifier("keyboardLayoutPreview")
+    VStack(spacing: 6) {
+      grip
+      KeyboardSkinPreview(
+        skin: skin, nineKey: nineKey,
+        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing),
+        heightAdjustment: height
+      )
+      // 在键盘上直接拖:上下改行间距,左右改键距。滑块留着管精细,手感靠这里。
+      .gesture(spacingDrag)
+      .accessibilityIdentifier("keyboardLayoutPreview")
+      Text(dragHint).font(.caption2).foregroundStyle(.secondary)
+    }
+    .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 8)
+  }
+
+  /// 键盘上沿那条把手。像拉窗帘一样往上拖,键盘就高一截。
+  private var grip: some View {
+    Capsule()
+      .fill(MetasequoiaTheme.accent.opacity(0.35))
+      .frame(width: 44, height: 5)
+      .frame(maxWidth: .infinity)
+      .frame(height: 26)
+      .contentShape(Rectangle())
+      .gesture(heightDrag)
+      .accessibilityIdentifier("keyboardHeightGrip")
+      .accessibilityLabel("键盘高度")
+      .accessibilityValue(format(height))
+      .accessibilityAdjustableAction { direction in
+        height = clamp(height + (direction == .increment ? 2 : -2), -12, 48)
+        KeyboardLayoutPreference.heightAdjustment = height
+      }
+  }
+
+  private var dragHint: String {
+    switch dragAxis {
+    case .vertical: return "行间距 \(String(format: "%.1f", rowSpacing))"
+    case .horizontal: return "按键间距 \(String(format: "%.1f", keySpacing))"
+    case nil: return "拖上面的把手改高度，在键盘上左右拖改键距、上下拖改行间距"
+    }
+  }
+
+  /// 把手:往上拖是加高。屏幕坐标向下为正,所以取反。
+  private var heightDrag: some Gesture {
+    DragGesture(minimumDistance: 1)
+      .onChanged { value in
+        let base = dragBase ?? snapshot()
+        if dragBase == nil { dragBase = base }
+        height = clamp(base.height - Double(value.translation.height), -12, 48)
+        KeyboardLayoutPreference.heightAdjustment = height
+      }
+      .onEnded { _ in dragBase = nil }
+  }
+
+  /// 键盘内部:第一下往哪边动得多,这一次就只改那一个。
+  private var spacingDrag: some Gesture {
+    DragGesture(minimumDistance: 4)
+      .onChanged { value in
+        let base = dragBase ?? snapshot()
+        if dragBase == nil { dragBase = base }
+        let axis = dragAxis ?? (abs(value.translation.height) >= abs(value.translation.width) ? .vertical : .horizontal)
+        dragAxis = axis
+        switch axis {
+        case .vertical:
+          rowSpacing = clamp(base.rowSpacing + Double(value.translation.height) / Self.spacingDragScale, 4, 10)
+          KeyboardLayoutPreference.rowSpacing = rowSpacing
+        case .horizontal:
+          keySpacing = clamp(base.keySpacing + Double(value.translation.width) / Self.spacingDragScale, 3, 6)
+          KeyboardLayoutPreference.keySpacing = keySpacing
+        }
+      }
+      .onEnded { _ in
+        dragBase = nil
+        dragAxis = nil
+      }
+  }
+
+  private func snapshot() -> (height: Double, keySpacing: Double, rowSpacing: Double) {
+    (height, keySpacing, rowSpacing)
+  }
+
+  private func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
+    min(upper, max(lower, value))
+  }
+
+  private func format(_ value: Double) -> String {
+    value > 0 ? "+\(Int(value))" : "\(Int(value))"
   }
 
   private var form: some View {
