@@ -181,6 +181,34 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     return [identifier[@"session"] isEqual:view[@"session"]] && [identifier[@"generation"] isEqual:view[@"generation"]] &&
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
+
+// Numeric and space selection must use the candidate identities captured by the
+// panel that is actually on screen. AppKit can deliver another key event before
+// the previous content view has painted, while _view already points at the next
+// Engine generation. Falling back to _view in that window can select a different
+// word than the one the user sees.
+static NSDictionary *MSIMERenderedCandidateIdentity(NSPanel *panel, NSInteger slot) {
+    if (!panel || ![panel.contentView isKindOfClass:NSView.class]) return nil;
+    for (NSView *subview in panel.contentView.subviews) {
+        if (![subview isKindOfClass:MSIMECandidateButton.class] || subview.tag != slot) continue;
+        NSDictionary *identity = ((MSIMECandidateButton *)subview).candidateID;
+        return [identity isKindOfClass:NSDictionary.class] ? identity : nil;
+    }
+    return nil;
+}
+
+static NSDictionary *MSIMERenderedHighlightedCandidateIdentity(NSPanel *panel) {
+    if (!panel || ![panel.contentView isKindOfClass:NSView.class]) return nil;
+    for (NSView *subview in panel.contentView.subviews) {
+        if (![subview isKindOfClass:MSIMECandidateButton.class] || subview.tag < 0) continue;
+        MSIMECandidateButton *button = (MSIMECandidateButton *)subview;
+        if (!button.candidateHighlighted) continue;
+        NSDictionary *identity = button.candidateID;
+        return [identity isKindOfClass:NSDictionary.class] ? identity : nil;
+    }
+    return nil;
+}
+
 static BOOL MSIMESmartPunctuationKey(unichar character) {
     return character == ',' || character == '.' || character == ':';
 }
@@ -2320,11 +2348,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger deletionSlot = MSIMECandidateDeletionSlot(event);
     if (_panel.isVisible && deletionSlot != NSNotFound) {
         if (event.isARepeat) return YES;
-        NSArray *candidates = _view[@"candidates"];
-        if (![candidates isKindOfClass:NSArray.class] || deletionSlot >= candidates.count) return YES;
-        NSDictionary *candidate = candidates[deletionSlot];
-        if (![candidate isKindOfClass:NSDictionary.class]) return YES;
-        NSDictionary *identifier = candidate[@"id"];
+        NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, (NSInteger)deletionSlot);
         if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
         NSError *error = nil;
         NSDictionary *result = [_session removeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
@@ -2341,17 +2365,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             _panel.isVisible, [_view[@"nine_key"] boolValue], [_view[@"local_mode"] isEqual:@"unicode"],
             (event.modifierFlags & candidateDigitModifiers) != 0)) {
         const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
-        NSArray *candidates = _view[@"candidates"];
-        if (slot >= 0 && [candidates isKindOfClass:NSArray.class] && (NSUInteger)slot < candidates.count) {
-            NSDictionary *candidate = candidates[(NSUInteger)slot];
-            NSDictionary *identifier = [candidate isKindOfClass:NSDictionary.class] ? candidate[@"id"] : nil;
-            if (MSIMECurrentCandidateIdentity(identifier, _view)) {
-                NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
-                                                               index:[identifier[@"index"] unsignedIntegerValue]
-                                                               error:nil];
-                if (selected) [self apply:selected];
-                return YES;
-            }
+        if (slot >= 0) {
+            // The panel owns the rendered snapshot. If it is from an older
+            // generation, consume the key until the new page is visible instead
+            // of letting it fall through to Engine numeric input.
+            NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, slot);
+            if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
+            NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
+                                                           index:[identifier[@"index"] unsignedIntegerValue]
+                                                           error:nil];
+            if (selected) [self apply:selected];
+            return YES;
         }
     }
     // Match Windows keypad punctuation and Linux's physical keypad route.
@@ -2439,6 +2463,21 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
         [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
         return YES;
+    }
+    if (_panel.isVisible && event.keyCode == 49 &&
+        !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                 NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
+        // Space commits the highlighted item shown by the panel. Keep the
+        // identity fence symmetric with numeric and mouse selection.
+        NSDictionary *identifier = MSIMERenderedHighlightedCandidateIdentity(_panel);
+        if (identifier) {
+            if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
+            NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
+                                                           index:[identifier[@"index"] unsignedIntegerValue]
+                                                           error:nil];
+            if (selected) [self apply:selected];
+            return YES;
+        }
     }
     // NSTextInputClient has no caret setter; replacing the known following
     // closing mark atomically advances the caret without duplicating text.
