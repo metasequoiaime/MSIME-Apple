@@ -175,6 +175,9 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .statistics-bars button[aria-pressed="true"] i { background: #e59b43; opacity: 1; }
 .statistics-bars button[aria-pressed="false"]:has(~ button[aria-pressed="true"]) i,
 .statistics-bars:has(button[aria-pressed="true"]) button[aria-pressed="false"] i { opacity: .4; }
+.statistics-line-chart { width: 100%; height: 170px; margin-top: 12px; color: var(--accent-color); }
+.statistics-line-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.statistics-line-chart circle { fill: #e59b43; stroke: var(--card-bg); stroke-width: 1.5px; }
 .statistics-axis { display: flex; justify-content: space-between; margin-top: 7px; color: var(--text-muted); font-size: 12px; }
 .statistics-heatmap-caption { margin-top: 18px !important; }
 .statistics-heatmap { margin-top: 8px; }

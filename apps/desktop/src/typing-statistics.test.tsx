@@ -95,6 +95,7 @@ test("mobile statistic tabs use Apple chart shapes", async () => {
   render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByRole("heading", { name: /每日趋势/ });
+  expect(screen.getByRole("img", { name: "每日输入趋势折线图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
   expect(screen.getByRole("img", { name: "字符类型饼图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "模式" }));
