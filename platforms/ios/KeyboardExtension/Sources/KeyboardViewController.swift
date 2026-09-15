@@ -176,6 +176,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard CandidateGlossPreference.enabled else { return 0 }
     return CandidateTranslationPreference.secondary == nil ? 1 : 2
   }
+  /// Height reserved below the candidate row for composition and configured gloss lines.
+  /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
+  static var stripExtraHeight: CGFloat {
+    compositionRowHeight + glossHeight(lines: configuredGlossLines())
+  }
   private var glossLineCount = 0
   private var candidateStripHeightConstraint: NSLayoutConstraint?
 

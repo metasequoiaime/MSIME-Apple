@@ -107,7 +107,7 @@ final class HandwritingTests: XCTestCase {
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
-      XCTAssertEqual(height.constant, 260 + KeyboardViewController.compositionRowHeight)
+      XCTAssertEqual(height.constant, 260 + KeyboardViewController.stripExtraHeight)
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
@@ -117,10 +117,10 @@ final class HandwritingTests: XCTestCase {
     }
     let language = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
     XCTAssertTrue(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
   func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
@@ -139,9 +139,9 @@ final class HandwritingTests: XCTestCase {
     let panel = try XCTUnwrap(nodes(controller.view).first { $0 is HandwritingInputView } as? HandwritingInputView)
     let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     for (verticalSize, width, writingHeight, typingHeight) in [
-      (UIUserInterfaceSizeClass.regular, 414.0, 260.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
-      (.compact, 812.0, 240.0 + KeyboardViewController.compositionRowHeight, 216.0 + KeyboardViewController.compositionRowHeight),
-      (.regular, 320.0, 260.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
+      (UIUserInterfaceSizeClass.regular, 414.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
+      (.compact, 812.0, 240.0 + KeyboardViewController.stripExtraHeight, 216.0 + KeyboardViewController.stripExtraHeight),
+      (.regular, 320.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
     ] {
       parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
       controller.viewDidLayoutSubviews()
