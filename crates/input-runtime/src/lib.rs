@@ -725,7 +725,9 @@ impl UnixSocketProvider {
     pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
         if query.candidates.is_empty()
             || query.candidates.len() > 9
-            || query.candidates.iter().any(|text| text.len() > 4096)
+            || query.candidates.iter().any(|text| {
+                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+            })
         {
             return None;
         }
@@ -775,6 +777,8 @@ impl UnixSocketProvider {
                 item.text.len() > 4096
                     || item.translation.is_empty()
                     || item.translation.len() > 4096
+                    || item.text.chars().any(char::is_control)
+                    || item.translation.chars().any(char::is_control)
                     || !query.candidates.contains(&item.text)
             })
         {
@@ -2091,6 +2095,100 @@ mod tests {
                 .test_credential("voice.asr", &json!({"value":"x".repeat(16_384)}))
                 .is_none()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn translation_provider_rejects_controls_at_the_socket_boundary() {
+        let directory = tempfile::tempdir().unwrap();
+        let request_socket = directory.path().join("translation-request.sock");
+        let listener = UnixListener::bind(&request_socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let server_done = done.clone();
+        let server_accepted = accepted.clone();
+        let server = std::thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    server_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    std::io::Write::write_all(
+                        &mut stream,
+                        br#"{"translations":[{"text":"safe","translation":"safe"}]}"#,
+                    )
+                    .unwrap();
+                    std::io::Write::write_all(&mut stream, b"\n").unwrap();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if server_done.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("translation fixture failed: {error}"),
+            }
+        });
+        let provider = UnixSocketProvider::new(&request_socket);
+        for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(codepoint).unwrap();
+            assert!(provider
+                .translate(TranslationQuery {
+                    generation: 1,
+                    target_language: "en".into(),
+                    candidates: vec![format!("safe{control}")],
+                    custom_translation: None,
+                    niutrans: None,
+                })
+                .is_none());
+        }
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        server.join().unwrap();
+        assert_eq!(accepted.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        let response_socket = directory.path().join("translation-response.sock");
+        let listener = UnixListener::bind(&response_socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let reply = |mut stream: std::os::unix::net::UnixStream, response: &str| {
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                std::io::BufRead::read_line(&mut reader, &mut request).unwrap();
+                std::io::Write::write_all(&mut stream, response.as_bytes()).unwrap();
+                std::io::Write::write_all(&mut stream, b"\n").unwrap();
+            };
+            for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
+                let (stream, _) = listener.accept().unwrap();
+                let control = char::from_u32(codepoint).unwrap();
+                let response = json!({
+                    "translations": [{"text":"safe","translation":format!("before{control}after")}]
+                })
+                .to_string();
+                reply(stream, &response);
+            }
+            let (stream, _) = listener.accept().unwrap();
+            reply(
+                stream,
+                r#"{"translations":[{"text":"safe","translation":"translated"}]}"#,
+            );
+        });
+        let provider = UnixSocketProvider::new(response_socket);
+        let query = TranslationQuery {
+            generation: 1,
+            target_language: "en".into(),
+            candidates: vec!["safe".into()],
+            custom_translation: None,
+            niutrans: None,
+        };
+        for _ in (0..=0x1f).chain(0x7f..=0x9f) {
+            assert!(provider.translate(query.clone()).is_none());
+        }
+        assert_eq!(
+            provider.translate(query).unwrap(),
+            vec![TranslationResult {
+                text: "safe".into(),
+                translation: "translated".into(),
+            }]
+        );
+        server.join().unwrap();
     }
     impl InputEngine for Fixture {
         fn balance_paired_punctuation_after_auto_close(
