@@ -105,4 +105,10 @@ java -cp "$output_dir" SmartPunctuationContextSmoke
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
   --manifest "$repo_root/platforms/android/AndroidManifest.xml" \
   -o "$output_dir/manifest.apk" "$output_dir/resources.zip"
+for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVermilion; do
+  if ! rg -q "android:name=\"\\.${alias}\"" "$repo_root/platforms/android/AndroidManifest.xml"; then
+    echo "Android app icon alias missing: $alias" >&2
+    exit 1
+  fi
+done
 echo "Android service Java/API and manifest/resource checks passed; no installable/native APK produced"
