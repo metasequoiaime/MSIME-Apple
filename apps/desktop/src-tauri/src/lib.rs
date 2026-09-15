@@ -3214,7 +3214,17 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(&url).status();
     #[cfg(target_os = "linux")]
-    let result = std::process::Command::new("xdg-open").arg(&url).status();
+    {
+        return linux_process::run_status(
+            "xdg-open",
+            &[url.as_str()],
+            std::time::Duration::from_secs(3),
+        )
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        });
+    }
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new("cmd")
         .args(["/C", "start", ""])
@@ -3223,6 +3233,7 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let result: Result<std::process::ExitStatus, std::io::Error> =
         Err(std::io::Error::other("unsupported"));
+    #[cfg(not(target_os = "linux"))]
     match result {
         Ok(status) if status.success() => Ok(()),
         _ => Err(HostActionError {
