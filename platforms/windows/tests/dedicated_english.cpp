@@ -13,6 +13,10 @@ int main() {
     ~Cleanup() { std::error_code ec; std::filesystem::remove_all(root, ec); }
   } cleanup{root};
   auto options = test_host_options(root);
+  // 默认输入状态 picks the state a new focus session starts in, and the host
+  // applies it as its own English passthrough. It must not start the Engine in
+  // dedicated English, whose candidates are English words and which the CN/EN
+  // switch cannot leave.
   options["preferences"]["default_ime_mode"] = "english";
   const auto serialized = options.dump();
   {
@@ -31,7 +35,7 @@ int main() {
     assert(gate.acknowledge(lease, [] { return true; }));
     assert(state.confirmed(lease));
     const auto initial = state.dedicated_english(lease, false);
-    assert(initial && initial->at("dedicated_english") == true);
+    assert(initial && initial->at("dedicated_english") == false);
     auto stale = lease;
     ++stale.token;
     assert(!state.dedicated_english(stale, true));
@@ -45,17 +49,24 @@ int main() {
     assert(pending);
     assert(!state.dedicated_english(lease, true));
     assert(state.delivered(lease, packet.request_id));
-    const auto exited = state.dedicated_english(lease, true);
-    assert(exited && exited->at("dedicated_english") == false);
-    assert(exited->at("editing_text") == "" && exited->at("candidates").empty());
-    const auto again = state.dedicated_english(lease, true);
-    assert(again && again->at("generation") == exited->at("generation"));
+    // The letter opens a pinyin composition instead of being answered with
+    // English words.
+    const auto typed = state.dedicated_english(lease, false);
+    assert(typed && typed->at("dedicated_english") == false);
+    assert(typed->at("editing_text") == "a");
+    // Exit is a no-op while the mode is off: it neither cancels the
+    // composition nor moves the Engine on.
+    const auto idle = state.dedicated_english(lease, true);
+    assert(idle && idle->at("dedicated_english") == false);
+    assert(idle->at("editing_text") == "a");
+    assert(idle->at("generation") == typed->at("generation"));
     assert(state.quiesce_dictionaries() == 1);
     assert(!state.dedicated_english(lease, true));
   }
-  // A fresh session still honors the saved default; exit was runtime-only.
+  // A fresh session starts in Chinese as well; the saved default decides the
+  // host's passthrough and never the Engine's English candidates.
   ServerSession fresh(43, serialized);
   fresh.activate(1);
-  assert(fresh.dedicated_english(1, false).at("dedicated_english") == true);
+  assert(fresh.dedicated_english(1, false).at("dedicated_english") == false);
   assert(options["preferences"]["default_ime_mode"] == "english");
 }
