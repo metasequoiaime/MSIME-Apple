@@ -54,7 +54,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
   private var handwritingActionHeight: NSLayoutConstraint?
-  private var layoutPicker: KeyboardLayoutPickerView?
+  private var layoutPicker: KeyboardLayoutAdjustView?
   private var candidatePanel: KeyboardCandidatePanelView?
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
@@ -2864,11 +2864,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
-    // The settings screen occupies the whole keyboard surface. Keeping the shortcut bar visible
-    // underneath makes the screen look like a translucent sheet and leaves a second toolbar at
-    // the bottom of the settings controls.
-    shortcutBar.isHidden = true
-    let picker = KeyboardLayoutPickerView(
+    // 调的时候键盘要看得见 —— 快捷栏留着,它就在工具条底下,不碍事。原来这块是不透明的滑块面板,所以才要把快捷栏藏掉。
+    let picker = KeyboardLayoutAdjustView(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       height: KeyboardLayoutPreference.heightAdjustment,

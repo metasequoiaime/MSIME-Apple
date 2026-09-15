@@ -361,14 +361,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 292)
         for gap in [3.0, 6.0] {
-          try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-          let slider = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keySpacingSlider" } as? UISlider)
-          slider.value = Float(gap)
-          slider.sendActions(for: .valueChanged)
-          let row = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "rowSpacingSlider" } as? UISlider)
-          row.value = gap == 3 ? 4 : 10
-          row.sendActions(for: .valueChanged)
-          try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+          // 间距原来是拖键盘内那三条滑块设的,现在是在键盘上拖出来的 —— 手势合成不进单测,而这条要验的是「键位跟着间距走」,直接把值写进偏好再让键盘重排就够了。
+          KeyboardLayoutPreference.keySpacing = gap
+          KeyboardLayoutPreference.rowSpacing = gap == 3 ? 4 : 10
+          controller.viewWillAppear(false)
           controller.view.layoutIfNeeded()
           XCTAssertEqual(KeyboardLayoutPreference.geometry.keySpacing, gap)
           let enter = try button("returnKey", in: controller)
