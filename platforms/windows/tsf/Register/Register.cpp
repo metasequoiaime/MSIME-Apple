@@ -84,7 +84,7 @@ Exit:
 //
 //----------------------------------------------------------------------------
 
-void UnregisterProfiles()
+BOOL UnregisterProfiles()
 {
     HRESULT hr = S_OK;
 
@@ -109,7 +109,7 @@ Exit:
         pITfInputProcessorProfileMgr->Release();
     }
 
-    return;
+    return SUCCEEDED(hr) ? TRUE : FALSE;
 }
 
 //+---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ BOOL RegisterCategories()
 //
 //----------------------------------------------------------------------------
 
-void UnregisterCategories()
+BOOL UnregisterCategories()
 {
     ITfCategoryMgr *pCategoryMgr = S_OK;
     HRESULT hr = S_OK;
@@ -161,18 +161,23 @@ void UnregisterCategories()
     hr = CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void **)&pCategoryMgr);
     if (FAILED(hr))
     {
-        return;
+        return FALSE;
     }
 
     // for each (GUID guid in SupportCategories)
     for (const auto &guid : SupportCategories)
     {
-        pCategoryMgr->UnregisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        hr = pCategoryMgr->UnregisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        if (FAILED(hr))
+        {
+            pCategoryMgr->Release();
+            return FALSE;
+        }
     }
 
     pCategoryMgr->Release();
 
-    return;
+    return TRUE;
 }
 
 //+---------------------------------------------------------------------------
@@ -290,16 +295,16 @@ Exit:
 //
 //----------------------------------------------------------------------------
 
-void UnregisterServer()
+BOOL UnregisterServer()
 {
     WCHAR achIMEKey[ARRAYSIZE(RegInfo_Prefix_CLSID) + CLSID_STRLEN] = {'\0'};
 
     if (!CLSIDToString(Global::MetasequoiaIMECLSID, achIMEKey + ARRAYSIZE(RegInfo_Prefix_CLSID) - 1))
     {
-        return;
+        return FALSE;
     }
 
     memcpy(achIMEKey, RegInfo_Prefix_CLSID, sizeof(RegInfo_Prefix_CLSID) - sizeof(WCHAR));
 
-    RecurseDeleteKey(HKEY_CLASSES_ROOT, achIMEKey);
+    return RecurseDeleteKey(HKEY_CLASSES_ROOT, achIMEKey) == ERROR_SUCCESS;
 }
