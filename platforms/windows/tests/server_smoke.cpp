@@ -6,6 +6,7 @@
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
 #include "TrayMenuWindow.h"
+#include "WaveOverlay.h"
 #include "WindowsServer.h"
 #include <cstring>
 #include <filesystem>
@@ -216,6 +217,39 @@ int main() {
         if (message == WM_POWERBROADCAST)
           require(result == TRUE);
         require(!tray.visible() && !tray.failed());
+      }
+    }
+    {
+      WaveOverlay overlay;
+      require(
+          overlay.init(GetModuleHandleW(nullptr), [](WaveOverlay::Action) {}));
+      const auto foreground = GetForegroundWindow();
+      overlay.show();
+      MSG message{};
+      for (size_t i = 0; i < 16 && !IsWindowVisible(overlay.handle()); ++i) {
+        if (PeekMessageW(&message, overlay.handle(), 0, 0, PM_REMOVE)) {
+          TranslateMessage(&message);
+          DispatchMessageW(&message);
+        }
+      }
+      require(IsWindowVisible(overlay.handle()));
+      require(GetForegroundWindow() == foreground);
+      UpdateWindow(overlay.handle());
+      for (const auto &[system_message, wparam] : {
+               std::pair<UINT, WPARAM>{WM_DPICHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_DWMCOMPOSITIONCHANGED, 0},
+               std::pair<UINT, WPARAM>{WM_SETTINGCHANGE, 0},
+               std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
+                                       PBT_APMRESUMEAUTOMATIC},
+           }) {
+        const auto result =
+            SendMessageW(overlay.handle(), system_message, wparam, 0);
+        if (system_message == WM_POWERBROADCAST)
+          require(result == TRUE);
+        require(GetUpdateRect(overlay.handle(), nullptr, FALSE));
+        UpdateWindow(overlay.handle());
+        require(IsWindowVisible(overlay.handle()));
       }
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +

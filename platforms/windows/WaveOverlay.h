@@ -42,6 +42,7 @@ class WaveOverlay
     void set_show_transcript(bool show);
     void set_compact_status(CompactStatus status);
     void set_actions_visible(bool visible);
+    HWND handle() const { return hwnd_; }
 
   private:
     static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
