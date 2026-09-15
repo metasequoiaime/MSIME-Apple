@@ -874,7 +874,10 @@ int wmain(int argc, wchar_t **argv) {
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
         config.candidate_font, config.candidate_fallback_fonts, config.dark_theme,
         config.horizontal_candidates, config.candidate_show_preedit,
-        [&](const CandidatePage &page) { (void)pages.submit(page); });
+        [&](const CandidatePage &page) { (void)pages.submit(page); },
+        [&](const CandidatePresentation &value) {
+          server.candidate_rendered(value.lease, value.generation);
+        });
     const auto palette = resolve_palette(config);
     // An external package may ask for a wider card than the font implies; the
     // artwork is drawn against that width.

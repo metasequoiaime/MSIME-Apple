@@ -58,6 +58,11 @@ public:
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
+  // Called after the native candidate window has successfully presented a
+  // frame. The receipt is generation- and lease-bound.
+  void candidate_rendered(const FocusLease &lease, uint64_t generation) {
+    candidates_.rendered(lease, generation);
+  }
   std::optional<ModePresentation> mode_view();
   // Definitive: is a focused client's mode on file at all. mode_view() returns
   // nothing for contention as well, so a UI needs this to tell busy from gone.
