@@ -112,6 +112,38 @@ int main()
                     ControllerKeyAction::Character,
             "Disabled navigation keys must pass through.");
 
+    using metasequoia::mac::CandidateGlossRequestForModifiers;
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption, '3') == 1 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagControl, '3') == 2,
+            "A bare Option or Control digit must ask for a gloss.");
+    require(CandidateGlossRequestForModifiers(0, '3') == 0,
+            "A bare digit still selects the candidate rather than its gloss.");
+    // ⌘ 和 ⇧ 的组合是别人的快捷键,输入法不该吃掉。
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption | NSEventModifierFlagCommand, '3') == 0 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagControl | NSEventModifierFlagShift, '3') == 0,
+            "A digit combined with Command or Shift must not be taken for a gloss.");
+    require(CandidateGlossRequestForModifiers(NSEventModifierFlagOption, '0') == 0 &&
+                CandidateGlossRequestForModifiers(NSEventModifierFlagOption, 'a') == 0,
+            "Only the digits that select candidates can ask for their glosses.");
+
+    // Tab 在「词 / 目标语言 / 第二语言」之间循环,⇧Tab 反向。没有的列跳过 —— 一条释义都没有时停在词上,
+    // 否则 Tab 看着没反应,却已经把数字键要上屏的东西换掉了。
+    using metasequoia::mac::NextArmedGlossColumn;
+    require(NextArmedGlossColumn(0, true, true, false) == 1 && NextArmedGlossColumn(1, true, true, false) == 2 &&
+                NextArmedGlossColumn(2, true, true, false) == 0,
+            "Tab did not cycle forward through the word and both glosses.");
+    require(NextArmedGlossColumn(0, true, true, true) == 2 && NextArmedGlossColumn(2, true, true, true) == 1 &&
+                NextArmedGlossColumn(1, true, true, true) == 0,
+            "Shift+Tab did not cycle backward through the word and both glosses.");
+    require(NextArmedGlossColumn(0, true, false, false) == 1 && NextArmedGlossColumn(1, true, false, false) == 0,
+            "A candidate with only a primary gloss did not cycle between two columns.");
+    require(NextArmedGlossColumn(0, false, false, false) == 0 && NextArmedGlossColumn(0, false, false, true) == 0,
+            "A candidate with no gloss did not keep the word armed.");
+    // 第二语言开着、主释义还没回来时,循环里只有词和第二语言两格,不能卡在一个不存在的列上。
+    require(NextArmedGlossColumn(0, false, true, false) == 2 && NextArmedGlossColumn(2, false, true, false) == 0,
+            "A candidate with only a secondary gloss did not cycle between two columns.");
+    require(NextArmedGlossColumn(1, false, true, false) == 2,
+            "An armed column that disappeared did not fall back into the available ones.");
     require(NormalizeStoredInputScheme(0) == 0 && NormalizeStoredInputScheme(1) == 1 &&
                 NormalizeStoredInputScheme(2) == 2 && NormalizeStoredInputScheme(99) == 0,
             "The stored input scheme was not normalized safely.");

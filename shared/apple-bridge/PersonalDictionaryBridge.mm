@@ -2,7 +2,7 @@
 
 namespace metasequoia::apple
 {
-void PersonalDictionaryError(NSError **error, const std::string &message)
+void PersonalDictionaryError(NSError *_Nullable *_Nullable error, const std::string &message)
 {
     if (!error)
         return;
@@ -31,7 +31,8 @@ void PersonalDictionaryError(NSError **error, const std::string &message)
                                  code:1
                              userInfo:@{NSLocalizedDescriptionKey : reason}];
 }
-std::optional<PersonalDictionaryEntry> DecodePersonalWord(NSDictionary *entry, NSError **error)
+std::optional<PersonalDictionaryEntry> DecodePersonalWord(NSDictionary *_Nullable entry,
+                                                          NSError *_Nullable *_Nullable error)
 {
     if (![entry isKindOfClass:NSDictionary.class] || ![entry[@"kind"] isKindOfClass:NSString.class] ||
         ![entry[@"key"] isKindOfClass:NSString.class] || ![entry[@"value"] isKindOfClass:NSString.class] ||
@@ -64,7 +65,7 @@ std::optional<PersonalDictionaryEntry> DecodePersonalWord(NSDictionary *entry, N
         PersonalDictionaryError(error, validation.error);
     return validation.entry;
 }
-NSDictionary *EncodePersonalWord(const PersonalDictionaryEntry &entry)
+NSDictionary *_Nonnull EncodePersonalWord(const PersonalDictionaryEntry &entry)
 {
     NSString *kind = @"pinyin";
     switch (entry.kind)

@@ -15,6 +15,13 @@ bool IsAsciiSpace(unsigned char ch)
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }
 
+// 汉字码点范围:统一表意文字、扩展 A、兼容表意文字,以及扩展 B 起的增补平面。
+bool IsHanCodePoint(char32_t code)
+{
+    return (code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF) ||
+           (code >= 0xF900 && code <= 0xFAFF) || (code >= 0x20000 && code <= 0x3FFFF);
+}
+
 std::string CollapseWhitespace(const std::string &text)
 {
     std::string out;
@@ -128,6 +135,42 @@ std::optional<TranslationQuery> TranslationQueryForCandidate(const WordItem &ite
     if (HelpcodeUtils::count_han_chars(item.word) > 0)
         return TranslationQuery{item.word, TranslationDirection::ChineseToEnglish};
     return std::nullopt;
+}
+
+bool CandidateSupportsOnlineGloss(const WordItem &item)
+{
+    // 注意不要用 HelpcodeUtils::count_han_chars —— 它名不副实,数的是 UTF-8 码点总数而不是汉字数,
+    // 对 "cun"、"123"、"OpenAI" 一律返回大于 0。这里必须真的按码点范围判断。
+    const auto &word = item.word;
+    for (std::size_t i = 0; i < word.size();)
+    {
+        const auto lead = static_cast<unsigned char>(word[i]);
+        std::size_t width = 1;
+        char32_t code = lead;
+        if (lead >= 0xF0)
+        {
+            width = 4;
+            code = lead & 0x07u;
+        }
+        else if (lead >= 0xE0)
+        {
+            width = 3;
+            code = lead & 0x0Fu;
+        }
+        else if (lead >= 0xC0)
+        {
+            width = 2;
+            code = lead & 0x1Fu;
+        }
+        if (i + width > word.size())
+            return false;
+        for (std::size_t k = 1; k < width; ++k)
+            code = (code << 6) | (static_cast<unsigned char>(word[i + k]) & 0x3Fu);
+        if (IsHanCodePoint(code))
+            return true;
+        i += width;
+    }
+    return false;
 }
 
 std::string FormatCandidateGloss(const std::string &text)

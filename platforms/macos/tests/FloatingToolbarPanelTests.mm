@@ -1,5 +1,7 @@
 #import "../src/FloatingToolbarPanel.h"
 
+#import "../src/FloatingToolbarPreferences.h"
+
 #import <AppKit/AppKit.h>
 
 #include <cmath>
@@ -119,14 +121,30 @@ int main()
     {
         [NSApplication sharedApplication];
         NSRect visibleFrame = NSMakeRect(100.0, 80.0, 1200.0, 800.0);
-        NSRect defaultFrame = MetasequoiaFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 272.0, 44.0), visibleFrame, NO);
+        // 五个按钮仍然是 272 —— 没动过「显示这些开关」的人,工具栏宽度和这一版之前一模一样。
+        require(NearlyEqual(MetasequoiaFloatingToolbarWidth(5), 272.0), "The full floating toolbar changed width.");
+        require(MetasequoiaFloatingToolbarWidth(4) < MetasequoiaFloatingToolbarWidth(5) &&
+                    MetasequoiaFloatingToolbarWidth(1) < MetasequoiaFloatingToolbarWidth(2),
+                "Hiding a floating-toolbar button did not narrow the toolbar.");
+        // 齿轮不可关,所以 0 个按钮不是一种合法状态;真传进来也得按 1 个算,不能给出一个负宽度的窗口。
+        require(NearlyEqual(MetasequoiaFloatingToolbarWidth(0), MetasequoiaFloatingToolbarWidth(1)),
+                "An empty floating toolbar was not treated as the gear alone.");
+
+        NSRect defaultFrame =
+            MetasequoiaFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 272.0, 44.0), visibleFrame, NO, 272.0);
         require(NearlyEqual(NSWidth(defaultFrame), 272.0) && NearlyEqual(NSHeight(defaultFrame), 44.0) &&
                     NearlyEqual(NSMaxX(defaultFrame), NSMaxX(visibleFrame) - 20.0) &&
                     NearlyEqual(NSMinY(defaultFrame), NSMinY(visibleFrame) + 20.0),
                 "The floating toolbar did not use its expected size and lower-right safe area.");
 
+        NSRect narrowFrame = MetasequoiaFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 272.0, 44.0), visibleFrame, NO,
+                                                             MetasequoiaFloatingToolbarWidth(2));
+        require(NearlyEqual(NSWidth(narrowFrame), MetasequoiaFloatingToolbarWidth(2)) &&
+                    NearlyEqual(NSMaxX(narrowFrame), NSMaxX(visibleFrame) - 20.0),
+                "A narrowed floating toolbar did not keep its lower-right safe area.");
+
         NSRect restoredFrame =
-            MetasequoiaFloatingToolbarFrame(NSMakeRect(-300.0, 2000.0, 272.0, 44.0), visibleFrame, YES);
+            MetasequoiaFloatingToolbarFrame(NSMakeRect(-300.0, 2000.0, 272.0, 44.0), visibleFrame, YES, 272.0);
         require(NSMinX(restoredFrame) >= NSMinX(visibleFrame) + 12.0 &&
                     NSMaxX(restoredFrame) <= NSMaxX(visibleFrame) - 12.0 &&
                     NSMinY(restoredFrame) >= NSMinY(visibleFrame) + 12.0 &&
@@ -293,6 +311,39 @@ int main()
         else
         {
             [defaults removeObjectForKey:savedFrameKey];
+        }
+
+        // 「显示这些开关」:关掉一项,工具栏上那个按钮就该消失,窗口也该窄下去 —— 只藏按钮不改宽度,
+        // 留下的是一段谁也点不着的空白。
+        NSDictionary *previousItems = [defaults dictionaryForKey:MetasequoiaFloatingToolbarItemsKey];
+        [defaults removeObjectForKey:MetasequoiaFloatingToolbarItemsKey];
+        MetasequoiaFloatingToolbarPanel *itemPanel = [[MetasequoiaFloatingToolbarPanel alloc] init];
+        FloatingToolbarTestDelegate *itemDelegate = [[FloatingToolbarTestDelegate alloc] init];
+        [itemPanel activateForDelegate:itemDelegate visible:YES];
+        NSButton *itemFullWidthButton = FindButton(itemPanel.contentView, @"MetasequoiaFloatingToolbarFullWidth");
+        NSButton *itemGearButton = FindButton(itemPanel.contentView, @"MetasequoiaFloatingToolbarSettings");
+        require(itemFullWidthButton != nil && itemGearButton != nil && !itemFullWidthButton.hidden &&
+                    !itemGearButton.hidden,
+                "The floating toolbar did not show every button by default.");
+        const CGFloat fullToolbarWidth = NSWidth(itemPanel.frame);
+        MetasequoiaSetFloatingToolbarItemVisible(@"fullWidth", NO);
+        require(itemFullWidthButton.hidden && NSWidth(itemPanel.frame) < fullToolbarWidth,
+                "Hiding a floating-toolbar switch left its button or its width behind.");
+        for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+        {
+            MetasequoiaSetFloatingToolbarItemVisible(item, NO);
+        }
+        require(!itemGearButton.hidden, "Turning every switch off also took away the gear.");
+        MetasequoiaSetFloatingToolbarItemVisible(@"fullWidth", YES);
+        require(!itemFullWidthButton.hidden, "Turning a floating-toolbar switch back on did not restore its button.");
+        [itemPanel deactivateForDelegate:itemDelegate];
+        if (previousItems != nil)
+        {
+            [defaults setObject:previousItems forKey:MetasequoiaFloatingToolbarItemsKey];
+        }
+        else
+        {
+            [defaults removeObjectForKey:MetasequoiaFloatingToolbarItemsKey];
         }
     }
     return 0;

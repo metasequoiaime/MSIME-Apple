@@ -90,6 +90,25 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 ditto "$source_bundle" "$staging_bundle"
+# 构建产物是 ad-hoc 签名、不带任何 entitlement,而语音输入要 com.apple.security.device.audio-input。
+# 本机有 Developer ID 就照发布流程重签一遍,让装出来的这份和用户拿到的那份行为一致。
+# 权限文件里为什么没有 applesignin,见 resources/VoiceInput.entitlements 的注释 —— 简单说:
+# 那是受限权限,没有 embedded.provisionprofile 就会让整个输入法在 exec 时被 AMFI 杀掉。
+entitlements="${0:A:h}/../resources/VoiceInput.entitlements"
+install_identity=${METASEQUOIA_SIGNING_IDENTITY:-}
+if [[ -z "$install_identity" ]]; then
+    install_identity=$(security find-identity -v -p codesigning 2>/dev/null |
+        sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+fi
+if [[ -n "$install_identity" && -f "$entitlements" ]]; then
+    if codesign --force --deep --options runtime --timestamp \
+        --entitlements "$entitlements" --sign "$install_identity" "$staging_bundle" 2>/dev/null; then
+        print "Signed with $install_identity"
+    else
+        # 签名失败不该拦住安装 —— 没网时 --timestamp 就会失败,而输入法本身照样能用。
+        print -u2 "Developer ID signing failed; keeping the ad-hoc signature (Apple sign-in will not work)."
+    fi
+fi
 codesign --verify --deep --strict --verbose=2 "$staging_bundle"
 process_pattern=$(printf '%s' "$destination_bundle/Contents/MacOS/MetasequoiaIME" | sed 's/[.[\\*^$()+?{|]/\\&/g')
 process_pattern="^${process_pattern}( |$)"

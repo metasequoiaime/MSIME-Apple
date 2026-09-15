@@ -106,6 +106,14 @@ if [[ ! -f "$voice_entitlements" ]]; then
     print -u2 "Voice input entitlements not found at $voice_entitlements"
     exit 1
 fi
+if [[ "$require_release_signing" == true ]]; then
+    /usr/bin/plutil -lint "$voice_entitlements" >/dev/null
+    # Sign in with Apple is unavailable to Developer ID apps; a valid signature alone does not prevent AMFI from refusing to launch them.
+    if /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin' "$voice_entitlements" >/dev/null 2>&1; then
+        print -u2 "Developer ID releases cannot use com.apple.developer.applesignin. Remove it from the release entitlements."
+        exit 1
+    fi
+fi
 if [[ ! -f "$postinstall_script" ]]; then
     print -u2 "Installer postinstall script not found at $postinstall_script"
     exit 1

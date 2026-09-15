@@ -2384,6 +2384,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeCandidateButton(index: Int) -> UIButton {
     var configuration = UIButton.Configuration.plain()
+    // A configuration's title label wraps by default, and a chip the row could not fit took the
+    // break instead of its natural width: 晕了限制 came out as 晕了限 over 制 while 做了限制 beside
+    // it stayed on one line. The strip scrolls, so a candidate wider than the row belongs past the
+    // end of it rather than on a second line.
+    configuration.titleLineBreakMode = .byTruncatingTail
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
@@ -2404,6 +2409,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
+    button.titleLabel?.numberOfLines = 1
+    // Keeping the width costs a scroll; giving it up costs a line break, so the chip refuses to be
+    // the one the stack squeezes.
+    button.setContentCompressionResistancePriority(.required, for: .horizontal)
     button.accessibilityIdentifier = "candidate-\(index + 1)"
     // Built when the menu is opened rather than on every keystroke. It reads the candidate standing
     // at this position at that moment, so a reused chip never offers an action for a word that has

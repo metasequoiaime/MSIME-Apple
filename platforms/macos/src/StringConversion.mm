@@ -44,6 +44,8 @@ NSAttributedStringKey const kMetasequoiaCandidateIndexAttribute = @"MetasequoiaC
 }
 
 NSAttributedStringKey const MetasequoiaCandidateTranslationAttributeName = @"MetasequoiaCandidateTranslation";
+NSAttributedStringKey const MetasequoiaCandidateSecondaryTranslationAttributeName =
+    @"MetasequoiaCandidateSecondaryTranslation";
 
 NSAttributedString *MetasequoiaIndexedCandidateString(NSString *value, NSUInteger index)
 {
@@ -69,6 +71,26 @@ NSString *MetasequoiaCandidateTranslation(NSAttributedString *candidate)
     if (candidate.length == 0)
         return nil;
     id value = [candidate attribute:MetasequoiaCandidateTranslationAttributeName atIndex:0 effectiveRange:nil];
+    return [value isKindOfClass:[NSString class]] && [value length] > 0 ? value : nil;
+}
+
+NSAttributedString *MetasequoiaCandidateStringByAddingSecondaryTranslation(NSAttributedString *candidate,
+                                                                           NSString *translation)
+{
+    if (candidate == nil || translation.length == 0)
+        return candidate;
+    NSMutableAttributedString *annotated = [candidate mutableCopy];
+    [annotated addAttribute:MetasequoiaCandidateSecondaryTranslationAttributeName
+                      value:translation
+                      range:NSMakeRange(0, annotated.length)];
+    return [annotated copy];
+}
+
+NSString *MetasequoiaCandidateSecondaryTranslation(NSAttributedString *candidate)
+{
+    if (candidate.length == 0)
+        return nil;
+    id value = [candidate attribute:MetasequoiaCandidateSecondaryTranslationAttributeName atIndex:0 effectiveRange:nil];
     return [value isKindOfClass:[NSString class]] && [value length] > 0 ? value : nil;
 }
 

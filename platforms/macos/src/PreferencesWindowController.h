@@ -72,5 +72,7 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 + (BOOL)storedLocalInputModesEnabled;
 + (void)setLocalInputModesEnabled:(BOOL)enabled;
 - (void)showAndActivate;
+/// 打开设置窗并直接落在语音输入那一页。输入法菜单里的「语音输入设置」走这里。
+- (void)showVoiceInput:(id)sender;
 - (void)showAndActivateForStandaloneLaunch;
 @end

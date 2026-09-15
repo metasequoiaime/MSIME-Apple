@@ -76,6 +76,15 @@ jobs:
       - name: Check formatting
         if: ${{ matrix.architecture == 'arm64' }}
         run: scripts/format.sh --check
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
@@ -132,6 +141,15 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies

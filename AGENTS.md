@@ -14,6 +14,8 @@ macOS 每次 Engine 动作完成后更新值快照；候选选择必须用当前
 
 `InputSchemePreference.scheme` 的 setter 在目标方案不在 `enabledSchemes` 中时静默替换为 `enabledSchemes[0]`，赋值失败不报错；`enabledSchemes` 存在 app group，跨进程与跨 test bundle 持久化。依赖某个方案的测试必须先在 `setUp` 中接管整个方案集合（`enableAllInputSchemes()`），隐藏方案的 UI 测试必须在 `defer` 中经 `--reset-input-schemes-for-ui-tests` 恢复可见性，否则它留下的状态会让后续 bundle 静默跑在错误方案上。
 
+连着线的设备用 `xcrun devicectl device capture screenshot --device <UDID> --destination <path>.png` 直接取画面，时机敏感的问题用同组的 `screen-record --duration <秒>` 录一段逐帧看；`--destination` 是必填选项而非位置参数。`idevicescreenshot` 在 iOS 17 以后一律报 `Invalid service`——这些服务已改走 RemoteXPC 隧道，与 Developer disk image 是否挂载无关，不要照它的提示去挂镜像。
+
 iOS 个人词库通过 Engine `<metasequoia/personal_dictionary.h>` 校验和编辑；SharedUI 同步文件仅传递用户操作、确认和分页快照，不复制拼音解析或 SQL。键盘仅在完全访问开启且会话空闲时处理队列，写入前释放会话，完成后保留方案、九键和学习偏好重建。操作 UUID 作为 Engine 事务回执 ID，确认文件写入中断后的重试必须复用它。
 
 发布构建：push 到 main 保留 version.txt 的语义版本，仅递增独立 build，以 v<version>-build.<build> 发布 Pre-release。正式升版本通过 release.yml 的 workflow_dispatch（bump_version=true、tag 留空）调用 release-please；tag 输入用于发布已有 draft；tag 与 bump_version 都留空时按 platform 输入新建 draft，这是主动只发布某一个平台的唯一入口。发布覆盖哪些平台：push 由改动路径判定，`platforms/ios` 与 `platforms/macos` 各自只到一个平台，共用代码、Engine、构建系统和发布自动化到两个，未识别的路径也到两个；workflow_dispatch 没有路径区间可判定，改由 platform 输入决定，而 tag 带 `macos-` / `ios-` 前缀时以 tag 为准——draft 的名字在创建时就已经承诺了它装什么。只覆盖一个平台的 build 以 `macos-` / `ios-` 作为 tag 前缀，覆盖两个平台的保持裸名；前缀只属于 tag，产物名不重复携带，release-please 与 Sparkle 读取的正式版本 vX.Y.Z 永远是裸名，所以 bump_version 与带前缀的 tag 都不接受非 both 的 platform 输入。macOS、iOS 和 Sparkle 使用同一 METASEQUOIA_BUILD_NUMBER，安装器版本也使用 build。正式发布后仍须将 main 回合到 develop。

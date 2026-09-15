@@ -4,6 +4,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -27,6 +28,36 @@ def requires(*tools):
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
+    @requires("zsh", "plutil", "/usr/libexec/PlistBuddy")
+    def test_signed_packaging_rejects_apple_signin_before_touching_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / "MetasequoiaIME.app"
+            bundle.mkdir()
+            output = root / "output"
+            output.mkdir()
+            previous = output / "previous.zip"
+            previous.write_bytes(b"previous release")
+            entitlements = root / "VoiceInput.entitlements"
+            environment = os.environ.copy()
+            environment.update({
+                "METASEQUOIA_PROJECT_ROOT": str(PROJECT_ROOT),
+                "METASEQUOIA_VOICE_ENTITLEMENTS": str(entitlements),
+                "METASEQUOIA_REQUIRE_RELEASE_SIGNING": "true",
+                "METASEQUOIA_DEVELOPER_ID_APPLICATION": "Developer ID Application: Test",
+                "METASEQUOIA_DEVELOPER_ID_INSTALLER": "Developer ID Installer: Test",
+                "METASEQUOIA_NOTARY_PROFILE": "test",
+                "METASEQUOIA_RELEASE_ASSET_SUFFIX": "",
+            })
+            for value in (["Default"], [], False):
+                with self.subTest(value=value):
+                    entitlements.write_bytes(plistlib.dumps({"com.apple.developer.applesignin": value}))
+                    result = subprocess.run(["zsh", MACOS_ROOT / "scripts/package_release.sh", "v0.48.6", bundle, output], env=environment, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Developer ID releases cannot use com.apple.developer.applesignin", result.stderr)
+                    self.assertEqual(list(output.iterdir()), [previous])
+                    self.assertEqual(previous.read_bytes(), b"previous release")
+
     def test_shuangpin_beginner_keymap_is_wired_to_the_input_controller(self):
         readme = (PROJECT_ROOT / "README.md").read_text()
         cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
@@ -507,10 +538,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertFalse(package.get("include-component-in-tag", True))
 
         ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
+        # 这份名单是受信任的第三方代码的边界,加一项就是扩大 CI 里能跑的代码范围,所以要显式改这里,
+        # 而不是让断言自动接受新出现的 action。actions/cache 是 GitHub 自家的,和名单上其余几项同源,
+        # 并且下面那条断言仍然要求它钉在 40 位 commit SHA 上。
         allowed_actions = {
             "actions/checkout", "googleapis/release-please-action", "actions/setup-go",
             "actions/dependency-review-action", "actions/upload-artifact", "github/codeql-action/init",
-            "github/codeql-action/analyze",
+            "github/codeql-action/analyze", "actions/cache",
         }
         used_actions = set()
         # The guard against a broken glob or parse counts the whole tree rather than each file:

@@ -175,7 +175,15 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     find_library(CARBON_FRAMEWORK Carbon REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
 
-    set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+    # 默认放构建目录,删掉 build 就一起没了 —— CI 每个 job 因此都要重新下载一次,于是每个 job 都独立
+    # 暴露在发布主机的可用性下。指向一个可缓存的目录就只在版本变化时下载一次。
+    set(METASEQUOIA_SPARKLE_CACHE_DIR "$ENV{METASEQUOIA_SPARKLE_CACHE_DIR}"
+        CACHE PATH "Directory that keeps the downloaded Sparkle archive across builds")
+    if(METASEQUOIA_SPARKLE_CACHE_DIR)
+        set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${METASEQUOIA_SPARKLE_CACHE_DIR}")
+    else()
+        set(METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+    endif()
     set(METASEQUOIA_SPARKLE_ARCHIVE
         "${METASEQUOIA_SPARKLE_DOWNLOAD_DIRECTORY}/Sparkle-${METASEQUOIA_SPARKLE_VERSION}.tar.xz")
     set(METASEQUOIA_SPARKLE_ROOT
@@ -198,7 +206,9 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         # reach its second attempt. The archive is fetched unverified and the same hash is then checked
         # separately, which fails just as loudly on a truncated or substituted file.
         set(METASEQUOIA_SPARKLE_DOWNLOAD_CODE 1)
-        foreach(attempt RANGE 1 3)
+        # 5 次、间隔 5/10/20/40s。原来是 3 次共 15 秒,连一次几十秒的抖动都跨不过去。真正不再依赖
+        # 下载的是上面那个缓存目录,这里只负责冷缓存那一次别被瞬时 5xx 打掉。
+        foreach(attempt RANGE 1 5)
             file(DOWNLOAD "${METASEQUOIA_SPARKLE_URL}" "${METASEQUOIA_SPARKLE_ARCHIVE}"
                 TLS_VERIFY ON
                 STATUS METASEQUOIA_SPARKLE_DOWNLOAD_STATUS
@@ -207,7 +217,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             if(METASEQUOIA_SPARKLE_DOWNLOAD_CODE EQUAL 0)
                 break()
             endif()
-            if(attempt LESS 3)
+            if(attempt LESS 5)
                 math(EXPR METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE "5 * (1 << (${attempt} - 1))")
                 message(STATUS "Sparkle download failed (${METASEQUOIA_SPARKLE_DOWNLOAD_STATUS}); retrying in ${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}s")
                 execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep "${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}")
@@ -278,7 +288,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-nlohmann-json.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/miniaudio-LICENSE.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-whisper.txt)
-    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
+    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
     target_sources(MetasequoiaIME PRIVATE ${METASEQUOIA_MACOS_ROOT}/src/TranslationClient.mm)
     get_filename_component(dictionary_directory "${METASEQUOIA_IME_DICTIONARY}" DIRECTORY)
     if(EXISTS "${dictionary_directory}/dictionary-manifest.json")
@@ -336,6 +346,8 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm
             ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm
             ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm
+            ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm
+            ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm
             ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm
             ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm
             ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm
@@ -363,9 +375,10 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         target_link_libraries(MetasequoiaUpdateControllerTests PRIVATE MetasequoiaSparkle ${APPKIT_FRAMEWORK})
         set_target_properties(MetasequoiaUpdateControllerTests PROPERTIES BUILD_RPATH "${METASEQUOIA_SPARKLE_ROOT}")
         add_test(NAME update_controller COMMAND MetasequoiaUpdateControllerTests)
-        add_executable(MetasequoiaPreferencesWindowTests ${METASEQUOIA_MACOS_ROOT}/tests/PreferencesWindowTests.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
+        add_executable(MetasequoiaPreferencesWindowTests ${METASEQUOIA_MACOS_ROOT}/tests/PreferencesWindowTests.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
+        target_include_directories(MetasequoiaPreferencesWindowTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
         target_compile_options(MetasequoiaPreferencesWindowTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
-        target_link_libraries(MetasequoiaPreferencesWindowTests PRIVATE MSIMEBackendAccount MetasequoiaAppleVoice MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
+        target_link_libraries(MetasequoiaPreferencesWindowTests PRIVATE MSIMEBackendAccount MetasequoiaAppleVoice MetasequoiaMacDictionaryRuntime MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
         set_target_properties(MetasequoiaPreferencesWindowTests PROPERTIES BUILD_RPATH "${METASEQUOIA_SPARKLE_ROOT}")
         add_test(NAME preferences_window COMMAND MetasequoiaPreferencesWindowTests)
         add_test(NAME release_package COMMAND ${CMAKE_COMMAND} -E env

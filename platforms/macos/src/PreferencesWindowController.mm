@@ -1,5 +1,5 @@
 extern "C" void MSIMEShowBackendAccount(void);
-// Implemented in CandidateTranslationBridge.swift.
+// Implemented in BackendAccountBridge.swift.
 extern "C" bool MSIMEBackendAccountSignedIn(void);
 
 #import "PreferencesWindowController.h"
@@ -14,6 +14,8 @@ extern "C" void MSIMEAccountPaneClose(void);
 #include "CandidatePanelStyle.h"
 #include "CandidateSkin.h"
 #include "FrequencyAdjustmentPreference.h"
+#include "FloatingToolbarPreferences.h"
+#include "LocalInputModePreferences.h"
 #include "HelpcodeSchemaPreference.h"
 #include "InputControllerKeyRouting.h"
 #include "InputBehaviorPreferences.h"
@@ -22,6 +24,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #import "CandidateSkinAppearance.h"
 #import "CandidateSkinPreviewView.h"
 #import "DictionaryInstaller.h"
+#import "PersonalDictionaryView.h"
 #import "SkinSettingsView.h"
 #import "UpdateController.h"
 #import "VoiceSettings.h"
@@ -98,6 +101,27 @@ namespace
 {
 constexpr CGFloat kWindowWidth = 980.0;
 constexpr CGFloat kWindowHeight = 800.0;
+// 页面下标既是 _preferencePages 的下标,也是侧栏按钮的 tag。写成具名常量,不要再用 count - 1 去指
+// 「最后一页」:语音输入和反馈都当过最后一页,后加的那个把先来的挤掉,于是「提交反馈…」打开的是语音
+// 输入页,而且编译器一声不吭。
+enum : NSInteger
+{
+    kGeneralPageIndex = 0,
+    kAppearancePageIndex,
+    kSkinPageIndex,
+    kDataPageIndex,
+    kAboutPageIndex,
+    kWubiPageIndex,
+    kHelpcodePageIndex,
+    kShortcutsPageIndex,
+    kFloatingPageIndex,
+    kAccountPageIndex,
+    kHelpPageIndex,
+    kFeedbackPageIndex,
+    kVoicePageIndex,
+    kUtilitiesPageIndex,
+};
+
 NSString *const kSchemePreferenceKey = @"MetasequoiaImeInputScheme";
 NSString *const kShuangpinSchemaPreferenceKey = @"MetasequoiaImeShuangpinSchema";
 NSString *const kAutocorrectPreferenceKey = @"MetasequoiaImeQuanpinAutocorrect";
@@ -172,6 +196,35 @@ NSView *PreferenceRow(NSString *title, NSView *control)
     return row;
 }
 
+// 说明行:左边一个按键或名词,右边一段会换行的解释。PreferenceRow 那个是给控件用的 —— 右侧固定
+// 188pt 且不换行,拿来放解释文字会被截断。
+NSView *HelpRow(NSString *term, NSString *explanation)
+{
+    NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSTextField *termLabel = [NSTextField labelWithString:term];
+    termLabel.font = [NSFont monospacedDigitSystemFontOfSize:13.0 weight:NSFontWeightMedium];
+    termLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [termLabel setContentCompressionResistancePriority:NSLayoutPriorityRequired
+                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSTextField *body = [NSTextField wrappingLabelWithString:explanation];
+    body.font = [NSFont systemFontOfSize:13.0];
+    body.textColor = [NSColor secondaryLabelColor];
+    body.selectable = YES;
+    body.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:termLabel];
+    [row addSubview:body];
+    [NSLayoutConstraint activateConstraints:@[
+        [termLabel.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [termLabel.topAnchor constraintEqualToAnchor:row.topAnchor constant:2.0],
+        [termLabel.widthAnchor constraintEqualToConstant:150.0],
+        [body.leadingAnchor constraintEqualToAnchor:termLabel.trailingAnchor constant:12.0],
+        [body.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+        [body.topAnchor constraintEqualToAnchor:row.topAnchor],
+        [body.bottomAnchor constraintEqualToAnchor:row.bottomAnchor],
+    ]];
+    return row;
+}
+
 NSView *CardHeader(NSString *title)
 {
     NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -187,6 +240,21 @@ NSView *CardHeader(NSString *title)
         [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
     ]];
     return row;
+}
+
+// 四个地方要把按钮画成链接:反馈、官网、开源许可、隐私政策。前两个原本各自抄了一遍同样的八行,再抄
+// 两遍不如就地收成一个函数。
+void LinkifyButton(NSButton *button, NSString *accessibilityLabel)
+{
+    button.bezelStyle = NSBezelStyleInline;
+    button.accessibilityLabel = accessibilityLabel;
+    button.contentTintColor = [NSColor linkColor];
+    button.attributedTitle = [[NSAttributedString alloc]
+        initWithString:button.title
+            attributes:@{
+                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
+                NSForegroundColorAttributeName : [NSColor linkColor],
+            }];
 }
 
 NSBox *CardSeparator()
@@ -292,7 +360,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 }
 } // namespace
 
-@interface MetasequoiaPreferencesWindowController ()
+@interface MetasequoiaPreferencesWindowController () <NSTextFieldDelegate>
 - (void)updateFrequencyControlEnabled;
 @end
 
@@ -311,6 +379,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_quanpinHelpcodeHintsButton;
     NSButton *_shuangpinHelpcodeHintsButton;
     NSButton *_localInputModesButton;
+    NSPopUpButton *_shuangpinPreeditButton;
+    MetasequoiaPersonalDictionaryView *_personalDictionaryView;
+    NSArray<NSButton *> *_localInputModeItemButtons;
     NSPopUpButton *_quanpinHelpcodeSchemaButton;
     NSPopUpButton *_shuangpinHelpcodeSchemaButton;
     NSButton *_chinesePunctuationButton;
@@ -340,6 +411,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_cloudCandidatesButton;
     NSPopUpButton *_translationProviderButton;
     NSPopUpButton *_translationLanguageButton;
+    NSPopUpButton *_translationSecondaryLanguageButton;
     NSTextField *_translationSecretIdField;
     NSSecureTextField *_translationSecretKeyField;
     NSTextField *_translationEndpointField;
@@ -359,12 +431,28 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *_inputModeHUDButton;
     NSButton *_fullWidthInputButton;
     NSButton *_floatingToolbarButton;
+    NSArray<NSButton *> *_floatingToolbarItemButtons;
     NSButton *_wubiAutoCommitButton;
     NSButton *_wubiMixedPinyinButton;
     NSButton *_wubiCodeHintButton;
     NSButton *_resetLearningButton;
     NSTextField *_statusLabel;
     NSTextField *_versionLabel;
+    NSPopUpButton *_feedbackKindButton;
+    NSTextView *_feedbackTextView;
+    NSTextField *_feedbackDiagnosticsLabel;
+    NSPopUpButton *_voiceProviderButton;
+    NSTextField *_voiceEndpointField;
+    NSTextField *_voiceModelField;
+    NSSecureTextField *_voiceTokenField;
+    NSTextField *_voiceModelPathField;
+    NSButton *_voicePolishButton;
+    NSTextField *_voicePolishEndpointField;
+    NSTextField *_voicePolishModelField;
+    NSSecureTextField *_voicePolishTokenField;
+    NSTextField *_voiceStatusLabel;
+    NSView *_voiceCloudRows;
+    NSView *_voiceLocalRow;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
     NSArray<NSView *> *_preferencePages;
@@ -1112,37 +1200,54 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     navigation.spacing = 2.0;
     navigation.translatesAutoresizingMaskIntoConstraints = NO;
     [navigation setCustomSpacing:30.0 afterView:brandRow];
+    // 下标即 _preferencePages 的下标,也是按钮的 tag。这里只排显示顺序,按 tag 定位的代码不受影响。
     NSArray<NSString *> *labels = @[
-        @"输入", @"外观", @"皮肤", @"词库", @"关于与更新", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号",
-        @"语音输入", @"帮助", @"反馈"
+        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
+        @"反馈", @"语音输入", @"实用功能"
     ];
     NSArray<NSString *> *symbols = @[
         @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
-        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"mic", @"questionmark.square", @"ladybug"
+        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic",
+        @"wand.and.stars"
+    ];
+    // 分组写成嵌套数组,而不是一串下标加一句注释解释它们为什么这样排 —— 上一版就是那样,于是外观和
+    // 皮肤隔着五项、帮助和反馈被悬浮工具栏劈开,谁也看不出原本想分组。组间多留一点间距,让分组在界面
+    // 上也看得见。五笔不在其中:它是「输入」页里的子页,靠页内按钮进出。
+    NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
+        @[ @0, @6, @7, @13, @12 ], // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
+        @[ @1, @2, @8 ],           // 外观 · 皮肤 · 悬浮工具栏
+        @[ @3, @9 ],               // 词库 · 账号
+        @[ @10, @11, @4 ],         // 帮助 · 反馈 · 关于
     ];
     NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
-    // Keep page indices stable; appearance leads the navigation to match the visual settings workflow.
-    // 账号领头。The sign-in lived three levels down under 关于与更新, where nothing about the name
-    // suggested that候选翻译 and everything else needing an account was gated behind it.
-    for (NSNumber *pageIndex in @[ @9, @1, @0, @6, @7, @3, @2, @10, @8, @11, @4, @12 ])
+    for (NSArray<NSNumber *> *group in navigationGroups)
     {
-        NSInteger index = pageIndex.integerValue;
-        NSButton *button = [[MetasequoiaSettingsNavigationButton alloc] initWithFrame:NSZeroRect];
-        button.title = labels[index];
-        button.target = self;
-        button.action = @selector(selectPreferencesPage:);
-        button.tag = index;
-        [button setButtonType:NSButtonTypePushOnPushOff];
-        button.bordered = NO;
-        button.alignment = NSTextAlignmentLeft;
-        button.imagePosition = NSImageLeft;
-        button.image = [NSImage imageWithSystemSymbolName:symbols[index] accessibilityDescription:nil];
-        button.font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium];
-        button.accessibilityLabel = labels[index];
-        [navigation addArrangedSubview:button];
-        [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
-        [button.heightAnchor constraintEqualToConstant:42.0].active = YES;
-        [buttons addObject:button];
+        NSButton *lastInGroup = nil;
+        for (NSNumber *pageIndex in group)
+        {
+            NSInteger index = pageIndex.integerValue;
+            NSButton *button = [[MetasequoiaSettingsNavigationButton alloc] initWithFrame:NSZeroRect];
+            button.title = labels[index];
+            button.target = self;
+            button.action = @selector(selectPreferencesPage:);
+            button.tag = index;
+            [button setButtonType:NSButtonTypePushOnPushOff];
+            button.bordered = NO;
+            button.alignment = NSTextAlignmentLeft;
+            button.imagePosition = NSImageLeft;
+            button.image = [NSImage imageWithSystemSymbolName:symbols[index] accessibilityDescription:nil];
+            button.font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium];
+            button.accessibilityLabel = labels[index];
+            [navigation addArrangedSubview:button];
+            [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
+            [button.heightAnchor constraintEqualToConstant:42.0].active = YES;
+            [buttons addObject:button];
+            lastInGroup = button;
+        }
+        if (lastInGroup != nil && group != navigationGroups.lastObject)
+        {
+            [navigation setCustomSpacing:16.0 afterView:lastInGroup];
+        }
     }
     _navigationButtons = buttons;
     [sidebar addSubview:navigation];
@@ -1384,7 +1489,18 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _translationLanguageButton.accessibilityLabel = @"候选翻译目标语言";
     _translationLanguageButton.identifier = @"translationLanguage";
     _translationLanguageButton.target = self;
-    _translationLanguageButton.action = @selector(inputBehaviorChanged:);
+    // 下拉框不能接 inputBehaviorChanged: —— 那个方法按复选框读 sender.state,而 NSPopUpButton 的
+    // state 恒为 1(实测),于是无论选哪种语言写进偏好的都是 1。
+    _translationLanguageButton.action = @selector(translationLanguageChanged:);
+    _translationSecondaryLanguageButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_translationSecondaryLanguageButton
+        // 第一项不叫「关闭」:窗口右下角的按钮就叫关闭,同一个窗口里两个「关闭」谁都分不清 —— 测试里
+        // FindButtonWithTitle 先撞上了这个下拉,点了它自然关不掉窗口,用户也一样会点错。
+        addItemsWithTitles:@[ @"不显示", @"英语", @"日语", @"韩语", @"西班牙语", @"法语", @"德语" ]];
+    _translationSecondaryLanguageButton.accessibilityLabel = @"候选翻译第二语言";
+    _translationSecondaryLanguageButton.identifier = @"translationSecondaryLanguage";
+    _translationSecondaryLanguageButton.target = self;
+    _translationSecondaryLanguageButton.action = @selector(translationLanguageChanged:);
     _translationSecretIdField = [NSTextField textFieldWithString:@""];
     _translationSecretIdField.placeholderString = @"SecretId";
     _translationSecretIdField.identifier = @"translationSecretId";
@@ -1428,12 +1544,215 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSBox *translationCard = CardWithViews(
         @[
             _candidateTranslationButton, PreferenceRow(@"在线服务", _translationProviderButton),
-            PreferenceRow(@"目标语言", _translationLanguageButton), _translationAccountRow, _translationTencentIdRow,
-            _translationTencentKeyRow, _translationEndpointRow
+            PreferenceRow(@"目标语言", _translationLanguageButton),
+            PreferenceRow(@"第二语言", _translationSecondaryLanguageButton), _translationAccountRow,
+            _translationTencentIdRow, _translationTencentKeyRow, _translationEndpointRow
         ],
         8.0);
     NSView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[ shortcutCard ]);
     shortcutsPage.accessibilityLabel = @"快捷键设置页";
+
+    // 帮助原来是侧栏上一个直接弹浏览器的动作。输入法能不能用,取决于几个在界面上看不出来的约定
+    // (Shift 切换、翻页键、辅助码怎么打),把人送去网页等于让他离开正在出问题的这个程序去找答案。
+    // 内容只写这个版本确实做得到的事:每一条都能在设置里找到对应开关或在代码里对得上。
+    NSBox *helpBasicsCard = CardWithViews(
+        @[
+            CardHeader(@"开始输入"),
+            HelpRow(@"Shift", @"在中文和英文之间切换。切换时光标下方会短暂显示「中」或「英」，可以在快捷键里关掉。"),
+            CardSeparator(), HelpRow(@"数字键 1–9", @"选中候选栏里对应位置的词，空格上屏第一个。"),
+            HelpRow(@"翻页", @"默认是减号和等号（- / =）。在快捷键页可以换成逗号句号（, / .）或方括号（[ / ]）。"),
+            HelpRow(@"Option+Shift+H", @"切换全角与半角。")
+        ],
+        10.0);
+    NSBox *helpFeatureCard = CardWithViews(
+        @[
+            CardHeader(@"候选词释义"),
+            HelpRow(@"离线优先",
+                    @"常见词直接用本机词典，不联网、没有延迟。词典没收录的才会去问在线服务，所以生僻字和多字词"
+                    @"可能要等半秒左右才出现。"),
+            HelpRow(@"需要账号", @"在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。"),
+            HelpRow(@"两种语言", @"可以同时显示两种语言的释义，在输入页的候选翻译里设置。"),
+            HelpRow(@"Tab", @"在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。"
+                            @"切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。"),
+            HelpRow(@"Option / Control + 数字", @"不切换，直接上屏那一格的释义："
+                                                @"Option 是目标语言，Control 是第二语言。")
+        ],
+        10.0);
+    NSBox *helpTroubleCard = CardWithViews(
+        @[
+            CardHeader(@"遇到问题"),
+            HelpRow(@"输入菜单里没有",
+                    @"到「系统设置 › 键盘 › 文字输入 › 输入法」里添加水杉输入法。刚安装或刚更新过时，"
+                    @"可能需要在输入菜单里切走再切回来。"),
+            CardSeparator(),
+            HelpRow(@"候选旁没有释义",
+                    @"先确认输入页的候选翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。"),
+            HelpRow(@"词库没有更新", @"词库更新随版本发布。在「关于与更新」里检查更新。")
+        ],
+        10.0);
+    NSButton *helpWebsiteButton = [NSButton buttonWithTitle:@"打开 msime.app…"
+                                                     target:self
+                                                     action:@selector(openWebsite:)];
+    helpWebsiteButton.bezelStyle = NSBezelStyleRounded;
+    helpWebsiteButton.accessibilityLabel = @"打开官网";
+    NSTextField *helpWebsiteNote = [NSTextField labelWithString:@"更完整的说明、词库来源和更新记录在官网上。"];
+    helpWebsiteNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    helpWebsiteNote.textColor = [NSColor secondaryLabelColor];
+    NSStackView *helpWebsiteRow = [NSStackView stackViewWithViews:@[ helpWebsiteNote, helpWebsiteButton ]];
+    helpWebsiteRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    helpWebsiteRow.alignment = NSLayoutAttributeCenterY;
+    helpWebsiteRow.spacing = 12.0;
+    NSBox *helpWebsiteCard = CardWithViews(@[ helpWebsiteRow ], 8.0);
+    helpBasicsCard.accessibilityLabel = @"开始输入卡片";
+    helpFeatureCard.accessibilityLabel = @"候选词释义卡片";
+    helpTroubleCard.accessibilityLabel = @"遇到问题卡片";
+    NSView *helpPage = PreferencesPage(@"帮助", @"常用按键、候选词释义的工作方式，以及常见问题。",
+                                       @[ helpBasicsCard, helpFeatureCard, helpTroubleCard, helpWebsiteCard ]);
+    helpPage.accessibilityLabel = @"帮助页";
+
+    // 反馈原来是直接打开一个空白的 GitHub issue 表单。那等于把「说清楚发生了什么」整个推给用户,而
+    // 最关键的几项(版本、系统、当前方案)他根本不知道要附,我们这边拿到的报告也就无从复现。
+    // 后端没有反馈接口,所以最终还是落到 GitHub —— 但可以在本机填好、把诊断信息一起带过去。
+    _feedbackKindButton = [NSPopUpButton new];
+    [_feedbackKindButton addItemsWithTitles:@[ @"功能异常", @"候选词不对", @"功能建议", @"其他" ]];
+    _feedbackKindButton.accessibilityLabel = @"反馈类型";
+    NSScrollView *feedbackScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    feedbackScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    feedbackScroll.hasVerticalScroller = YES;
+    feedbackScroll.borderType = NSBezelBorder;
+    [feedbackScroll.heightAnchor constraintEqualToConstant:132.0].active = YES;
+    _feedbackTextView = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    _feedbackTextView.font = [NSFont systemFontOfSize:13.0];
+    _feedbackTextView.automaticQuoteSubstitutionEnabled = NO;
+    _feedbackTextView.accessibilityLabel = @"反馈内容";
+    feedbackScroll.documentView = _feedbackTextView;
+    NSTextField *feedbackPrompt =
+        [NSTextField wrappingLabelWithString:@"发生了什么？如果和打字有关，写出你输入的编码和期望的结果最有用。"];
+    feedbackPrompt.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    feedbackPrompt.textColor = [NSColor secondaryLabelColor];
+    // 诊断信息摆出来给用户看,而不是在提交时悄悄附上 —— 他有权知道自己发出去的是什么。
+    _feedbackDiagnosticsLabel = [NSTextField wrappingLabelWithString:@""];
+    _feedbackDiagnosticsLabel.font = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
+    _feedbackDiagnosticsLabel.textColor = [NSColor secondaryLabelColor];
+    _feedbackDiagnosticsLabel.selectable = YES;
+    _feedbackDiagnosticsLabel.accessibilityLabel = @"随反馈附上的诊断信息";
+    NSButton *feedbackCopyButton = [NSButton buttonWithTitle:@"复制报告"
+                                                      target:self
+                                                      action:@selector(copyFeedbackReport:)];
+    feedbackCopyButton.bezelStyle = NSBezelStyleRounded;
+    feedbackCopyButton.accessibilityLabel = @"复制反馈报告";
+    NSButton *feedbackSubmitButton = [NSButton buttonWithTitle:@"在 GitHub 提交…"
+                                                        target:self
+                                                        action:@selector(openFeedback:)];
+    feedbackSubmitButton.bezelStyle = NSBezelStyleRounded;
+    feedbackSubmitButton.keyEquivalent = @"\r";
+    feedbackSubmitButton.accessibilityLabel = @"在 GitHub 提交反馈";
+    NSStackView *feedbackButtons = [NSStackView stackViewWithViews:@[ feedbackCopyButton, feedbackSubmitButton ]];
+    feedbackButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    feedbackButtons.alignment = NSLayoutAttributeCenterY;
+    feedbackButtons.spacing = 10.0;
+    NSBox *feedbackCard = CardWithViews(
+        @[
+            CardHeader(@"告诉我们发生了什么"), PreferenceRow(@"类型", _feedbackKindButton), feedbackPrompt,
+            feedbackScroll
+        ],
+        10.0);
+    NSBox *feedbackDiagnosticsCard =
+        CardWithViews(@[ CardHeader(@"会一起附上的信息"), _feedbackDiagnosticsLabel, feedbackButtons ], 10.0);
+    feedbackCard.accessibilityLabel = @"反馈内容卡片";
+    feedbackDiagnosticsCard.accessibilityLabel = @"反馈诊断信息卡片";
+    NSView *feedbackPage = PreferencesPage(@"反馈", @"在这里写清问题，提交时会带上版本与系统信息。",
+                                           @[ feedbackCard, feedbackDiagnosticsCard ]);
+    feedbackPage.accessibilityLabel = @"反馈页";
+
+    // 语音输入原来是侧栏上唯一还开独立窗口的入口:一个 610×505、绝对定位的老式窗口,和其余设置各用
+    // 各的外观,关掉之后还得重新从菜单找回来。这里用同一套卡片重建,内容和校验逻辑仍然走
+    // MetasequoiaVoiceSettings,只是换了承载它的界面。
+    _voiceProviderButton = [NSPopUpButton new];
+    [_voiceProviderButton addItemsWithTitles:@[ @"云端识别", @"本地 Whisper" ]];
+    _voiceProviderButton.target = self;
+    _voiceProviderButton.action = @selector(voiceProviderChanged:);
+    _voiceProviderButton.accessibilityLabel = @"识别方式";
+    _voiceEndpointField = [NSTextField textFieldWithString:@""];
+    _voiceEndpointField.accessibilityLabel = @"识别服务地址";
+    _voiceEndpointField.delegate = self;
+    _voiceModelField = [NSTextField textFieldWithString:@""];
+    _voiceModelField.accessibilityLabel = @"识别模型";
+    _voiceTokenField = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    _voiceTokenField.accessibilityLabel = @"API 密钥";
+    _voiceModelPathField = [NSTextField textFieldWithString:@""];
+    _voiceModelPathField.accessibilityLabel = @"Whisper 模型";
+    NSButton *voiceBrowseButton = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browseVoiceModel:)];
+    voiceBrowseButton.bezelStyle = NSBezelStyleRounded;
+    voiceBrowseButton.accessibilityLabel = @"选择 Whisper 模型";
+    NSStackView *voiceModelPathRow = [NSStackView stackViewWithViews:@[ _voiceModelPathField, voiceBrowseButton ]];
+    voiceModelPathRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    voiceModelPathRow.alignment = NSLayoutAttributeCenterY;
+    voiceModelPathRow.spacing = 8.0;
+    // 云端和本地各自只显示自己要的那几项。原来那个窗口是把不相关的字段置灰留在原地,看起来像
+    // 「这些也要填,只是暂时不让填」。
+    NSView *voiceEndpointRow = PreferenceRow(@"识别服务地址", _voiceEndpointField);
+    NSView *voiceModelRow = PreferenceRow(@"识别模型", _voiceModelField);
+    NSView *voiceTokenRow = PreferenceRow(@"API 密钥", _voiceTokenField);
+    _voiceLocalRow = PreferenceRow(@"Whisper 模型", voiceModelPathRow);
+    NSStackView *voiceCloudStack = [NSStackView stackViewWithViews:@[ voiceEndpointRow, voiceModelRow, voiceTokenRow ]];
+    voiceCloudStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    voiceCloudStack.alignment = NSLayoutAttributeLeading;
+    voiceCloudStack.spacing = 0.0;
+    _voiceCloudRows = voiceCloudStack;
+    _voiceCloudRows.accessibilityLabel = @"云端识别设置";
+    _voiceLocalRow.accessibilityLabel = @"本地识别设置";
+    NSBox *voiceRecognitionCard = CardWithViews(
+        @[ CardHeader(@"识别"), PreferenceRow(@"识别方式", _voiceProviderButton), _voiceCloudRows, _voiceLocalRow ],
+        8.0);
+
+    _voicePolishButton = [NSButton checkboxWithTitle:@"识别后整理文本"
+                                              target:self
+                                              action:@selector(voiceProviderChanged:)];
+    _voicePolishButton.accessibilityLabel = @"识别后整理文本";
+    _voicePolishEndpointField = [NSTextField textFieldWithString:@""];
+    _voicePolishEndpointField.accessibilityLabel = @"整理服务地址";
+    _voicePolishEndpointField.delegate = self;
+    _voicePolishModelField = [NSTextField textFieldWithString:@""];
+    _voicePolishModelField.accessibilityLabel = @"整理模型";
+    _voicePolishTokenField = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    _voicePolishTokenField.accessibilityLabel = @"整理 API 密钥";
+    NSTextField *voicePolishNote = [NSTextField wrappingLabelWithString:@"会把这次识别出的文字发送给该服务。"];
+    voicePolishNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    voicePolishNote.textColor = [NSColor secondaryLabelColor];
+    NSBox *voicePolishCard = CardWithViews(
+        @[
+            CardHeader(@"整理"), _voicePolishButton, voicePolishNote,
+            PreferenceRow(@"整理服务地址", _voicePolishEndpointField),
+            PreferenceRow(@"整理模型", _voicePolishModelField), PreferenceRow(@"整理 API 密钥", _voicePolishTokenField)
+        ],
+        8.0);
+
+    _voiceStatusLabel = [NSTextField wrappingLabelWithString:@""];
+    _voiceStatusLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _voiceStatusLabel.textColor = [NSColor secondaryLabelColor];
+    _voiceStatusLabel.accessibilityLabel = @"语音设置状态";
+    NSButton *voiceSaveButton = [NSButton buttonWithTitle:@"保存" target:self action:@selector(saveVoiceSettings:)];
+    voiceSaveButton.bezelStyle = NSBezelStyleRounded;
+    voiceSaveButton.keyEquivalent = @"\r";
+    voiceSaveButton.accessibilityLabel = @"保存语音设置";
+    NSStackView *voiceSaveRow = [NSStackView stackViewWithViews:@[ _voiceStatusLabel, voiceSaveButton ]];
+    voiceSaveRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    voiceSaveRow.alignment = NSLayoutAttributeCenterY;
+    voiceSaveRow.spacing = 12.0;
+    NSBox *voiceUsageCard = CardWithViews(
+        @[
+            HelpRow(@"Control+Option+V", @"开始或结束听写，Esc 取消。"),
+            HelpRow(@"发送了什么", @"云端识别会发送本次录音；本地识别在这台机器上完成，录音不出机。"),
+            HelpRow(@"密钥存在哪", @"保存在系统钥匙串里。"), voiceSaveRow
+        ],
+        10.0);
+    voiceRecognitionCard.accessibilityLabel = @"语音识别卡片";
+    voicePolishCard.accessibilityLabel = @"语音整理卡片";
+    voiceUsageCard.accessibilityLabel = @"语音用法卡片";
+    NSView *voicePage = PreferencesPage(@"语音输入", @"配置听写使用的识别服务，以及识别后的文本整理。",
+                                        @[ voiceRecognitionCard, voicePolishCard, voiceUsageCard ]);
+    voicePage.accessibilityLabel = @"语音输入设置页";
 
     NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入"
                                                         target:self
@@ -1523,6 +1842,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _followCaretSwitch.action = @selector(advancedAppearanceChanged:);
     _followCaretSwitch.accessibilityLabel = @"候选窗口跟随光标";
     _followCaretSwitch.toolTip = @"关闭后保持本次组合首次出现的位置，直到候选窗口消失。";
+    // 双拼预编辑显示原始按键还是拼音分词。引擎一直有 shuangpin_preedit_uses_raw,macOS 从来没读过它,
+    // 于是所有人都吃默认的「原始按键」。
+    _shuangpinPreeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_shuangpinPreeditButton addItemsWithTitles:@[ @"原始按键", @"拼音分词" ]];
+    _shuangpinPreeditButton.target = self;
+    _shuangpinPreeditButton.action = @selector(shuangpinPreeditChanged:);
+    _shuangpinPreeditButton.accessibilityLabel = @"双拼预编辑";
+    _shuangpinPreeditButton.toolTip = @"仅在双拼方案下生效。「拼音分词」把敲下的字母还原成完整拼音再显示。";
+
     _themeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_themeButton addItemsWithTitles:@[ @"跟随系统", @"浅色", @"深色" ]];
     _themeButton.target = self;
@@ -1565,13 +1893,35 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.accessibilityLabel = @"显示悬浮状态栏";
     NSBox *floatingToolbarCard = CardWithViews(@[ _floatingToolbarButton ], 0.0);
     floatingToolbarCard.accessibilityLabel = @"悬浮状态栏卡片";
+    // 工具栏上显示哪几个按钮。齿轮不在其中:它是隐藏工具栏和打开设置的唯一入口,做成可关的就会有人把
+    // 自己关在外面。
+    NSMutableArray<NSButton *> *floatingItemButtons = [NSMutableArray array];
+    NSMutableArray<NSView *> *floatingItemRows = [NSMutableArray array];
+    for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+    {
+        NSButton *button = [NSButton checkboxWithTitle:MetasequoiaFloatingToolbarItemTitle(item)
+                                                target:self
+                                                action:@selector(floatingToolbarItemChanged:)];
+        button.identifier = item;
+        button.accessibilityLabel = MetasequoiaFloatingToolbarItemTitle(item);
+        [floatingItemButtons addObject:button];
+        [floatingItemRows addObject:button];
+    }
+    _floatingToolbarItemButtons = floatingItemButtons;
+    NSBox *floatingItemsCard = CardWithViews(floatingItemRows, 8.0);
+    floatingItemsCard.accessibilityLabel = @"悬浮状态栏显示项卡片";
     NSView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
         _candidatePreview, appearanceCard, CardWithViews(@[ PreferenceRow(@"主题模式", _themeButton) ], 0),
-        CardWithViews(@[ PreferenceRow(@"候选项排列方式", _candidatePanelStyleButton) ], 0)
+        CardWithViews(
+            @[
+                PreferenceRow(@"候选项排列方式", _candidatePanelStyleButton), CardSeparator(),
+                PreferenceRow(@"双拼预编辑", _shuangpinPreeditButton)
+            ],
+            0)
     ]);
     appearancePage.accessibilityLabel = @"外观设置页";
-    NSView *floatingPage =
-        PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[ floatingToolbarCard ]);
+    NSView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。",
+                                           @[ floatingToolbarCard, SectionLabel(@"显示这些开关"), floatingItemsCard ]);
     floatingPage.accessibilityLabel = @"悬浮工具栏设置页";
 
     _skinSettings = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
@@ -1590,12 +1940,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                                          target:self
                                                          action:@selector(schemeHelpcodeChanged:)];
     _shuangpinHelpcodeHintsButton.identifier = @"shuangpinHelpcodeHints";
-    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式（Shift+U/T/K/J）"
+    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式"
                                                   target:self
                                                   action:@selector(localInputModesChanged:)];
-    _localInputModesButton.toolTip =
-        @"未组词时按 Shift+U 输入 Unicode 码点，Shift+T 输入日期时间，Shift+K 输入快捷短语，Shift+J 超级简拼。"
-        @"关闭时这些组合照常输入大写字母。";
+    _localInputModesButton.accessibilityLabel = @"启用本地输入模式";
+    _localInputModesButton.toolTip = @"未组词时按 Shift 加下面这些字母进入对应模式。关闭时这些组合照常输入大写字母。";
     NSArray<NSString *> *helpcodeSchemeTitles = @[ @"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤" ];
     _quanpinHelpcodeSchemaButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_quanpinHelpcodeSchemaButton addItemsWithTitles:helpcodeSchemeTitles];
@@ -1657,7 +2006,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         @[
             _candidateLearningButton, PreferenceRow(@"调频方式", _frequencyModeButton),
             PreferenceRow(@"触发频次", _frequencyTriggerCountButton),
-            PreferenceRow(@"线性调频步长", _frequencyLinearStepButton), _localInputModesButton
+            PreferenceRow(@"线性调频步长", _frequencyLinearStepButton)
         ],
         9.0);
     NSBox *dictionaryCard = CardWithViews(@[ _statusLabel ], 0.0);
@@ -1672,9 +2021,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     ]);
     generalPage.accessibilityLabel = @"键盘输入设置页";
     resetCard.accessibilityLabel = @"数据与隐私卡片";
-    NSView *dataPage =
-        PreferencesPage(@"词库与数据", @"管理候选学习、辅助码与本机词库状态。",
-                        @[ SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"数据与隐私"), resetCard ]);
+    // 用户词库以前只能靠打字积累、靠「清除学习数据」整片抹掉,单条看不到也改不了 —— 引擎的
+    // personal_dictionary API 一直在,只是 macOS 这边从没接过。
+    _personalDictionaryView = [[MetasequoiaPersonalDictionaryView alloc] initWithFrame:NSZeroRect];
+    NSBox *personalDictionaryCard = CardWithViews(@[ _personalDictionaryView ], 0.0);
+    personalDictionaryCard.accessibilityLabel = @"用户词库卡片";
+    NSView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
+        SectionLabel(@"词库状态"), dictionaryCard, SectionLabel(@"用户词库"), personalDictionaryCard,
+        SectionLabel(@"数据与隐私"), resetCard
+    ]);
     dataPage.accessibilityLabel = @"词库与数据设置页";
 
     _versionLabel = [NSTextField labelWithString:@"开发构建"];
@@ -1691,29 +2046,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _updatePageButton.bezelStyle = NSBezelStyleRounded;
     _updatePageButton.accessibilityLabel = @"立即检查更新";
 
-    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(openFeedback:)];
-    feedbackButton.bezelStyle = NSBezelStyleInline;
-    feedbackButton.accessibilityLabel = @"提交反馈";
-    feedbackButton.contentTintColor = [NSColor linkColor];
-    feedbackButton.attributedTitle = [[NSAttributedString alloc]
-        initWithString:feedbackButton.title
-            attributes:@{
-                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
-                NSForegroundColorAttributeName : [NSColor linkColor],
-            }];
+    // 跳本地的反馈页,不再直接开浏览器 —— 那一页会把版本和系统信息一起备好。
+    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showFeedback:)];
+    LinkifyButton(feedbackButton, @"提交反馈");
 
     NSButton *productWebsiteButton = [NSButton buttonWithTitle:@"访问 msime.app"
                                                         target:self
                                                         action:@selector(openWebsite:)];
-    productWebsiteButton.bezelStyle = NSBezelStyleInline;
-    productWebsiteButton.accessibilityLabel = @"访问水杉官网";
-    productWebsiteButton.contentTintColor = [NSColor linkColor];
-    productWebsiteButton.attributedTitle = [[NSAttributedString alloc]
-        initWithString:productWebsiteButton.title
-            attributes:@{
-                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
-                NSForegroundColorAttributeName : [NSColor linkColor],
-            }];
+    LinkifyButton(productWebsiteButton, @"访问水杉官网");
 
     NSBox *updateCard = CardWithViews(
         @[
@@ -1723,29 +2063,108 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     updateCard.accessibilityLabel = @"软件更新卡片";
-    NSBox *feedbackCard = CardWithViews(
+    NSBox *updatesLinksCard = CardWithViews(
         @[
             PreferenceRow(@"问题反馈与功能建议", feedbackButton),
             PreferenceRow(@"产品主页与使用帮助", productWebsiteButton),
         ],
         4.0);
-    feedbackCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSView *updatesPage =
-        PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
-                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
-    updatesPage.accessibilityLabel = @"更新与反馈设置页";
+    updatesLinksCard.accessibilityLabel = @"反馈与帮助卡片";
+
+    // 这一页的侧栏标签一直叫「关于」,页面却叫「更新与反馈」,内容里也没有一样「关于」该有的东西:
+    // 没有图标、没有版权、没有开源许可、没有隐私政策 —— 仓库里 licenses/ 三份 LICENSE 和 PRIVACY.md
+    // 在应用内一处都没被引用过。
+    NSImageView *aboutIcon = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    aboutIcon.image = [NSApp applicationIconImage];
+    aboutIcon.imageScaling = NSImageScaleProportionallyUpOrDown;
+    aboutIcon.accessibilityLabel = @"水杉输入法图标";
+    [aboutIcon.widthAnchor constraintEqualToConstant:64.0].active = YES;
+    [aboutIcon.heightAnchor constraintEqualToConstant:64.0].active = YES;
+    NSTextField *aboutName = [NSTextField labelWithString:@"水杉输入法"];
+    aboutName.font = [NSFont systemFontOfSize:17.0 weight:NSFontWeightSemibold];
+    NSTextField *aboutTagline = [NSTextField labelWithString:@"为 macOS 打造的开源中文输入法。"];
+    aboutTagline.textColor = [NSColor secondaryLabelColor];
+    NSStackView *aboutText = [NSStackView stackViewWithViews:@[ aboutName, aboutTagline ]];
+    aboutText.orientation = NSUserInterfaceLayoutOrientationVertical;
+    aboutText.alignment = NSLayoutAttributeLeading;
+    aboutText.spacing = 4.0;
+    NSStackView *aboutIdentity = [NSStackView stackViewWithViews:@[ aboutIcon, aboutText ]];
+    aboutIdentity.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    aboutIdentity.alignment = NSLayoutAttributeCenterY;
+    aboutIdentity.spacing = 16.0;
+    NSBox *aboutIdentityCard = CardWithViews(@[ aboutIdentity ], 0.0);
+    aboutIdentityCard.accessibilityLabel = @"关于标识卡片";
+
+    // 许可全文随 app 一起打包在 Resources/Licenses/,不是只在仓库里 —— 所以这里开本地那一份,而不是
+    // 把人送去 GitHub 看一个可能和装着的这个版本对不上的目录。
+    NSButton *licensesButton = [NSButton buttonWithTitle:@"查看许可全文"
+                                                  target:self
+                                                  action:@selector(openOpenSourceLicenses:)];
+    LinkifyButton(licensesButton, @"查看开源许可");
+    NSButton *privacyButton = [NSButton buttonWithTitle:@"查看隐私政策"
+                                                 target:self
+                                                 action:@selector(openPrivacyPolicy:)];
+    LinkifyButton(privacyButton, @"查看隐私政策");
+    NSTextField *licenseLabel = [NSTextField labelWithString:@"GPL-3.0"];
+    licenseLabel.textColor = [NSColor secondaryLabelColor];
+    licenseLabel.alignment = NSTextAlignmentRight;
+    licenseLabel.accessibilityLabel = @"授权协议";
+    NSTextField *copyrightLabel = [NSTextField labelWithString:@"© 2026 Metasequoia IME"];
+    copyrightLabel.textColor = [NSColor secondaryLabelColor];
+    copyrightLabel.alignment = NSTextAlignmentRight;
+    copyrightLabel.accessibilityLabel = @"版权";
+    NSBox *legalCard = CardWithViews(
+        @[
+            PreferenceRow(@"授权协议", licenseLabel), PreferenceRow(@"第三方组件", licensesButton),
+            PreferenceRow(@"隐私政策", privacyButton), PreferenceRow(@"版权", copyrightLabel)
+        ],
+        4.0);
+    legalCard.accessibilityLabel = @"法务信息卡片";
+
+    NSView *updatesPage = PreferencesPage(@"关于", @"版本、更新，以及水杉输入法用到的开源组件与隐私说明。", @[
+        aboutIdentityCard, SectionLabel(@"软件更新"), updateCard, SectionLabel(@"许可与隐私"), legalCard,
+        SectionLabel(@"反馈与帮助"), updatesLinksCard
+    ]);
+    updatesPage.accessibilityLabel = @"关于设置页";
 
     // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
     // top of a panel, for a view that is plain SwiftUI and hosts inline perfectly well.
     NSView *accountPaneView = MSIMEAccountPaneView();
-    [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:360.0].active = YES;
+    // 视图自己会撑开并滚动,这里只保证这一页不会矮到把身份卡和第一张卡片挤没。
+    [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:520.0].active = YES;
     NSView *accountPage =
         PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[ accountPaneView ]);
     accountPage.accessibilityLabel = @"账号设置页";
 
+    // 本地输入模式逐项开关。引擎的 LocalModeOptions 八项各自独立,以前这里只有一个总开关,想只要快捷
+    // 短语、不要日期时间是做不到的。emoji、颜文字、临时日语没有列出来:它们分别要 others.db 和
+    // dict_japanese.dat,这个 bundle 不打包,列出来也只能是永远失败的开关。
+    NSMutableArray<NSButton *> *localModeButtons = [NSMutableArray array];
+    NSMutableArray<NSView *> *localModeRows = [NSMutableArray array];
+    for (NSString *item in MetasequoiaLocalInputModeKeys())
+    {
+        NSButton *button = [NSButton checkboxWithTitle:MetasequoiaLocalInputModeTitle(item)
+                                                target:self
+                                                action:@selector(localInputModeItemChanged:)];
+        button.identifier = item;
+        button.accessibilityLabel = MetasequoiaLocalInputModeTitle(item);
+        button.toolTip = MetasequoiaLocalInputModeHint(item);
+        [localModeButtons addObject:button];
+        [localModeRows addObject:button];
+    }
+    _localInputModeItemButtons = localModeButtons;
+    NSBox *localModeMasterCard = CardWithViews(@[ _localInputModesButton ], 0.0);
+    localModeMasterCard.accessibilityLabel = @"本地输入模式卡片";
+    NSBox *localModeItemsCard = CardWithViews(localModeRows, 8.0);
+    localModeItemsCard.accessibilityLabel = @"本地输入模式项目卡片";
+    NSView *utilitiesPage =
+        PreferencesPage(@"实用功能", @"未组词时用 Shift 加一个字母，临时切到另一种输入方式。",
+                        @[ localModeMasterCard, SectionLabel(@"启用这些模式"), localModeItemsCard ]);
+    utilitiesPage.accessibilityLabel = @"实用功能设置页";
+
     _preferencePages = @[
         generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage, helpcodePage, shortcutsPage,
-        floatingPage, accountPage
+        floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage
     ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
@@ -1787,7 +2206,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         [closeButton.centerYAnchor constraintEqualToAnchor:restoreButton.centerYAnchor],
         [closeButton.widthAnchor constraintGreaterThanOrEqualToConstant:80.0],
     ]];
-    [self showPreferencesPageAtIndex:1 navigationIndex:1];
+    // 开在侧栏第一项上。开在第二项(外观)而第一项是别的,看起来像是窗口没能恢复上次的位置。
+    [self showPreferencesPageAtIndex:kGeneralPageIndex navigationIndex:kGeneralPageIndex];
     [self refreshUpdateControls];
     return self;
 }
@@ -1797,7 +2217,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     (void)sender;
     // 跳到账号页,不再另开一个窗。The sign-in is right here now; opening a second panel over the
     // preferences window to reach it was the whole complaint.
-    const NSInteger accountIndex = 9;
+    const NSInteger accountIndex = kAccountPageIndex;
     [self showPreferencesPageAtIndex:accountIndex navigationIndex:accountIndex];
     MSIMEAccountPaneAttach(self.window);
 }
@@ -1813,6 +2233,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         version.length == 0 ? @"通过 msime.app 检查最新正式版本"
                             : [NSString stringWithFormat:@"当前版本 v%@，通过 msime.app 检查最新正式版本", version];
     _updatePageButton.enabled = YES;
+    _feedbackDiagnosticsLabel.stringValue = [self feedbackDiagnostics];
+    [self refreshVoiceControls];
 }
 
 - (void)checkForUpdates:(id)sender
@@ -1822,18 +2244,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
 - (void)selectPreferencesPage:(NSButton *)sender
 {
-    // 下标约定:前面是真正的设置页,后面是开别的窗/开网页的动作。账号页加在页面区末尾,所以这条界线
-    // 和后面那几个动作的下标一起后移了一位 —— 加在最后会落进动作区,点了只会把按钮弹回去。
+    // 每个侧栏项都对应 _preferencePages 里同下标的那一页 —— 曾经有过「越界下标是开窗/开网页的动作」
+    // 这一层,帮助、反馈、语音输入都在里面,点了设置窗什么都不变。现在它们都是页面了。新增侧栏项要
+    // 同时加进 labels/symbols 和 _preferencePages,只加前者会落到这个分支,点了把按钮弹回去。
     const NSInteger selectedIndex = sender.tag;
     if (selectedIndex >= static_cast<NSInteger>(_preferencePages.count))
     {
         sender.state = NSControlStateValueOff;
-        if (selectedIndex == 10)
-            [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
-        else if (selectedIndex == 11)
-            [self openWebsite:nil];
-        else if (selectedIndex == 12)
-            [self openFeedback:nil];
         return;
     }
     [self showPreferencesPageAtIndex:selectedIndex navigationIndex:selectedIndex];
@@ -1846,8 +2263,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         const BOOL selected = index == pageIndex;
         _preferencePages[index].hidden = !selected;
     }
+    if (pageIndex == kDataPageIndex)
+    {
+        // 每次切过来都重读:窗口是常驻的,打字新造的词不重读就永远不出现在列表里。
+        [_personalDictionaryView reload];
+    }
     // 账号视图靠宿主窗口当登录的 presentationAnchor,嵌进来之后它自己没有 window 可指。
-    if (pageIndex == 9)
+    if (pageIndex == kAccountPageIndex)
     {
         MSIMEAccountPaneAttach(self.window);
     }
@@ -1866,13 +2288,44 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     (void)sender;
     [self refreshControls];
-    [self showPreferencesPageAtIndex:5 navigationIndex:0];
+    [self showPreferencesPageAtIndex:kWubiPageIndex navigationIndex:kGeneralPageIndex];
 }
 
 - (void)backToKeyboardInput:(id)sender
 {
     (void)sender;
-    [self showPreferencesPageAtIndex:0 navigationIndex:0];
+    [self showPreferencesPageAtIndex:kGeneralPageIndex navigationIndex:kGeneralPageIndex];
+}
+
+- (void)openOpenSourceLicenses:(id)sender
+{
+    (void)sender;
+    // 打开装着的这一份汇总声明。它列的是这个 bundle 实际包含的组件,和 Resources/Licenses/ 里逐份的
+    // 全文一起发布;GitHub 上那个目录属于仓库,不保证和用户装的版本是同一批。
+    NSURL *notices = [NSBundle.mainBundle URLForResource:@"THIRD_PARTY_NOTICES"
+                                           withExtension:@"txt"
+                                            subdirectory:@"Licenses"];
+    if (notices != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:notices];
+        return;
+    }
+    // 独立跑设置(--show-settings 之外的测试宿主)时 bundle 里没有这份资源,退回仓库。
+    NSURL *fallback = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple"];
+    if (fallback != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:fallback];
+    }
+}
+
+- (void)openPrivacyPolicy:(id)sender
+{
+    (void)sender;
+    NSURL *privacy = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple/blob/main/PRIVACY.md"];
+    if (privacy != nil)
+    {
+        [[NSWorkspace sharedWorkspace] openURL:privacy];
+    }
 }
 
 - (void)openWebsite:(id)sender
@@ -1885,10 +2338,134 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     }
 }
 
+// 换了服务地址就清掉对应的密钥:上一家的密钥发给下一家,既登不上也白白泄露一次。
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+    if (notification.object == _voiceEndpointField)
+        _voiceTokenField.stringValue = @"";
+    if (notification.object == _voicePolishEndpointField)
+        _voicePolishTokenField.stringValue = @"";
+}
+
+- (void)showVoiceInput:(id)sender
+{
+    (void)sender;
+    [self showPreferencesPageAtIndex:kVoicePageIndex navigationIndex:kVoicePageIndex];
+}
+
+// 云端和本地各自只显示自己要的那几项。原来是把不相关的字段置灰留在原地,读起来像「这些也要填,
+// 只是暂时不让填」。
+- (void)voiceProviderChanged:(id)sender
+{
+    (void)sender;
+    const BOOL cloud = _voiceProviderButton.indexOfSelectedItem == 0;
+    _voiceCloudRows.hidden = !cloud;
+    _voiceLocalRow.hidden = cloud;
+    const BOOL polish = _voicePolishButton.state == NSControlStateValueOn;
+    _voicePolishEndpointField.enabled = polish;
+    _voicePolishModelField.enabled = polish;
+    _voicePolishTokenField.enabled = polish;
+}
+
+- (void)browseVoiceModel:(id)sender
+{
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    [panel beginSheetModalForWindow:self.window
+                  completionHandler:^(NSModalResponse response) {
+                    if (response == NSModalResponseOK)
+                        self->_voiceModelPathField.stringValue = panel.URL.path;
+                  }];
+}
+
+- (void)saveVoiceSettings:(id)sender
+{
+    (void)sender;
+    MetasequoiaVoiceSettings *value = [MetasequoiaVoiceSettings new];
+    value.provider = _voiceProviderButton.indexOfSelectedItem == 0 ? @"cloud" : @"local";
+    value.endpoint = _voiceEndpointField.stringValue;
+    value.model = _voiceModelField.stringValue;
+    value.token = _voiceTokenField.stringValue;
+    value.modelPath = _voiceModelPathField.stringValue;
+    value.polishEnabled = _voicePolishButton.state == NSControlStateValueOn;
+    value.polishEndpoint = _voicePolishEndpointField.stringValue;
+    value.polishModel = _voicePolishModelField.stringValue;
+    value.polishToken = _voicePolishTokenField.stringValue;
+    NSError *error = nil;
+    _voiceStatusLabel.stringValue = [value save:&error] ? @"设置已保存。" : error.localizedDescription;
+}
+
+- (void)refreshVoiceControls
+{
+    MetasequoiaVoiceSettings *value = [MetasequoiaVoiceSettings loadSettings];
+    [_voiceProviderButton selectItemAtIndex:[value.provider isEqualToString:@"local"] ? 1 : 0];
+    _voiceEndpointField.stringValue = value.endpoint;
+    _voiceModelField.stringValue = value.model;
+    _voiceTokenField.stringValue = value.token;
+    _voiceModelPathField.stringValue = value.modelPath;
+    _voicePolishButton.state = value.polishEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _voicePolishEndpointField.stringValue = value.polishEndpoint;
+    _voicePolishModelField.stringValue = value.polishModel;
+    _voicePolishTokenField.stringValue = value.polishToken;
+    _voiceStatusLabel.stringValue = @"";
+    [self voiceProviderChanged:nil];
+}
+
+- (void)showFeedback:(id)sender
+{
+    (void)sender;
+    [self showPreferencesPageAtIndex:kFeedbackPageIndex navigationIndex:kFeedbackPageIndex];
+}
+
+// 版本、系统、机型、当前方案 —— 这四项决定一个报告能不能复现,而它们恰好都是用户不知道要附的。
+- (NSString *)feedbackDiagnostics
+{
+    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+    NSOperatingSystemVersion system = NSProcessInfo.processInfo.operatingSystemVersion;
+    const NSInteger scheme = MetasequoiaInputInteger(@"inputScheme", 0, 0, NSIntegerMax);
+    return [NSString stringWithFormat:@"水杉输入法 %@（构建 %@）\nmacOS %ld.%ld.%ld\n输入方案序号 %ld",
+                                      version.length == 0 ? @"开发构建" : version, build.length == 0 ? @"-" : build,
+                                      (long)system.majorVersion, (long)system.minorVersion, (long)system.patchVersion,
+                                      (long)scheme];
+}
+
+- (NSString *)feedbackReport
+{
+    NSString *kind = _feedbackKindButton.titleOfSelectedItem;
+    NSString *body = _feedbackTextView.string == nil ? @"" : _feedbackTextView.string;
+    return [NSString stringWithFormat:@"### 类型\n%@\n\n### 描述\n%@\n\n### 环境\n%@\n", kind == nil ? @"" : kind, body,
+                                      [self feedbackDiagnostics]];
+}
+
+- (void)copyFeedbackReport:(id)sender
+{
+    (void)sender;
+    NSPasteboard *pasteboard = NSPasteboard.generalPasteboard;
+    [pasteboard clearContents];
+    [pasteboard writeObjects:@[ [self feedbackReport] ]];
+}
+
 - (void)openFeedback:(id)sender
 {
     (void)sender;
-    NSURL *feedback = [NSURL URLWithString:@"https://github.com/metasequoiaime/MSIME-Apple/issues/new"];
+    // 把写好的内容和环境一起塞进 issue 表单。GitHub 对 URL 长度有上限,超了会返回 414,所以正文
+    // 截断到一个安全长度 —— 报告本身可以用「复制报告」拿到完整的那份。
+    NSString *body = [self feedbackReport];
+    if (body.length > 4000)
+    {
+        body = [body substringToIndex:4000];
+    }
+    NSCharacterSet *allowed = [NSCharacterSet URLQueryAllowedCharacterSet];
+    NSString *kind = _feedbackKindButton.titleOfSelectedItem;
+    NSString *title = [(kind == nil ? @"反馈" : kind) stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *escaped = [body stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *address =
+        [NSString stringWithFormat:@"https://github.com/metasequoiaime/MSIME-Apple/issues/new?title=%@&body=%@",
+                                   title == nil ? @"" : title, escaped == nil ? @"" : escaped];
+    NSURL *feedback = [NSURL URLWithString:address];
     if (feedback != nil)
     {
         [[NSWorkspace sharedWorkspace] openURL:feedback];
@@ -1963,6 +2540,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.state = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.state =
+            MetasequoiaFloatingToolbarItemVisible(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateFloatingToolbarItemControlsEnabled];
 }
 
 - (void)chinesePunctuationPreferenceDidChange:(NSNotification *)notification
@@ -2019,6 +2602,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _localInputModesButton.state = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _localInputModeItemButtons)
+    {
+        button.state =
+            MetasequoiaLocalInputModeEnabled(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateLocalInputModeControlsEnabled];
+    [_shuangpinPreeditButton selectItemAtIndex:MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES) ? 0 : 1];
     [_quanpinHelpcodeSchemaButton
         selectItemAtIndex:[MetasequoiaPreferencesWindowController storedQuanpinHelpcodeSchema]];
     [_shuangpinHelpcodeSchemaButton
@@ -2066,6 +2656,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _floatingToolbarButton.state = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.state =
+            MetasequoiaFloatingToolbarItemVisible(button.identifier) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [self updateFloatingToolbarItemControlsEnabled];
     _wubiMixedPinyinButton.state = [MetasequoiaPreferencesWindowController storedWubiMixedPinyinEnabled]
                                        ? NSControlStateValueOn
                                        : NSControlStateValueOff;
@@ -2153,6 +2749,30 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setLocalInputModesEnabled:button.state == NSControlStateValueOn];
     [self refreshControls];
+}
+
+- (void)shuangpinPreeditChanged:(id)sender
+{
+    NSPopUpButton *button = (NSPopUpButton *)sender;
+    MetasequoiaSetInputBehavior(@"shuangpinPreeditRaw", button.indexOfSelectedItem == 0 ? 1 : 0);
+    [self refreshControls];
+}
+
+- (void)localInputModeItemChanged:(id)sender
+{
+    NSButton *button = (NSButton *)sender;
+    MetasequoiaSetLocalInputModeEnabled(button.identifier, button.state == NSControlStateValueOn);
+    [self refreshControls];
+}
+
+- (void)updateLocalInputModeControlsEnabled
+{
+    // 总开关关着的时候,逐项开关还可点是在问一个不成立的问题。
+    const BOOL enabled = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled];
+    for (NSButton *button in _localInputModeItemButtons)
+    {
+        button.enabled = enabled;
+    }
 }
 
 - (void)schemeHelpcodeChanged:(NSButton *)sender
@@ -2341,9 +2961,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [_translationLanguageButton
         selectItemAtIndex:MetasequoiaInputInteger(@"translationLanguage", 0, 0,
                                                   _translationLanguageButton.numberOfItems - 1)];
+    // -1 是关闭,所以下拉第 0 项对应 -1,其余整体后移一位。
+    [_translationSecondaryLanguageButton
+        selectItemAtIndex:MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1,
+                                                  _translationSecondaryLanguageButton.numberOfItems - 2) +
+                          1];
     const BOOL translating = _candidateTranslationButton.state == NSControlStateValueOn;
     _translationProviderButton.enabled = translating;
     _translationLanguageButton.enabled = translating;
+    _translationSecondaryLanguageButton.enabled = translating;
     // Each provider shows only what it needs: the account model asks for nothing, and leaving a
     // vendor's key fields under it reads as though it wanted them.
     const auto provider = metasequoia::mac::CandidateTranslationProviderAt(
@@ -2387,6 +3013,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         MetasequoiaSetInputBehavior(sender.identifier, sender.indexOfSelectedItem);
 }
 
+// 下拉框写的是选中项的下标,不是开关状态。第二语言的第 0 项是「关闭」,存 -1。
+- (void)translationLanguageChanged:(NSPopUpButton *)sender
+{
+    const BOOL secondary = [sender.identifier isEqualToString:@"translationSecondaryLanguage"];
+    MetasequoiaSetInputBehavior(sender.identifier, sender.indexOfSelectedItem - (secondary ? 1 : 0));
+    [self refreshInputBehaviorControls];
+}
+
 - (void)inputBehaviorChanged:(NSButton *)sender
 {
     MetasequoiaSetInputBehavior(sender.identifier, sender.state == NSControlStateValueOn);
@@ -2420,6 +3054,23 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setFloatingToolbarEnabled:button.state == NSControlStateValueOn];
+    [self updateFloatingToolbarItemControlsEnabled];
+}
+
+- (void)floatingToolbarItemChanged:(id)sender
+{
+    NSButton *button = (NSButton *)sender;
+    MetasequoiaSetFloatingToolbarItemVisible(button.identifier, button.state == NSControlStateValueOn);
+}
+
+- (void)updateFloatingToolbarItemControlsEnabled
+{
+    // 工具栏本身关着的时候,「显示哪些」还开着可点是在问一个不成立的问题。
+    const BOOL enabled = [MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled];
+    for (NSButton *button in _floatingToolbarItemButtons)
+    {
+        button.enabled = enabled;
+    }
 }
 
 - (void)wubiMixedPinyinChanged:(id)sender
@@ -2524,6 +3175,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
              MetasequoiaInputBehaviorKey,
              kFullWidthInputPreferenceKey,
              kFloatingToolbarPreferenceKey,
+             MetasequoiaFloatingToolbarItemsKey,
              kTraditionalChineseOutputPreferenceKey,
          ])
     {
@@ -2578,6 +3230,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                  object:@([MetasequoiaPreferencesWindowController storedFullWidthInputEnabled])];
     [notifications postNotificationName:MetasequoiaFloatingToolbarDidChangeNotification
                                  object:@([MetasequoiaPreferencesWindowController storedFloatingToolbarEnabled])];
+    // 键已经删了,工具栏得知道要重新读一遍 —— 它在另一个进程里,只发本进程的通知是传不过去的。
+    [notifications postNotificationName:MetasequoiaFloatingToolbarItemsDidChange object:nil];
+    [NSDistributedNotificationCenter.defaultCenter postNotificationName:MetasequoiaFloatingToolbarItemsDidChange
+                                                                 object:nil
+                                                               userInfo:nil
+                                                     deliverImmediately:YES];
     [notifications
         postNotificationName:MetasequoiaTraditionalChineseOutputDidChangeNotification
                       object:@([MetasequoiaPreferencesWindowController storedTraditionalChineseOutputEnabled])];

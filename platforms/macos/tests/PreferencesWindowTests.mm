@@ -1,4 +1,8 @@
 #import "../src/PreferencesWindowController.h"
+
+#import "../src/FloatingToolbarPreferences.h"
+#import "../src/LocalInputModePreferences.h"
+#import "../src/PersonalDictionaryStore.h"
 #import "../src/UpdateController.h"
 #import "../src/CandidateAppearancePreferences.h"
 #import "../src/InputBehaviorPreferences.h"
@@ -112,6 +116,18 @@ NSButton *FindButtonWithTitle(NSView *view, NSString *title)
     return nil;
 }
 
+void CollectButtonTitlesWithAction(NSView *view, SEL action, NSMutableArray<NSString *> *titles)
+{
+    if ([view isKindOfClass:[NSButton class]] && ((NSButton *)view).action == action)
+    {
+        [titles addObject:((NSButton *)view).title];
+    }
+    for (NSView *subview in view.subviews)
+    {
+        CollectButtonTitlesWithAction(subview, action, titles);
+    }
+}
+
 NSInteger CountButtonsWithAction(NSView *view, SEL action)
 {
     NSInteger count = 0;
@@ -152,6 +168,18 @@ int main()
         MetasequoiaSetInputBehavior(@"pageBrackets", 1);
         require(!MetasequoiaCandidateKeyOptions(0).edgeSelection && MetasequoiaCandidateKeyOptions(0).brackets,
                 "Enabling bracket paging must disable edge selection.");
+        // 第二条释义的语言:-1 关闭,0..5 是语言表的下标。偏好和桥接两边用同一个钳位读它,越界要落回关闭
+        // 而不是落回英语 —— 不然一个坏值会让所有人无声地多出一行日文。
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:MetasequoiaInputBehaviorKey];
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == -1,
+                "A fresh install must have the second gloss switched off.");
+        MetasequoiaSetInputBehavior(@"translationSecondaryLanguage", 1);
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == 1,
+                "The chosen second language did not round-trip.");
+        MetasequoiaSetInputBehavior(@"translationSecondaryLanguage", 99);
+        require(MetasequoiaInputInteger(@"translationSecondaryLanguage", -1, -1, 5) == -1,
+                "An out-of-range second language must fall back to off, not to the first language.");
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:MetasequoiaInputBehaviorKey];
         MetasequoiaSetInputBehavior(@"englishMinimumPrefix", 99);
         require(MetasequoiaInputInteger(@"englishMinimumPrefix", 2, 1, 10) == 2,
                 "Invalid English prefix must use the safe default.");
@@ -287,22 +315,82 @@ int main()
         NSButton *appearanceNavigationItem = FindButtonWithTitle(navigation, @"外观");
         NSButton *skinNavigationItem = FindButtonWithTitle(navigation, @"皮肤");
         NSButton *dataNavigationItem = FindButtonWithTitle(navigation, @"词库");
-        NSButton *updatesNavigationItem = FindButtonWithTitle(navigation, @"关于与更新");
+        NSButton *updatesNavigationItem = FindButtonWithTitle(navigation, @"关于");
         require(generalNavigationItem != nil && appearanceNavigationItem != nil && skinNavigationItem != nil &&
                     dataNavigationItem != nil && updatesNavigationItem != nil,
                 "The settings window did not expose all sidebar destinations.");
-        require(appearanceNavigationItem.state == NSControlStateValueOn,
-                "The settings sidebar did not select appearance initially.");
+        require(generalNavigationItem.state == NSControlStateValueOn,
+                "The settings sidebar did not select the first item initially.");
+        // 侧栏按用途分四组,顺序是产品决定的,不是构造顺序的副产品。按 action 收集真正的导航按钮,
+        // 读它们在栈视图里的排列 —— 断言的是界面上从上到下的样子,不是源码里数组怎么写的。
+        NSMutableArray<NSString *> *navigationOrder = [NSMutableArray array];
+        CollectButtonTitlesWithAction(navigation, @selector(selectPreferencesPage:), navigationOrder);
+        NSArray<NSString *> *expectedOrder = @[
+            @"输入", @"辅助码", @"快捷键", @"实用功能", @"语音输入", @"外观", @"皮肤", @"悬浮工具栏", @"词库", @"账号",
+            @"帮助", @"反馈", @"关于"
+        ];
+        require([navigationOrder isEqualToArray:expectedOrder],
+                "The settings sidebar was not grouped as input, appearance, data and help.");
         NSView *generalPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"键盘输入设置页");
         NSView *appearancePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"外观设置页");
         NSView *skinPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"皮肤设置页");
         NSView *dataPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"词库与数据设置页");
-        NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"更新与反馈设置页");
+        NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"关于设置页");
         require(generalPage != nil && appearancePage != nil && skinPage != nil && dataPage != nil && updatesPage != nil,
                 "The settings window did not create all functional pages.");
-        require(generalPage.hidden && !appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
+        require(!generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
                     updatesPage.hidden,
-                "The settings window did not open on the appearance page.");
+                "The settings window did not open on the keyboard input page.");
+
+        // 帮助和反馈曾经是侧栏上两个直接弹浏览器的动作:点一下,设置窗什么都不变,人被扔进浏览器。
+        // 现在它们和别的页一样是真页面,所以要能按下标找到、点了要显示出来。
+        NSButton *helpNavigationItem = FindButtonWithTitle(navigation, @"帮助");
+        NSButton *feedbackNavigationItem = FindButtonWithTitle(navigation, @"反馈");
+        NSView *helpPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"帮助页");
+        NSView *feedbackPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"反馈页");
+        require(helpNavigationItem != nil && feedbackNavigationItem != nil && helpPage != nil && feedbackPage != nil,
+                "Help and feedback did not become real pages in the settings window.");
+        require([NSApp sendAction:helpNavigationItem.action to:helpNavigationItem.target from:helpNavigationItem] &&
+                    !helpPage.hidden && feedbackPage.hidden && appearancePage.hidden,
+                "The help sidebar item did not show the help page.");
+        require([NSApp sendAction:feedbackNavigationItem.action
+                               to:feedbackNavigationItem.target
+                             from:feedbackNavigationItem] &&
+                    !feedbackPage.hidden && helpPage.hidden,
+                "The feedback sidebar item did not show the feedback page.");
+        // 诊断信息是这一页存在的理由 —— 报告里没有版本和系统就无从复现,而那恰好是用户不知道要附的。
+        NSView *diagnostics = FindViewWithAccessibilityLabel(controller.window.contentView, @"随反馈附上的诊断信息");
+        [controller refreshUpdateControls];
+        require([diagnostics isKindOfClass:[NSTextField class]] &&
+                    [((NSTextField *)diagnostics).stringValue containsString:@"macOS"],
+                "The feedback page did not collect the diagnostics it promises to attach.");
+        // 语音输入曾经是侧栏上唯一还开独立窗口的入口 —— 一个 610×505 的老式窗口,和其余设置各用各的
+        // 外观,关掉还得重新从菜单找回来。现在它也是页面,而且云端和本地各自只显示自己要的字段。
+        NSButton *voiceNavigationItem = FindButtonWithTitle(navigation, @"语音输入");
+        NSView *voicePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"语音输入设置页");
+        require(voiceNavigationItem != nil && voicePage != nil,
+                "Voice input did not become a real page in the settings window.");
+        require([NSApp sendAction:voiceNavigationItem.action to:voiceNavigationItem.target from:voiceNavigationItem] &&
+                    !voicePage.hidden && helpPage.hidden,
+                "The voice sidebar item did not show the voice page.");
+        NSView *voiceCloudRows = FindViewWithAccessibilityLabel(controller.window.contentView, @"云端识别设置");
+        NSView *voiceLocalRow = FindViewWithAccessibilityLabel(controller.window.contentView, @"本地识别设置");
+        NSView *voiceProviderView = FindViewWithAccessibilityLabel(controller.window.contentView, @"识别方式");
+        require(voiceCloudRows != nil && voiceLocalRow != nil &&
+                    [voiceProviderView isKindOfClass:[NSPopUpButton class]],
+                "The voice page did not expose the recognition controls.");
+        NSPopUpButton *voiceProvider = (NSPopUpButton *)voiceProviderView;
+        [voiceProvider selectItemAtIndex:0];
+        [NSApp sendAction:voiceProvider.action to:voiceProvider.target from:voiceProvider];
+        require(!voiceCloudRows.hidden && voiceLocalRow.hidden, "Cloud recognition did not show the fields it needs.");
+        [voiceProvider selectItemAtIndex:1];
+        [NSApp sendAction:voiceProvider.action to:voiceProvider.target from:voiceProvider];
+        require(voiceCloudRows.hidden && !voiceLocalRow.hidden,
+                "Local recognition kept showing the cloud fields it does not use.");
+
+        [NSApp sendAction:appearanceNavigationItem.action
+                       to:appearanceNavigationItem.target
+                     from:appearanceNavigationItem];
         require([NSApp sendAction:appearanceNavigationItem.action
                                to:appearanceNavigationItem.target
                              from:appearanceNavigationItem] &&
@@ -378,11 +466,44 @@ int main()
 
         // Off by default: turning it on hands Shift+U/T/K/J to the engine's local input modes, and
         // those keystrokes insert a bare capital today, so it must never arrive switched on.
-        NSButton *localInputModesButton =
-            FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式（Shift+U/T/K/J）");
+        NSButton *localInputModesButton = FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式");
         require(localInputModesButton != nil, "The settings window did not expose the local input mode switch.");
         require(localInputModesButton.state == NSControlStateValueOff,
                 "The local input mode switch did not default to off.");
+        // 逐项开关:每个模式一个勾选框,默认开(总开关关着时它们不可点,所以「默认开」不等于默认生效),
+        // 在卡片里找而不是全窗口找 —— 这些标题在别处也可能出现。
+        // 双拼预编辑:引擎一直有 shuangpin_preedit_uses_raw,设置里从来没有过对应控件,于是所有人都吃
+        // 默认值。默认是「原始按键」,改成「拼音分词」要写进偏好。
+        NSPopUpButton *shuangpinPreeditButton =
+            (NSPopUpButton *)FindViewWithAccessibilityLabel(controller.window.contentView, @"双拼预编辑");
+        require([shuangpinPreeditButton isKindOfClass:[NSPopUpButton class]],
+                "The appearance page did not expose the shuangpin preedit choice.");
+        require(shuangpinPreeditButton.indexOfSelectedItem == 0,
+                "The shuangpin preedit choice did not default to the raw keys the engine uses.");
+        [shuangpinPreeditButton selectItemAtIndex:1];
+        require([NSApp sendAction:shuangpinPreeditButton.action
+                               to:shuangpinPreeditButton.target
+                             from:shuangpinPreeditButton] &&
+                    !MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES),
+                "Choosing spelled-out pinyin for the shuangpin preedit did not persist.");
+        [shuangpinPreeditButton selectItemAtIndex:0];
+        require([NSApp sendAction:shuangpinPreeditButton.action
+                               to:shuangpinPreeditButton.target
+                             from:shuangpinPreeditButton] &&
+                    MetasequoiaInputFlag(@"shuangpinPreeditRaw", YES),
+                "Choosing raw keys for the shuangpin preedit did not persist.");
+
+        NSView *localModeItemsCard =
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"本地输入模式项目卡片");
+        require(localModeItemsCard != nil, "The utilities page did not expose the individual local input modes.");
+        for (NSString *item in MetasequoiaLocalInputModeKeys())
+        {
+            NSButton *itemButton = FindButtonWithTitle(localModeItemsCard, MetasequoiaLocalInputModeTitle(item));
+            require(itemButton != nil, "A local input mode had no control on the utilities page.");
+            require(itemButton.state == NSControlStateValueOn, "A local input mode did not default to enabled.");
+            require(!itemButton.enabled,
+                    "The per-mode switches stayed clickable while the whole family was switched off.");
+        }
         // A real click flips the state before the action runs, so the test has to do the same.
         localInputModesButton.state = NSControlStateValueOn;
         require([NSApp sendAction:localInputModesButton.action
@@ -562,9 +683,13 @@ int main()
             require(cardEntry.hidden || NSWidth(cardEntry.frame) == NSWidth(wubiSettingsRowInCard.superview.bounds),
                     "A scheme card row or separator did not fill its card width.");
         }
-        NSRect feedbackCardRect = [updatesPage convertRect:feedbackCard.bounds fromView:feedbackCard];
-        require(NSMaxY(feedbackCardRect) <= NSMaxY(updatesPage.bounds),
-                "The feedback card overflowed the updates page.");
+        // 页面是滚动视图,卡片落在可视区之外是正常的 —— 「关于」页现在有标识、更新、许可与隐私、反馈
+        // 四张卡,本来就一屏放不下。真正的不变量是没有被裁在滚动内容之外。
+        NSView *updatesDocument = [(NSScrollView *)updatesPage documentView];
+        require(updatesDocument != nil, "The about page was not scrollable.");
+        NSRect feedbackCardRect = [updatesDocument convertRect:feedbackCard.bounds fromView:feedbackCard];
+        require(NSMaxY(feedbackCardRect) <= NSMaxY(updatesDocument.bounds) + 0.5,
+                "The feedback card overflowed the about page's scrollable content.");
         require(dataPrivacyCard != nil, "The data page did not expose its final preference card.");
         NSRect dataPrivacyRectInWindow = [controller.window.contentView convertRect:dataPrivacyCard.bounds
                                                                            fromView:dataPrivacyCard];
@@ -663,6 +788,79 @@ int main()
         NSButton *floatingToolbarButton = (NSButton *)floatingToolbarView;
         require(floatingToolbarButton.state == NSControlStateValueOff,
                 "The floating-toolbar control did not reflect the stored disabled value.");
+        // 「显示这些开关」:工具栏上每个可关的按钮都要有一个勾选框,默认全开,并且在工具栏本身关着的
+        // 时候不可点 —— 那时候问「显示哪些」是个不成立的问题。
+        // 用户词库:引擎的 personal_dictionary API 一直在,macOS 从没接过,词库页只有一行状态和一个
+        // 「清除学习数据」。这里断言列表、增删改和导出的入口都在,并且没有选中行时改和删不可点。
+        NSView *personalDictionaryCard = FindViewWithAccessibilityLabel(controller.window.contentView, @"用户词库卡片");
+        require(personalDictionaryCard != nil, "The dictionary page did not expose the user dictionary.");
+        require(FindViewWithAccessibilityLabel(personalDictionaryCard, @"用户词库列表") != nil,
+                "The user dictionary had no list of entries.");
+        NSButton *dictionaryAddButton = FindButtonWithTitle(personalDictionaryCard, @"新增…");
+        NSButton *dictionaryEditButton = FindButtonWithTitle(personalDictionaryCard, @"编辑…");
+        NSButton *dictionaryRemoveButton = FindButtonWithTitle(personalDictionaryCard, @"删除");
+        NSButton *dictionaryExportButton = FindButtonWithTitle(personalDictionaryCard, @"导出…");
+        require(dictionaryAddButton != nil && dictionaryEditButton != nil && dictionaryRemoveButton != nil &&
+                    dictionaryExportButton != nil,
+                "The user dictionary was missing one of its actions.");
+        require(!dictionaryEditButton.enabled && !dictionaryRemoveButton.enabled,
+                "Editing and deleting stayed clickable with no entry selected.");
+        // 列表在切到词库页时才装载:设置窗口一次建出所有页,在构造里查库等于把磁盘 IO 加到「打开设置」
+        // 上;而且窗口是常驻的,不重读的话打字新造的词永远不出现。切过去之后状态行必须有话说。
+        NSTextField *dictionaryStatus =
+            (NSTextField *)FindViewWithAccessibilityLabel(personalDictionaryCard, @"用户词库状态");
+        require([dictionaryStatus isKindOfClass:[NSTextField class]], "The user dictionary had no status line.");
+        NSButton *dictionaryNavigationItem = FindButtonWithTitle(navigation, @"词库");
+        require(dictionaryNavigationItem != nil, "The sidebar had no dictionary destination.");
+        require([NSApp sendAction:dictionaryNavigationItem.action
+                               to:dictionaryNavigationItem.target
+                             from:dictionaryNavigationItem] &&
+                    dictionaryStatus.stringValue.length > 0,
+                "Showing the dictionary page did not load the user dictionary.");
+        // 每一类的编码规则不一样,加词面板要照类别给提示;引擎驳回之前就该说清楚。
+        for (NSInteger kind = MetasequoiaPersonalDictionaryKindPinyin; kind <= MetasequoiaPersonalDictionaryKindEnglish;
+             ++kind)
+        {
+            const MetasequoiaPersonalDictionaryKind typed = (MetasequoiaPersonalDictionaryKind)kind;
+            require(MetasequoiaPersonalDictionaryKindTitle(typed).length > 0 &&
+                        MetasequoiaPersonalDictionaryKindKeyHint(typed).length > 0,
+                    "A user dictionary kind had no name or no key hint.");
+        }
+        // 校验只算不写。空编码、空词条都该被挡下来,而且理由要带出来 —— 「格式不对」不说哪里不对
+        // 等于没说。
+        NSError *validationError = nil;
+        require(
+            ![MetasequoiaPersonalDictionaryStore
+                validateEntry:[MetasequoiaPersonalDictionaryEntry entryWithKind:MetasequoiaPersonalDictionaryKindPinyin
+                                                                            key:@""
+                                                                          value:@"测试"
+                                                                         weight:100000]
+                        error:&validationError] &&
+                validationError.localizedDescription.length > 0,
+            "An entry with no key was accepted, or was rejected without a reason.");
+        require(
+            ![MetasequoiaPersonalDictionaryStore
+                validateEntry:[MetasequoiaPersonalDictionaryEntry entryWithKind:MetasequoiaPersonalDictionaryKindWubi
+                                                                            key:@"abcde"
+                                                                          value:@"测试"
+                                                                         weight:100000]
+                        error:nil],
+            "A five-letter wubi code was accepted; the engine allows at most four.");
+
+        NSView *floatingItemsCard =
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏显示项卡片");
+        require(floatingItemsCard != nil, "The floating-toolbar page did not expose which switches the toolbar shows.");
+        // 在卡片里找,不在整个窗口里找:「简繁输出」在「输入」页上也是一个控件的名字,按名字全窗口搜会先
+        // 撞上那一个。
+        for (NSString *item in MetasequoiaFloatingToolbarItemKeys())
+        {
+            NSButton *itemButton = FindButtonWithTitle(floatingItemsCard, MetasequoiaFloatingToolbarItemTitle(item));
+            require(itemButton != nil, "A floating-toolbar switch had no control on the settings page.");
+            require(itemButton.state == NSControlStateValueOn,
+                    "A floating-toolbar switch did not default to being shown.");
+            require(!itemButton.enabled,
+                    "The floating-toolbar switches stayed clickable while the toolbar itself was off.");
+        }
         NSAppearance *darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         __block NSColor *darkCanvasColor = nil;
         __block NSColor *darkPanelColor = nil;
@@ -822,9 +1020,11 @@ int main()
                 "The updates page did not expose an in-place update action.");
         require(CountButtonsWithAction(controller.window.contentView, @selector(checkForUpdates:)) == 1,
                 "The settings window exposed duplicate software-update actions.");
+        // 这个入口现在跳站内的反馈页,不再直接开浏览器 —— 那一页会把版本和系统信息一起备好,而把人
+        // 丢到一张空白的 issue 表单等于让他自己去猜要附什么。
         NSView *feedbackView = FindViewWithAccessibilityLabel(controller.window.contentView, @"提交反馈");
         require([feedbackView isKindOfClass:[NSButton class]] &&
-                    ((NSButton *)feedbackView).action == @selector(openFeedback:) &&
+                    ((NSButton *)feedbackView).action == @selector(showFeedback:) &&
                     ((NSButton *)feedbackView).target == controller,
                 "The updates page did not expose a feedback action.");
         NSColor *feedbackTitleColor =
@@ -833,6 +1033,16 @@ int main()
                                                    effectiveRange:nil];
         require([feedbackTitleColor isEqual:[NSColor linkColor]],
                 "The updates-page actions did not remain visually distinct from disabled controls.");
+        // 点下去要真的到反馈页。这个入口曾经用「最后一页」定位反馈页,后来语音输入被追加到末尾,于是
+        // 它打开的是语音输入页 —— 只断言 action 是 showFeedback: 抓不到这种事。
+        NSView *feedbackPageView = FindViewWithAccessibilityLabel(controller.window.contentView, @"反馈页");
+        NSView *voicePageView = FindViewWithAccessibilityLabel(controller.window.contentView, @"语音输入设置页");
+        require(feedbackPageView != nil && voicePageView != nil, "The feedback or voice page was missing.");
+        require([NSApp sendAction:((NSButton *)feedbackView).action
+                               to:((NSButton *)feedbackView).target
+                             from:feedbackView] &&
+                    !feedbackPageView.hidden && voicePageView.hidden,
+                "The about page's feedback action did not open the feedback page.");
 
         __block bool resetStartedAfterCancel = false;
         id cancelObserver =

@@ -92,11 +92,18 @@ struct AboutView: View {
           Label("电脑版下载", systemImage: "desktopcomputer")
         }
       }
+      // 帮助和反馈原来是两条指向网页的链接。键盘出问题时把人送去浏览器,恰好是最不该发生的时候;
+      // 而空白的 issue 表单等于让用户自己猜要附什么,我们拿到的报告也就无从复现。现在都是站内页面,
+      // 完整文档和源码仍然留在外部链接里。
       Section("帮助与开源") {
+        NavigationLink(destination: HelpView()) {
+          Label("使用帮助", systemImage: "questionmark.circle")
+        }.accessibilityIdentifier("helpLink")
+        NavigationLink(destination: FeedbackView()) {
+          Label("反馈问题与建议", systemImage: "bubble.left.and.bubble.right")
+        }.accessibilityIdentifier("feedbackLink")
         Link(destination: URL(string: "https://msime.app/")!) { Label("官方网站", systemImage: "globe") }
-        Link(destination: URL(string: "https://msime.app/docs/")!) { Label("使用文档", systemImage: "book") }
         Link(destination: URL(string: "https://github.com/metasequoiaime/MSIME-Apple")!) { Label("开源代码与许可证", systemImage: "curlybraces") }
-        Link(destination: URL(string: "https://github.com/metasequoiaime/MSIME-Apple/issues")!) { Label("反馈问题与建议", systemImage: "bubble.left.and.bubble.right") }
       }
       Section("隐私") {
         Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。").font(.footnote).foregroundStyle(.secondary)

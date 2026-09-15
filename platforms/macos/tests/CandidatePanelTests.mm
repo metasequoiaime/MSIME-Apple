@@ -174,6 +174,49 @@ int main()
         Require(horizontalWithGloss > panel.candidateFrame.size.width,
                 "A horizontal gloss did not widen the candidate window.");
         [panel setCandidateData:@[ translated ]];
+        // 释义垂直于候选的排列方向。横排把释义叠在词下面 —— 格宽是最宽那一行而不是三者之和,九个候选
+        // 因此是 892pt 而不是放不下的 2322pt;竖排把释义排在同一行 —— 行高不变,只是变宽。反过来两种
+        // 都爆,所以这两条断言各自钉住一个方向。
+        {
+            NSAttributedString *plainWord = MetasequoiaIndexedCandidateString(@"翻译", 0);
+            NSAttributedString *glossed = MetasequoiaCandidateStringByAddingSecondaryTranslation(
+                MetasequoiaCandidateStringByAddingTranslation(plainWord, @"translate"), @"翻訳");
+            NSArray *plainPage = @[ plainWord, plainWord, plainWord ];
+            NSArray *glossedPage = @[ glossed, glossed, glossed ];
+
+            panel.panelType = kIMKSingleRowSteppingCandidatePanel;
+            [panel setCandidateData:plainPage];
+            const NSSize bareRow = panel.candidateFrame.size;
+            [panel setCandidateData:glossedPage];
+            const NSSize glossedRow = panel.candidateFrame.size;
+            // 释义行一律占位,有没有内容都一样高 —— 模型几秒后才回,等答案到了再长高会让整条候选条
+            // 在光标下当场跳一下。所以这里要的是「相等」,不是「更高」。
+            Require(fabs(glossedRow.height - bareRow.height) < 0.5,
+                    "A gloss changed the row height, so the strip jumps when the model answers.");
+            Require(glossedRow.width < bareRow.width + 3.0 * metasequoia::mac::kCandidateGlossMaxWidth,
+                    "A horizontal gloss widened the row as if it sat beside the word.");
+
+            panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
+            [panel setCandidateData:plainPage];
+            const NSSize bareColumn = panel.candidateFrame.size;
+            // 按布局自己的公式算下界:词一行 + 两条释义各一行。插入的内边距只会让实际更高,所以这是
+            // 一个安全的下界,同时把「三行叠」这件事本身钉住。
+            NSFont *candidateFont = CandidateButtonFont(panel);
+            NSFont *primaryFont = [NSFont systemFontOfSize:MAX(11.0, candidateFont.pointSize - 5.0)];
+            NSFont *secondaryFont = [NSFont systemFontOfSize:MAX(11.0, candidateFont.pointSize - 6.0)];
+            const CGFloat stackedLines =
+                ceil(candidateFont.ascender - candidateFont.descender + candidateFont.leading) +
+                ceil(primaryFont.ascender - primaryFont.descender + primaryFont.leading) +
+                ceil(secondaryFont.ascender - secondaryFont.descender + secondaryFont.leading);
+            Require(glossedRow.height >= stackedLines,
+                    "A horizontal row is not tall enough to stack a word over two glosses.");
+            [panel setCandidateData:glossedPage];
+            const NSSize glossedColumn = panel.candidateFrame.size;
+            Require(glossedColumn.width > bareColumn.width + 1.0, "A vertical gloss did not widen the window.");
+            Require(glossedColumn.height < bareColumn.height + 3.0,
+                    "A vertical gloss took its own line instead of sharing the row.");
+        }
+
         for (const CGFloat measured : {0.0, 40.0, 208.0, 292.0, 1000.0})
             Require(metasequoia::mac::CandidateGlossDrawnWidth(measured, 10000.0) +
                             2.0 * metasequoia::mac::kCandidateGlossGap <=
