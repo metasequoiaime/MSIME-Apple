@@ -104,3 +104,34 @@ test("Linux delegates Tencent credentials to the user-managed provider", async (
   expect(screen.queryByLabelText("腾讯云 SecretKey")).toBeNull();
   expect(screen.queryByLabelText("腾讯云地域")).toBeNull();
 });
+
+test("macOS exposes the native Tencent credential probe with current settings", async () => {
+  const macosSnapshot: Snapshot = {
+    ...snapshot,
+    preferences: {
+      ...snapshot.preferences,
+      tencent_tmt: {
+        enabled: true,
+        secret_id: "AKIDmacos",
+        secret_key: "macos-secret",
+        region: "ap-tokyo",
+      },
+    },
+  };
+  const testApiCredential = vi.fn().mockResolvedValue({ ok: true, message: "macOS fixture success" });
+  render(<SettingsPage initialPage="input" client={{
+    load: async () => macosSnapshot,
+    save: vi.fn(),
+    testApiCredential,
+    host: { platform: "macos" } as never,
+  }} />);
+
+  const button = await screen.findByRole("button", { name: "测试腾讯云翻译配置" });
+  fireEvent.click(button);
+  await screen.findByText("macOS fixture success");
+  expect(testApiCredential).toHaveBeenCalledWith("translation.tencent", {
+    secret_id: "AKIDmacos",
+    secret_key: "macos-secret",
+    region: "ap-tokyo",
+  });
+});

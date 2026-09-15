@@ -40,6 +40,8 @@ macOS 云端桌面快照现与固定 Apple 基线的 20 项字段对齐，并保
 
 macOS IMK 语音运行时现在消费 Tauri 共享 `voice_input.capture_backend`。空值、`auto` 与 `macos` 明确映射到平台 CoreAudio 路径；同步自 Windows 或 Linux 的 `windows`、`pulse`、`pipewire`、`alsa` 等后端不会被静默当成 CoreAudio，而是在开始会话和打开麦克风前显示录音失败并保持当前编辑器焦点。设备仍使用稳定 CoreAudio UID，输入算法、录音和识别状态继续留在既有宿主与共享 Engine 边界。
 
+macOS 设置页现在也显示共享的腾讯云翻译凭据探测入口；探测请求通过已有 Tauri `test_api_credential` 路由发送当前 SecretId、SecretKey 和地域，不改变 macOS 的原生 IMK 边界。
+
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
