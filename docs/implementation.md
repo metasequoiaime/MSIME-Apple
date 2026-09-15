@@ -993,3 +993,9 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 对齐 Apple 输入设置的“试一下振动”，共享按键反馈分组新增预览按钮。iOS 通过移动插件调用 `UIImpactFeedbackGenerator`，Android 通过 `Vibrator`/`VibrationEffect` 按轻、中、强映射触觉振幅；预览不写入共享 Engine 设置或键盘输入状态，保存的偏好仍由各自键盘宿主读取。
 
 本地验证通过按键反馈定向 Vitest、Rust fmt、移动插件测试和桌面 TypeScript 检查；未执行签名设备触觉硬件效果、系统静音策略或 Android 厂商振动强度验收，CI 保持禁用。
+
+### iOS 手写与语音设置表面适配（2026-09-16）
+
+共享 Tauri 设置页现在按 iOS 键盘扩展与 App 的实际边界呈现手写和语音入口：手写页改为说明在系统键盘内切换“手写”方案、按需下载模型和“允许完全访问”权限，并可直接打开系统键盘设置；语音页改为说明从 iOS App 的语音入口录音、识别并确认结果，不再显示无法提交到键盘扩展输入会话的 Tauri“打开语音输入”按钮。Android、Linux、Windows 和 macOS 的既有入口与文案保持不变。
+
+本地新增 iOS 手写/语音页面回归，验证平台说明、系统设置入口以及桌面面板按钮隐藏；后续仍需 iOS 真机键盘扩展、录音权限、模型下载、跨 App 文本交接和系统外链策略验证，CI 保持禁用。

@@ -111,3 +111,28 @@ test("Android uses the system recognizer and hides desktop voice controls", asyn
   expect(screen.queryByText("语音快捷键")).toBeNull();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
 });
+
+test("iOS keeps voice in the app flow and hides the desktop voice panel", async () => {
+  await openVoice("ios");
+  expect(screen.getByText("iOS 应用语音")).toBeTruthy();
+  expect(screen.getByText(/录音、识别和文本提交在当前共享设置与应用语音服务中完成/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  expect(screen.queryByText("打开语音输入")).toBeNull();
+});
+
+test("iOS handwriting points to the keyboard extension instead of a desktop panel", async () => {
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage initialPage="handwriting" client={{
+    load: async () => snapshot,
+    save: vi.fn(),
+    host: host("ios"),
+    openSystemKeyboardSettings,
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByText("iOS 键盘手写")).toBeTruthy();
+  expect(screen.getByText(/切换到“手写”输入方案/)).toBeTruthy();
+  expect(screen.queryByText("打开手写识别板")).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开系统键盘设置" }));
+  expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
+});
