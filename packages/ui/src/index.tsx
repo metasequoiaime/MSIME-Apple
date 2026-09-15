@@ -2177,7 +2177,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>
         <div className="section document-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
       </fieldset>
-      {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
+      {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
     {page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <button className="secondary" disabled={busy} onClick={() => {

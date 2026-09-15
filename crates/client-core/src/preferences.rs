@@ -1491,7 +1491,10 @@ impl Preferences {
         }
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
-        if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 {
+        if self.candidate_font_family.is_empty()
+            || self.candidate_font_family.len() > 128
+            || self.candidate_font_family.chars().any(char::is_control)
+        {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_english_font.as_ref().is_some_and(|font| {
@@ -1515,10 +1518,9 @@ impl Preferences {
         }
         // Match the 32 ordered supplementary families in Windows appearance.ts.
         if self.candidate_fallback_fonts.len() > 32
-            || self
-                .candidate_fallback_fonts
-                .iter()
-                .any(|font| font.is_empty() || font.len() > 128)
+            || self.candidate_fallback_fonts.iter().any(|font| {
+                font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
+            })
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
@@ -1591,7 +1593,7 @@ pub enum PreferencesError {
     InvalidCandidateSurfaceColor,
     #[error("candidate border color must be #RRGGBB or omitted")]
     InvalidCandidateBorderColor,
-    #[error("candidate font family must be non-empty ASCII and at most 128 bytes")]
+    #[error("candidate font family must be non-empty, contain no control characters, and be at most 128 bytes")]
     InvalidCandidateFontFamily,
     #[error("candidate skin identifier is invalid")]
     InvalidCandidateSkin,
@@ -3257,6 +3259,34 @@ mod tests {
         assert!(preferences.validate().is_ok());
         for invalid in [String::new(), format!("{exact_limit}c"), "字".repeat(43)] {
             preferences.candidate_font_family = invalid;
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+        }
+    }
+
+    #[test]
+    fn candidate_font_names_reject_control_characters() {
+        for invalid in ["Primary\nFont", "Primary\u{7f}Font", "Primary\u{85}Font"] {
+            let mut preferences = Preferences {
+                candidate_font_family: invalid.to_owned(),
+                ..Preferences::default()
+            };
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+
+            preferences.candidate_font_family = default_candidate_font_family();
+            preferences.candidate_english_font = Some(invalid.to_owned());
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+
+            preferences.candidate_english_font = None;
+            preferences.candidate_fallback_fonts = vec![invalid.to_owned()];
             assert!(matches!(
                 preferences.validate(),
                 Err(PreferencesError::InvalidCandidateFontFamily)

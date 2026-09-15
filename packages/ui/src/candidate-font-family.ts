@@ -5,7 +5,8 @@ export const defaultCandidateEnglishFont = "Segoe UI";
 export const defaultCandidateFontFamily = "Noto Sans SC";
 export const defaultCandidateFallbackFonts = ["Noto Sans SC", "Microsoft YaHei"] as const;
 export function validFontFamily(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && new TextEncoder().encode(value).length <= 128;
+  return typeof value === "string" && value.length > 0 &&
+    new TextEncoder().encode(value).length <= 128 && !/[\x00-\x1f\x7f-\x9f]/.test(value);
 }
 export function validCandidateFonts(value: CandidateFontPreferences): boolean {
   return validFontFamily(value.candidate_font_family ?? defaultCandidateFontFamily) &&
