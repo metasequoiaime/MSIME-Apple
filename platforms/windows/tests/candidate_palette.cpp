@@ -46,6 +46,7 @@ int main() {
   // than rendering an invisible or wrong candidate window.
   for (const char *unsupported :
        {"red", "#12345", "#gggggg", "hsl(10, 20%, 30%)", "rgb(255, 128)",
+        "rgb(255, 128, 0) trailing",
         "rgb(255 128 0", "var(--accent)", "#"})
     require(parse_css_color(unsupported, fallback) == fallback);
 
