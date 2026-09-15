@@ -571,6 +571,15 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_m
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
+export type MobileKeyboardFeedback = {
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
+  hapticStrength: "light" | "medium" | "strong";
+};
+export type MobileKeyboardFeedbackClient = {
+  load(): Promise<MobileKeyboardFeedback>;
+  save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
+};
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -607,6 +616,8 @@ export interface SettingsClient {
   copyText?: (text: string) => Promise<void>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
+  /** Mobile hosts persist keyboard sound and haptic feedback in native preferences. */
+  mobileKeyboardFeedback?: MobileKeyboardFeedbackClient;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
   openVoice?: () => Promise<void>;
@@ -887,6 +898,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [feedbackKind, setFeedbackKind] = useState("功能异常");
   const [feedbackDetail, setFeedbackDetail] = useState("");
   const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
+  const [mobileKeyboardFeedback, setMobileKeyboardFeedback] = useState<MobileKeyboardFeedback>();
+  const [mobileKeyboardFeedbackBusy, setMobileKeyboardFeedbackBusy] = useState(false);
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
   const [phraseBusy, setPhraseBusy] = useState(false);
@@ -961,6 +974,20 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     }
     return () => { active = false; };
   }, [client]);
+
+  useEffect(() => {
+    if (!mobilePlatform || !client.mobileKeyboardFeedback) {
+      setMobileKeyboardFeedback(undefined);
+      return;
+    }
+    let active = true;
+    void client.mobileKeyboardFeedback.load().then(value => {
+      if (active) setMobileKeyboardFeedback(value);
+    }).catch(() => {
+      if (active) setError("无法读取按键反馈设置，请重试。");
+    });
+    return () => { active = false; };
+  }, [client, mobilePlatform]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 
@@ -1045,6 +1072,23 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  }
+
+  async function saveMobileKeyboardFeedback(next: MobileKeyboardFeedback) {
+    const feedback = client.mobileKeyboardFeedback;
+    if (!feedback) return;
+    const previous = mobileKeyboardFeedback;
+    setMobileKeyboardFeedback(next);
+    setMobileKeyboardFeedbackBusy(true);
+    setError("");
+    try {
+      setMobileKeyboardFeedback(await feedback.save(next));
+    } catch {
+      if (previous) setMobileKeyboardFeedback(previous);
+      setError("无法保存按键反馈设置，请重试。");
+    } finally {
+      setMobileKeyboardFeedbackBusy(false);
+    }
   }
 
   function resetTouchKeyboardSettings() {
@@ -1958,6 +2002,13 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             </div>)}
           </div>
         </div>
+        {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && <div className="section" role="group" aria-label="按键反馈">
+          <div className="section-title">按键反馈</div>
+          <label className="section-header"><span className="section-title">按键音<small>按键音受系统静音设置控制</small></span><input aria-label="按键音" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.soundEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, soundEnabled: event.target.checked })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">按键振动<small>振动效果取决于设备与系统支持</small></span><input aria-label="按键振动" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.hapticsEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticsEnabled: event.target.checked })} /></label>
+          {mobileKeyboardFeedback.hapticsEnabled && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">振动强度</span><select aria-label="振动强度" disabled={mobileKeyboardFeedbackBusy} value={mobileKeyboardFeedback.hapticStrength} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"] })}><option value="light">轻</option><option value="medium">中</option><option value="strong">强</option></select></label></>}
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {

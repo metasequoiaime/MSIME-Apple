@@ -5095,6 +5095,10 @@ pub fn run() {
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
             android_account::app_icon_set,
+            #[cfg(target_os = "android")]
+            android_account::mobile_keyboard_feedback_load,
+            #[cfg(target_os = "android")]
+            android_account::mobile_keyboard_feedback_save,
             #[cfg(target_os = "ios")]
             open_system_keyboard_settings,
             #[cfg(target_os = "ios")]
@@ -5133,6 +5137,10 @@ pub fn run() {
             ios_account::account_preferences_upload,
             #[cfg(target_os = "ios")]
             ios_account::account_preferences_apply,
+            #[cfg(target_os = "ios")]
+            ios_account::mobile_keyboard_feedback_load,
+            #[cfg(target_os = "ios")]
+            ios_account::mobile_keyboard_feedback_save,
             #[cfg(target_os = "ios")]
             ios_account::community_skin_list,
             #[cfg(target_os = "ios")]

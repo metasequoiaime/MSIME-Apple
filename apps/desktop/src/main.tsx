@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type MobileKeyboardFeedback, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -360,12 +360,20 @@ function DesktopSettings() {
               removeReply: id => invoke("community_resource_remove_reply", { id }),
             },
             openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
+            mobileKeyboardFeedback: {
+              load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
+              save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
+            },
             home: {
               openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
             },
           } : {}),
           ...(host.platform === "android" ? {
             openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
+            mobileKeyboardFeedback: {
+              load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
+              save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
+            },
           } : {}),
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
