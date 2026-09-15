@@ -129,6 +129,16 @@ void candidate_mailbox_tests() {
   const auto first = activate(a, 1);
   require(publish(first, 1));
   require(mailbox.snapshot(gate)->visible);
+  // Keyboard selection must not assume that delivery means the window has
+  // presented the same generation yet. A bounded timeout is a miss until the
+  // exact lease-bound receipt arrives.
+  require(!mailbox.wait_rendered(first, 1, std::chrono::milliseconds(2)));
+  auto stale_receipt = first;
+  ++stale_receipt.token;
+  mailbox.rendered(stale_receipt, 1);
+  require(!mailbox.wait_rendered(first, 1, std::chrono::milliseconds(2)));
+  mailbox.rendered(first, 1);
+  require(mailbox.wait_rendered(first, 1, std::chrono::milliseconds(2)));
   {
     std::promise<void> held, release;
     auto holding = held.get_future();
