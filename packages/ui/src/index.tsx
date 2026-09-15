@@ -773,7 +773,7 @@ export function translationEndpointIssue(endpoint: string): string {
   return "";
 }
 
-export function SettingsPage({ client, initialPage }: { client: SettingsClient; initialPage?: string }) {
+export function SettingsPage({ client, initialPage, onReplayOnboarding }: { client: SettingsClient; initialPage?: string; onReplayOnboarding?: () => void }) {
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
@@ -1571,6 +1571,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       onOpenCloudClipboard={client.openCloudClipboard ? () => { void client.openCloudClipboard!().catch(() => setError("无法打开云剪贴板，请重试。")); } : undefined}
       onOpenAbout={mobilePlatform ? () => setPage("about") : undefined}
       onOpenDesktopDownload={mobilePlatform && client.openExternalUrl ? () => { void openExternalUrl(desktopDownloadUrl); } : undefined}
+      onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
     />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => setPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}

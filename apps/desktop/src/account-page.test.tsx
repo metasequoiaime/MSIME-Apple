@@ -172,6 +172,13 @@ test("mobile accounts expose about and desktop download actions while signed out
   expect(openDesktopDownload).toHaveBeenCalledTimes(1);
 });
 
+test("mobile accounts can replay the onboarding flow without account state", async () => {
+  const replayOnboarding = vi.fn();
+  render(<AccountPage client={account()} onReplayOnboarding={replayOnboarding} />);
+  fireEvent.click(await screen.findByRole("button", { name: "重新查看新手引导" }));
+  expect(replayOnboarding).toHaveBeenCalledTimes(1);
+});
+
 test("local designs remain available without an account", async () => {
   const openLocalDesigns = vi.fn();
   render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);

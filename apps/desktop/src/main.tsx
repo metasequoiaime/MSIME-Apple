@@ -260,6 +260,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
+  const [replayOnboarding, setReplayOnboarding] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
@@ -366,10 +367,18 @@ function DesktopSettings() {
     });
     return () => { active = false; unsubscribe?.(); };
   }, []);
+  const onboardingPlatform = settingsClient?.host?.platform;
   const onboardingActions: OnboardingActions = {
-    prepareResources: () => invoke("android_prepare_bootstrap").then(() => undefined),
-    openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
-    showInputMethodPicker: () => invoke("android_show_input_method_picker").then(() => undefined),
+    platform: onboardingPlatform === "ios" ? "ios" : "android",
+    prepareResources: onboardingPlatform === "android" || !onboardingPlatform
+      ? () => invoke("android_prepare_bootstrap").then(() => undefined)
+      : async () => undefined,
+    openSystemKeyboardSettings: onboardingPlatform === "ios"
+      ? () => invoke("open_system_keyboard_settings").then(() => undefined)
+      : () => invoke("android_open_input_method_settings").then(() => undefined),
+    showInputMethodPicker: onboardingPlatform === "android" || !onboardingPlatform
+      ? () => invoke("android_show_input_method_picker").then(() => undefined)
+      : async () => undefined,
   };
   const completeOnboarding = async (scheme: OnboardingInputScheme) => {
     const snapshot = await client.load();
@@ -387,9 +396,10 @@ function DesktopSettings() {
       },
     });
     setBootstrapRequired(false);
+    setReplayOnboarding(false);
   };
   // Mount once after discovery: replacing the client later would reload draft preferences.
-  if (bootstrapRequired) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
+  if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
   if (!settingsClient) return <SettingsStartupPage onClose={isTauri() ? () => { void getCurrentWindow().close(); } : undefined} />;
   if (mobilePanel === "cloud-clipboard") {
     return <CloudClipboardPanel client={{
@@ -421,7 +431,7 @@ function DesktopSettings() {
       close: async () => setMobilePanel(null),
     }} />;
   }
-  return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} />
+  return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} onReplayOnboarding={() => setReplayOnboarding(true)} />
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
