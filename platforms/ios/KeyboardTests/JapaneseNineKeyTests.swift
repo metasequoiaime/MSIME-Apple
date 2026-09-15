@@ -140,5 +140,18 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertEqual(variantActivations, 1)
   }
 
+  func testKanaKeysUseFlickPreviewInsteadOfLongPressMenus() throws {
+    let panel = JapaneseNineKeyView { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    }
+    let kana = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "japaneseKana0" } as? UIButton)
+    XCTAssertNil(kana.menu)
+    panel.setDigits(true)
+    XCTAssertNotNil(kana.menu, "The numeric/symbol layer still exposes its alternate symbols")
+    panel.setDigits(false)
+    XCTAssertNil(kana.menu)
+  }
+
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { nodes($0) } }
 }

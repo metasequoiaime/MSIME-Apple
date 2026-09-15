@@ -106,9 +106,9 @@ final class JapaneseNineKeyView: UIStackView {
       var attributes = $0; attributes.font = .systemFont(ofSize: 10); return attributes
     }
     button.configuration?.contentInsets = .init(top: 2, leading: 0, bottom: 2, trailing: 0)
-    button.menu = UIMenu(children: key.kana.enumerated().map { direction, kana in
-      UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
-    })
+    // Flick preview is the selection surface for kana; a long-press menu duplicates the same
+    // five choices and competes with the gesture that begins on touch down.
+    button.menu = nil
     let pan = KanaFlickGesture { [weak self, weak button] direction, phase in
       guard let self else { return }
       let active = self.activeKeys[index]
@@ -146,10 +146,12 @@ final class JapaneseNineKeyView: UIStackView {
       button.configuration?.title = key.kana[0]
       button.configuration?.subtitle = key.kana.dropFirst().filter { !$0.isEmpty }.joined(separator: " ")
       button.accessibilityLabel = key.kana.filter { !$0.isEmpty }.joined(separator: "、")
-      button.menu = UIMenu(children: key.kana.enumerated().compactMap { direction, kana in
-        guard !kana.isEmpty else { return nil }
-        return UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
-      })
+      button.menu = enabled
+        ? UIMenu(children: key.kana.enumerated().compactMap { direction, kana in
+          guard !kana.isEmpty else { return nil }
+          return UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
+        })
+        : nil
     }
     guard let variantsKey else { return }
     variantsKey.configuration?.title = enabled ? "（）" : "小゛゜"
