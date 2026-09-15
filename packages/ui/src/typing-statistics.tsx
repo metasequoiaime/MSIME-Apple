@@ -91,6 +91,50 @@ function scopedBreakdown(statistics: TypingStatistics, keys: string[] | null): T
   return result;
 }
 
+type HeatmapDay = { key: string; label: string; count: number; future: boolean };
+
+function statisticsHeatmapWeeks(days: Record<string, number>, today = new Date()): HeatmapDay[][] {
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const sundayOffset = current.getDay();
+  const thisSunday = new Date(current);
+  thisSunday.setDate(current.getDate() - sundayOffset);
+  const start = new Date(thisSunday);
+  start.setDate(thisSunday.getDate() - 52 * 7);
+  return Array.from({ length: 53 }, (_, week) => Array.from({ length: 7 }, (_, row) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + week * 7 + row);
+    const key = dayKey(date);
+    return { key, label: `${date.getMonth() + 1}月${date.getDate()}日`, count: days[key] ?? 0, future: date > current };
+  }));
+}
+
+function StatisticsHeatmap({ days, selectedDay, onSelect }: { days: Record<string, number>; selectedDay: string | null; onSelect: (key: string) => void }) {
+  const weeks = useMemo(() => statisticsHeatmapWeeks(days), [days]);
+  const maximum = Math.max(1, ...weeks.flat().map(day => day.count));
+  const monthLabels = weeks.map((week, index) => {
+    const current = week[0];
+    const previous = index > 0 ? weeks[index - 1][0] : undefined;
+    return index === 0 || current.key.slice(0, 7) !== previous?.key.slice(0, 7) ? `${current.label.split("月")[0]}月` : "";
+  });
+  return <div className="statistics-heatmap" role="group" aria-label="每日输入热力图">
+    <div className="statistics-heatmap-scroll">
+      <div className="statistics-heatmap-months" aria-hidden="true"><span />{monthLabels.map((label, index) => <span key={index}>{label}</span>)}</div>
+      <div className="statistics-heatmap-body">
+        <div className="statistics-heatmap-weekdays" aria-hidden="true">{["", "一", "", "三", "", "五", ""].map((label, index) => <span key={index}>{label}</span>)}</div>
+        <div className="statistics-heatmap-grid" role="grid">
+          {weeks.map((week, index) => <div className="statistics-heatmap-week" key={index}>{week.map(day => {
+            if (day.future) return <span className="statistics-heatmap-cell future" key={day.key} aria-hidden="true" />;
+            const level = day.count === 0 ? 0 : Math.max(1, Math.ceil(day.count / maximum * 4));
+            return <button type="button" className={`statistics-heatmap-cell level-${level}${selectedDay === day.key ? " selected" : ""}`} key={day.key}
+              aria-label={`热力图：${day.label}，${day.count} 字符`} aria-pressed={selectedDay === day.key} onClick={() => onSelect(day.key)} />;
+          })}</div>)}
+        </div>
+      </div>
+    </div>
+    <div className="statistics-heatmap-legend" aria-hidden="true"><span>少</span><i className="level-0" /><i className="level-1" /><i className="level-2" /><i className="level-3" /><i className="level-4" /><span>多</span></div>
+  </div>;
+}
+
 function Distribution({ title, slices, footer }: { title: string; slices: Slice[]; footer?: string }) {
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter(slice => slice.count > 0 || slice.id !== "unknown");
@@ -182,6 +226,7 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
         })}
       </div>
       <div className="statistics-axis"><span>{trendDays[0]?.label}</span><span>{trendDays.at(-1)?.label}</span></div>
+      {mobile && <><p className="statistics-heatmap-caption">每天一格，一列一周</p><StatisticsHeatmap days={statistics.days} selectedDay={selectedDay} onSelect={key => setSelectedDay(current => current === key ? null : key)} /></>}
       <p className="statistics-footer-note">点按柱形查看当天的分类与占比。</p>
       {selectedDay && <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>返回整个时间范围</button>}
     </section>}

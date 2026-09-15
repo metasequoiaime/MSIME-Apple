@@ -90,6 +90,17 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
   expect(screen.getByRole("heading", { name: "输入方案" })).toBeTruthy();
 });
 
+test("mobile trend includes a calendar heatmap that selects a day", async () => {
+  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), host: { platform: "android" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await screen.findByRole("heading", { name: /每日趋势/ });
+  expect(screen.getByRole("group", { name: "每日输入热力图" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: `热力图：${label(-1)}，6 字符` }));
+  expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("6");
+  expect(screen.getByText("返回整个时间范围")).toBeTruthy();
+});
+
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {
   const disabled = { ...initialStatistics, enabled: false };
   const cleared: TypingStatistics = { enabled: false, total: 0, days: {}, detail: { characters: {}, sources: {} }, dailyDetails: {} };
