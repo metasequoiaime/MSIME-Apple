@@ -71,7 +71,8 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   const custom = {
     background: 0x102438, keyBackground: 0x17354f, keyForeground: 0xffffff,
     accent: 0xa2d8fa, actionBackground: 0x285d84, cornerRadius: 2,
-    borderWidth: 1, shadow: 0, pattern: 2 as const, monospaced: true,
+    borderWidth: 1, shadow: 0, pattern: 2 as const, patternOpacity: .1,
+    gradientEnd: 0x203040, gradientHorizontal: true, photo: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", photoShade: .2, photoPosition: .75, monospaced: true,
   };
   const first = snapshot(1, "dark");
   first.preferences.touch_keyboard_skin = "blueprint";
@@ -90,4 +91,7 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   expect(main.style.getPropertyValue("--kb-key-radius")).toBe("2px");
   expect(main.style.getPropertyValue("--kb-border-width")).toBe("1px");
   expect(main.style.getPropertyValue("--kb-action")).toBe("#285d84");
+  expect(main.style.getPropertyValue("background-image")).toContain("data:image/jpeg;base64,");
+  expect(main.style.getPropertyValue("background-image")).toContain("linear-gradient");
+  expect(main.style.getPropertyValue("background-position")).toContain("75% 75%");
 });

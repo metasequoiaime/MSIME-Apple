@@ -176,6 +176,46 @@ function readableKeyboardText(value: string) {
   return Number.isFinite(parsed) && skinLuminance(parsed) > .179 ? "#000000" : "#ffffff";
 }
 
+function keyboardRgba(value: string, opacity: number) {
+  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
+  if (!Number.isFinite(parsed)) return value;
+  const channel = (shift: number) => (parsed >> shift) & 0xff;
+  return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${Math.max(0, Math.min(1, opacity))})`;
+}
+
+function keyboardBackgroundStyle(skin: TouchKeyboardSkin, customDesign: TouchKeyboardSkinDesign | undefined, palette: { background: string; accent: string }): CSSProperties {
+  const custom = skin === "custom" && customDesign ? customDesign : undefined;
+  const option = touchKeyboardSkinOptions.find(item => item.id === (skin === "custom" ? "forest" : skin)) ?? touchKeyboardSkinOptions[0];
+  const pattern = custom?.pattern ?? option.pattern;
+  const patternOpacity = custom?.patternOpacity ?? .15;
+  const images: string[] = [];
+  const sizes: string[] = [];
+  const positions: string[] = [];
+  const add = (image: string, size: string, position = "0 0") => {
+    images.push(image);
+    sizes.push(size);
+    positions.push(position);
+  };
+  const accent = keyboardRgba(palette.accent, patternOpacity);
+  if (pattern === 1) add(`radial-gradient(circle, ${accent} 1px, transparent 1.5px)`, "16px 16px");
+  else if (pattern === 2) add(`linear-gradient(${accent} 1px, transparent 1px), linear-gradient(90deg, ${accent} 1px, transparent 1px)`, "20px 20px");
+  else if (pattern === 3) add(`repeating-linear-gradient(155deg, transparent 0 18px, ${accent} 18px 20px, transparent 20px 38px)`, "48px 48px");
+  if (custom?.gradientEnd !== undefined) {
+    const direction = custom.gradientHorizontal ? "90deg" : "180deg";
+    add(`linear-gradient(${direction}, ${palette.background}, ${skinColor(custom.gradientEnd)})`, "cover");
+  }
+  const photo = typeof custom?.photo === "string" && /^[A-Za-z0-9+/=]+$/.test(custom.photo) && custom.photo.length <= 682668 ? custom.photo : undefined;
+  if (photo) {
+    const shade = Math.max(0, Math.min(.8, custom?.photoShade ?? .25));
+    const position = Math.max(0, Math.min(1, custom?.photoPosition ?? .5)) * 100;
+    // Keep the image and its shade above the color/pattern layers while
+    // retaining the bounded data URL produced by the skin editor.
+    add(`url("data:image/jpeg;base64,${photo}")`, "cover", `${position}% ${position}%`);
+    add(`linear-gradient(rgba(0, 0, 0, ${shade}), rgba(0, 0, 0, ${shade}))`, "cover");
+  }
+  return images.length ? { backgroundImage: images.reverse().join(", "), backgroundSize: sizes.reverse().join(", "), backgroundPosition: positions.reverse().join(", ") } : {};
+}
+
 function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, customDesign?: TouchKeyboardSkinDesign): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
   const option = touchKeyboardSkinOptions.find(item => item.id === (skin === "custom" ? "forest" : skin)) ?? touchKeyboardSkinOptions[0];
@@ -195,6 +235,7 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
     ? "ui-monospace, SFMono-Regular, Consolas, monospace"
     : "inherit";
   return {
+    ...keyboardBackgroundStyle(skin, customDesign, palette),
     "--kb-background": palette.background,
     "--kb-text": palette.foreground,
     "--kb-heading": palette.accent,
