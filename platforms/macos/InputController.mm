@@ -92,6 +92,26 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     });
 }
 
+static NSString *MSIMEAICacheKey(NSDictionary *online) {
+    NSDictionary *config = online[@"ai_assistant"];
+    NSArray *segments = online[@"pinyin_segments"];
+    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
+        ![segments isKindOfClass:NSArray.class] || !segments.count ||
+        ![NSJSONSerialization isValidJSONObject:segments]) return nil;
+    NSDictionary *identity = @{ @"provider": [config[@"provider"] isKindOfClass:NSString.class] ? config[@"provider"] : @"",
+        @"endpoint": [config[@"endpoint"] isKindOfClass:NSString.class] ? config[@"endpoint"] : @"",
+        @"model": [config[@"model"] isKindOfClass:NSString.class] ? config[@"model"] : @"",
+        @"pinyin_segments": segments };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:identity options:0 error:nil];
+    return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+}
+
+static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
+    for (NSDictionary *candidate in view[@"candidates"])
+        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"source"] integerValue] == 1) return YES;
+    return NO;
+}
+
 static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, NSDictionary *view,
                                                           NSDictionary *hostOptions, BOOL englishMode) {
     NSDictionary *effectiveContext = [context isKindOfClass:NSDictionary.class] ? context : view;
@@ -452,6 +472,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_aiTimer;
     NSDictionary *_aiQuery;
     uint64_t _aiEpoch;
+    NSMutableDictionary<NSString *, NSArray<NSString *> *> *_aiCandidateCache;
 }
 
 - (void)resetSmartPunctuationState {
@@ -575,9 +596,21 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSArray *segments = online[@"pinyin_segments"];
     if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
         ![segments isKindOfClass:NSArray.class] || !segments.count) { [self cancelAITranslations]; return; }
+    if (!_aiCandidateCache) _aiCandidateCache = [NSMutableDictionary dictionary];
     NSDictionary *query = @{ @"online": online, @"config": config };
     if ([_aiQuery isEqual:query]) return;
     [self cancelAITranslations]; _aiQuery = query;
+    NSString *cacheKey = MSIMEAICacheKey(online);
+    NSArray<NSString *> *cachedCandidates = (!_view || !MSIMEViewContainsAICandidate(_view)) && cacheKey
+        ? _aiCandidateCache[cacheKey] : nil;
+    if (cachedCandidates.count) {
+        NSDictionary *transition = [_session applyOnlineCandidates:cachedCandidates source:1 query:online error:nil];
+        if ([transition[@"applied"] boolValue]) {
+            _aiQuery = [[_session onlineQueryWithError:nil] copy];
+            [self apply:transition];
+            return;
+        }
+    }
     NSDictionary *descriptor = [_session aiRequestForQuery:online error:nil];
     if (!descriptor) {
         // A malformed or temporarily unavailable provider descriptor must not
@@ -599,6 +632,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             current->_aiBatch = nil;
             NSMutableArray *texts = [NSMutableArray array];
             for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
+            if (texts.count && cacheKey) {
+                if (current->_aiCandidateCache.count >= 4096) [current->_aiCandidateCache removeAllObjects];
+                current->_aiCandidateCache[cacheKey] = [texts copy];
+            }
             NSDictionary *transition = [session applyOnlineCandidates:texts source:1 query:query[@"online"] error:nil];
             if ([transition[@"applied"] boolValue]) {
                 // apply_online_candidates advances the shared generation. Keep

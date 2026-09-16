@@ -2545,7 +2545,8 @@ static void TestCloudCandidatePreference() {
     NSMutableDictionary *updated = [self.query mutableCopy];
     updated[@"generation"] = @([updated[@"generation"] unsignedLongLongValue] + 1);
     self.query = updated;
-    return @{ @"applied": @YES, @"view": @{ @"focused": @YES, @"editing_text": @"synthetic", @"candidates": @[] } };
+    return @{ @"applied": @YES, @"view": @{ @"focused": @YES, @"editing_text": @"synthetic",
+        @"candidates": @[@{ @"text": @"合成候选", @"source": @1 }] } };
 }
 @end
 @interface AIShortcutController : CloudShortcutController
@@ -2614,6 +2615,31 @@ static void TestAiCandidateRetryAfterRejectedResponse() {
     assert(controller.aiBatches.count == 2);
     controller.aiBatches[1].reply(@[@{ @"translation": @"重试候选" }]);
     assert(session.applications == 1);
+    [controller cancelAITranslations];
+}
+
+static void TestAiCandidateCacheAcrossGenerations() {
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-cache",
+        @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"缓存上下文", @"cloud_eligible": @NO, @"ai_eligible": @YES,
+        @"cloud_candidates": @YES, @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 },
+        @"session_id": @1 };
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    [timer fire];
+    controller.aiBatches[0].reply(@[@{ @"translation": @"缓存候选" }]);
+    assert(session.applications == 1 && controller.aiBatches.count == 1);
+    NSMutableDictionary *next = [session.query mutableCopy];
+    next[@"generation"] = @([next[@"generation"] unsignedLongLongValue] + 1);
+    session.query = next;
+    [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
+    [controller synchronizeAITranslations];
+    assert(session.applications == 2 && session.descriptorRequests == 1 && controller.aiBatches.count == 1);
     [controller cancelAITranslations];
 }
 
@@ -3282,6 +3308,7 @@ int main(int argc, char **argv) {
         TestCloudCandidateEngineDelivery();
         TestAiCandidateScheduling();
         TestAiCandidateRetryAfterRejectedResponse();
+        TestAiCandidateCacheAcrossGenerations();
         TestAiCandidateDescriptorFailureIsRetryable();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
