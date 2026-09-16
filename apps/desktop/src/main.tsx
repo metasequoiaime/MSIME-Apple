@@ -13,6 +13,7 @@ import { DesktopKeyboard } from "./desktop-keyboard";
 import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./credential-test-client";
 import { cloudDictionaryCapabilities, isMobileHost } from "./mobile-host-capabilities";
+import { createMobileHostServices } from "./mobile-host-services";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
@@ -44,31 +45,6 @@ const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
   reset: () => invoke("reset_typing_statistics"),
-};
-const appIcon = {
-  info: () => invoke<{ supported: boolean; selected: string }>("app_icon_info"),
-  set: (style: string) => invoke<{ supported: boolean; selected: string }>("app_icon_set", { style }),
-};
-const basicAccount: AccountClient = {
-  status: () => invoke("account_status"),
-  providers: () => invoke("account_providers"),
-  requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
-  login: (challengeId, code) => invoke("account_login", { challengeId, code }),
-  profile: () => invoke("account_profile"),
-  rename: displayName => invoke("account_rename", { displayName }),
-  logout: all => invoke("account_logout", { all }),
-  deleteAccount: () => invoke("account_delete"),
-  clearExpired: () => invoke("account_forget"),
-};
-const accountChat: ChatClient = {
-  models: () => invoke("account_chat_models"),
-  complete: (messages, model) => invoke<{ content: string }>("account_chat", { messages, model }).then(response => response.content),
-};
-const accountSettingsSync: SettingsSyncClient = {
-  schema: () => invoke("account_preferences_schema"),
-  load: () => invoke("account_preferences_load"),
-  upload: () => invoke("account_preferences_upload"),
-  apply: (userId, preferences) => invoke("account_preferences_apply", { userId, preferences }),
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
@@ -292,103 +268,11 @@ function DesktopSettings() {
             host.platform === "macos" || host.platform === "ios",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, appleLogin: () => invoke<{ user?: { id: string; displayName: string; createdAt: string } | null }>("account_apple_login"), settingsSync: accountSettingsSync }, chat: accountChat, aiAssistant: {
-            fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
-            test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
-          },
-            touchKeyboardSchemes: true,
-            customTouchKeyboardSkins: true,
-            customSkinLibrary: {
-              load: () => invoke("load_custom_skin_library"),
-              mutate: action => invoke("mutate_custom_skin_library", { action }),
-            },
-            communitySkins: {
-              list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
-              detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),
-              download: (id, name) => invoke<CommunitySkinDownload>("community_skin_download", { id, name }),
-              rate: (id, stars) => invoke("community_skin_rate", { id, stars }),
-              publish: (id, name, description, design) => invoke("community_skin_publish", { id, name, description, design }),
-              unpublish: id => invoke("community_skin_unpublish", { id }),
-              finishTrial: (id, keep) => invoke("community_skin_finish_trial", { id, keep }),
-            },
-            aiSkins: {
-              generate: (requestId, prompt) => invoke<AiSkinProposal[]>("ai_skin_generate", { requestId, prompt }),
-              cancel: requestId => invoke("ai_skin_cancel", { requestId }),
-              onProgress: listener => listen<{ requestId: string; completed: number }>("ai-skin-progress", event => listener(event.payload)),
-            },
-            communityResources: {
-              list: (kind, scope, search, offset) => invoke<CommunityResourcePage>("community_resource_list", { kind, scope, search, offset }),
-              detail: id => invoke<CommunityResource>("community_resource_detail", { id }),
-              publish: (id, kind, name, description, content, revision) => invoke("community_resource_publish", { id, kind, name, description, content, revision }),
-              apply: (id, resourceRevision) => invoke<CommunityResourceApplication>("community_resource_apply", { id, resourceRevision }),
-              save: (id, saved) => invoke("community_resource_save", { id, saved }),
-              rate: (id, stars) => invoke("community_resource_rate", { id, stars }),
-              unpublish: id => invoke("community_resource_unpublish", { id }),
-              storeReply: item => invoke("community_resource_store_reply", { item }),
-              removeReply: id => invoke("community_resource_remove_reply", { id }),
-            },
-            openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
-            openVoice: async () => { navigateMobilePanel("voice"); },
-            mobileKeyboardFeedback: {
-              load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
-              save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
-              preview: strength => invoke("mobile_keyboard_feedback_preview", { strength }),
-            },
-            home: {
-              openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings"),
-            },
-          } : {}),
-          ...(host.platform === "android" ? {
-            touchKeyboardSchemes: true,
-            customTouchKeyboardSkins: true,
-            customSkinLibrary: {
-              load: () => invoke("load_custom_skin_library"),
-              mutate: action => invoke("mutate_custom_skin_library", { action }),
-            },
-            appIcon,
-            account: { ...basicAccount, settingsSync: accountSettingsSync },
-            chat: accountChat,
-            aiAssistant: {
-              fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
-              test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
-            },
-            communitySkins: {
-              list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
-              detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),
-              download: (id, name) => invoke<CommunitySkinDownload>("community_skin_download", { id, name }),
-              rate: (id, stars) => invoke("community_skin_rate", { id, stars }),
-              publish: (id, name, description, design) => invoke("community_skin_publish", { id, name, description, design }),
-              unpublish: id => invoke("community_skin_unpublish", { id }),
-              finishTrial: (id, keep) => invoke("community_skin_finish_trial", { id, keep }),
-            },
-            aiSkins: {
-              generate: (requestId, prompt) => invoke<AiSkinProposal[]>("ai_skin_generate", { requestId, prompt }),
-              cancel: requestId => invoke("ai_skin_cancel", { requestId }),
-              onProgress: listener => listen<{ requestId: string; completed: number }>("ai-skin-progress", event => listener(event.payload)),
-            },
-            communityResources: {
-              list: (kind, scope, search, offset) => invoke<CommunityResourcePage>("community_resource_list", { kind, scope, search, offset }),
-              detail: id => invoke<CommunityResource>("community_resource_detail", { id }),
-              publish: (id, kind, name, description, content, revision) => invoke("community_resource_publish", { id, kind, name, description, content, revision }),
-              apply: (id, resourceRevision) => invoke<CommunityResourceApplication>("community_resource_apply", { id, resourceRevision }),
-              save: (id, saved) => invoke("community_resource_save", { id, saved }),
-              rate: (id, stars) => invoke("community_resource_rate", { id, stars }),
-              unpublish: id => invoke("community_resource_unpublish", { id }),
-              storeReply: item => invoke("community_resource_store_reply", { item }),
-              removeReply: id => invoke("community_resource_remove_reply", { id }),
-            },
-            home: {
-              openKeyboard: () => invoke("open_keyboard_panel"),
-              openSystemKeyboardSettings: () => invoke("android_open_input_method_settings"),
-              showInputMethodPicker: () => invoke("android_show_input_method_picker"),
-            },
-            openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
-            mobileKeyboardFeedback: {
-              load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
-              save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
-              preview: strength => invoke("mobile_keyboard_feedback_preview", { strength }),
-            },
-          } : {}),
+          ...(host.platform === "ios" || host.platform === "android" ? createMobileHostServices(host.platform, {
+            invoke,
+            listen,
+            navigateVoice: () => navigateMobilePanel("voice"),
+          }) : {}),
           ...(host.platform === "linux" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
