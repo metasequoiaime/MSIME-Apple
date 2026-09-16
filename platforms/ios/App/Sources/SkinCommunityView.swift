@@ -178,14 +178,40 @@ struct CommunityPublishView: View {
   @State private var busy = false
   @State private var message: String?
   private var design: CustomKeyboardSkin? { library.first { $0.id == selected }?.design }
+
+  /// 从编辑器退回来之后重新读一遍。库存在 App Group 的一个 JSON 文件里,不是偏好,所以没有能自动触发重绘的东西可订阅。
+  private func refreshLibrary(preferring preferred: UUID? = nil) {
+    library = CustomSkinLibrary.designs
+    guard library.first(where: { $0.id == selected }) == nil else { return }
+    if let first = library.first(where: { $0.id == preferred }) ?? library.first {
+      selected = first.id
+      name = first.name
+      publicationID = UUID().uuidString.lowercased()
+    }
+  }
   var body: some View {
     NavigationView {
       Form {
-        Section("选择已保存的设计") {
-          if library.isEmpty { Text("请先在「设计我的皮肤」保存一款设计。") }
-          Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
-            .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
-          if let design { CommunityDesignPreview(design: design) }
+        Section {
+          // 这一页原来只能从已保存的设计里挑一个。库是空的时候它说「请先在「设计我的皮肤」保存一款设计」,却没有任何办法从这里过去 —— 而那正是每个第一次发布的人所处的状态。编辑器直接推进来,存完退回来就在选择列表里。
+          if library.isEmpty {
+            Text("还没有保存的设计。先设计一款并命名保存，回到这里就能发布它。")
+              .foregroundStyle(.secondary)
+          } else {
+            Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
+              .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
+            if let design { CommunityDesignPreview(design: design) }
+          }
+          NavigationLink {
+            CustomSkinEditorView().onDisappear { refreshLibrary() }
+          } label: {
+            SettingsRowLabel(title: library.isEmpty ? "去设计一款" : "继续编辑我的皮肤",
+                             detail: "在编辑器里调好，到「我的」命名保存",
+                             symbol: "paintbrush.pointed.fill", color: .pink)
+          }
+          .accessibilityIdentifier("designSkinFromPublish")
+        } header: {
+          Text("选择已保存的设计")
         }
         Section("发布信息") {
           TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
@@ -208,10 +234,7 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear {
-          library = CustomSkinLibrary.designs
-          if let first = library.first(where: { $0.id == selectedSkinID }) ?? library.first { selected = first.id; name = first.name }
-        }
+        .onAppear { refreshLibrary(preferring: selectedSkinID) }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
