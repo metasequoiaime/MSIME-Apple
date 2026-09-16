@@ -54,9 +54,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
   private var handwritingActionHeight: NSLayoutConstraint?
-  private var layoutPicker: KeyboardLayoutPickerView?
+  private var layoutPicker: KeyboardLayoutAdjustView?
   private var candidatePanel: KeyboardCandidatePanelView?
   private var emojiPicker: KeyboardEmojiPickerView?
+  private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
   // 九键网格的按键。按 123 时同一批键改显数字,而不是换成 26 键那排符号。
   private struct NineKeyGridKey {
@@ -133,6 +134,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // The code each visible candidate was found by, parallel to visibleCandidates.
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
+  /// 联网释义。离线词库只有英汉两个方向,别的语言、以及词库答不上来的词都从这里取。
+  private let translations = CandidateTranslationStore()
+  /// 候选格下面留几行释义。跟着设置走,只在 applyCandidateGlossLayout 里变。
+  private var glossLineCount = 0
+  private var candidateStripHeightConstraint: NSLayoutConstraint?
+  /// 上一次排版用的分格宽度,用来判断布局之后要不要重排。
+  private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -154,7 +162,39 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // not anything is being composed, so no row appears or disappears mid-typing.
   // Not private: the height assertions derive from it rather than restating the sum.
   static let compositionRowHeight: CGFloat = 32
-  private static let candidateStripHeight: CGFloat = compositionRowHeight + 38
+  private static let candidateRowHeight: CGFloat = 38
+  /// 每多一条释义,候选格和键盘都高出这么多。释义用 caption2,一行 11pt 左右,14 让两行之间还看得出是两行。
+  static let glossLineHeight: CGFloat = 14
+  /// 候选栏预留的高度按**设置**算,不按这一页有没有查到释义 —— 否则每敲一个键键盘都可能跳一次高度。
+  static func candidateStripHeight(glossLines: Int) -> CGFloat {
+    compositionRowHeight + candidateRowHeight + glossHeight(lines: glossLines)
+  }
+
+  static func glossHeight(lines: Int) -> CGFloat {
+    CGFloat(max(lines, 0)) * glossLineHeight
+  }
+
+  /// 候选栏在候选行之外还占掉的高度:组字行,加上按设置预留的释义行。键盘的高度都是在它之上加出来的,所以断言高度的测试照它写,而不是各自重述一遍这个和。
+  static var stripExtraHeight: CGFloat {
+    compositionRowHeight + glossHeight(lines: configuredGlossLines(fullAccess: false))
+  }
+
+  /// 这条语言现在拿得到释义吗。英语有随包的离线词库,其余语言只能联网 —— 而键盘没有「允许完全访问」时根本没有网络,给它留一行就是留一行永远空着的白。macOS 的候选面板也只画拿得到的那几条。
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
+    !CandidateTranslationPreference.needsNetwork(language)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+  }
+
+  /// 候选格下面要留几行释义。总开关关着就是零 —— 那时语言选了什么都不显示,也不会有任何请求。
+  static func configuredGlossLines(fullAccess: Bool) -> Int {
+    guard CandidateGlossPreference.enabled else { return 0 }
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    if let secondary = CandidateTranslationPreference.secondary,
+       canFillGloss(secondary, fullAccess: fullAccess) {
+      lines += 1
+    }
+    return lines
+  }
 
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
@@ -204,7 +244,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
+    // 候选栏建起来之前就要知道留几行释义 —— 它的高度是常量约束,建完再改就是一次可见的跳动。方案先读出来,因为日语不要释义。
+    glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -221,7 +264,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Start at the height the setting asks for. updatePreferredKeyboardHeight settles it once the
     // orientation is known; starting at the stock value would show one height and then jump.
     let height = view.heightAnchor.constraint(
-      equalToConstant: 260 + Self.compositionRowHeight
+      equalToConstant: 260 + Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
         + CGFloat(KeyboardLayoutPreference.heightAdjustment))
     height.priority = .init(999)
     height.identifier = "keyboardHeight"
@@ -240,6 +283,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    // The host can publish its document identifier and keyboard type one run-loop turn after the
+    // extension appears. Reading the proxy only in viewWillAppear can therefore leave the first
+    // frame in the default English presentation; the next activation then appears to "fix" it.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      // A delayed proxy callback must not cancel text typed between appearance and this turn.
+      // The next keyboard activation will retry the context synchronization if the host is still
+      // withholding its document identifier.
+      guard !self.hasComposition else { return }
+      self.synchronizeInputContext()
+      self.synchronizeInputSchemePreference()
+      self.updateLanguageModeButton()
+      self.updateLetterCaseControls()
+      self.updateCandidateStrip(preedit: self.visiblePreedit, candidates: self.visibleCandidates)
+    }
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
@@ -744,8 +802,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }, for: .primaryActionTriggered)
     installShortcutBar(in: container)
 
+    let stripHeight = container.heightAnchor.constraint(
+      equalToConstant: Self.candidateStripHeight(glossLines: glossLineCount))
+    candidateStripHeightConstraint = stripHeight
     NSLayoutConstraint.activate([
-      container.heightAnchor.constraint(equalToConstant: Self.candidateStripHeight),
+      stripHeight,
       compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
       compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
       compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
@@ -1129,13 +1190,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "常用符号") {}
-    nineKeySymbolsButton.menu = UIMenu(children: [
-      "，", "。", "？", "！", "、", "；", "：", "……", "——", "（", "）", "“", "”", "《", "》", "@",
-    ].map { symbol in
-      UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
-    })
-    nineKeySymbolsButton.showsMenuAsPrimaryAction = true
+    // 这颗键原来弹一列十六个标点的菜单:盖住键盘、要瞄要滑、一次只给一个。现在换成整块符号面板,跟别家输入法一样。
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
+      self?.showSymbolPanel()
+    }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
     row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
@@ -1550,6 +1608,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     _ = session.setEnglishMixedCandidates(EnglishMixedCandidatesPreference.isEnabled)
     session.setCandidateGlossesEnabled(CandidateGlossPreference.enabled)
+    applyCandidateGlossLayout()
+  }
+
+  /// 这一刻候选格下面该留几行。不按方案分 —— 换个方案就让键盘高度跳一下,比省下那一行更碍事。
+  private func currentGlossLines() -> Int {
+    Self.configuredGlossLines(fullAccess: hasFullAccess)
+  }
+
+  /// 释义的行数变了就重排候选栏和键盘高度。设置改在宿主 App 里,键盘每次露面时读一遍。
+  private func applyCandidateGlossLayout() {
+    let lines = currentGlossLines()
+    guard lines != glossLineCount else { return }
+    glossLineCount = lines
+    // 候选栏还没建起来时只记下行数,建的时候会照它来。
+    guard let constraint = candidateStripHeightConstraint else { return }
+    constraint.constant = Self.candidateStripHeight(glossLines: lines)
+    updatePreferredKeyboardHeight()
+    renderCandidateStrip()
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
@@ -1811,8 +1887,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     let panel = KeyboardCandidatePanelView(
       candidates: visibleCandidates,
-      hints: visibleCandidates.indices.map { wubiCodeHint(at: $0) }, preedit: visiblePreedit,
+      hints: visibleCandidates.indices.map { wubiCodeHint(at: $0) },
+      glosses: visibleCandidates.indices.map { candidateGlosses(at: $0) }, preedit: visiblePreedit,
       display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+      menuElements: { [weak self] index in self?.candidateMenuElements(at: index) ?? [] },
       onSelect: { [weak self] index in
         guard let self else { return }
         closeKeyboardPicker()
@@ -2315,6 +2393,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidates = candidates
     visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
+    requestCandidateTranslations()
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
@@ -2339,10 +2418,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
     }
     for (offset, chip) in candidateStack.arrangedSubviews.enumerated() {
-      guard let chip = chip as? UIButton else { continue }
+      guard let chip = chip as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
-      updateCandidateButton(chip, candidate: page[offset], hint: candidateAnnotation(at: offset),
+      updateCandidateButton(chip, candidate: page[offset], hint: wubiCodeHint(at: offset),
+                            glosses: candidateGlosses(at: offset),
                             number: offset + 1, converting: japaneseConversionIndex == offset)
     }
     updateExpandControl()
@@ -2382,7 +2462,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
   }
 
-  private func makeCandidateButton(index: Int) -> UIButton {
+  private func makeCandidateButton(index: Int) -> KeyboardKeyButton {
     var configuration = UIButton.Configuration.plain()
     // A configuration's title label wraps by default, and a chip the row could not fit took the
     // break instead of its natural width: 晕了限制 came out as 晕了限 over 制 while 做了限制 beside
@@ -2409,7 +2489,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
-    button.titleLabel?.numberOfLines = 1
     // Keeping the width costs a scroll; giving it up costs a line break, so the chip refuses to be
     // the one the stack squeezes.
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -2428,46 +2507,118 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   // Not private: the keyboard tests are compiled into this target and check the menu here,
   // since the button only holds a deferred placeholder until it is opened.
-  func candidateMenuElements(at index: Int) -> [UIMenuElement] {
-    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode,
-      visibleCandidates.indices.contains(index)
-    else { return [] }
+  /// 把释义本身上屏,而不是候选词。
+  ///
+  /// macOS 用 Option/Control 加数字键,还能用 Tab 切换要交出去的是哪一条;触摸键盘没有修饰键,就挂在候选本来就有的长按菜单上。菜单里给的是完整释义 —— 格子里那一份为了排版可能缩过或截过。
+  private func glossMenuElements(at index: Int) -> [UIMenuElement] {
+    guard visibleCandidates.indices.contains(index) else { return [] }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
-    func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
-                destructive: Bool = false) -> UIAction {
-      UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
-        guard let self, candidateRevision == revision,
-              visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
-        let result = session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
-        render(result)
-        if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
-        else if result.diagnosticText == nil {
+    return candidateGlosses(at: index)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+      .map { gloss in
+        // 标题就是释义本身。菜单里只剩这几项,再写「输入」两个字是在说一件看得见的事。
+        UIAction(title: gloss, image: UIImage(systemName: "character.bubble")) { [weak self] _ in
+          guard let self, candidateRevision == revision,
+                visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
           playInputClick()
-          UIAccessibility.post(notification: .announcement, argument: "已\(title)")
+          // 先上屏译文再作废组字,和 macOS 同一个顺序。
+          insertOwnText(gloss)
+          render(session.cancel())
+          UIAccessibility.post(notification: .announcement, argument: "已输入 \(gloss)")
         }
       }
-    }
-    return [
-      action("优先显示", "arrow.up", .promote),
-      action("固定到首位", "pin", .fixFirst),
-      action("取消固定", "pin.slash", .clearPosition),
-      UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
-        action("确认删除此词条", "trash", .remove, destructive: true),
-      ]),
-    ]
+  }
+
+  func candidateMenuElements(at index: Int) -> [UIMenuElement] {
+    // 长按只给译文。词条管理(优先显示 / 固定到首位 / 取消固定 / 删除词条)从这里撤掉了 —— 它们把长按的主用途埋在一堆动作底下。引擎那边的 editCandidate 还在,哪天要给它们另开入口,接上就行。
+    glossMenuElements(at: index)
   }
 
   /// 刷新一个候选按钮的文字,位置和动作都不变。
-  /// 候选词右边的小字。五笔给的是剩余编码,其余方案给的是英文释义 — 同一个位置,不会同时出现。
-  private func candidateAnnotation(at index: Int) -> String {
-    let hint = wubiCodeHint(at: index)
-    if !hint.isEmpty { return hint }
-    guard CandidateGlossPreference.enabled, visibleCandidateGlosses.indices.contains(index) else { return "" }
-    return visibleCandidateGlosses[index]
+  /// 候选词下面的释义,最多两行:第一行是设置里的主语言,第二行是副语言。
+  ///
+  /// 英语先查随包的离线词库:本机查一整页是零点几毫秒,联网那份是几百毫秒起步,而组字往往只有两三秒。查不到才用网络回来的那份,别的语言只有网络这一条路。
+  private func candidateGlosses(at index: Int) -> [String] {
+    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
+    let word = visibleCandidates[index]
+    var languages = [CandidateTranslationPreference.primary]
+    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    // 每条留了行的语言都给一行,哪怕这个词的释义还没回来 —— 那一行先空着。
+    //
+    // 联网那份是几百毫秒之后才到的,而它一到格子就从一行变成两行。候选栏的总高度早就按设置留好了,变的是格子自己:于是打字过程中候选忽高忽低,来回跳。宁可先空着。
+    return languages
+      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess) }
+      .map { gloss(word: word, language: $0, at: index) ?? Self.pendingGlossPlaceholder }
   }
 
-  private func updateCandidateButton(_ button: UIButton, candidate: String, hint: String, number: Int,
+  /// 释义还没到的那一行。空串会被排版当成没有这一行,高度就又塌回去了,所以留一个空格。
+  static let pendingGlossPlaceholder = " "
+
+  private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
+    // 离线词典不解日语:随包的是一本英汉词典,拿它去解假名打出来的候选是答非所问。macOS 也只把日语排除在离线这一条之外,联网那条照旧。
+    if !CandidateTranslationPreference.needsNetwork(language), !inputScheme.isJapanese,
+       visibleCandidateGlosses.indices.contains(index) {
+      let offline = visibleCandidateGlosses[index]
+      // 词库对生僻字的「英文释义」常常就是那个字本身(孖→孖、聑→聑)。这种释义等于没有,还会占住位置让网络那份不去补。
+      if !offline.isEmpty, offline != word { return offline }
+    }
+    return translations.gloss(word: word, code: language.code)
+  }
+
+  /// 把这一页里还没有释义的词送去翻译。
+  ///
+  /// 送出去的是候选词本身,不是用户敲的字母,而且只送含汉字的那些 —— 拼音缓冲译过去没有意义。完全访问权限没开时扩展没有网络,这时连排队都省了。
+  private func requestCandidateTranslations() {
+    guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled, hasFullAccess,
+          !visibleCandidates.isEmpty
+    else {
+      translations.cancel()
+      return
+    }
+    var codes = [CandidateTranslationPreference.primary.code]
+    if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
+    translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
+  }
+
+  /// 开着释义时一格有多宽:候选条看得见的那一段分成三格。还没布局过(宽度是 0)时答 0,`chipContentWidth` 会退回按候选词本身走,等布局出来 `viewDidLayoutSubviews` 再排一次。
+  private func candidateColumnWidth() -> CGFloat {
+    KeyboardKeyButton.glossColumnWidth(
+      visible: candidateScrollView.bounds.width, spacing: candidateStack.spacing,
+      insets: NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9))
+  }
+
+  /// 把格子的宽度钉在候选词那一行上,释义只能用这一格的宽度。
+  ///
+  /// 不钉的话宽度就跟着标题里最宽的一行走,而释义是几百毫秒后陆续到的 —— 一页候选于是一个接一个变宽,后面的全部右移。格子是复用的,所以约束找得到就改常数,找不到才建。
+  private func pinWidth(of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int) {
+    let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
+    guard glossLines > 0, let title else {
+      existing?.isActive = false
+      return
+    }
+    let text = NSAttributedString(title)
+    let separator = (text.string as NSString).range(of: "\n")
+    let head = separator.location == NSNotFound
+      ? NSRange(location: 0, length: text.length)
+      : NSRange(location: 0, length: separator.location)
+    let width = KeyboardKeyButton.chipWidth(
+      titleLine: text.attributedSubstring(from: head).size().width,
+      glossLines: glossLines, column: candidateColumnWidth(),
+      insets: button.configuration?.contentInsets ?? .zero)
+    if let existing {
+      existing.constant = width
+      existing.isActive = true
+      return
+    }
+    let constraint = button.widthAnchor.constraint(equalToConstant: width)
+    constraint.identifier = "candidateChipWidth"
+    constraint.isActive = true
+  }
+
+  private func updateCandidateButton(_ button: KeyboardKeyButton, candidate: String, hint: String,
+                                     glosses: [String] = [], number: Int,
                                      converting: Bool = false) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
@@ -2475,24 +2626,57 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.background.backgroundColor =
       converting ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
                  : KeyboardSkinPreference.selected.keyBackground
-    if hint.isEmpty {
+    if hint.isEmpty, glosses.isEmpty {
+      // 这一格是纯候选词,没有第二行可写,单行截断就是对的 —— 格子曾经带过释义的话,换行模式还停在允许多行上,长候选会在格子里折行。
+      configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.title = display
     } else {
-      configuration.attributedTitle = AttributedString(
-        display, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .body)]))
-        + AttributedString(
+      // 有第二行要写,换行模式就必须是换行类的:`byTruncatingTail` 会把标题标签钉死成一行,释义被并进同一行再截掉,画出来就是「你…」。行数本身钉不住 —— UIKit 每次更新配置都重设它。
+      configuration.titleLineBreakMode = .byWordWrapping
+      // 释义单独占一行。挤在候选右边时,「按 according to」这样一格就吃掉半屏宽,一行只剩两三个候选看得见。
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.alignment = .natural
+      paragraph.lineBreakMode = .byTruncatingTail
+      var title = AttributedString(
+        display,
+        attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+        ]))
+      if !hint.isEmpty {
+        title += AttributedString(
           " " + hint,
           attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
             .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
           ]))
+      }
+      // 释义先按格子的正文宽度截好再写进去 —— 靠段落样式截不住,它会折行。
+      let caption = UIFont.preferredFont(forTextStyle: .caption2)
+      let content = KeyboardKeyButton.chipContentWidth(
+        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count,
+        column: candidateColumnWidth())
+      for gloss in glosses {
+        let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
+        title += AttributedString(
+          "\n" + fitted.text,
+          attributes: AttributeContainer([
+            .font: fitted.font, .paragraphStyle: paragraph,
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+      }
+      configuration.attributedTitle = title
     }
     button.configuration = configuration
+    pinWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
     button.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(display)" : "候选词 \(number)：\(display)，还需输入 \(hint)"
-    button.accessibilityHint =
-      isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode ? "轻点输入，长按管理词条" : nil
+    // 占位的空行不念出来。
+    let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    if !spoken.isEmpty {
+      button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
+    }
+    button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
   }
 
   private func makeSymbolKey(
@@ -2570,6 +2754,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    // 候选分格要按候选条看得见的宽度算,而那个宽度第一次布局之后才有。宽度变了(转屏、键盘高度变)就照新的重排一次;没变就不动,否则每次布局都重排,自己把自己叫醒。
+    let column = candidateColumnWidth()
+    if abs(column - appliedCandidateColumnWidth) > 0.5 {
+      appliedCandidateColumnWidth = column
+      renderCandidateStrip()
+    }
     updateLetterRowInsets()
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
@@ -2589,8 +2779,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
       ?? (traitCollection.verticalSizeClass == .compact)
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
-    // taking the space out of the keys.
-    let extra = Self.compositionRowHeight
+    // taking the space out of the keys. 释义行同理:候选格长高多少,键盘就长高多少,不从按键身上挪。
+    let extra = Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
     // 竖屏手写和别的方案同高。It used to claim 100pt more, which reflowed whatever the user was typing
     // into every time they switched to it. Handing the candidates to the shared strip gave the canvas
     // back the 36pt its private one was holding, so the common height now carries a canvas about as
@@ -2636,6 +2826,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShortcutButtons()
   }
 
+  /// 符号面板。和表情面板一样整块盖住键盘区,不是弹窗。
+  private func showSymbolPanel() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    playInputClick()
+    // 符号不是当前拼音的候选,组字留着会让两者按错误的顺序上屏 —— 和表情面板同一个道理。
+    render(session.finishComposition())
+    let panel = KeyboardSymbolPanelView(onInsert: { [weak self] symbol in
+      self?.playInputClick()
+      self?.insertOwnText(symbol, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    panel.accessibilityViewIsModal = true
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel)
+    NSLayoutConstraint.activate([
+      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    symbolPanel = panel
+    UIAccessibility.post(notification: .screenChanged, argument: panel)
+  }
+
   private func showEmojiPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2663,11 +2879,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
-    // The settings screen occupies the whole keyboard surface. Keeping the shortcut bar visible
-    // underneath makes the screen look like a translucent sheet and leaves a second toolbar at
-    // the bottom of the settings controls.
-    shortcutBar.isHidden = true
-    let picker = KeyboardLayoutPickerView(
+    // 调的时候键盘要看得见 —— 快捷栏留着,它就在工具条底下,不碍事。原来这块是不透明的滑块面板,所以才要把快捷栏藏掉。
+    let picker = KeyboardLayoutAdjustView(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       height: KeyboardLayoutPreference.heightAdjustment,
@@ -2804,6 +3017,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       picker.removeFromSuperview()
       morePicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+    }
+    if let panel = symbolPanel {
+      panel.removeFromSuperview()
+      symbolPanel = nil
+      UIAccessibility.post(notification: .screenChanged, argument: nineKeySymbolsButton)
     }
     if let picker = emojiPicker {
       picker.removeFromSuperview()

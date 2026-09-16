@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: app.msime
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "15.5"
+    iOS: "17.0"
 
 settings:
   base:
@@ -16,9 +16,9 @@ settings:
     # Bumped by release-please alongside CMakeLists.txt. It used to be pinned at 0.1.0 while the
     # project shipped 0.45.x, so any iOS artifact would have carried a version that matched nothing.
     MARKETING_VERSION: 0.49.0 # x-release-please-version
-    # ML Kit Digital Ink 8.x provides x86_64 simulator binaries, and asks for iOS 15.5.
+    # ML Kit Digital Ink 8.x provides x86_64 simulator binaries, and asks for iOS 15.5; 17.0 是统计那几张图要的:Swift Charts 从 16 起,而饼图和环形图要的 SectorMark 从 17 才有 —— 自己画圆弧只是在重写系统已经给了的东西。
     SWIFT_VERSION: 6.0
-    IPHONEOS_DEPLOYMENT_TARGET: 15.5
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
     # Xcode 26 no longer falls back to the target name when a target leaves PRODUCT_NAME unset, so a
     # target without it links as a bare `-l` and builds products named `.xctest` or `-Runner.app`.
     # Targets that publish a different product name still override this below.
@@ -169,6 +169,11 @@ targets:
       - path: platforms/ios/KeyboardExtension/Sources
       - path: shared/backend/BackendAccountClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      # 候选释义走账号的 /v1/translate。会话读的是 App Group 里的匿名凭据 —— 宿主的钥匙串扩展看不见。
+      - path: shared/backend/BackendChatClient.swift
+      - path: shared/backend/BackendAccountSession.swift
+      - path: shared/backend/BackendAnonymousAccount.swift
+      - path: shared/backend/BackendLocalStore.swift
       - path: platforms/ios/App/Services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
       - path: platforms/ios/App/Services/AppServicesBridge.mm

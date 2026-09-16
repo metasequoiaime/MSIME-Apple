@@ -50,16 +50,29 @@ struct SettingsSyncView: View {
 
   var body: some View {
     Form {
-      Section {
-        Text("同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。")
-        if let cloud { Text("云端版本：\(cloud.revision)") }
-        Button("刷新云端设置") { pending = Task { await load() } }
-        Button("上传本机设置") { uploading = true }.disabled(cloud == nil || schema == nil)
-        Button("下载并应用云端设置") { applying = true }.disabled(cloud?.settings.isEmpty != false)
+      // 先说云端现在是什么状态,再给动作。原来三个按钮和一段说明挤在同一组里,版本号夹在中间,读到「上传本机设置」时没法判断会覆盖掉什么。
+      Section("云端") {
+        SettingsFactRow(title: "云端版本",
+                        detail: cloud.map { "第 \($0.revision) 版" } ?? "尚未读取",
+                        symbol: "icloud", color: .teal)
+        SettingsActionRow(title: "刷新", detail: "重新读取云端当前版本", symbol: "arrow.clockwise") {
+          pending = Task { await load() }
+        }
       }
-      if busy { ProgressView("正在处理…") }
-      if let message { Text(message).foregroundStyle(.secondary) }
+      Section {
+        SettingsActionRow(title: "上传本机设置", detail: "用这台手机的设置覆盖云端",
+                          symbol: "icloud.and.arrow.up", color: .blue,
+                          enabled: cloud != nil && schema != nil) { uploading = true }
+        SettingsActionRow(title: "下载并应用", detail: "用云端设置覆盖这台手机",
+                          symbol: "icloud.and.arrow.down", color: .orange,
+                          enabled: cloud?.settings.isEmpty == false) { applying = true }
+      } header: {
+        Text("同步")
+      } footer: {
+        Text("同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。")
+      }
     }
+    .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("设置同步")
     .task { await load() }

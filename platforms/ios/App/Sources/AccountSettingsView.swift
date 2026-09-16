@@ -1,108 +1,106 @@
 import SwiftUI
 import AuthenticationServices
 
+/// 任务取消不是错误。切换标签页会让 `.task` 连同它已经发出的请求一起取消,而 URLSession 抛回来的是 `URLError.cancelled` —— 它的 `localizedDescription` 就是 "cancelled"。把它当错误弹出来,结果就是每次切到「我的」都跳一个写着 cancelled 的框。
+///
+/// 只判 `CancellationError` 不够:那是 Swift 结构化并发自己抛的那一种,而这里真正会抛的是网络层那一种,两者没有继承关系。
+private func isCancellation(_ error: Error) -> Bool {
+  if error is CancellationError { return true }
+  if let error = error as? URLError { return error.code == .cancelled }
+  return false
+}
+
 struct AccountSettingsView: View {
   @State private var signedIn = false
-  @State private var designs = CustomSkinLibrary.designs
   @State private var replayOnboarding = false
 
   var body: some View {
     Form {
       AppleAccountSection(signedIn: $signedIn)
 
+      // 皮肤编辑器的入口只留皮肤页那一个。这里原来还有一个「我的设计」指向同一个编辑器,于是同一件事在两个标签页下各有一条路。
       Section("个性化") {
         NavigationLink(destination: AppIconSettingsView()) {
-          HStack(spacing: 12) {
-            accountIcon("app.badge", color: MetasequoiaTheme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("App 图标").foregroundStyle(.primary)
-              Text("给主屏幕上的水杉换个颜色").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
+          entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge", color: .purple)
         }.accessibilityIdentifier("accountAppIcon")
       }
 
-      Section("我的创作") {
-        NavigationLink(destination: CustomSkinEditorView()) {
-          HStack(spacing: 12) {
-            accountIcon("paintbrush.pointed.fill", color: MetasequoiaTheme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("我的设计").foregroundStyle(.primary)
-              Text("保存在本机的 \(designs.count) 款皮肤").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
-        }.accessibilityIdentifier("accountLocalDesigns")
-      }
-
       if signedIn {
-        Section("我发布的作品") {
+        Section("云端") {
+          NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
+            entry("设置同步", symbol: "arrow.triangle.2.circlepath", color: MetasequoiaTheme.accent)
+          }.accessibilityIdentifier("accountSettingsSync")
+          NavigationLink(destination: CommunityResourcesAccountView()) {
+            entry("词包与回复模板", symbol: "books.vertical.fill", color: .brown)
+          }.accessibilityIdentifier("accountCommunityResources")
+          NavigationLink(destination: CloudDictionaryView()) {
+            entry("云词库", symbol: "character.book.closed.fill", color: .teal)
+          }.accessibilityIdentifier("accountCloudDictionary")
+          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
+            entry("云剪贴板", symbol: "doc.on.clipboard.fill", color: .orange)
+          }.accessibilityIdentifier("accountCloudClipboard")
+        }
+
+        // 「我发布的皮肤」「我发布的词库」「收藏的词库」…… 五行里有四个字是重复的,而重复的那部分正是分组本身要说的话。搬进标题,行里就只剩下真正在区分彼此的那两个字。
+        Section("我发布的") {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            Label("我发布的皮肤", systemImage: "paintpalette")
+            entry("皮肤", symbol: "paintpalette.fill", color: .pink)
           }.accessibilityIdentifier("accountPublishedSkins")
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
-              Label("我发布的\(kind.title)", systemImage: kind.icon)
+              entry(kind.title, symbol: kind.icon, color: color(for: kind))
             }
           }
         }
-        Section("我的收藏") {
+        Section("我收藏的") {
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
-              Label("收藏的\(kind.title)", systemImage: "bookmark")
+              entry(kind.title, symbol: "bookmark.fill", color: color(for: kind))
             }
           }
         }
       }
 
-      if signedIn {
-        Section("云端数据") {
-          NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
-            Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
-          }.accessibilityIdentifier("accountSettingsSync")
-          NavigationLink(destination: CommunityResourcesAccountView()) {
-            Label("词包与回复模板", systemImage: "books.vertical")
-          }.accessibilityIdentifier("accountCommunityResources")
-          NavigationLink(destination: CloudDictionaryView()) {
-            Label("云词库", systemImage: "character.book.closed")
-          }.accessibilityIdentifier("accountCloudDictionary")
-          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
-            Label("云剪贴板", systemImage: "doc.on.clipboard")
-          }.accessibilityIdentifier("accountCloudClipboard")
-        }
-      }
-
-        Section("了解水杉") {
-          NavigationLink(destination: DesktopDownloadView()) {
-            Label("电脑版下载", systemImage: "desktopcomputer")
-          }.accessibilityIdentifier("desktopDownloadLink")
-          NavigationLink(destination: AboutView()) {
-            Label("关于水杉", systemImage: "info.circle")
-          }.accessibilityIdentifier("aboutSettingsLink")
-        }
-
       Section {
+        NavigationLink(destination: AboutView()) {
+          entry("关于水杉", symbol: "info.circle.fill", color: MetasequoiaTheme.accent)
+        }.accessibilityIdentifier("aboutSettingsLink")
         Button { replayOnboarding = true } label: {
-          Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
-        }.accessibilityIdentifier("replayOnboardingLink")
-      }
-      Section {
-        Label("本地数据与云端作品", systemImage: "lock.shield")
-          .font(.subheadline)
+          entry("重新查看新手引导", symbol: "sparkles", color: .orange)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("replayOnboardingLink")
+      } header: {
+        Text("关于")
+      } footer: {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
-          .font(.caption).foregroundStyle(.secondary)
       }
     }
-    .navigationTitle("我的")
-    .task { designs = CustomSkinLibrary.designs }
+    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+    .background(MetasequoiaTheme.canvas)
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
     }
   }
 
-  private func accountIcon(_ symbol: String, color: Color) -> some View {
-    Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
-      .foregroundStyle(color).frame(width: 42, height: 42)
-      .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+  /// 这一页原本有两种行:两行是 42 点的彩色图标块加副标题,其余十一行是 `Label` 的小符号。同一列表里两种尺寸、两种配色,读起来像两个应用拼在一起。所有行走这一个。
+  private func entry(_ title: String, detail: String? = nil, symbol: String, color: Color) -> some View {
+    HStack(spacing: 12) {
+      Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(color).frame(width: 30, height: 30)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).foregroundStyle(.primary)
+        if let detail {
+          Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+    }
+    .padding(.vertical, 2)
+  }
+
+  private func color(for kind: CommunityResourceKind) -> Color {
+    kind == .dictionary ? .brown : .indigo
   }
 }
 
@@ -111,48 +109,55 @@ struct AppleAccountSection: View {
   @StateObject private var codeModel = CodeLoginModel()
   @State private var codeChannel: CodeLoginChannel?
   @State private var user: CommunityUser?
-  @State private var editProfile = false
   @State private var needsRecovery = false
   @State private var busy = false
   @State private var message: String?
   @State private var challenge: CommunityChallenge?
-  @State private var confirmDeleteAccount = false
-  @State private var confirmLogoutAll = false
   private let api = SkinCommunityAPI.shared
 
   private var displayName: String {
     user?.preferredDisplayName ?? "水杉用户"
   }
 
+  private var profileCard: some View {
+    HStack(spacing: 14) {
+      Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
+        .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
+      VStack(alignment: .leading, spacing: 5) {
+        Text(signedIn ? displayName : "欢迎来到水杉")
+          .font(.title3.bold())
+        Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
+          .font(.subheadline).foregroundStyle(.secondary)
+      }
+      Spacer()
+    }
+    .contentShape(Rectangle())
+  }
+
+  /// 资料页退出登录之后回到这里。清掉本地会话状态,并把下一次 Apple 登录的挑战重新取一份。
+  private func signOut() {
+    signedIn = false
+    user = nil
+    Task { await prepareLogin() }
+  }
+
   var body: some View {
     Section {
-      HStack(spacing: 14) {
-        Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
-          .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
-        VStack(alignment: .leading, spacing: 5) {
-          Text(signedIn ? displayName : "欢迎来到水杉")
-            .font(.title3.bold())
-          Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
-            .font(.subheadline).foregroundStyle(.secondary)
-        }
-      }.padding(.vertical, 10)
+      // 资料页是推进去的二级页面,不是浮层:它要承载退出登录这类收尾操作,而这些操作做完之后回到的是一个已经变了的「我的」页 —— 浮层盖在旧内容上关掉的那一下,看起来就像什么都没发生。
       if signedIn {
-        Button { editProfile = true } label: {
-          HStack {
-            Label("个人资料", systemImage: "person.text.rectangle")
-            Spacer()
-            Text("查看与编辑")
-              .font(.subheadline).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-          }
-        }.accessibilityIdentifier("editAccountProfile")
-        Menu("账号") {
-          Button("退出登录") { run { try await api.logout(); signedIn = false; await prepareLogin() } }
-          Button("退出所有设备") { confirmLogoutAll = true }
-          Button("重新登录") { run { try await api.clearExpiredLogin(); signedIn = false; await prepareLogin() } }
-          Button("注销账号", role: .destructive) { confirmDeleteAccount = true }
+        NavigationLink {
+          AccountProfileEditor(initialUser: user, onSaved: { user = $0 }, onSignedOut: signOut)
+        } label: {
+          profileCard
         }
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("accountProfileCard")
       } else {
+        profileCard
+          .padding(.vertical, 10)
+          .accessibilityIdentifier("accountProfileCard")
+      }
+      if !signedIn {
         if let challenge {
           SignInWithAppleButton(.signIn) { request in
             request.nonce = challenge.nonce
@@ -196,34 +201,32 @@ struct AppleAccountSection: View {
     }
     .task {
       await codeModel.loadProviders()
-      do { user = try await api.currentUser(); signedIn = user != nil } catch { needsRecovery = true; message = error.localizedDescription }
+      do { user = try await api.currentUser(); signedIn = user != nil }
+      catch { if !isCancellation(error) { needsRecovery = true; report(error) } }
       if signedIn {
         do { user = try await api.profile().user }
-        catch is CancellationError { }
-        catch { message = error.localizedDescription }
+        catch { report(error) }
       } else { await prepareLogin() }
     }
     .sheet(item: $codeChannel, onDismiss: {
       Task {
         do { user = try await api.currentUser(); signedIn = user != nil }
-        catch { message = error.localizedDescription }
+        catch { report(error) }
       }
     }) { channel in CodeLoginView(model: codeModel, channel: channel) }
-    .sheet(isPresented: $editProfile) { AccountProfileEditor(initialUser: user) { profile in user = profile } }
     .alert("账号与登录", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }
-    .confirmationDialog("退出所有设备后，所有设备都需要重新登录。", isPresented: $confirmLogoutAll, titleVisibility: .visible) {
-      Button("退出所有设备") { run { try await api.logout(all: true); signedIn = false; await prepareLogin() } }
-    }
-    .confirmationDialog("注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。", isPresented: $confirmDeleteAccount, titleVisibility: .visible) {
-      Button("注销账号", role: .destructive) { run { try await api.logout(deleteAccount: true); signedIn = false; await prepareLogin() } }
-    }
   }
   @MainActor private func prepareLogin() async {
     challenge = nil
     guard codeModel.providers["apple"] == true else { return }
-    do { challenge = try await api.challenge() } catch { message = error.localizedDescription }
+    do { challenge = try await api.challenge() } catch { report(error) }
+  }
+  /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
+  private func report(_ error: Error) {
+    guard !isCancellation(error) else { return }
+    message = error.localizedDescription
   }
   private func run(_ action: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }; busy = true
@@ -231,7 +234,7 @@ struct AppleAccountSection: View {
       defer { busy = false }
       do { try await action() }
       catch {
-        message = error.localizedDescription
+        report(error)
         if let state = try? await api.signedIn() {
           signedIn = state
           if !state { await prepareLogin() }
@@ -244,15 +247,21 @@ struct AppleAccountSection: View {
 struct AccountProfileEditor: View {
   var initialUser: CommunityUser? = nil
   var onSaved: (CommunityUser) -> Void
+  var onSignedOut: () -> Void
   @Environment(\.dismiss) private var dismiss
   @FocusState private var editingName: Bool
   @State private var profile: CommunityProfile?
   @State private var name = ""
   @State private var loading = true
   @State private var saving = false
+  @State private var busy = false
   @State private var message: String?
   @State private var copiedID = false
   @State private var confirmDiscard = false
+  @State private var confirmSignOut = false
+  @State private var confirmLogoutAll = false
+  @State private var confirmRelogin = false
+  @State private var confirmDeleteAccount = false
 
   private var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
   private var validName: Bool {
@@ -283,65 +292,136 @@ struct AccountProfileEditor: View {
   }
 
   var body: some View {
-    NavigationView {
-      ScrollView {
-        VStack(spacing: 28) {
-          profilePreview
-          if loading {
-            ProgressView("正在加载资料")
-              .font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 28)
-          } else if profile != nil {
-            nicknameCard
-            accountDetails
-          }
-          if let message, profile == nil {
-            VStack(alignment: .leading, spacing: 12) {
-              Label(message, systemImage: "exclamationmark.circle")
-                .font(.subheadline).foregroundStyle(.secondary)
-              if profile == nil {
-                Button("重新加载") { Task { await load() } }
-                  .font(.subheadline.weight(.semibold))
-              }
+    ScrollView {
+      VStack(spacing: 28) {
+        profilePreview
+        if loading {
+          ProgressView("正在加载资料")
+            .font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 28)
+        } else if profile != nil {
+          nicknameCard
+          accountDetails
+          accountActions
+        }
+        if let message, profile == nil {
+          VStack(alignment: .leading, spacing: 12) {
+            Label(message, systemImage: "exclamationmark.circle")
+              .font(.subheadline).foregroundStyle(.secondary)
+            if profile == nil {
+              Button("重新加载") { Task { await load() } }
+                .font(.subheadline.weight(.semibold))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-            .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
-            .accessibilityIdentifier("accountProfileError")
           }
-        }
-        .frame(maxWidth: 540)
-        .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 28)
-        .frame(maxWidth: .infinity)
-      }
-      .background(MetasequoiaTheme.canvas.ignoresSafeArea())
-      .navigationTitle("编辑资料")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button {
-            editingName = false
-            if hasChanges { confirmDiscard = true } else { dismiss() }
-          } label: {
-            Image(systemName: "xmark").font(.subheadline.weight(.semibold))
-              .frame(width: 32, height: 32)
-          }
-          .accessibilityLabel("关闭编辑资料").disabled(saving)
-        }
-        ToolbarItemGroup(placement: .keyboard) {
-          Spacer()
-          Button("完成") { editingName = false }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(20)
+          .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+          .accessibilityIdentifier("accountProfileError")
         }
       }
-      .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
-      .interactiveDismissDisabled(hasChanges || saving)
-      .confirmationDialog("要放弃这次修改吗？", isPresented: $confirmDiscard, titleVisibility: .visible) {
-        Button("放弃修改", role: .destructive) { dismiss() }
-        Button("继续编辑", role: .cancel) {}
-      }
-      .task { await load() }
+      .frame(maxWidth: 540)
+      .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 28)
+      .frame(maxWidth: .infinity)
     }
-    .navigationViewStyle(.stack)
+    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .navigationTitle("编辑资料")
+    .navigationBarTitleDisplayMode(.inline)
+    // The stock back button pops without asking, and a half-typed nickname would go with it. This one runs the same discard prompt the close button used to.
+    .navigationBarBackButtonHidden(true)
+    .toolbar {
+      ToolbarItem(placement: .navigationBarLeading) {
+        Button {
+          editingName = false
+          if hasChanges { confirmDiscard = true } else { dismiss() }
+        } label: {
+          Image(systemName: "chevron.backward").font(.body.weight(.semibold))
+        }
+        .accessibilityLabel("返回").disabled(saving || busy)
+      }
+      ToolbarItemGroup(placement: .keyboard) {
+        Spacer()
+        Button("完成") { editingName = false }
+      }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
+    // 保存栏已经占着下沿,标签栏再浮一条上来,两条栏会叠在一起。
+    .toolbar(.hidden, for: .tabBar)
+    .confirmationDialog("要放弃这次修改吗？", isPresented: $confirmDiscard, titleVisibility: .visible) {
+      Button("放弃修改", role: .destructive) { dismiss() }
+      Button("继续编辑", role: .cancel) {}
+    }
+    .confirmationDialog("退出登录后，社区功能要重新登录才能使用。", isPresented: $confirmSignOut, titleVisibility: .visible) {
+      Button("退出登录", role: .destructive) { perform { try await SkinCommunityAPI.shared.logout() } }
+    }
+    .confirmationDialog("退出所有设备后，所有设备都需要重新登录。", isPresented: $confirmLogoutAll, titleVisibility: .visible) {
+      Button("退出所有设备", role: .destructive) { perform { try await SkinCommunityAPI.shared.logout(all: true) } }
+    }
+    .confirmationDialog("清掉本机的登录状态后需要重新登录一次。", isPresented: $confirmRelogin, titleVisibility: .visible) {
+      Button("重新登录") { perform { try await SkinCommunityAPI.shared.clearExpiredLogin() } }
+    }
+    .confirmationDialog("注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。", isPresented: $confirmDeleteAccount, titleVisibility: .visible) {
+      Button("注销账号", role: .destructive) { perform { try await SkinCommunityAPI.shared.logout(deleteAccount: true) } }
+    }
     .tint(MetasequoiaTheme.accent)
+    .task { await load() }
+  }
+
+  /// 账号操作跟着资料一起放在这一页:它们问的是同一件事 —— 这个账号 —— 而每一个做完之后回到的「我的」页都已经不是刚才那一页了,推进来再退回去,这个变化看得见。放在首页时它们是一行没有图标的绿字,或者一个说不出内容的 ··· 菜单。
+  private var accountActions: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("账号操作").font(.subheadline.weight(.semibold))
+      VStack(spacing: 0) {
+        actionRow("退出登录", detail: "本机的皮肤设计和打字统计不受影响", symbol: "rectangle.portrait.and.arrow.right",
+                  identifier: "signOutAccount") { confirmSignOut = true }
+        Divider().padding(.leading, 54)
+        actionRow("退出所有设备", detail: "所有设备都需要重新登录", symbol: "iphone.and.arrow.forward",
+                  identifier: "signOutEverywhere") { confirmLogoutAll = true }
+        Divider().padding(.leading, 54)
+        actionRow("重新登录", detail: "登录状态出错时清掉它再登一次", symbol: "arrow.clockwise",
+                  identifier: "clearExpiredLogin") { confirmRelogin = true }
+      }
+      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+      actionRow("注销账号", detail: "删除云端账号数据，无法撤销", symbol: "trash",
+                identifier: "deleteAccount", destructive: true) { confirmDeleteAccount = true }
+        .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+        .padding(.top, 4)
+    }
+  }
+
+  private func actionRow(_ title: String, detail: String, symbol: String, identifier: String,
+                         destructive: Bool = false, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: symbol).font(.subheadline)
+          .foregroundStyle(destructive ? Color.red : MetasequoiaTheme.accent).frame(width: 22)
+        VStack(alignment: .leading, spacing: 5) {
+          Text(title).font(.subheadline.weight(.medium))
+            .foregroundStyle(destructive ? Color.red : Color.primary)
+          Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        if busy { ProgressView() }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(saving || busy)
+    .accessibilityIdentifier(identifier)
+  }
+
+  /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来。
+  private func perform(_ action: @escaping () async throws -> Void) {
+    editingName = false
+    busy = true
+    message = nil
+    Task {
+      defer { busy = false }
+      do {
+        try await action()
+        onSignedOut()
+        dismiss()
+      } catch { report(error) }
+    }
   }
 
   private var profilePreview: some View {
@@ -512,7 +592,7 @@ struct AccountProfileEditor: View {
         let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
         onSaved(updated.user)
         dismiss()
-      } catch { message = error.localizedDescription }
+      } catch { report(error) }
     }
   }
 
@@ -525,7 +605,11 @@ struct AccountProfileEditor: View {
       profile = result
       name = result.user.preferredDisplayName
       onSaved(result.user)
-    } catch is CancellationError {
-    } catch { message = error.localizedDescription }
+    } catch { report(error) }
+  }
+
+  private func report(_ error: Error) {
+    guard !isCancellation(error) else { return }
+    message = error.localizedDescription
   }
 }

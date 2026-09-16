@@ -48,7 +48,7 @@ brew install cmake boost fmt spdlog nlohmann-json
 
 换用新的词库版本：`python3 scripts/product_lock.py refresh --dictionary-tag dict-vMAJOR.MINOR.PATCH`，然后 review 产生的 diff。
 
-公共词库源数据、构建器、辅助码与语音模块现在统一来自固定的 [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) submodule。桌面端继续下载锁定的已发布词库；iOS 打包通过同一 Engine 中的 `build_profile.py` 构建移动词库。现有 MSIME-Dict release 的来源和摘要保持不变，不能用新的构建器提交替代它们。
+公共词库源数据、构建器、辅助码与语音模块现在统一来自固定的 [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) 归档，由 `engine-lock.json` 锁定 commit 与 SHA256。桌面端继续下载锁定的已发布词库；iOS 打包通过同一 Engine 中的 `build_profile.py` 构建移动词库。现有 MSIME-Dict release 的来源和摘要保持不变，不能用新的构建器提交替代它们。
 
 ## 为当前用户安装
 
@@ -104,7 +104,14 @@ GitHub 没有自定义频道，只有 Latest / Pre-release / Draft 三种状态�
 
 自动更新之所以只跟随发布频道，是因为 `Info.plist` 里的 Sparkle feed 指向 `releases/latest/download/appcast.xml`，而 Pre-release 不会成为 Latest，它的 appcast 取不到。想装自动构建的用户需要自己去 Releases 页面下载。
 
-合并到 `main` 会根据 conventional commit 历史更新 Release Please 的 pull request。合并该发布 PR 会更新 `version.txt`、`CMakeLists.txt` 和 `CHANGELOG.md`，创建对应的 `vX.Y.Z` 标签，构建并测试通用架构的输入法 bundle，然后发布带有以下产物的 GitHub Release：
+合并到 `main` **不会**触发 Release Please——`release.yml` 里所有 release-please 的步骤都挂在 `github.event_name == 'workflow_dispatch' && inputs.bump_version` 上。push 到 `main` 只走自动构建那条路，产出一个挂在当前版本号后面加 build 号的 Pre-release。
+
+要发正式版本，手动触发 `Release` workflow：`tag` 留空、勾上 `bump_version`、`platform` 按需要选（默认 `both`）。这一次触发是端到端的，中途不需要人再点什么：
+
+1. release-please 按 conventional commit 历史造出发布 pull request
+2. `merge-release-pr.sh` 测它、合它——`version.txt`、`CMakeLists.txt` 和 `CHANGELOG.md` 在这一步更新
+3. release-please 收尾，创建 `vX.Y.Z` 标签
+4. 构建并测试通用架构的输入法 bundle，发布带有以下产物的 GitHub Release：
 
 ### 版本号怎么推进
 
@@ -201,7 +208,7 @@ shasum -a 256 -c MetasequoiaIME-vX.Y.Z-macos-universal.zip.sha256
 
 ### 词库产品边界
 
-macOS 使用固定发布词库；iOS 从同一已校验的数据库调用 `vendor/MetasequoiaImeEngine/build_profile.py --profile mobile --source ...`。初始化工具：`git submodule update --init --recursive`。工具 gitlink 与数据发布源 commit 分别记录，移动产物同时带格式、压缩规则、来源摘要和文件摘要清单。现代发布必须携带清单；已锁定的 `dict-2026.09.05` 是明确的无清单兼容入口。
+macOS 使用固定发布词库；iOS 从同一已校验的数据库调用 `vendor/MetasequoiaImeEngine/build_profile.py --profile mobile --source ...`。初始化工具：`python3 scripts/fetch_engine.py`（CMake 配置时会自动执行）。Engine 归档 pin 与数据发布源 commit 分别记录，移动产物同时带格式、压缩规则、来源摘要和文件摘要清单。现代发布必须携带清单；已锁定的 `dict-2026.09.05` 是明确的无清单兼容入口。
 
 <!-- star-history:start -->
 ## Star History

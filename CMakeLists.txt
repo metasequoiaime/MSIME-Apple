@@ -35,6 +35,12 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 # The pinned BLAS backend requires macOS 13.3; keep the supported macOS 12 floor.
 # Metal and the CPU backend remain available for local Whisper.
 set(GGML_BLAS OFF CACHE BOOL "" FORCE)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/fetch_engine.py
+    RESULT_VARIABLE ENGINE_FETCH_RESULT)
+if(NOT ENGINE_FETCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the locked MSIME-Engine archive")
+endif()
 add_subdirectory(vendor/MetasequoiaImeEngine engine)
 add_library(MetasequoiaMacDictionaryRuntime STATIC
     platforms/macos/src/DictionaryRuntime.mm

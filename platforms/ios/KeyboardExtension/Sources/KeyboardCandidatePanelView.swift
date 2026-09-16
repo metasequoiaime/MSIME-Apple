@@ -9,18 +9,25 @@ final class KeyboardCandidatePanelView: UIView {
   private let candidates: [String]
   // The keys still to press for each candidate, parallel to candidates and empty where none applies.
   private let hints: [String]
+  /// 每个候选的释义,和 candidates 平行,最多两条。联网那份只覆盖候选条上的那一页,再往后是随包词库答的。
+  private let glosses: [[String]]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
+  /// 长按这个候选给什么。和候选条共用一份 —— 那边长按能拿到译文,展开之后不该就没有了。
+  private let menuElements: (Int) -> [UIMenuElement]
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
-  init(candidates: [String], hints: [String] = [], preedit: String,
+  init(candidates: [String], hints: [String] = [], glosses: [[String]] = [], preedit: String,
        display: @escaping (String) -> String,
+       menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
     self.hints = hints
+    self.glosses = glosses
     self.display = display
+    self.menuElements = menuElements
     self.onSelect = onSelect
     super.init(frame: .zero)
     accessibilityIdentifier = "candidatePanel"
@@ -100,18 +107,26 @@ final class KeyboardCandidatePanelView: UIView {
       row.removeFromSuperview()
     }
     let spacing: CGFloat = 6
+    // 开着释义时一行摆三个,和候选条同一个分法 —— 挤满一行会把释义截到看不出意思。
+    let column = glosses.contains { !$0.isEmpty }
+      ? KeyboardKeyButton.glossColumnWidth(
+          visible: available, spacing: spacing,
+          insets: NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11))
+      : 0
     var row = makeRow(spacing: spacing)
     var used: CGFloat = 0
     for (offset, candidate) in candidates.enumerated() {
       let chip = makeChip(
         candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
-        number: offset + 1)
+        glosses: glosses.indices.contains(offset) ? glosses[offset] : [],
+        column: column, number: offset + 1)
       // 按自然宽度量,并且不许超过一行的可用宽度。
-      let natural = chip.systemLayoutSizeFitting(
-        CGSize(width: available, height: UIView.layoutFittingCompressedSize.height),
-        withHorizontalFittingPriority: .fittingSizeLevel,
-        verticalFittingPriority: .fittingSizeLevel).width
-      let width = min(ceil(natural), available)
+      let width = min(
+        naturalWidth(of: chip, glossLines: glosses.indices.contains(offset) ? glosses[offset].count : 0,
+                     column: column),
+        available)
+      // 量出来的宽度直接钉在格子上。多行标题的固有宽度不可靠 —— 实测两行的格子只按第一行报宽,画出来 56pt,候选被截成「您…」;而排版的算术本来就按这个宽度走,钉上去两边才是同一个数。
+      chip.widthAnchor.constraint(equalToConstant: width).isActive = true
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
         row = makeRow(spacing: spacing)
@@ -123,34 +138,71 @@ final class KeyboardCandidatePanelView: UIView {
     if !row.arrangedSubviews.isEmpty { rows.addArrangedSubview(row) }
   }
 
+  /// 一个格子要多宽。
+  ///
+  /// 不能问 `systemLayoutSizeFitting`:带释义的标题是多行的,而多行标签在压缩优先级下可以缩到任意窄 —— 量回来的「自然宽度」接近零,于是每个候选都被排成一丁点宽,画出来就是「您…」和整排的「…」。
+  ///
+  /// 也不能按最宽的那一行量:那样宽度就跟着释义走,答案一到格子就变宽。只量候选词那一行,剩下的交给 `chipWidth` 里的预留值。
+  private func naturalWidth(of chip: UIButton, glossLines: Int, column: CGFloat) -> CGFloat {
+    guard let title = chip.configuration?.attributedTitle.map({ NSAttributedString($0) }) else {
+      return chip.intrinsicContentSize.width
+    }
+    let text = title.string as NSString
+    let firstLine = text.range(of: "\n").location == NSNotFound
+      ? NSRange(location: 0, length: text.length)
+      : NSRange(location: 0, length: text.range(of: "\n").location)
+    return KeyboardKeyButton.chipWidth(
+      titleLine: title.attributedSubstring(from: firstLine).size().width,
+      glossLines: glossLines, column: column, insets: chip.configuration?.contentInsets ?? .zero)
+  }
+
   private func makeRow(spacing: CGFloat) -> UIStackView {
     let row = UIStackView()
     row.axis = .horizontal
     row.spacing = spacing
-    row.alignment = .center
+    // 同一行里有的格子带释义、有的没有,按内容居中就参差不齐;拉到一样高。
+    row.alignment = .fill
     return row
   }
 
-  private func makeChip(candidate: String, hint: String, number: Int) -> UIButton {
+  private func makeChip(candidate: String, hint: String, glosses: [String], column: CGFloat,
+                        number: Int) -> KeyboardKeyButton {
     let text = display(candidate)
     var configuration = UIButton.Configuration.plain()
-    configuration.title = text
+    // 一律走 attributedTitle,哪怕只有候选词本身:排版要按最宽的一行量出格子宽度,而那个测量读的就是这个串。
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .natural
+    paragraph.lineBreakMode = .byTruncatingTail
+    var title = AttributedString(
+      text,
+      attributes: AttributeContainer([
+        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      ]))
     if !hint.isEmpty {
-      configuration.attributedTitle = AttributedString(
-        text, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .body)]))
-        + AttributedString(
-          " " + hint,
-          attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
+      title += AttributedString(
+        " " + hint,
+        attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
     }
+    // 释义自己一行,跟候选条上一样。面板一行排好几个格,挤在候选右边会把一行挤得只剩两三个词。先按格子的正文宽度截好再写进去 —— 靠段落样式截不住,它会折行,那个格子就比同一行的别人高出一截。
+    let caption = UIFont.preferredFont(forTextStyle: .caption2)
+    let content = KeyboardKeyButton.chipContentWidth(
+      titleLine: NSAttributedString(title).size().width, glossLines: glosses.count, column: column)
+    for gloss in glosses {
+      let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
+      title += AttributedString(
+        "\n" + fitted.text,
+        attributes: AttributeContainer([
+          .font: fitted.font, .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+    }
+    configuration.attributedTitle = title
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
-    // 候选一行写完,写不下就截断。Leaving this unset let a long candidate wrap inside its own chip,
-    // and it broke the packing as well: a wrapping title measures at its narrowest under a
-    // compressed fit, so every chip was measured far thinner than it draws, each row was handed
-    // more chips than fit, and the whole panel spilled past its width.
-    configuration.titleLineBreakMode = .byTruncatingTail
+    // 没有释义的格子按老样子截断:那个模式顺带把标签钉成一行,长候选就截断而不是在格子里折行。有释义的格子必须放开这个限制,否则释义会被并进同一行 —— 它不折行靠的是宽度按最宽的一行给足,不是靠模式。
+    configuration.titleLineBreakMode = glosses.isEmpty ? .byTruncatingTail : .byWordWrapping
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor =
@@ -161,9 +213,20 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
+    // 和候选条一样,菜单等展开时才建 —— 面板一次可以铺出三百多个格子,每个都先建一遍菜单太贵。
+    chip.menu = UIMenu(children: [
+      UIDeferredMenuElement.uncached { [weak self] completion in
+        completion(self?.menuElements(index) ?? [])
+      }
+    ])
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel =
       hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"
+    // 占位的空行不念出来。
+    let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    if !spoken.isEmpty {
+      chip.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
+    }
     return chip
   }
 }

@@ -11,7 +11,7 @@
 [![Stars](https://img.shields.io/github/stars/metasequoiaime/MSIME-Apple?style=flat)](https://github.com/metasequoiaime/MSIME-Apple/stargazers)
 <!-- badges:end -->
 
-A Chinese and Japanese input method for macOS and iOS. The macOS frontend is an InputMethodKit input source with AppKit UI; iOS is a host app with a keyboard extension. Both share the C++ conversion engine used by the Windows and Linux frontends, which lives in [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) and is pinned here as a submodule.
+A Chinese and Japanese input method for macOS and iOS. The macOS frontend is an InputMethodKit input source with AppKit UI; iOS is a host app with a keyboard extension. Both share the C++ conversion engine used by the Windows and Linux frontends, which lives in [MSIME-Engine](https://github.com/metasequoiaime/MSIME-Engine) and is pinned here as a checksummed archive in engine-lock.json.
 
 **This is a public beta.**
 
@@ -47,7 +47,7 @@ Short version: the keyboard engine sends nothing. Typed text, candidates, learne
 
 ```sh
 brew install boost fmt spdlog nlohmann-json cmake
-git submodule update --init --recursive
+python3 scripts/fetch_engine.py
 python3 platforms/macos/tests/create_fixture_dictionary.py /tmp/dict/msime.db
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$(brew --prefix)" \

@@ -1,4 +1,15 @@
 import SwiftUI
+import UIKit
+
+/// 卡片按下去缩一点。`.plain` 的卡片按下时毫无反应,点没点上全靠下一屏出现与否来判断。
+private struct CardPressStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed ? 0.96 : 1)
+      .opacity(configuration.isPressed ? 0.88 : 1)
+      .animation(.spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
+  }
+}
 
 struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
@@ -6,7 +17,6 @@ struct SettingsView: View {
   @State private var skin = KeyboardSkinPreference.selected
   @State private var layout = KeyboardLayoutPreference.geometry
   @State private var design = CustomKeyboardSkinStore.current
-  @State private var replyActive = false
   private var skinName: String {
     skin == .custom ? (CustomSkinLibrary.designs.first { $0.design == design }?.name ?? "自定义皮肤") : skin.title
   }
@@ -18,53 +28,35 @@ struct SettingsView: View {
             Text("从一次顺手的表达开始").font(.subheadline).foregroundStyle(.secondary)
           }.padding(.top, 5)
           keyboardCard
+          // 原来这里是三张卡片加一条「键盘设置」,要用的东西都在那一条后面。现在那一页的项目全摊在首页上:六张卡片,少点一次。
           HStack(spacing: 10) {
             NavigationLink(destination: SkinSettingsView()) {
-              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette", color: MetasequoiaTheme.accent)
+              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette.fill", color: .pink)
             }.accessibilityIdentifier("skinSettingsLink")
             NavigationLink(destination: InputSettingsView()) {
-              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: MetasequoiaTheme.accent)
+              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard.fill", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
+              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: .indigo)
             }.accessibilityIdentifier("keyboardLayoutLink")
-          }.buttonStyle(.plain)
-          Button {
-            if !InputSchemePreference.enabledSchemes.contains(.thoughtfulReply) {
-              InputSchemePreference.enabledSchemes = InputSchemePreference.enabledSchemes + [.thoughtfulReply]
-            }
-            InputSchemePreference.scheme = .thoughtfulReply
-            refresh(); replyActive = true
-          } label: {
-            HStack(spacing: 13) {
-              Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                .font(.system(size: 25)).foregroundStyle(MetasequoiaTheme.accent)
-                .frame(width: 50, height: 50).background(MetasequoiaTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
-              VStack(alignment: .leading, spacing: 5) {
-                Text("高情商回复").font(.headline).foregroundStyle(.primary)
-                Text("切换回复键盘，试试更合适的表达").font(.caption).foregroundStyle(.secondary)
-              }
-              Spacer(minLength: 0)
-              Image(systemName: "arrow.up.right").font(.subheadline.weight(.semibold)).foregroundStyle(MetasequoiaTheme.accent)
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-              .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
-          }.buttonStyle(.plain).accessibilityIdentifier("homeThoughtfulReply")
-          NavigationLink(destination: KeyboardSettingsView()) {
-            HStack(spacing: 12) {
-              Image(systemName: "slider.horizontal.3").font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.accent)
-              VStack(alignment: .leading, spacing: 4) {
-                Text("键盘设置").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                Text("输入偏好、词库、AI 与语音").font(.caption).foregroundStyle(.secondary)
-              }
-              Spacer()
-              Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }.padding(16).background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-          }.buttonStyle(.plain).accessibilityIdentifier("keyboardSettingsLink")
-          NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true), isActive: $replyActive) { EmptyView() }
-            .hidden().accessibilityHidden(true)
+          }.buttonStyle(CardPressStyle())
+          HStack(spacing: 10) {
+            NavigationLink(destination: DictionarySettingsView()) {
+              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical.fill", color: .brown)
+            }.accessibilityIdentifier("dictionarySettingsLink")
+            NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
+              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles", color: .orange)
+            }.accessibilityIdentifier("aiSettingsLink")
+            Button {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              UIApplication.shared.open(url)
+            } label: {
+              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape.fill", color: .gray)
+            }.accessibilityIdentifier("openKeyboardSettingsButton")
+          }.buttonStyle(CardPressStyle())
         }.padding(.horizontal, 16).padding(.bottom, 20)
       }.background(MetasequoiaTheme.canvas)
-        .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("").navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
         .onChange(of: scenePhase) { if $0 == .active { refresh() } }
       .tint(MetasequoiaTheme.accent)
@@ -122,7 +114,12 @@ struct SettingsView: View {
   }
   private func quickEntry(_ title: String, subtitle: String, symbol: String, color: Color) -> some View {
     VStack(alignment: .leading, spacing: 7) {
-      Image(systemName: symbol).font(.system(size: 21, weight: .medium)).foregroundStyle(color)
+      // 图标坐在自己颜色的方块里。六张卡片原来是同一个 accent 色的线条图标,一眼扫过去六个都一样,只能逐张读标题。
+      Image(systemName: symbol)
+        .font(.system(size: 17, weight: .semibold))
+        .foregroundStyle(color)
+        .frame(width: 34, height: 34)
+        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
       Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
       Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
     }.frame(maxWidth: .infinity, alignment: .leading).padding(12)

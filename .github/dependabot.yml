@@ -12,10 +12,3 @@ updates:
       prefix: "chore(deps)"
     open-pull-requests-limit: 5
 
-  - package-ecosystem: "gitsubmodule"
-    directory: "/"
-    schedule:
-      interval: "daily"
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5

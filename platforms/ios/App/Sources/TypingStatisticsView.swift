@@ -1,10 +1,37 @@
 import SwiftUI
 
-private struct StatisticsSlice: Identifiable {
-  let id: String
-  let title: String
-  let count: Int
-  let color: Color
+private typealias StatisticsSlice = StatisticsChart.Slice
+
+/// 每一类配一个图标。名字是查出来的意思,不是装饰:九键是九宫格,双拼是两个键,五笔是笔画,手写是笔,语音是波形。
+private enum StatisticsSymbol {
+  static func source(_ source: TypingSource) -> String {
+    switch source {
+    case .quanpin: return "keyboard"
+    case .nineKey: return "square.grid.3x3"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: return "square.on.square"
+    case .wubi: return "scribble"
+    case .japanese: return "character.bubble"
+    case .handwriting: return "hand.draw"
+    case .english: return "abc"
+    case .local: return "clock.arrow.circlepath"
+    case .ai: return "sparkles"
+    case .reply: return "bubble.left.and.bubble.right"
+    case .voice: return "waveform"
+    case .unknown: return "questionmark.circle"
+    }
+  }
+  static func kind(_ kind: TypingCharacterKind) -> String {
+    switch kind {
+    case .han: return "character.textbox"
+    case .latin: return "textformat.abc"
+    case .otherLetter: return "globe"
+    case .number: return "number"
+    case .punctuation: return "quote.opening"
+    case .emoji: return "face.smiling"
+    case .symbol: return "asterisk"
+    case .unknown: return "questionmark.circle"
+    }
+  }
 }
 
 struct TypingStatisticsView: View {
@@ -12,8 +39,46 @@ struct TypingStatisticsView: View {
   @State private var statistics = TypingStatistics()
   @State private var errorMessage = ""
   @State private var confirmsReset = false
-  @State private var period = 7
+  @State private var tab = Tab.trend
   @State private var selectedDay: Date?
+  /// 占比条和图标的进场动画放过了没有。换标签时先归零再置起,这一块就重放一遍。
+  @State private var revealed = false
+
+  /// 三块内容轮流占这一屏,不再一路往下滚。
+  private enum Tab: String, CaseIterable {
+    case trend, kind, mode, scheme
+    /// 标签只给两个字 —— 四格分段控件上放「语言模式」「输入方案」会挤成一行小字;全名在下面的分组标题里。
+    var title: String {
+      switch self {
+      case .trend: return "趋势"
+      case .kind: return "类型"
+      case .mode: return "模式"
+      case .scheme: return "方案"
+      }
+    }
+  }
+
+  /// 趋势最多画多少天。引擎那边每日明细就保留 366 天,再往前没有数据可画。
+  ///
+  /// 原来固定三十天:一个月看不出「这个月比上个月多」,而数据本来就攒着一年。有多少画多少 —— 没有记录时退回三十天,免得开一屏空白的年历。
+  private static let trendDayLimit = 366
+  private static let trendDayFloor = 30
+  /// 实际要画的天数:从最早那条记录到今天,上限一年。
+  private var trendDays: Int {
+    guard let earliest = statistics.days.keys.min(),
+          let date = Self.dayKeyFormatter.date(from: earliest)
+    else { return Self.trendDayFloor }
+    let start = Calendar.current.startOfDay(for: date)
+    let span = Calendar.current.dateComponents([.day], from: start, to: Calendar.current.startOfDay(for: Date())).day ?? 0
+    return min(Self.trendDayLimit, max(Self.trendDayFloor, span + 1))
+  }
+  private static let dayKeyFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+  }()
   private let store = TypingStatisticsStore()
   private let colors: [Color] = [.teal, .blue, .indigo, .orange, .pink, .purple, .brown, .gray]
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
@@ -35,81 +100,83 @@ struct TypingStatisticsView: View {
     }
   }
   private var dates: [Date] {
-    (0..<(period == 0 ? 30 : period)).reversed().compactMap {
+    (0..<trendDays).reversed().compactMap {
       Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
     }
   }
-  private var scopeDates: [Date]? { selectedDay.map { [$0] } ?? (period == 0 ? nil : dates) }
+  /// 点了某一天就只看那一天,否则看累计。
+  private var scopeDates: [Date]? { selectedDay.map { [$0] } }
   private var breakdown: TypingBreakdown { statistics.breakdown(on: scopeDates) }
   private var scopeTotal: Int { scopeDates?.reduce(0) { $0 + statistics.count(on: $1) } ?? statistics.total }
   private var scopeTitle: String {
     if let selectedDay { return selectedDay.formatted(.dateTime.month().day()) }
-    return period == 0 ? "累计输入" : "近 \(period) 天输入"
+    return "累计输入"
   }
   private var characterSlices: [StatisticsSlice] {
     TypingCharacterKind.allCases.enumerated().map { index, kind in
-      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0, color: colors[index % colors.count])
+      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0,
+                      color: colors[index % colors.count], symbol: StatisticsSymbol.kind(kind))
     }
   }
   private var sourceSlices: [StatisticsSlice] {
     TypingSource.allCases.enumerated().map { index, source in
-      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0, color: colors[index % colors.count])
+      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0,
+                      color: colors[index % colors.count], symbol: StatisticsSymbol.source(source))
     }
   }
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal),
-      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink),
-      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue),
-      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple),
-      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange),
-      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint),
-      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo),
-      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal, symbol: "character.textbox"),
+      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink, symbol: "character.bubble"),
+      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue, symbol: "abc"),
+      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple, symbol: "clock.arrow.circlepath"),
+      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange, symbol: "sparkles"),
+      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint, symbol: "bubble.left.and.bubble.right"),
+      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo, symbol: "waveform"),
+      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray, symbol: "questionmark.circle"),
     ]
   }
 
   var body: some View {
     Form {
       Section {
-        Picker("统计范围", selection: $period) {
-          Text("7 天").tag(7)
-          Text("30 天").tag(30)
-          Text("累计").tag(0)
-        }.pickerStyle(.segmented).accessibilityIdentifier("statisticsPeriod")
-          .onChange(of: period) { _ in selectedDay = nil }
+        Picker("统计内容", selection: $tab) {
+          ForEach(Tab.allCases, id: \.self) { Text($0.title).tag($0) }
+        }.pickerStyle(.segmented).accessibilityIdentifier("statisticsTab")
+          .onChange(of: tab) { _ in replayReveal() }
         HStack {
           metric("今日输入", count: statistics.count(on: Date()), identifier: "typingToday")
           Spacer()
           metric(scopeTitle, count: scopeTotal, identifier: "typingTotal")
         }.padding(.vertical, 8)
       }
+      switch tab {
+      case .trend:
+        Section {
+          trendChart
+          if selectedDay != nil {
+            Button("返回累计") { selectedDay = nil }
+          }
+        } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
+          footer: { Text("折线画到最早那条记录，最多一年。方块每天一格、一列一周，铺满一屏后可以左右拖，没有记录的日子是最浅的一档；点一个方块只看那一天的分类与占比。") }
+      case .kind:
+        Section {
+          distribution(characterSlices, chart: .pie)
+        } header: { Text("字符类型") }
+      case .mode:
+        Section {
+          distribution(languageSlices, chart: .donut)
+        } header: { Text("语言模式") }
+          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
+      case .scheme:
+        Section {
+          distribution(sourceSlices, chart: .rank)
+        } header: { Text("输入方案") }
+          footer: { Text("拼音方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。") }
+      }
+      // 开关、刷新和清空挪到了右上角的菜单:这一页是给人看数的,三个管理项挂在每一屏下面,每换一个标签都要再滚过它们一次。说明留在原处 —— 它解释的是屏幕上这些数字怎么来的。
       Section {
-        trendChart
-        if selectedDay != nil {
-          Button("返回整个时间范围") { selectedDay = nil }
-        }
-      } header: { Text("每日趋势 · 近 \(period == 0 ? 30 : period) 天") }
-        footer: { Text("点按柱形查看当天的分类与占比。") }
-      Section {
-        distribution(characterSlices)
-      } header: { Text("字符类型") }
-      Section {
-        distribution(languageSlices)
-      } header: { Text("语言模式") }
-        footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
-      Section {
-        distribution(sourceSlices)
-      } header: { Text("输入方案") }
-        footer: { Text("拼音方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。") }
-      Section {
-        Toggle("记录打字统计", isOn: Binding(get: { statistics.enabled }, set: { enabled in
-          update { try store.setEnabled(enabled) }
-        })).accessibilityIdentifier("typingStatisticsEnabled")
-        Button("刷新统计") { reload() }
-        Button("清空统计", role: .destructive) { confirmsReset = true }
-          .accessibilityIdentifier("resetTypingStatistics")
       } footer: {
         Text("仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。")
       }
@@ -124,9 +191,30 @@ struct TypingStatisticsView: View {
       }
       if !errorMessage.isEmpty { Section { Text(errorMessage).foregroundStyle(.secondary) } }
     }
-    .navigationTitle("打字统计")
+    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { reload() }
+    .toolbar {
+      ToolbarItem(placement: .navigationBarTrailing) {
+        Menu {
+          Button {
+            update { try store.setEnabled(!statistics.enabled) }
+          } label: {
+            // 菜单里的开关用对勾表示开着 —— Toggle 放进 Menu 在 iOS 15 上画不出来。
+            if statistics.enabled { Label("记录打字统计", systemImage: "checkmark") }
+            else { Text("记录打字统计") }
+          }
+          .accessibilityIdentifier("typingStatisticsEnabled")
+          Button("刷新统计") { reload() }
+          Button("清空统计", role: .destructive) { confirmsReset = true }
+            .accessibilityIdentifier("resetTypingStatistics")
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("统计选项")
+        .accessibilityIdentifier("statisticsMenu")
+      }
+    }
+    .onAppear { reload(); replayReveal() }
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
@@ -135,50 +223,49 @@ struct TypingStatisticsView: View {
   }
 
   private var trendChart: some View {
-    let maximum = max(1, dates.map { statistics.count(on: $0) }.max() ?? 1)
-    return VStack(alignment: .leading, spacing: 8) {
-      Text("最高 \(maximum == 1 && dates.allSatisfy { statistics.count(on: $0) == 0 } ? 0 : maximum) 字符 / 天")
-        .font(.caption).foregroundStyle(.secondary)
-      HStack(alignment: .bottom, spacing: period == 7 ? 10 : 3) {
-        ForEach(dates, id: \.self) { date in
-          let count = statistics.count(on: date)
-          Button { selectedDay = selectedDay == date ? nil : date } label: {
-            VStack(spacing: 4) {
-              if period == 7 { Text("\(count)").font(.caption2).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6) }
-              RoundedRectangle(cornerRadius: period == 7 ? 5 : 2)
-                .fill(selectedDay == date ? Color.orange : MetasequoiaTheme.forest.opacity(selectedDay == nil ? 0.85 : 0.4))
-                .frame(height: max(2, 120 * Double(count) / Double(maximum)))
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).contentShape(Rectangle())
-          }.buttonStyle(.plain)
-            .accessibilityLabel(date.formatted(.dateTime.month().day()))
-            .accessibilityValue("\(count) 字符")
-            .accessibilityIdentifier("statisticsDay_\(TypingStatistics.dayKey(date))")
-        }
-      }.frame(height: 145)
-      HStack {
-        Text(dates.first ?? Date(), format: .dateTime.month().day())
-        Spacer()
-        Text(dates.last ?? Date(), format: .dateTime.month().day())
-      }.font(.caption).foregroundStyle(.secondary)
+    let days = dates.map { StatisticsChart.Day(date: $0, count: statistics.count(on: $0)) }
+
+    let maximum = days.map(\.count).max() ?? 0
+    return VStack(alignment: .leading, spacing: 14) {
+      Text("最高 \(maximum) 字符 / 天").font(.caption).foregroundStyle(.secondary)
+      StatisticsTrendChart(days: days, selected: selectedDay,
+                           accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
+        .animation(.easeOut(duration: 0.7), value: revealed)
+      // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
+      Text("每天一格，一列一周").font(.caption).foregroundStyle(.secondary)
+      StatisticsHeatmap(count: { statistics.count(on: $0) }, selected: selectedDay,
+                        accent: MetasequoiaTheme.forest) { date in
+        selectedDay = selectedDay == date ? nil : date
+      }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
   }
 
-  private func distribution(_ slices: [StatisticsSlice]) -> some View {
+  /// 一块分布 = 一张图 + 一份图例。图形按这一块回答的问题选,图例给准确数字。
+  private func distribution(_ slices: [StatisticsSlice], chart: DistributionChart) -> some View {
     let total = slices.reduce(0) { $0 + $1.count }
     let visible = slices.filter { $0.count > 0 || $0.id != "unknown" }
     return VStack(spacing: 14) {
-      GeometryReader { geometry in
-        HStack(spacing: 0) {
-          ForEach(slices.filter { $0.count > 0 }) { slice in
-            slice.color.frame(width: geometry.size.width * Double(slice.count) / Double(max(1, total)))
-          }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-          .background(Color.secondary.opacity(0.12)).clipShape(Capsule())
-      }.frame(height: 18).accessibilityHidden(true)
-      if total == 0 { Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary) }
-      ForEach(visible) { slice in
-        HStack(spacing: 8) {
-          Circle().fill(slice.color).frame(width: 8, height: 8)
+      switch chart {
+      case .pie:
+        StatisticsPieChart(slices: slices, progress: revealed ? 1 : 0)
+      case .donut:
+        StatisticsDonutChart(slices: slices, total: total, progress: revealed ? 1 : 0)
+      case .rank:
+        StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
+      }
+      if total == 0, chart != .rank {
+        Text("暂无输入记录").font(.subheadline).foregroundStyle(.secondary)
+      }
+      ForEach(Array(visible.enumerated()), id: \.element.id) { index, slice in
+        HStack(spacing: 10) {
+          Image(systemName: slice.symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(slice.color)
+            .frame(width: 28, height: 28)
+            .background(slice.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+            .scaleEffect(revealed ? 1 : 0.6)
+            .opacity(revealed ? 1 : 0)
+            .animation(.spring(response: 0.42, dampingFraction: 0.72).delay(Double(index) * 0.03), value: revealed)
           Text(slice.title).font(.subheadline)
           Spacer()
           Text("\(slice.count)").monospacedDigit()
@@ -187,7 +274,11 @@ struct TypingStatisticsView: View {
         }.accessibilityElement(children: .combine)
       }
     }.padding(.vertical, 8)
+    .animation(.easeOut(duration: 0.6), value: revealed)
   }
+
+  /// 这一块用哪种图。
+  private enum DistributionChart { case pie, donut, rank }
 
   private func metric(_ title: String, count: Int, identifier: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -197,6 +288,12 @@ struct TypingStatisticsView: View {
       Text("字符").font(.caption).foregroundStyle(.secondary)
     }
   }
+  /// 动画从头放一遍。SwiftUI 只在值真的变了的时候动,所以要先落回起点。
+  private func replayReveal() {
+    revealed = false
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { revealed = true }
+  }
+
   private func reload() { update {} }
   private func update(_ operation: () throws -> Void) {
     availability = store.availability()
