@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# HandwritingTests 里唯一需要 ML Kit 的三个用例:它们拿真实笔迹断言引擎认出哪个字。SDK 的 arm64 切片是给真机的,模拟器上没有可链接的切片,所以只有 Intel runner 跑得了它们。
+#
+# 同一个类里其余用例是纯 UIKit —— hitTest、布局高度、笔画增删 —— 一行识别都不碰。它们原先跟着整类一起被跳过,于是只在合并后的 Intel job 里露面:2.5 秒的东西压在二十多分钟的 Intel 构建后面,而 PR 上一点覆盖都没有,包括那条「整块面板写不了字」的回归用例。现在按用例分,不按类分。
+#
+# 这个数组是那条界线的唯一一处定义:arm64 拿它做 -skip-testing,Intel 拿它做 -only-testing,所以两边不会各自漂移。
+recognition_cases=(
+  MetasequoiaKeyboardTests/HandwritingTests/testRealChineseInkRecognition
+  MetasequoiaKeyboardTests/HandwritingTests/testCommonCharactersFromPenTrajectories
+  MetasequoiaKeyboardTests/HandwritingTests/testCandidateSelectionInsertsOnlyAfterConfirmation
+)
+
 # 跳过手写就没有 Pods —— CocoaPods 在一个依赖都不剩时既不写入集成也不清除旧集成,所以那条路必须走
 # xcodegen 直接生成的 .xcodeproj,不能用 workspace。
 if [[ "${MSIME_IOS_SKIP_HANDWRITING:-0}" == "1" ]]; then
@@ -90,8 +101,11 @@ xcrun simctl boot "${test_device_id}"
 
 if [[ "${MSIME_IOS_SKIP_HANDWRITING:-0}" == "1" ]]; then
   destination="platform=iOS Simulator,id=${test_device_id}"
-  # HandwritingTests 要 ML Kit,这条路上引擎直接回「此版本不含手写识别」。
-  skip_arguments=(-skip-testing:MetasequoiaKeyboardTests/HandwritingTests)
+  # 没有 ML Kit,引擎对这三个直接回「此版本不含手写识别」。同类里其余用例不碰识别,照跑。
+  skip_arguments=()
+  for recognition_case in "${recognition_cases[@]}"; do
+    skip_arguments+=(-skip-testing:"${recognition_case}")
+  done
 else
   destination="platform=iOS Simulator,id=${test_device_id},arch=x86_64"
   skip_arguments=()
@@ -113,10 +127,11 @@ if [[ "${MSIME_TEST_SCOPE:-all}" == "pr" ]]; then
     -only-testing:MetasequoiaImeIOSUITests/WelcomeUITests/testAccountEntryExplainsExplicitDataSharing
   )
 elif [[ "${MSIME_TEST_SCOPE:-all}" == "handwriting" ]]; then
-  # The only cases that need ML Kit, and therefore the only ones that need an Intel runner. Nothing
-  # else is built or run here: the interface suite has no ML Kit dependency and belongs on arm64,
-  # where it is not competing with a twenty-five minute Intel build for the same job's minutes.
-  scope_arguments=(-only-testing:MetasequoiaKeyboardTests/HandwritingTests)
+  # 只有这三个用例需要 ML Kit,也就只有它们需要 Intel runner。别的一概不在这里建、不在这里跑:界面套件不依赖 ML Kit,属于 arm64,不该跟一个二十多分钟的 Intel 构建抢同一个 job 的分钟数。
+  scope_arguments=()
+  for recognition_case in "${recognition_cases[@]}"; do
+    scope_arguments+=(-only-testing:"${recognition_case}")
+  done
 elif [[ "${MSIME_TEST_SCOPE:-all}" != "all" ]]; then
   echo "Unknown MSIME_TEST_SCOPE: ${MSIME_TEST_SCOPE} (expected all, pr or handwriting)" >&2
   exit 1
