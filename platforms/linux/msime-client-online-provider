@@ -36,6 +36,7 @@ http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
 MAX_TRANSLATION_CACHE_ENTRIES = 4096
 NEGATIVE_TRANSLATION_CACHE_TTL = 480
+CLOUD_REQUEST_TIMEOUT = 2.0
 
 
 def fetch_direct(url, timeout, body=None, token=None, extra_headers=None):
@@ -144,7 +145,7 @@ def cloud(query):
         return None
     params = urllib.parse.urlencode({"text": text, "itc": "ja-t-i0-und" if
         query.get("scheme") == 3 else "zh-t-i0-pinyin", "num": 1, "ie": "utf-8", "oe": "utf-8"})
-    result = fetch("https://inputtools.google.com/request?" + params, 0.35)
+    result = fetch("https://inputtools.google.com/request?" + params, CLOUD_REQUEST_TIMEOUT)
     # Match Windows cloud_ime's SUCCESS/first-candidate contract while
     # rejecting malformed provider JSON before indexing nested values.
     if (isinstance(result, list) and len(result) >= 2 and result[0] == "SUCCESS" and
