@@ -380,10 +380,40 @@ TranslationWorker::translate(const Request &request,
         plan_bytes.size()));
     if (!plan || !plan->is_array() || plan->empty() || cancelled())
       return std::nullopt;
+
+    // Translation results are valid across candidate generations. Reusing a
+    // completed page avoids repeating paid provider calls when the same
+    // candidates reappear after a navigation or preference refresh. The key
+    // deliberately excludes credentials and the generation.
+    std::string provider_scope;
     auto translations = nlohmann::json::array().dump();
     const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
     const auto custom =
         query.value("custom_translation", nlohmann::json(nullptr));
+    if (niutrans.is_object() && niutrans.value("enabled", false)) {
+      provider_scope = "niutrans";
+    } else if (custom.is_object() && custom.value("enabled", false)) {
+      provider_scope = "custom:" + custom.value("endpoint", std::string{});
+    } else {
+      const auto tencent = query.value("tencent_tmt", nlohmann::json(nullptr));
+      if (!tencent.is_object() || !tencent.value("enabled", false))
+        return std::nullopt;
+      provider_scope = "tencent";
+    }
+    nlohmann::json cache_key = {
+        {"provider", provider_scope},
+        {"target_language", query.at("target_language")},
+        {"items", nlohmann::json::array()},
+    };
+    for (const auto &item : *plan)
+      cache_key["items"].push_back({item.at("key"), item.at("source_language"),
+                                    item.at("target_language")});
+    const auto cache_id = cache_key.dump();
+    if (const auto cached = translation_cache_.find(cache_id);
+        cached != translation_cache_.end())
+      return TranslationWorker::Result{request.lease, generation,
+                                       cached->second};
+
     if (niutrans.is_object() && niutrans.value("enabled", false)) {
       for (const auto &item : *plan) {
         if (cancelled())
@@ -417,6 +447,9 @@ TranslationWorker::translate(const Request &request,
     }
     if (translations == "[]" || cancelled())
       return std::nullopt;
+    if (translation_cache_.size() >= 4096)
+      translation_cache_.clear();
+    translation_cache_.emplace(cache_id, translations);
     return TranslationWorker::Result{request.lease, generation,
                                      std::move(translations)};
   } catch (...) {
