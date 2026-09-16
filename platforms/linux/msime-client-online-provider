@@ -34,6 +34,8 @@ http_processes = set()
 http_process_lock = threading.Lock()
 http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
+MAX_TRANSLATION_CACHE_ENTRIES = 4096
+NEGATIVE_TRANSLATION_CACHE_TTL = 480
 
 
 def fetch_direct(url, timeout, body=None, token=None, extra_headers=None):
@@ -456,10 +458,10 @@ def translations(query, server):
         with server.translation_lock:
             for text, value in zip(pending, values):
                 found[text] = value
-                if len(server.translation_cache) >= 2048:
+                if len(server.translation_cache) >= MAX_TRANSLATION_CACHE_ENTRIES:
                     server.translation_cache.pop(next(iter(server.translation_cache)))
                 server.translation_cache[(provider, (source, destination), text)] = (
-                    time.monotonic() + (480 if value else 30), value)
+                    time.monotonic() + NEGATIVE_TRANSLATION_CACHE_TTL, value)
     return [{"text": text, "translation": found[text]} for text in dict.fromkeys(texts) if found.get(text)]
 
 

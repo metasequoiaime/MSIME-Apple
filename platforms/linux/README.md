@@ -270,7 +270,7 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 将该 socket 的绝对路径填入 runtime-options 的 `online_provider_socket`。仅提供云候选时无需凭据；AI 服务可增加 `--ai-config /absolute/private-ai.json`，文件仅允许所有者读写，包含 `provider`、`endpoint`、`model`、`token` 四个字符串字段。前三项须与共享 AI 设置一致，endpoint 使用 HTTPS，token 只留在服务配置中，不进入 IBus 查询。AI 私有配置在每次符合条件的请求中重新加载，修改凭据无需重启；可用 `profiles` 按 provider 保存多组配置，选择与共享设置一致的 provider、endpoint、model。不会自动启用系统服务或 CI。
 
-服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，按配置最多保留 10 条有效且不重复的模型候选，再由 Engine 批量缓存和排序。成功的 AI 结果按 provider、endpoint、model 和拼音分段保存在有界进程内缓存中，可跨候选 generation 复用；缓存键不包含凭据、上下文、提示词、会话或原始输入，空响应和失败不会缓存。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音由独立的随包 voice provider 提供；账户同步服务仍按各自契约接入。
+服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，按配置最多保留 10 条有效且不重复的模型候选，再由 Engine 批量缓存和排序。成功的 AI 结果按 provider、endpoint、model 和拼音分段保存在有界进程内缓存中，可跨候选 generation 复用；缓存键不包含凭据、上下文、提示词、会话或原始输入，空响应和失败不会缓存。候选翻译同样按单项缓存，最多 4096 项；成功和失败结果均使用 8 分钟边界，失败项在 TTL 内不会重复请求，独立候选不会互相抑制。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音由独立的随包 voice provider 提供；账户同步服务仍按各自契约接入。
 
 共享设置页可对当前腾讯翻译、NiuTrans、自定义翻译、AI 辅助、语音识别和语音润色选项执行“测试配置”。Linux Tauri 只把服务名和当前非敏感选项发送到已有 provider socket；AI、腾讯和语音 token 仍由 provider 从所有者专用配置文件读取，不返回 WebView。NiuTrans 与自定义翻译继续沿用本来就会进入候选翻译请求的设置字段。provider 使用固定的合成文本或静音 WAV 发出最小请求，并只返回有界的成功/失败文案，不转发服务端正文、URL、凭据或异常细节。测试不会保存草稿，也不采集真实输入；provider 不可用时设置页明确提示先启动服务。
 

@@ -5,6 +5,7 @@ python3 platforms/linux/tests/panel_keymap.py
 python3 platforms/linux/tests/provider_config_discovery.py
 python3 platforms/linux/tests/provider_candidate_validation.py
 python3 platforms/linux/tests/ai_candidate_cache.py
+python3 platforms/linux/tests/translation_cache_parity.py
 python3 platforms/linux/tests/provider_voice_text_validation.py
 python3 platforms/linux/tests/doubao_auth.py
 python3 platforms/linux/tests/niutrans_credential_normalization.py
