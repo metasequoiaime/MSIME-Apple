@@ -33,3 +33,25 @@ native windows-server
 # uses contracts only the newer Engine has, so the old commit no longer builds.
 # Fixing it belongs in the Engine repository.
 native windows-session
+# platforms/macos had never been gated by anything, and it had stopped compiling:
+# a misspelled selector plus two targets missing the file defining a symbol they
+# reference. The 103 tests behind that break therefore had no results at all.
+# Three of them fail, and all three are the engine answering differently from
+# what the test asserts rather than anything in the platform code.
+#
+# local-mode-preferences aborts on the first mode in its list, unicode, at
+# LocalModePreferencesTest.mm:124 - shift+U does not put the view in Unicode
+# mode. That is the same Engine behaviour already recorded above for
+# windows-session, which fails because "in Unicode mode the Engine now ignores
+# digit keys"; this is the second platform to see it.
+#
+# text-client aborts at TextClientTest.mm:335 expecting exactly one snapshot
+# replacement after a forced activation failure, and shortcut aborts inside
+# TestCloudCandidateEngineDelivery taking index 0 of an empty candidate array.
+# Both build their own empty resource directories, so neither is about a missing
+# dictionary.
+#
+# Fixing them belongs in the Engine, as the windows-session entry says.
+macos local-mode-preferences
+macos text-client
+macos shortcut

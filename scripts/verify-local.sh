@@ -48,6 +48,12 @@ done
 # library. It is a separate CMake configuration, so nothing in the ordinary
 # build covers it - and a configuration nobody runs is one that rots.
 : "${MSIME_PIPE_BUILD:=target/windows-pipe}"
+# platforms/macos was covered by nothing. It stopped compiling at some point and
+# nobody found out, and the 103 tests behind that break had never reported at
+# all. Configured directories only: the build needs a pinned Sparkle and a
+# prepared engine state, so a machine without them skips this the way it already
+# skips the Windows phases.
+: "${MSIME_MACOS_BUILD:=target/macos-isolated}"
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
 export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
@@ -107,6 +113,14 @@ else
   echo "skipped: $MSIME_NATIVE_BUILD not configured"
 fi
 
+note "compile: macos"
+if [ -d "$MSIME_MACOS_BUILD" ]; then
+  cmake --build "$MSIME_MACOS_BUILD" --parallel 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
+  cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
+else
+  echo "skipped: $MSIME_MACOS_BUILD not configured"
+fi
+
 note "compile: pipe-only configuration"
 # Cheap: no Rust library, no vcpkg dependencies, just the protocol tests.
 if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=ON      >/dev/null 2>&1; then
@@ -162,6 +176,18 @@ if [ -d "$MSIME_NATIVE_BUILD" ]; then
   compare "native tests" "$collected.native"
 else
   echo "skipped: $MSIME_NATIVE_BUILD not configured"
+fi
+
+note "macos tests"
+if [ -d "$MSIME_MACOS_BUILD" ]; then
+  # The per-test lines put the reason between the dots and the ***, so this reads
+  # the summary block instead: "\t 52 - local-mode-preferences (Subprocess aborted)".
+  ctest --test-dir "$MSIME_MACOS_BUILD" 2>&1 |
+    sed -n '/The following tests FAILED:/,$p' |
+    sed -n 's/^[[:space:]]*[0-9][0-9]* - \([^ ]*\).*/macos \1/p' > "$collected.macos" || true
+  compare "macos tests" "$collected.macos"
+else
+  echo "skipped: $MSIME_MACOS_BUILD not configured"
 fi
 
 note "pipe-only tests"
