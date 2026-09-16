@@ -104,6 +104,9 @@ width_dip = 0
         Require([[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not activate.");
         [(id)hoverButton performSelector:@selector(mouseExited:) withObject:[NSObject new]];
         Require(![[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not clear.");
+        NSColor *selectedHover = [hoverButton valueForKey:@"selectedHoverColor"];
+        Require(selectedHover != nil && selectedHover.alphaComponent > 0.01,
+                "Selected candidate rows did not receive a separate hover color.");
         Require(![panel selectCandidateWithIdentifier:8], "A nonvisible candidate could be selected.");
         NSButton *candidateButton = nil;
         for (NSView *view in panel.window.contentView.subviews)

@@ -62,6 +62,7 @@ SkinTokens FluentTokens(bool dark)
         tokens.hover = Rgb(0xECECEC);
     }
     tokens.selectedText = tokens.text;
+    tokens.selectedHover = tokens.hover;
     tokens.accent = Rgb(0x6B69D6);
     tokens.radius = 6.0f;
     tokens.candidateRadius = 4.0f;
@@ -83,6 +84,7 @@ SkinTokens WeChatTokens(bool dark)
     tokens.selected = Rgb(0x07C160);
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.hover = Rgb(0x07C160, dark ? 0.32f : 0.14f);
+    tokens.selectedHover = tokens.selected;
     tokens.radius = 5.0f;
     tokens.candidateRadius = 4.0f;
     tokens.selectedRadius = 5.0f;
@@ -104,6 +106,7 @@ SkinTokens GraphiteTokens(bool dark)
         tokens.selected = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
         tokens.selectedText = Rgb(0xF1F3F5);
         tokens.hover = Rgba{1.0f, 1.0f, 1.0f, 0.055f};
+        tokens.selectedHover = tokens.hover;
         tokens.accent = Rgb(0x8993A0);
     }
     else
@@ -115,6 +118,7 @@ SkinTokens GraphiteTokens(bool dark)
         tokens.selected = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
         tokens.selectedText = Rgb(0x111827);
         tokens.hover = Rgba{31.0f / 255.0f, 41.0f / 255.0f, 55.0f / 255.0f, 0.055f};
+        tokens.selectedHover = tokens.hover;
         tokens.accent = Rgb(0x5F6B7A);
     }
     tokens.radius = 3.0f;
@@ -147,6 +151,7 @@ SkinTokens WillowGreenTokens(bool dark)
         tokens.selected = Rgb(0x58B980);
         tokens.hover = Rgb(0x58B980, 0.16f);
     }
+    tokens.selectedHover = tokens.selected;
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
     tokens.radius = 9.0f;
