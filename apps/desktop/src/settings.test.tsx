@@ -1277,6 +1277,20 @@ test("screen keyboard serializes rapid host commands and drops queued keys after
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送：d"));
 });
 
+test("screen keyboard refreshes the external target before every queued key", async () => {
+  const events: string[] = [];
+  const rememberInputTarget = vi.fn(async () => { events.push("remember"); });
+  const sendKey = vi.fn(async () => { events.push("send"); });
+  render(<KeyboardPanel client={{ close: async () => {}, rememberInputTarget, sendKey }} />);
+  await waitFor(() => expect(rememberInputTarget).toHaveBeenCalledTimes(1));
+  events.length = 0;
+
+  fireEvent.click(screen.getByRole("button", { name: "a" }));
+  fireEvent.click(screen.getByRole("button", { name: "b" }));
+  await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(2));
+  expect(events).toEqual(["remember", "send", "remember", "send"]);
+});
+
 test("screen keyboard sends every digit as an unmodified IME selection key", async () => {
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);

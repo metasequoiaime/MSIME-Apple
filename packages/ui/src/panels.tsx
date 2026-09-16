@@ -337,7 +337,15 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
       while (queue.active && queue.pending.length) {
         const next = queue.pending.shift()!;
         setNotice(`正在发送：${next.description}`);
-        try { await client.sendKey(next.request); }
+        try {
+          // The Windows panel records the external foreground target on every
+          // click because the editor may change while the non-activating panel
+          // remains open. Keep that capture in the same serialized operation
+          // as the key so a later click cannot overwrite the target before an
+          // earlier key is delivered.
+          if (client.rememberInputTarget) await client.rememberInputTarget();
+          await client.sendKey(next.request);
+        }
         catch {
           // Delivery may have partially succeeded; never replay a failed key.
           queue.pending = [];

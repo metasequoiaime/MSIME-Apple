@@ -2572,7 +2572,11 @@ fn remember_input_target(
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return remember_panel_input_target(&state, window.label().as_str(), false);
+    return remember_panel_input_target(
+        &state,
+        window.label().as_str(),
+        window.label() == "keyboard-panel",
+    );
     #[cfg(target_os = "windows")]
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -2600,22 +2604,17 @@ async fn send_key(
         // The non-focusable keyboard follows the editor the user is typing
         // into now, like Windows RememberInputTargetWindow on each key press.
         // Other panels retain their original destination while being edited.
-        let target = if window.label() == "keyboard-panel" {
-            None
-        } else {
-            Some(panel_input_target(&state, window.label().as_str())?)
-        };
-        return tauri::async_runtime::spawn_blocking(move || {
-            let target = match target {
-                Some(target) => target,
-                None => capture_panel_input_target()?,
-            };
-            send_panel_key(&app, target, request)
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
+        // The keyboard panel is non-activating. Its serialized UI queue
+        // refreshes this target immediately before each key, matching the
+        // Windows panel's per-click foreground capture. Do not re-probe here:
+        // an async command could otherwise observe a different editor than
+        // the one captured for this queued key.
+        let target = panel_input_target(&state, window.label().as_str())?;
+        return tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
     }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
