@@ -1,10 +1,29 @@
 #import "VoiceSettings.h"
 #import "VoiceInputService.h"
 NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClientVoiceSettingsDidChange";
+namespace {
+NSString *NormalizedDoubaoAuthMode(NSUserDefaults *defaults)
+{
+    NSString *mode = [defaults stringForKey:@"MSIMEClientVoiceDoubaoAuthMode"].lowercaseString;
+    if ([mode isEqualToString:@"api_key"] || [mode isEqualToString:@"legacy"])
+        return mode;
+    // Keep old native defaults compatible with the shared editor: a real App
+    // ID means the legacy route, while a masked placeholder is not a usable ID.
+    NSString *appKey = [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"];
+    return appKey.length > 0 && ![appKey hasPrefix:@"<"] ? @"legacy" : @"api_key";
+}
+
+NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
+{
+    NSUInteger index = [values indexOfObject:value ?: @""];
+    return index == NSNotFound ? 0 : index;
+}
+} // namespace
+
 @implementation MSIMEVoiceSettings {
     NSPopUpButton *_language;
     NSTextField *_status;
-    NSPopUpButton *_provider, *_polishProvider, *_polishPromptID;
+    NSPopUpButton *_provider, *_polishProvider, *_polishPromptID, *_doubaoAuthMode;
     NSButton *_polish;
     NSTextField *_model, *_endpoint, *_asrModel;
     NSSecureTextField *_token;
@@ -23,6 +42,9 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _language.target = self; _language.action = @selector(languageChanged:);
         _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         [_provider addItemsWithTitles:@[@"豆包", @"OpenAI", @"SiliconFlow", @"Groq"]];
+        _doubaoAuthMode = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [_doubaoAuthMode addItemsWithTitles:@[@"新版 API Key", @"旧版 App ID + Access Token"]];
+        _doubaoAuthMode.target = self; _doubaoAuthMode.action = @selector(doubaoAuthModeChanged:);
         _polish = [NSButton checkboxWithTitle:@"启用文本润色" target:self action:nil];
         _polishProvider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         [_polishProvider addItemsWithTitles:@[@"DeepSeek", @"OpenAI", @"SiliconFlow", @"Groq"]];
@@ -31,9 +53,12 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _token = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _token.placeholderString = @"ASR Token（仅保存在本机）";
         _asrModel = [NSTextField textFieldWithString:@""]; _asrModel.placeholderString = @"ASR 模型（可选）"; _doubaoBoostingTable = [NSTextField textFieldWithString:@""]; _doubaoAppKey = [NSTextField textFieldWithString:@""]; _doubaoResourceID = [NSTextField textFieldWithString:@""];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-        [_provider selectItemAtIndex:[@[@"doubao", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao"]];
+        NSArray *asrProviders = @[@"doubao", @"openai", @"siliconflow", @"groq"];
+        [_provider selectItemAtIndex:IndexOrZero(asrProviders, [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao")];
+        [_doubaoAuthMode selectItemAtIndex:[NormalizedDoubaoAuthMode(defaults) isEqualToString:@"legacy"] ? 1 : 0];
         _polish.state = [defaults boolForKey:@"MSIMEClientVoicePolish"] ? NSControlStateValueOn : NSControlStateValueOff;
-        [_polishProvider selectItemAtIndex:[@[@"deepseek", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek"]];
+        NSArray *polishProviders = @[@"deepseek", @"openai", @"siliconflow", @"groq"];
+        [_polishProvider selectItemAtIndex:IndexOrZero(polishProviders, [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek")];
         _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @""; _polishEndpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @""; _polishPrompt.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @""; _polishCustom1.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @""; _polishCustom2.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @""; _polishCustom3.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""; NSUInteger preset = [@[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup"]; [_polishPromptID selectItemAtIndex:preset == NSNotFound ? 0 : preset];
         _endpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
         _token.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"";
@@ -54,7 +79,7 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _endpoint.target = self; _endpoint.action = @selector(voiceOptionsChanged:); _token.target = self; _token.action = @selector(voiceOptionsChanged:); _asrModel.target = self; _asrModel.action = @selector(asrModelChanged:);
         _status = [NSTextField labelWithString:@"权限状态未知"];
         NSButton *permission = [NSButton buttonWithTitle:@"请求麦克风与语音权限" target:self action:@selector(requestPermission:)];
-        NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"识别语言"], _language], @[[NSTextField labelWithString:@"ASR 提供商"], _provider], @[[NSTextField labelWithString:@"ASR 接口"], _endpoint], @[[NSTextField labelWithString:@"ASR Token"], _token], @[[NSTextField labelWithString:@"语音快捷键"], _hotkey], @[[NSTextField labelWithString:@"按键方式"], _holdSpace], @[[NSTextField labelWithString:@"右 Option"], _rightAlt], @[[NSTextField labelWithString:@"Control+Command"], _ctrlCommand], @[[NSTextField labelWithString:@"右 Control+Option"], _ctrlOption], @[[NSTextField labelWithString:@"提示音"], _soundEnabled], @[[NSTextField labelWithString:@"系统音频"], _muteAudio], @[[NSTextField labelWithString:@"中间结果"], _streamInline], @[[NSTextField labelWithString:@"文本润色"], _polish], @[[NSTextField labelWithString:@"润色提供商"], _polishProvider], @[[NSTextField labelWithString:@"润色模型"], _model], @[[NSTextField labelWithString:@"整理地址"], _polishEndpoint], @[[NSTextField labelWithString:@"整理预设"], _polishPromptID], @[[NSTextField labelWithString:@"整理提示词"], _polishPrompt], @[[NSTextField labelWithString:@"自定义整理 1"], _polishCustom1], @[[NSTextField labelWithString:@"自定义整理 2"], _polishCustom2], @[[NSTextField labelWithString:@"自定义整理 3"], _polishCustom3], @[[NSTextField labelWithString:@"权限"], _status], @[[NSTextField labelWithString:@""], permission]]];
+        NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"识别语言"], _language], @[[NSTextField labelWithString:@"ASR 提供商"], _provider], @[[NSTextField labelWithString:@"豆包鉴权方式"], _doubaoAuthMode], @[[NSTextField labelWithString:@"ASR 接口"], _endpoint], @[[NSTextField labelWithString:@"ASR Token"], _token], @[[NSTextField labelWithString:@"语音快捷键"], _hotkey], @[[NSTextField labelWithString:@"按键方式"], _holdSpace], @[[NSTextField labelWithString:@"右 Option"], _rightAlt], @[[NSTextField labelWithString:@"Control+Command"], _ctrlCommand], @[[NSTextField labelWithString:@"右 Control+Option"], _ctrlOption], @[[NSTextField labelWithString:@"提示音"], _soundEnabled], @[[NSTextField labelWithString:@"系统音频"], _muteAudio], @[[NSTextField labelWithString:@"中间结果"], _streamInline], @[[NSTextField labelWithString:@"文本润色"], _polish], @[[NSTextField labelWithString:@"润色提供商"], _polishProvider], @[[NSTextField labelWithString:@"润色模型"], _model], @[[NSTextField labelWithString:@"整理地址"], _polishEndpoint], @[[NSTextField labelWithString:@"整理预设"], _polishPromptID], @[[NSTextField labelWithString:@"整理提示词"], _polishPrompt], @[[NSTextField labelWithString:@"自定义整理 1"], _polishCustom1], @[[NSTextField labelWithString:@"自定义整理 2"], _polishCustom2], @[[NSTextField labelWithString:@"自定义整理 3"], _polishCustom3], @[[NSTextField labelWithString:@"权限"], _status], @[[NSTextField labelWithString:@""], permission]]];
         [grid addRowWithViews:@[[NSTextField labelWithString:@"ASR 模型"], _asrModel]]; [grid addRowWithViews:@[[NSTextField labelWithString:@"Doubao 词表"], _doubaoBoostingTable]]; [grid addRowWithViews:@[[NSTextField labelWithString:@"Doubao App Key"], _doubaoAppKey]]; [grid addRowWithViews:@[[NSTextField labelWithString:@"Doubao Resource ID"], _doubaoResourceID]];
         _asrModel.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @""; _doubaoBoostingTable.stringValue = [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @""; _doubaoAppKey.stringValue = [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @""; _doubaoResourceID.stringValue = [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"";
         grid.rowSpacing = 16; grid.columnSpacing = 16; grid.translatesAutoresizingMaskIntoConstraints = NO; [window.contentView addSubview:grid];
@@ -66,6 +91,7 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
 - (void)requestPermission:(id)sender { (void)sender; [_service requestSpeechPermission:^(BOOL granted) { if (granted) [_service requestMicrophonePermission:^(BOOL grantedMicrophone) { (void)grantedMicrophone; [self refreshStatus]; }]; else [self refreshStatus]; }]; }
 - (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 - (void)asrModelChanged:(NSTextField *)sender { [NSUserDefaults.standardUserDefaults setObject:sender.stringValue forKey:@"MSIMEClientVoiceASRModel"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
+- (void)doubaoAuthModeChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 1 ? @"legacy" : @"api_key") forKey:@"MSIMEClientVoiceDoubaoAuthMode"]; [self voiceOptionsChanged:nil]; }
 - (void)polishProviderChanged:(id)sender
 {
     (void)sender;
