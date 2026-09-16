@@ -454,6 +454,28 @@ type Point = InkPoint;
 // Keep captured ink within the Linux provider's 32-stroke and 256 KiB envelope.
 // Two decimal places retain subpixel precision in the 420-unit drawing space.
 const MAX_HANDWRITING_STROKES = 32;
+const MAX_HANDWRITING_CANDIDATES = 12;
+
+function hasBmpCjk(text: string) {
+  return Array.from(text).some(character => {
+    const code = character.codePointAt(0) ?? 0;
+    return (code >= 0x3400 && code <= 0x4dbf)
+      || (code >= 0x4e00 && code <= 0x9fff)
+      || (code >= 0xf900 && code <= 0xfaff);
+  });
+}
+
+function normalizeHandwritingCandidates(candidates: string[]) {
+  const seen = new Set<string>();
+  const chinese: string[] = [];
+  const other: string[] = [];
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    (hasBmpCjk(candidate) ? chinese : other).push(candidate);
+  }
+  return [...chinese, ...other].slice(0, MAX_HANDWRITING_CANDIDATES);
+}
 const MAX_CAPTURED_POINTS = 256;
 function appendInkPoint(points: Point[], point: Point, endpoint = false): Point[] {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return points;
@@ -631,8 +653,9 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
           try {
             const result = await recognizeInk({ language: "zh-CN", strokes: request.strokes });
             if (request.revision !== recognitionRevision.current) continue;
-            setCandidates(result.candidates);
-            setNotice(result.candidates.length ? "选择候选可复制或输入" : "未识别到内容，请确认已安装中文手写包");
+            const nextCandidates = normalizeHandwritingCandidates(result.candidates);
+            setCandidates(nextCandidates);
+            setNotice(nextCandidates.length ? "选择候选可复制或输入" : "未识别到内容，请确认已安装中文手写包");
           } catch {
             if (request.revision === recognitionRevision.current) {
               setCandidates([]);

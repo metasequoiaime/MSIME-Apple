@@ -2480,6 +2480,21 @@ test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ign
   }
 });
 
+test("handwriting matches Windows candidate priority, uniqueness, and limit", async () => {
+  const recognizeHandwriting = vi.fn().mockResolvedValue({
+    candidates: ["water", "水", "water", "永", "A", "木", "B", "本", "C", "未", "D", "末", "E", "术", "F", "札", "G", "正", "H"],
+  });
+  const mounted = render(<HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} />);
+  const canvas = screen.getByLabelText("手写画布");
+  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+  fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+  await screen.findByRole("button", { name: "水" });
+  expect(within(mounted.container.querySelector(".handwriting-candidate-grid") as HTMLElement)
+    .getAllByRole("button").map(button => button.textContent))
+    .toEqual(["水", "永", "木", "本", "未", "末", "术", "札", "正", "water", "A", "B"]);
+});
+
 test("a host can open the settings window on the section its menu named", async () => {
   const client: SettingsClient = { load: async () => initial, save: vi.fn() };
   render(<SettingsPage client={client} initialPage="about" />);
