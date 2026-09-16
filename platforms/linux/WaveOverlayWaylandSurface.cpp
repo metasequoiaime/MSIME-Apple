@@ -1,5 +1,7 @@
 #include "WaveOverlayWaylandSurface.h"
 
+#include "WaveOverlayPlacement.h"
+
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 
 #include <wayland-client.h>
@@ -209,10 +211,13 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
         layer_configure, layer_closed};
     zwlr_layer_surface_v1_add_listener(layer_surface_, &layer_listener, this);
     zwlr_layer_surface_v1_set_size(layer_surface_, kWidth, kHeight);
+    // With only the bottom anchor set, layer-shell centers the fixed-width
+    // surface horizontally while keeping it above the work area's bottom
+    // edge. It remains output-independent and never requests keyboard focus.
     zwlr_layer_surface_v1_set_anchor(
-        layer_surface_, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
-                           ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_margin(layer_surface_, 48, 24, 0, 0);
+        layer_surface_, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
+    zwlr_layer_surface_v1_set_margin(layer_surface_, 0,
+                                     kWaveOverlayBottomMargin, 0, 0);
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(
         layer_surface_, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);

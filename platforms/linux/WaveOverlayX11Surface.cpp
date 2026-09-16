@@ -1,14 +1,20 @@
 #include "WaveOverlayX11Surface.h"
 
+#include "WaveOverlayPlacement.h"
+
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/shape.h>
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace msime::linux_host {
 namespace {
@@ -18,6 +24,61 @@ constexpr unsigned kHeight = 132;
 constexpr unsigned kBarCount = 12;
 constexpr int kActionCenterInset = 24;
 constexpr int kActionRadius = 14;
+
+std::vector<std::uint32_t> cardinal_property(Display *display, Window window,
+                                              Atom property) {
+  Atom actual_type = None;
+  int actual_format = 0;
+  unsigned long item_count = 0;
+  unsigned long bytes_after = 0;
+  unsigned char *raw = nullptr;
+  const auto status = XGetWindowProperty(
+      display, window, property, 0, 4096, False, XA_CARDINAL, &actual_type,
+      &actual_format, &item_count, &bytes_after, &raw);
+  if (status != Success || actual_type != XA_CARDINAL || actual_format != 32 ||
+      !raw) {
+    if (raw)
+      XFree(raw);
+    return {};
+  }
+  const auto *values = reinterpret_cast<const unsigned long *>(raw);
+  std::vector<std::uint32_t> result;
+  result.reserve(item_count);
+  for (unsigned long index = 0; index < item_count; ++index)
+    result.push_back(static_cast<std::uint32_t>(values[index]));
+  XFree(raw);
+  return result;
+}
+
+std::optional<WaveOverlayWorkArea> current_work_area(Display *display,
+                                                      int screen) {
+  const auto root = RootWindow(display, screen);
+  const auto workarea_atom = XInternAtom(display, "_NET_WORKAREA", True);
+  if (workarea_atom == None)
+    return std::nullopt;
+  const auto workareas = cardinal_property(display, root, workarea_atom);
+  if (workareas.size() < 4)
+    return std::nullopt;
+
+  std::size_t desktop = 0;
+  const auto desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", True);
+  if (desktop_atom != None) {
+    const auto current = cardinal_property(display, root, desktop_atom);
+    if (!current.empty())
+      desktop = current.front();
+  }
+  const auto desktop_count = workareas.size() / 4;
+  if (desktop >= desktop_count)
+    desktop = 0;
+  const auto offset = desktop * 4;
+  const auto x = static_cast<std::int32_t>(workareas[offset]);
+  const auto y = static_cast<std::int32_t>(workareas[offset + 1]);
+  const auto width = static_cast<std::int32_t>(workareas[offset + 2]);
+  const auto height = static_cast<std::int32_t>(workareas[offset + 3]);
+  if (width <= 0 || height <= 0)
+    return std::nullopt;
+  return WaveOverlayWorkArea{x, y, width, height};
+}
 
 unsigned long color(Display *display, int screen, const char *value,
                     unsigned long fallback) {
@@ -199,9 +260,12 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   if (!model.actions_visible)
     action_pressed_ = false;
   const auto screen = DefaultScreen(display_);
-  const auto x = std::max(0, DisplayWidth(display_, screen) - static_cast<int>(kWidth) - 24);
-  const auto y = 48;
-  XMoveWindow(display_, window_, x, y);
+  const auto work_area = current_work_area(display_, screen).value_or(
+      WaveOverlayWorkArea{0, 0, DisplayWidth(display_, screen),
+                          DisplayHeight(display_, screen)});
+  const auto position = wave_overlay_bottom_center(
+      work_area, static_cast<int>(kWidth), static_cast<int>(kHeight));
+  XMoveWindow(display_, window_, position.x, position.y);
   const auto background = model.light_theme ? light_background_ : background_;
   const auto foreground = model.light_theme ? light_foreground_ : foreground_;
   const auto accent = model.light_theme ? light_accent_ : accent_;
