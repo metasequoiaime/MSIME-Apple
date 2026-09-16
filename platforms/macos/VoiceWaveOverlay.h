@@ -4,7 +4,7 @@
 /// Return a clamped origin that centers the overlay in a screen's visible
 /// work area while leaving a small bottom breathing room.  This is kept pure
 /// so the positioning contract can be tested without opening a real window.
-FOUNDATION_EXPORT NSPoint MSIMEVoiceWaveOverlayOriginForVisibleFrame(NSRect visibleFrame, NSSize panelSize);
+FOUNDATION_EXPORT NSPoint MSIMEVoiceWaveOverlayOriginForFrames(NSRect fullFrame, NSRect visibleFrame, NSSize panelSize);
 
 typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
     MSIMEVoiceFailureMicrophonePermission = 1,

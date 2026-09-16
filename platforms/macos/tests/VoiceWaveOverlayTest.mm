@@ -11,13 +11,19 @@
 int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        const NSRect syntheticScreen = NSMakeRect(-1440, 40, 1440, 860);
-        const NSPoint centered = MSIMEVoiceWaveOverlayOriginForVisibleFrame(syntheticScreen, NSMakeSize(220, 44));
+        const NSRect syntheticFullScreen = NSMakeRect(-1440, 0, 1440, 900);
+        const NSRect syntheticWorkArea = NSMakeRect(-1360, 40, 1360, 860);
+        const NSPoint centered = MSIMEVoiceWaveOverlayOriginForFrames(syntheticFullScreen, syntheticWorkArea, NSMakeSize(220, 44));
         assert(std::abs(centered.x - (-830.0)) < 0.01);
         assert(std::abs(centered.y - 72.0) < 0.01);
-        const NSPoint oversized = MSIMEVoiceWaveOverlayOriginForVisibleFrame(syntheticScreen, NSMakeSize(1800, 1000));
-        assert(std::abs(oversized.x - NSMinX(syntheticScreen)) < 0.01);
-        assert(std::abs(oversized.y - NSMinY(syntheticScreen)) < 0.01);
+        // A left-side Dock narrows the work area but must not move the
+        // horizontal center away from the physical monitor center.
+        const NSPoint rightDock = MSIMEVoiceWaveOverlayOriginForFrames(
+            NSMakeRect(0, 0, 1440, 900), NSMakeRect(0, 0, 1360, 900), NSMakeSize(220, 44));
+        assert(std::abs(rightDock.x - 610.0) < 0.01);
+        const NSPoint oversized = MSIMEVoiceWaveOverlayOriginForFrames(syntheticFullScreen, syntheticWorkArea, NSMakeSize(1800, 1000));
+        assert(std::abs(oversized.x - NSMinX(syntheticFullScreen)) < 0.01);
+        assert(std::abs(oversized.y - NSMinY(syntheticWorkArea)) < 0.01);
         MSIMEVoiceWaveOverlay *panel = [MSIMEVoiceWaveOverlay new];
         assert(panel != nil);
         assert(panel.level == NSFloatingWindowLevel);

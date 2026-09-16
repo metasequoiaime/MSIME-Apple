@@ -1,14 +1,18 @@
 #import "VoiceWaveOverlay.h"
 
-NSPoint MSIMEVoiceWaveOverlayOriginForVisibleFrame(NSRect visibleFrame, NSSize panelSize) {
+NSPoint MSIMEVoiceWaveOverlayOriginForFrames(NSRect fullFrame, NSRect visibleFrame, NSSize panelSize) {
     const CGFloat width = MAX(0.0, panelSize.width);
     const CGFloat height = MAX(0.0, panelSize.height);
-    CGFloat x = NSMidX(visibleFrame) - width / 2.0;
+    // Match the Windows host: horizontal placement is centered in the full
+    // monitor, so a left/right Dock does not move the voice bar's center.
+    CGFloat x = NSMidX(fullFrame) - width / 2.0;
+    // Vertical placement uses the visible work area, keeping the bottom gap
+    // clear of the Dock while preserving the full-screen horizontal center.
     CGFloat y = NSMinY(visibleFrame) + 32.0;
-    if (width <= NSWidth(visibleFrame))
-        x = MIN(MAX(x, NSMinX(visibleFrame)), NSMaxX(visibleFrame) - width);
+    if (width <= NSWidth(fullFrame))
+        x = MIN(MAX(x, NSMinX(fullFrame)), NSMaxX(fullFrame) - width);
     else
-        x = NSMinX(visibleFrame);
+        x = NSMinX(fullFrame);
     if (height <= NSHeight(visibleFrame))
         y = MIN(MAX(y, NSMinY(visibleFrame)), NSMaxY(visibleFrame) - height);
     else
@@ -124,7 +128,7 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
 - (void)repositionOnPreferredScreen {
     NSScreen *screen = [self resolvedPreferredScreen];
     if (!screen) return;
-    [self setFrameOrigin:MSIMEVoiceWaveOverlayOriginForVisibleFrame(screen.visibleFrame, self.frame.size)];
+    [self setFrameOrigin:MSIMEVoiceWaveOverlayOriginForFrames(screen.frame, screen.visibleFrame, self.frame.size)];
 }
 - (BOOL)isLightTheme { return _view.lightTheme; }
 - (void)applyViewColors {
