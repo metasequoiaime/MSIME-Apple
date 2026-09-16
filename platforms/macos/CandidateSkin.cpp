@@ -9,6 +9,7 @@
 #include <map>
 #include <sstream>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 namespace msime::mac
@@ -586,6 +587,9 @@ bool IsContained(const std::filesystem::path &root, const std::filesystem::path 
     return !relative.empty() && !relative.is_absolute() &&
            std::none_of(relative.begin(), relative.end(), [](const auto &part) { return part == ".."; });
 }
+
+void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPackage &package, bool dark,
+                            SkinTokens &tokens);
 } // namespace
 
 bool IsBuiltInSkinId(std::string_view id)
@@ -639,14 +643,7 @@ SkinTokens BuiltInSkinTokens(std::string_view id, bool dark)
 
 SkinTokens ToolbarSkinTokens(std::string_view id, bool dark)
 {
-    const bool builtin = IsBuiltInSkinId(id);
-    SkinTokens tokens = BuiltInSkinTokens(builtin ? id : "fluent", dark);
-    // The default toolbar accent is intentionally lighter than the Fluent
-    // candidate-card accent. External packages do not own a native toolbar
-    // palette, so they use the same stable default instead of leaking their
-    // candidate overrides into this surface.
-    if (!builtin || id == "fluent") tokens.accent = Rgb(0x8E8CD8);
-    return tokens;
+    return ToolbarSkinTokens(id, dark, DefaultSkinsRoot());
 }
 
 std::optional<Rgba> ParseCssColor(std::string_view text)
@@ -723,6 +720,266 @@ std::optional<Rgba> ParseCssColor(std::string_view text)
     {
     }
     return std::nullopt;
+}
+
+namespace
+{
+std::string Lowercase(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
+
+std::string StripCssComments(std::string text)
+{
+    std::size_t cursor = 0;
+    while ((cursor = text.find("/*", cursor)) != std::string::npos)
+    {
+        const std::size_t end = text.find("*/", cursor + 2);
+        if (end == std::string::npos)
+        {
+            text.erase(cursor);
+            break;
+        }
+        text.erase(cursor, end + 2 - cursor);
+    }
+    return text;
+}
+
+std::optional<Rgba> FindCssColor(std::string value)
+{
+    value = Trim(value);
+    if (const auto direct = ParseCssColor(value))
+    {
+        return direct;
+    }
+    for (const char *prefix : {"rgba(", "rgb("})
+    {
+        const std::size_t begin = value.find(prefix);
+        if (begin != std::string::npos)
+        {
+            const std::size_t end = value.find(')', begin + std::char_traits<char>::length(prefix));
+            if (end != std::string::npos)
+            {
+                if (const auto parsed = ParseCssColor(value.substr(begin, end - begin + 1)))
+                {
+                    return parsed;
+                }
+            }
+        }
+    }
+    const std::size_t hash = value.find('#');
+    if (hash != std::string::npos)
+    {
+        std::size_t end = hash + 1;
+        while (end < value.size() && std::isxdigit(static_cast<unsigned char>(value[end]))) ++end;
+        if (const auto parsed = ParseCssColor(value.substr(hash, end - hash)))
+        {
+            return parsed;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<float> ParseCssLength(std::string value)
+{
+    value = Trim(value);
+    char *end = nullptr;
+    const float number = std::strtof(value.c_str(), &end);
+    if (end == value.c_str() || !std::isfinite(number) || number < 0.0f || number > 64.0f)
+    {
+        return std::nullopt;
+    }
+    const std::string unit = Lowercase(Trim(end));
+    if (!unit.empty() && unit != "px")
+    {
+        return std::nullopt;
+    }
+    return number;
+}
+
+std::string ResolveCssVariable(std::string value, const std::unordered_map<std::string, std::string> &variables)
+{
+    for (int pass = 0; pass < 4; ++pass)
+    {
+        const std::size_t begin = value.find("var(");
+        if (begin == std::string::npos) break;
+        const std::size_t end = value.find(')', begin + 4);
+        if (end == std::string::npos) break;
+        std::string key = Trim(value.substr(begin + 4, end - begin - 4));
+        const std::size_t fallback = key.find(',');
+        std::string replacement;
+        if (fallback != std::string::npos)
+        {
+            replacement = Trim(key.substr(fallback + 1));
+            key = Trim(key.substr(0, fallback));
+        }
+        key = Lowercase(key);
+        const auto found = variables.find(key);
+        if (found != variables.end()) replacement = found->second;
+        if (replacement.empty()) break;
+        value.replace(begin, end - begin + 1, replacement);
+    }
+    return value;
+}
+
+void ApplyToolbarCssProperty(std::string property, std::string value, const std::string &selector,
+                             const std::unordered_map<std::string, std::string> &variables, SkinTokens &tokens)
+{
+    property = Lowercase(Trim(property));
+    value = ResolveCssVariable(Trim(value), variables);
+    const std::string loweredSelector = Lowercase(selector);
+    const bool hover = loweredSelector.find(":hover") != std::string::npos || loweredSelector.find("hover") != std::string::npos;
+    const bool selected = loweredSelector.find(":active") != std::string::npos ||
+                          loweredSelector.find("selected") != std::string::npos ||
+                          loweredSelector.find("active") != std::string::npos;
+    auto colorTarget = [&](const std::optional<Rgba> &color, const std::string &customProperty) {
+        if (!color) return;
+        if (customProperty == "accent") tokens.accent = *color;
+        else if (customProperty == "selected") tokens.selected = *color;
+        else if (customProperty == "hover") tokens.hover = *color;
+        else if (customProperty == "surface") tokens.surface = *color;
+        else if (customProperty == "border") tokens.border = *color;
+        else if (customProperty == "text") tokens.text = *color;
+    };
+    if (!property.empty() && property.front() == '-')
+    {
+        static const std::pair<const char *, const char *> names[] = {
+            {"--toolbar-accent", "accent"}, {"--ftb-accent", "accent"}, {"--accent-color", "accent"},
+            {"--accent-strong", "accent"},   {"--toolbar-selected", "selected"}, {"--ftb-selected", "selected"},
+            {"--toolbar-hover", "hover"},    {"--ftb-hover", "hover"}, {"--toolbar-bg", "surface"},
+            {"--toolbar-background", "surface"}, {"--toolbar-surface", "surface"}, {"--ftb-bg", "surface"},
+            {"--toolbar-border", "border"},  {"--ftb-border", "border"}, {"--toolbar-text", "text"},
+            {"--ftb-text", "text"},
+        };
+        for (const auto &[name, target] : names)
+        {
+            if (property == name)
+            {
+                colorTarget(FindCssColor(value), target);
+                break;
+            }
+        }
+        if (property == "--toolbar-radius" || property == "--ftb-radius")
+        {
+            if (const auto length = ParseCssLength(value)) tokens.radius = *length;
+        }
+        if (property == "--toolbar-border-width" || property == "--ftb-border-width")
+        {
+            if (const auto length = ParseCssLength(value)) tokens.borderWidth = *length;
+        }
+        if (property == "--toolbar-padding" || property == "--ftb-padding")
+        {
+            if (const auto length = ParseCssLength(value)) tokens.pad = *length;
+        }
+        return;
+    }
+    if (property == "color")
+    {
+        colorTarget(FindCssColor(value), "text");
+    }
+    else if (property == "background" || property == "background-color")
+    {
+        colorTarget(FindCssColor(value), selected ? "selected" : hover ? "hover" : "surface");
+    }
+    else if (property == "border-color" || property == "outline-color")
+    {
+        colorTarget(FindCssColor(value), "border");
+    }
+    else if (property == "border")
+    {
+        colorTarget(FindCssColor(value), "border");
+        const std::string width = Trim(value.substr(0, value.find_first_of(" \\t")));
+        if (const auto length = ParseCssLength(width)) tokens.borderWidth = *length;
+    }
+    else if (property == "accent-color")
+    {
+        colorTarget(FindCssColor(value), "accent");
+    }
+    else if (property == "border-radius")
+    {
+        if (const auto length = ParseCssLength(value)) tokens.radius = *length;
+    }
+    else if (property == "border-width")
+    {
+        if (const auto length = ParseCssLength(value)) tokens.borderWidth = *length;
+    }
+    else if (property == "padding" || property == "padding-left" || property == "padding-inline")
+    {
+        if (const auto length = ParseCssLength(value)) tokens.pad = *length;
+    }
+}
+
+void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPackage &package, bool dark,
+                            SkinTokens &tokens)
+{
+    if (package.toolbarStylesheet.empty()) return;
+    const std::filesystem::path stylesheet = skinsRoot / package.id / package.toolbarStylesheet;
+    std::error_code ec;
+    if (!IsContained(skinsRoot / package.id, stylesheet) || !std::filesystem::is_regular_file(stylesheet, ec) || ec)
+        return;
+    std::ifstream stream(stylesheet);
+    if (!stream) return;
+    stream.seekg(0, std::ios::end);
+    const std::streamoff size = stream.tellg();
+    if (size < 0 || static_cast<std::size_t>(size) > 65536) return;
+    stream.seekg(0);
+    const std::string css = StripCssComments(std::string((std::istreambuf_iterator<char>(stream)), {}));
+    std::unordered_map<std::string, std::string> variables;
+    std::size_t cursor = 0;
+    while (cursor < css.size())
+    {
+        const std::size_t open = css.find('{', cursor);
+        if (open == std::string::npos) break;
+        const std::size_t close = css.find('}', open + 1);
+        if (close == std::string::npos) break;
+        const std::string selector = Trim(css.substr(cursor, open - cursor));
+        cursor = close + 1;
+        if (selector.empty() || selector.front() == '@') continue;
+        const std::string lowered = Lowercase(selector);
+        if ((lowered.find("dark") != std::string::npos && !dark) ||
+            (lowered.find("light") != std::string::npos && dark))
+            continue;
+        std::vector<std::pair<std::string, std::string>> declarations;
+        std::stringstream block(css.substr(open + 1, close - open - 1));
+        std::string declaration;
+        while (std::getline(block, declaration, ';'))
+        {
+            const std::size_t colon = declaration.find(':');
+            if (colon == std::string::npos) continue;
+            std::string property = Trim(declaration.substr(0, colon));
+            std::string value = Trim(declaration.substr(colon + 1));
+            if (property.empty() || value.empty()) continue;
+            if (value.size() >= 10 && Lowercase(value.substr(value.size() - 10)) == "!important")
+                value = Trim(value.substr(0, value.size() - 10));
+            declarations.emplace_back(std::move(property), std::move(value));
+        }
+        for (const auto &[property, value] : declarations)
+            if (!property.empty() && property.front() == '-') variables[Lowercase(Trim(property))] = value;
+        for (const auto &[property, value] : declarations)
+            ApplyToolbarCssProperty(property, value, selector, variables, tokens);
+    }
+    tokens.selectedText = ContrastingText(tokens.selected, tokens.text);
+}
+} // namespace
+
+SkinTokens ToolbarSkinTokens(std::string_view id, bool dark, const std::filesystem::path &skinsRoot)
+{
+    const bool builtin = IsBuiltInSkinId(id);
+    SkinTokens tokens = BuiltInSkinTokens(builtin ? id : "fluent", dark);
+    // The default toolbar accent is intentionally lighter than the Fluent
+    // candidate-card accent. External packages may override this native
+    // palette only through the primitive properties understood above; CSS
+    // layout, scripts, images and effects never enter the AppKit view.
+    if (!builtin || id == "fluent") tokens.accent = Rgb(0x8E8CD8);
+    if (!builtin)
+    {
+        std::string error;
+        if (const auto package = LoadSkinPackage(skinsRoot, std::string(id), &error))
+            ApplyToolbarStylesheet(skinsRoot, *package, dark, tokens);
+    }
+    return tokens;
 }
 
 std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoot, const std::string &id,
