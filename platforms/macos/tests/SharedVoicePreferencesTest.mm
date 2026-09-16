@@ -68,6 +68,16 @@ int main() {
         MSIMEApplySharedVoicePreferences(@{@"enabled": @YES, @"hotkey_rctrl_ralt": @NO}, defaults);
         assert(MSIMEVoiceInputEnabled(defaults));
         assert(![defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);
+        NSDictionary *providerSlots = @{
+            @"asr_provider": @"openai",
+            @"asr_tokens": @{@"openai": @"slot-asr"},
+            @"polish_provider": @"groq",
+            @"polish_tokens": @{@"groq": @"slot-polish"}
+        };
+        assert(MSIMEApplySharedVoicePreferences(providerSlots, defaults));
+        assert([[defaults stringForKey:@"MSIMEClientVoiceASRToken"] isEqual:@"slot-asr"]);
+        assert([[defaults stringForKey:@"MSIMEClientVoicePolishToken"] isEqual:@"slot-polish"]);
+
         for (NSNumber *master in @[@NO, @YES]) {
             for (NSNumber *start in @[@NO, @YES]) {
                 for (NSNumber *end in @[@NO, @YES]) {

@@ -142,5 +142,31 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
             }
         }
     }
+
+    // The shared contract keeps one credential slot per provider. The native
+    // fallback consumes a flat token, so select the slot for the provider that
+    // is active in this snapshot instead of accidentally reusing a token from
+    // the previously selected provider. Missing slots deliberately preserve
+    // the local value for compatibility with older snapshots.
+    NSDictionary *tokenSlots = @{
+        @"asr_tokens": @{@"provider": @"asr_provider", @"key": @"ASRToken"},
+        @"polish_tokens": @{@"provider": @"polish_provider", @"key": @"PolishToken"}
+    };
+    for (NSString *mapField in tokenSlots) {
+        NSDictionary *configuration = tokenSlots[mapField];
+        id provider = voice[configuration[@"provider"]];
+        id slots = voice[mapField];
+        if (![provider isKindOfClass:NSString.class] ||
+            [(NSString *)provider length] == 0 ||
+            ![slots isKindOfClass:NSDictionary.class])
+            continue;
+        id token = slots[provider];
+        if (![token isKindOfClass:NSString.class]) continue;
+        NSString *key = [@"MSIMEClientVoice" stringByAppendingString:configuration[@"key"]];
+        if (![[defaults objectForKey:key] isEqual:token]) {
+            [defaults setObject:token forKey:key];
+            changed = YES;
+        }
+    }
     return changed;
 }
