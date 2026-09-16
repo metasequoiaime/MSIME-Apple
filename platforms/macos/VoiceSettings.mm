@@ -1,5 +1,6 @@
 #import "VoiceSettings.h"
 #import "VoiceInputService.h"
+#import "SharedVoicePreferences.h"
 NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClientVoiceSettingsDidChange";
 namespace {
 NSString *NormalizedDoubaoAuthMode(NSUserDefaults *defaults)
@@ -18,6 +19,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
     NSUInteger index = [values indexOfObject:value ?: @""];
     return index == NSNotFound ? 0 : index;
 }
+
 } // namespace
 
 @implementation MSIMEVoiceSettings {
@@ -27,6 +29,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
     NSButton *_polish;
     NSTextField *_model, *_endpoint, *_asrModel;
     NSSecureTextField *_token;
+    NSString *_loadedASRProvider;
     NSTextField *_doubaoBoostingTable, *_doubaoAppKey, *_doubaoResourceID, *_polishPrompt, *_polishEndpoint, *_polishCustom1, *_polishCustom2, *_polishCustom3;
     NSButton *_hotkey, *_muteAudio, *_soundEnabled, *_holdSpace, *_rightAlt, *_streamInline, *_ctrlCommand, *_ctrlOption;
     MSIMEVoiceInputService *_service;
@@ -54,14 +57,18 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
         _asrModel = [NSTextField textFieldWithString:@""]; _asrModel.placeholderString = @"ASR 模型（可选）"; _doubaoBoostingTable = [NSTextField textFieldWithString:@""]; _doubaoAppKey = [NSTextField textFieldWithString:@""]; _doubaoResourceID = [NSTextField textFieldWithString:@""];
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSArray *asrProviders = @[@"doubao", @"openai", @"siliconflow", @"groq"];
-        [_provider selectItemAtIndex:IndexOrZero(asrProviders, [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao")];
+        NSString *selectedASRProvider = asrProviders[IndexOrZero(asrProviders, [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao")];
+        _loadedASRProvider = [selectedASRProvider copy];
+        [_provider selectItemAtIndex:IndexOrZero(asrProviders, selectedASRProvider)];
         [_doubaoAuthMode selectItemAtIndex:[NormalizedDoubaoAuthMode(defaults) isEqualToString:@"legacy"] ? 1 : 0];
         _polish.state = ([defaults boolForKey:@"MSIMEClientVoicePolish"] || [defaults boolForKey:@"MSIMEClientVoicePolishText"]) ? NSControlStateValueOn : NSControlStateValueOff;
         NSArray *polishProviders = @[@"deepseek", @"openai", @"siliconflow", @"groq"];
         [_polishProvider selectItemAtIndex:IndexOrZero(polishProviders, [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek")];
         _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @""; _polishEndpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @""; _polishPrompt.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @""; _polishCustom1.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @""; _polishCustom2.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @""; _polishCustom3.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""; NSUInteger preset = [@[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup"]; [_polishPromptID selectItemAtIndex:preset == NSNotFound ? 0 : preset];
         _endpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
-        _token.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"";
+        _token.stringValue = MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
+                                                        selectedASRProvider,
+                                                        [defaults stringForKey:@"MSIMEClientVoiceASRToken"]);
         _hotkey = [NSButton checkboxWithTitle:@"启用 Ctrl+F9 语音快捷键" target:self action:@selector(voiceOptionsChanged:)];
         _hotkey.state = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] ? NSControlStateValueOn : NSControlStateValueOff;
         _holdSpace = [NSButton checkboxWithTitle:@"按住语音快捷键时，按空格锁定录音" target:self action:@selector(voiceOptionsChanged:)]; _holdSpace.state = [defaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [defaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] ? NSControlStateValueOn : NSControlStateValueOff;
@@ -101,5 +108,41 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
     if (_model.stringValue.length == 0) _model.stringValue = models[index];
     [self voiceOptionsChanged:nil];
 }
-- (void)voiceOptionsChanged:(id)sender { (void)sender; NSUserDefaults *d=NSUserDefaults.standardUserDefaults; NSArray *asr=@[@"doubao",@"openai",@"siliconflow",@"groq"], *polish=@[@"deepseek",@"openai",@"siliconflow",@"groq"]; [d setObject:asr[_provider.indexOfSelectedItem] forKey:@"MSIMEClientVoiceASRProvider"]; [d setObject:_endpoint.stringValue forKey:@"MSIMEClientVoiceASREndpoint"]; [d setObject:_token.stringValue forKey:@"MSIMEClientVoiceASRToken"]; [d setBool:_hotkey.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlF9"]; [d setBool:_holdSpace.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyHoldSpace"]; [d setBool:_rightAlt.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyRightAlt"]; [d setBool:_ctrlCommand.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]; [d setBool:_ctrlOption.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlOption"]; [d setBool:_soundEnabled.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceSoundEnabled"]; [d setBool:_muteAudio.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceMuteSystemAudio"]; [d setBool:_streamInline.state==NSControlStateValueOn forKey:@"MSIMEClientVoiceStreamInlinePreedit"]; [d setBool:_polish.state==NSControlStateValueOn forKey:@"MSIMEClientVoicePolish"]; [d setObject:polish[_polishProvider.indexOfSelectedItem] forKey:@"MSIMEClientVoicePolishProvider"]; [d setObject:_model.stringValue forKey:@"MSIMEClientVoicePolishModel"]; [d setObject:_polishEndpoint.stringValue forKey:@"MSIMEClientVoicePolishEndpoint"]; [d setObject:_polishPrompt.stringValue forKey:@"MSIMEClientVoicePolishPrompt"]; [d setObject:_polishPromptID.titleOfSelectedItem forKey:@"MSIMEClientVoicePolishPromptID"]; [d setObject:_polishCustom1.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom1"]; [d setObject:_polishCustom2.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom2"]; [d setObject:_polishCustom3.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom3"]; [d setObject:_doubaoBoostingTable.stringValue forKey:@"MSIMEClientVoiceDoubaoBoostingTableID"]; [d setObject:_doubaoAppKey.stringValue forKey:@"MSIMEClientVoiceDoubaoAppKey"]; [d setObject:_doubaoResourceID.stringValue forKey:@"MSIMEClientVoiceDoubaoResourceID"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
+- (void)voiceOptionsChanged:(id)sender {
+    (void)sender;
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    NSArray *asr = @[@"doubao", @"openai", @"siliconflow", @"groq"],
+                   *polish = @[@"deepseek", @"openai", @"siliconflow", @"groq"];
+    NSString *asrProvider = asr[_provider.indexOfSelectedItem];
+    if (_loadedASRProvider.length && ![_loadedASRProvider isEqualToString:asrProvider]) {
+        MSIMESaveVoiceTokenSlot(d, @"MSIMEClientVoiceASRTokens", _loadedASRProvider, _token.stringValue);
+        _token.stringValue = MSIMEVoiceTokenForProvider(d, @"MSIMEClientVoiceASRTokens", asrProvider, nil);
+    }
+    _loadedASRProvider = [asrProvider copy];
+    MSIMESaveVoiceTokenSlot(d, @"MSIMEClientVoiceASRTokens", asrProvider, _token.stringValue);
+    [d setObject:asrProvider forKey:@"MSIMEClientVoiceASRProvider"];
+    [d setObject:_endpoint.stringValue forKey:@"MSIMEClientVoiceASREndpoint"];
+    [d setObject:_token.stringValue forKey:@"MSIMEClientVoiceASRToken"];
+    [d setBool:_hotkey.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlF9"];
+    [d setBool:_holdSpace.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    [d setBool:_rightAlt.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+    [d setBool:_ctrlCommand.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlCommand"];
+    [d setBool:_ctrlOption.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceHotkeyCtrlOption"];
+    [d setBool:_soundEnabled.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceSoundEnabled"];
+    [d setBool:_muteAudio.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceMuteSystemAudio"];
+    [d setBool:_streamInline.state == NSControlStateValueOn forKey:@"MSIMEClientVoiceStreamInlinePreedit"];
+    [d setBool:_polish.state == NSControlStateValueOn forKey:@"MSIMEClientVoicePolish"];
+    [d setObject:polish[_polishProvider.indexOfSelectedItem] forKey:@"MSIMEClientVoicePolishProvider"];
+    [d setObject:_model.stringValue forKey:@"MSIMEClientVoicePolishModel"];
+    [d setObject:_polishEndpoint.stringValue forKey:@"MSIMEClientVoicePolishEndpoint"];
+    [d setObject:_polishPrompt.stringValue forKey:@"MSIMEClientVoicePolishPrompt"];
+    [d setObject:_polishPromptID.titleOfSelectedItem forKey:@"MSIMEClientVoicePolishPromptID"];
+    [d setObject:_polishCustom1.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom1"];
+    [d setObject:_polishCustom2.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom2"];
+    [d setObject:_polishCustom3.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom3"];
+    [d setObject:_doubaoBoostingTable.stringValue forKey:@"MSIMEClientVoiceDoubaoBoostingTableID"];
+    [d setObject:_doubaoAppKey.stringValue forKey:@"MSIMEClientVoiceDoubaoAppKey"];
+    [d setObject:_doubaoResourceID.stringValue forKey:@"MSIMEClientVoiceDoubaoResourceID"];
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self];
+}
 @end

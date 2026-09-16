@@ -23,6 +23,54 @@ static inline BOOL MSIMEVoiceCaptureBackendSupported(id backend) {
         [@[@"auto", @"macos"] containsObject:[(NSString *)backend lowercaseString]];
 }
 
+// Token maps are user preferences, not arbitrary JSON. Keep only string
+// provider names and string values before putting them in NSUserDefaults;
+// malformed snapshots must not make the native fallback throw while saving.
+static inline NSDictionary *MSIMEValidVoiceTokenSlots(id value) {
+    if (![value isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary *slots = [NSMutableDictionary dictionary];
+    for (id provider in (NSDictionary *)value) {
+        id token = ((NSDictionary *)value)[provider];
+        if (![provider isKindOfClass:NSString.class] ||
+            [(NSString *)provider length] == 0 ||
+            [(NSString *)provider length] > 128 ||
+            ![token isKindOfClass:NSString.class] ||
+            [(NSString *)token length] > 16384)
+            continue;
+        slots[provider] = token;
+    }
+    return [slots copy];
+}
+
+static inline NSDictionary *MSIMEVoiceTokenSlotsFromDefaults(NSUserDefaults *defaults,
+                                                               NSString *key) {
+    return defaults && key.length
+        ? MSIMEValidVoiceTokenSlots([defaults objectForKey:key]) : nil;
+}
+
+static inline NSString *MSIMEVoiceTokenForProvider(NSUserDefaults *defaults,
+                                                    NSString *key,
+                                                    NSString *provider,
+                                                    NSString *legacyValue) {
+    NSDictionary *slots = MSIMEVoiceTokenSlotsFromDefaults(defaults, key);
+    if (!slots) return legacyValue ?: @"";
+    NSString *token = slots[provider];
+    return [token isKindOfClass:NSString.class] ? token : @"";
+}
+
+static inline BOOL MSIMESaveVoiceTokenSlot(NSUserDefaults *defaults, NSString *key,
+                                           NSString *provider, NSString *token) {
+    if (!defaults || !key.length || !provider.length || provider.length > 128 ||
+        ![token isKindOfClass:NSString.class] || token.length > 16384)
+        return NO;
+    NSMutableDictionary *slots = [MSIMEVoiceTokenSlotsFromDefaults(defaults, key) mutableCopy];
+    if (!slots) slots = [NSMutableDictionary dictionary];
+    if ([slots[provider] isEqual:token]) return NO;
+    slots[provider] = token;
+    [defaults setObject:slots forKey:key];
+    return YES;
+}
+
 // Capture the native fallback's valid voice fields when it writes the shared
 // Preferences snapshot. The Tauri settings page remains the primary editor,
 // but the fallback window must not leave a second, silently diverging config
@@ -82,6 +130,14 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         if ([value isKindOfClass:NSNumber.class] &&
             CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID())
             voice[field] = value;
+    }
+    NSDictionary *tokenKeys = @{
+        @"asr_tokens": @"MSIMEClientVoiceASRTokens",
+        @"polish_tokens": @"MSIMEClientVoicePolishTokens"
+    };
+    for (NSString *field in tokenKeys) {
+        NSDictionary *slots = MSIMEValidVoiceTokenSlots([defaults objectForKey:tokenKeys[field]]);
+        if (slots) voice[field] = slots;
     }
     return [voice copy];
 }
@@ -143,6 +199,20 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         }
     }
 
+    NSDictionary *tokenKeys = @{
+        @"asr_tokens": @"MSIMEClientVoiceASRTokens",
+        @"polish_tokens": @"MSIMEClientVoicePolishTokens"
+    };
+    for (NSString *mapField in tokenKeys) {
+        NSDictionary *slots = MSIMEValidVoiceTokenSlots(voice[mapField]);
+        if (!slots) continue;
+        NSString *key = tokenKeys[mapField];
+        if (![[defaults objectForKey:key] isEqual:slots]) {
+            [defaults setObject:slots forKey:key];
+            changed = YES;
+        }
+    }
+
     // The shared contract keeps one credential slot per provider. The native
     // fallback consumes a flat token, so select the slot for the provider that
     // is active in this snapshot instead of accidentally reusing a token from
@@ -155,7 +225,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
     for (NSString *mapField in tokenSlots) {
         NSDictionary *configuration = tokenSlots[mapField];
         id provider = voice[configuration[@"provider"]];
-        id slots = voice[mapField];
+        NSDictionary *slots = MSIMEValidVoiceTokenSlots(voice[mapField]);
         if (![provider isKindOfClass:NSString.class] ||
             [(NSString *)provider length] == 0 ||
             ![slots isKindOfClass:NSDictionary.class])
