@@ -77,6 +77,17 @@ int main() {
         assert(MSIMEApplySharedVoicePreferences(providerSlots, defaults));
         assert([[defaults stringForKey:@"MSIMEClientVoiceASRToken"] isEqual:@"slot-asr"]);
         assert([[defaults stringForKey:@"MSIMEClientVoicePolishToken"] isEqual:@"slot-polish"]);
+        NSDictionary *capturedSlots = MSIMEVoicePreferencesFromDefaults(defaults);
+        assert([capturedSlots[@"asr_tokens"][@"openai"] isEqual:@"slot-asr"]);
+        assert([capturedSlots[@"polish_tokens"][@"groq"] isEqual:@"slot-polish"]);
+        assert([MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
+                                           @"openai", @"legacy") isEqual:@"slot-asr"]);
+        assert([MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
+                                           @"groq", @"legacy") isEqual:@""]);
+        assert(MSIMESaveVoiceTokenSlot(defaults, @"MSIMEClientVoiceASRTokens",
+                                       @"groq", @"slot-groq"));
+        assert([MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
+                                           @"groq", @"legacy") isEqual:@"slot-groq"]);
 
         for (NSNumber *master in @[@NO, @YES]) {
             for (NSNumber *start in @[@NO, @YES]) {
