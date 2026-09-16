@@ -2545,6 +2545,33 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
         return YES;
     }
+    // Candidate paging is keyed by the physical ANSI key, matching Windows
+    // even when the current keyboard layout produces a different glyph (or no
+    // text at all). Unicode '+' is an Engine code-sequence character, and the
+    // Japanese minus/equal keys remain composition input.
+    const int physicalPageDirection = msime::mac::PhysicalCandidatePageDirection(event.keyCode);
+    const BOOL japaneseMinusEqual = msime::mac::IsJapaneseMinusEqualKey(
+        [_view[@"scheme"] intValue], [_view[@"local_mode"] isEqual:@"temporary_japanese"],
+        event.keyCode, 0);
+    const BOOL unicodePlus = [_view[@"local_mode"] isEqual:@"unicode"] &&
+        [event.charactersIgnoringModifiers isEqual:@"+"];
+    if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift) &&
+        physicalPageDirection != 0 && !japaneseMinusEqual && !unicodePlus) {
+        const BOOL previous = physicalPageDirection < 0 &&
+            ((event.keyCode == 27 && [_appearance navigationEnabled:@"minus_equal"]) ||
+             (event.keyCode == 33 && [_appearance navigationEnabled:@"brackets"]) ||
+             (event.keyCode == 43 && [_appearance navigationEnabled:@"comma_period"]) ||
+             (event.keyCode == 116 && [_appearance navigationEnabled:@"page_up_down"]));
+        const BOOL next = physicalPageDirection > 0 &&
+            ((event.keyCode == 24 && [_appearance navigationEnabled:@"minus_equal"]) ||
+             (event.keyCode == 30 && [_appearance navigationEnabled:@"brackets"]) ||
+             (event.keyCode == 47 && [_appearance navigationEnabled:@"comma_period"]) ||
+             (event.keyCode == 121 && [_appearance navigationEnabled:@"page_up_down"]));
+        if (previous || next) {
+            [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+            return YES;
+        }
+    }
     if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift)) {
         NSString *characters = event.charactersIgnoringModifiers;
         if (characters.length == 1) {
@@ -2561,7 +2588,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             BOOL brackets = [wordCharacter[@"keys"] isEqual:@"brackets"];
             BOOL first = character == (brackets ? '[' : '-');
             BOOL last = character == (brackets ? ']' : '=');
-            if ([wordCharacter[@"enabled"] boolValue] && (first || last)) {
+            if ([wordCharacter[@"enabled"] boolValue] &&
+                msime::mac::IsPhysicalWordCharacterKey(event.keyCode, brackets, static_cast<char>(character)) &&
+                (first || last)) {
                 if (![_view[@"focused"] isEqual:@YES] || ![_view[@"candidates"] isKindOfClass:NSArray.class]) return YES;
                 for (NSDictionary *candidate in _view[@"candidates"]) {
                     if (![candidate isKindOfClass:NSDictionary.class]) continue;
@@ -2572,12 +2601,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                     if (selected) [self apply:selected];
                     return YES; // Unsupported/stale candidates must not turn into punctuation.
                 }
-                return YES;
-            }
-            const BOOL previous = ([_appearance navigationEnabled:@"minus_equal"] && character == '-') || ([_appearance navigationEnabled:@"brackets"] && character == '[') || ([_appearance navigationEnabled:@"comma_period"] && character == ',');
-            const BOOL next = ([_appearance navigationEnabled:@"minus_equal"] && character == '=') || ([_appearance navigationEnabled:@"brackets"] && character == ']') || ([_appearance navigationEnabled:@"comma_period"] && character == '.');
-            if (previous || next) {
-                [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
                 return YES;
             }
             }

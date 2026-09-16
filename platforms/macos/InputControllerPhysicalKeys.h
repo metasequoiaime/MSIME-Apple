@@ -103,6 +103,44 @@ constexpr bool IsJapaneseMinusEqualInput(int scheme, bool temporaryJapanese, cha
 constexpr bool IsJapaneseMinusEqualKey(int scheme, bool temporaryJapanese, unsigned short keyCode, char character)
 {
     if (scheme != 3 && !temporaryJapanese) return false;
-    return keyCode == 24 || keyCode == 27 || character == '-' || character == '=';
+    // Real AppKit events must identify the physical ANSI key.  Keep the
+    // keyCode==0 character fallback for older synthetic tests/events only;
+    // accepting a punctuation character from another physical key would
+    // diverge from the Windows virtual-key contract.
+    return keyCode == 24 || keyCode == 27 ||
+           (keyCode == 0 && (character == '-' || character == '='));
+}
+
+// Candidate paging follows Windows' physical virtual-key policy.  AppKit's
+// charactersIgnoringModifiers varies with the active keyboard layout, so the
+// key code—not the produced glyph—selects the binding.  A zero result means
+// that the key is not one of the paging keys; -1 is previous and +1 is next.
+constexpr int PhysicalCandidatePageDirection(unsigned short keyCode)
+{
+    switch (keyCode)
+    {
+    case 27: // ANSI '-'
+    case 43: // ANSI ','
+    case 33: // ANSI '['
+    case 116: // Page Up
+        return -1;
+    case 24: // ANSI '='
+    case 47: // ANSI '.'
+    case 30: // ANSI ']'
+    case 121: // Page Down
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+// Word-to-character is stricter than paging: both the physical key and its
+// expected unshifted punctuation must match.  This prevents a keyboard layout
+// from making an unrelated physical key with the same glyph select an edge.
+constexpr bool IsPhysicalWordCharacterKey(unsigned short keyCode, bool brackets, char character)
+{
+    if (brackets)
+        return (keyCode == 33 && character == '[') || (keyCode == 30 && character == ']');
+    return (keyCode == 27 && character == '-') || (keyCode == 24 && character == '=');
 }
 } // namespace msime::mac
