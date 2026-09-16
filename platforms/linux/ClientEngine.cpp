@@ -42,6 +42,7 @@
 using Json = nlohmann::json;
 struct MsimePreviewEngine;
 namespace {
+constexpr const char *kDefaultCandidateSkin = "willow_green";
 Json configured;
 uint64_t configuration_generation = 0;
 std::atomic<uint64_t> next_client_token{1};
@@ -56,7 +57,7 @@ bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
   if (preferences.value("candidate_theme", "follow") == "follow")
     preferences["candidate_theme"] = system_dark ? "dark" : "light";
-  const auto selected = preferences.value("candidate_skin", "fluent");
+  const auto selected = preferences.value("candidate_skin", kDefaultCandidateSkin);
   if (selected == "fluent" || selected == "wechat" || selected == "graphite" ||
       selected == "willow_green")
     return preferences;
@@ -1285,7 +1286,7 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_text_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").text;
@@ -1295,7 +1296,7 @@ std::optional<guint> candidate_number_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_number_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").number;
@@ -1305,7 +1306,7 @@ std::optional<guint> candidate_accent_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_accent_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_accent(skin, theme == "dark");
@@ -1316,7 +1317,7 @@ std::optional<guint> candidate_background_color(const Json &preferences) {
     return custom;
   if (const auto custom = palette_color(preferences.value("candidate_surface_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";
   if (msime::linux_host::candidate_builtin_skin(skin))
@@ -1329,7 +1330,7 @@ std::optional<guint> candidate_selected_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_selected_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").selected;
@@ -1339,7 +1340,7 @@ std::optional<guint> candidate_selected_text_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_text_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
     const auto palette =
@@ -1353,7 +1354,7 @@ std::optional<guint> candidate_selected_number_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_number_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", "fluent");
+  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
     const auto palette =
@@ -2196,7 +2197,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto theme = s.theme_override.value_or(
       configured.at("preferences").value("candidate_theme", "follow"));
   const auto skin = s.skin_override.value_or(
-      configured.at("preferences").value("candidate_skin", "fluent"));
+      configured.at("preferences").value("candidate_skin", kDefaultCandidateSkin));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -4526,7 +4527,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       if (!available) return;
       if (s.skin_override.value_or(
-              configured.at("preferences").value("candidate_skin", "fluent")) == selected)
+              configured.at("preferences").value("candidate_skin", kDefaultCandidateSkin)) == selected)
         return;
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
