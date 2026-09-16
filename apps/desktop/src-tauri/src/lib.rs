@@ -1123,7 +1123,7 @@ async fn dictionary_request(
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
-            return ios_personal_dictionary_request(request);
+            return ios_personal_dictionary_request(&request);
         }
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]

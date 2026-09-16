@@ -307,10 +307,13 @@ class IOSProjectConfigTests(unittest.TestCase):
             2,
         )
 
-    def test_ios_cloud_dictionary_uses_shared_account_without_snapshot_state(self):
+    def test_ios_cloud_dictionary_uses_shared_account_and_snapshot_queue(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift").read_text()
 
         self.assertIn("ios_account::cloud_dictionary_request(state, action).await", rust_entry)
         self.assertIn("pub async fn cloud_dictionary_request", account)
@@ -330,7 +333,33 @@ class IOSProjectConfigTests(unittest.TestCase):
             'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',
             desktop_entry,
         )
-        self.assertIn('code: "invalid_cloud_dictionary"', account)
+        for operation in [
+            "dictionary_snapshot_preview(state).await",
+            "dictionary_snapshot_export(state).await",
+            "dictionary_snapshot_restore_preview(state, text).await",
+            "dictionary_snapshot_restore(state, text, expected_sha256, revision).await",
+            "dictionary_snapshot_enqueue(state, token).await",
+            "dictionary_snapshot_status(state).await",
+            "dictionary_snapshot_cancel(state).await",
+        ]:
+            self.assertIn(operation, account)
+        for path in [
+            "../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift",
+            "../../../../../shared/backend/BackendSnapshotClient.swift",
+            "../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift",
+        ]:
+            self.assertIn(path, project)
+        for source in [
+            "BackendSnapshotClient.swift in Sources",
+            "DictionarySnapshotQueue.swift in Sources",
+            "TauriDictionarySnapshotBridge.swift in Sources",
+        ]:
+            self.assertIn(source, generated)
+        self.assertIn("DictionarySnapshotQueue()", bridge)
+        self.assertIn("BackendPreparedSnapshot(copying: url)", bridge)
+        self.assertIn('@_cdecl("msime_ios_dictionary_snapshot_request")', bridge)
+        self.assertIn("snapshot: /\\b(Android|iPhone|iPad)\\b/i", desktop_entry)
+        self.assertIn("snapshotNative: /\\bMacintosh\\b/i", desktop_entry)
 
     def test_ios_community_services_use_shared_backend_and_tauri_ui(self):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()

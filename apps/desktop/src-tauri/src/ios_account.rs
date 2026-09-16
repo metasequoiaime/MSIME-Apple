@@ -2,7 +2,7 @@ use msime_client_core::account::{
     AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[cfg(target_os = "ios")]
 use serde_json::Value;
@@ -50,6 +50,8 @@ use msime_tauri_mobile_platform::{IosKeyboardPreferences, MobilePlatform};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "ios")]
 use std::sync::Arc;
+#[cfg(target_os = "ios")]
+use std::{fs, path::PathBuf, sync::Mutex};
 #[cfg(target_os = "ios")]
 use tauri::{AppHandle, Manager, Runtime, State, Wry};
 
@@ -224,10 +226,36 @@ type AiSkinService = BackendAiSkinService<BackendAccountClient, IosAccountStorag
 pub struct AccountState {
     session: Arc<Session>,
     platform: MobilePlatform<Wry>,
+    snapshot_directory: PathBuf,
+    snapshot_previews: Arc<Mutex<HashMap<String, PendingSnapshot>>>,
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
     ai_skin_requests: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Clone)]
+struct PendingSnapshot {
+    account_id: String,
+    path: PathBuf,
+    metadata: SnapshotMetadata,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotMetadata {
+    cloud_revision: i64,
+    sha256: String,
+    #[serde(skip_serializing)]
+    file_sha256: String,
+    bytes: u64,
+    records: usize,
+    entries: usize,
+    overlays: usize,
+    positions: usize,
+    selections: usize,
 }
 
 #[cfg(target_os = "ios")]
@@ -254,9 +282,14 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
         BackendAccountClient::new()?,
         Arc::clone(&session),
     ));
+    let snapshot_directory =
+        std::env::temp_dir().join(format!("msime-ios-tauri-snapshots-{}", std::process::id()));
+    fs::create_dir_all(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     app.manage(AccountState {
         session,
         platform,
+        snapshot_directory,
+        snapshot_previews: Arc::new(Mutex::new(HashMap::new())),
         community,
         resources,
         ai_skin,
@@ -468,19 +501,34 @@ pub async fn account_logout(
     state: State<'_, AccountState>,
     all: bool,
 ) -> Result<(), super::CommandError> {
-    call(state, move |session| session.logout(all)).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, move |session| session.logout(all)).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
-    call(state, |session| session.delete_account()).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, |session| session.delete_account()).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
-    call(state, |session| session.forget()).await
+    let previews = Arc::clone(&state.snapshot_previews);
+    let result = call(state, |session| session.forget()).await;
+    if result.is_ok() {
+        clear_snapshot_previews(&previews);
+    }
+    result
 }
 
 #[cfg(target_os = "ios")]
@@ -726,6 +774,51 @@ pub async fn community_skin_download(
     .map_err(|_| super::CommandError {
         code: "community_unavailable",
     })?
+}
+
+#[cfg(target_os = "ios")]
+fn snapshot_bridge(action: Value) -> Result<Value, super::CommandError> {
+    use std::ffi::CStr;
+    let bytes = serde_json::to_vec(&action).map_err(|_| super::CommandError {
+        code: "snapshot_invalid",
+    })?;
+    if bytes.len() > 8 * 1024 {
+        return Err(super::CommandError {
+            code: "snapshot_invalid",
+        });
+    }
+    let pointer = unsafe { msime_ios_dictionary_snapshot_request(bytes.as_ptr(), bytes.len()) };
+    if pointer.is_null() {
+        return Err(super::CommandError {
+            code: "snapshot_unavailable",
+        });
+    }
+    let response = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
+    unsafe { msime_ios_dictionary_snapshot_string_free(pointer) };
+    let envelope: Value = serde_json::from_slice(&response).map_err(|_| super::CommandError {
+        code: "snapshot_unavailable",
+    })?;
+    if envelope.get("ok") == Some(&Value::Bool(true)) {
+        return envelope.get("value").cloned().ok_or(super::CommandError {
+            code: "snapshot_unavailable",
+        });
+    }
+    let code = match envelope.get("error").and_then(Value::as_str) {
+        Some("snapshot_busy") => "snapshot_busy",
+        Some("snapshot_conflict") => "snapshot_conflict",
+        Some("snapshot_invalid") => "snapshot_invalid",
+        _ => "snapshot_unavailable",
+    };
+    Err(super::CommandError { code })
+}
+
+#[cfg(target_os = "ios")]
+unsafe extern "C" {
+    fn msime_ios_dictionary_snapshot_request(
+        request: *const u8,
+        length: usize,
+    ) -> *mut std::ffi::c_char;
+    fn msime_ios_dictionary_snapshot_string_free(value: *mut std::ffi::c_char);
 }
 
 #[cfg(target_os = "ios")]
@@ -1042,6 +1135,295 @@ fn dictionary_kind(value: &str) -> Result<DictionaryKind, super::CommandError> {
 }
 
 #[cfg(target_os = "ios")]
+fn snapshot_command_error() -> super::CommandError {
+    super::CommandError {
+        code: "snapshot_unavailable",
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
+    let Ok(mut pending) = previews.lock() else {
+        return;
+    };
+    for item in pending.drain().map(|(_, item)| item) {
+        let _ = fs::remove_file(item.path);
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn snapshot_metadata(value: Value) -> Result<SnapshotMetadata, super::CommandError> {
+    serde_json::from_value(value).map_err(|_| super::CommandError {
+        code: "snapshot_invalid",
+    })
+}
+
+#[cfg(target_os = "ios")]
+fn snapshot_response_without_account(mut value: Value) -> Result<Value, super::CommandError> {
+    let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
+    if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
+        request.remove("accountId");
+    }
+    Ok(value)
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_preview(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let directory = state.snapshot_directory.clone();
+    let previews = Arc::clone(&state.snapshot_previews);
+    let token = uuid::Uuid::new_v4().to_string();
+    let file_token = token.clone();
+    let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        let profile = session
+            .profile()
+            .map_err(|error| super::CommandError { code: error.code() })?;
+        let path = directory.join(format!("download-{file_token}.ndjson"));
+        if let Err(error) = session.dictionary_snapshot_to_file(&path) {
+            let _ = fs::remove_file(&path);
+            return Err(super::CommandError { code: error.code() });
+        }
+        let inspected = snapshot_bridge(serde_json::json!({
+            "operation": "inspect",
+            "path": path.to_string_lossy(),
+        }));
+        let metadata = match inspected.and_then(snapshot_metadata) {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = fs::remove_file(&path);
+                return Err(error);
+            }
+        };
+        Ok((profile.user.id, path, metadata))
+    })
+    .await
+    .map_err(|_| snapshot_command_error())??;
+    let old = {
+        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+        let old = pending
+            .drain()
+            .map(|(_, item)| item.path)
+            .collect::<Vec<_>>();
+        pending.insert(
+            token.clone(),
+            PendingSnapshot {
+                account_id,
+                path,
+                metadata: metadata.clone(),
+            },
+        );
+        old
+    };
+    for path in old {
+        let _ = fs::remove_file(path);
+    }
+    Ok(serde_json::json!({
+        "previewToken": token,
+        "snapshot": metadata,
+    }))
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_enqueue(
+    state: State<'_, AccountState>,
+    token: String,
+) -> Result<Value, super::CommandError> {
+    let parsed = uuid::Uuid::parse_str(&token).map_err(|_| super::CommandError {
+        code: "snapshot_invalid",
+    })?;
+    let pending = {
+        let mut previews = state
+            .snapshot_previews
+            .lock()
+            .map_err(|_| snapshot_command_error())?;
+        previews
+            .remove(&parsed.to_string())
+            .ok_or(super::CommandError {
+                code: "snapshot_invalid",
+            })?
+    };
+    let session = Arc::clone(&state.session);
+    let path = pending.path.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            let profile = session
+                .profile()
+                .map_err(|error| super::CommandError { code: error.code() })?;
+            if profile.user.id != pending.account_id {
+                return Err(super::CommandError {
+                    code: "snapshot_conflict",
+                });
+            }
+            let changes = session
+                .dictionary_changes(pending.metadata.cloud_revision, 1)
+                .map_err(|error| super::CommandError { code: error.code() })?;
+            if !changes.changes.is_empty() {
+                return Err(super::CommandError {
+                    code: "snapshot_conflict",
+                });
+            }
+            let state = snapshot_bridge(serde_json::json!({ "operation": "state" }))?;
+            let expected = state
+                .get("localVersion")
+                .and_then(Value::as_str)
+                .ok_or(super::CommandError {
+                    code: "snapshot_conflict",
+                })?
+                .to_owned();
+            snapshot_bridge(serde_json::json!({
+                "operation": "enqueue",
+                "path": path.to_string_lossy(),
+                "accountId": pending.account_id,
+                "cloudRevision": pending.metadata.cloud_revision,
+                "expectedLocalVersion": expected,
+                "fileSha256": pending.metadata.file_sha256,
+            }))
+        })();
+        let _ = fs::remove_file(path);
+        result
+    })
+    .await
+    .map_err(|_| snapshot_command_error())??;
+    snapshot_response_without_account(result)
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_export(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let directory = state.snapshot_directory.clone();
+    let token = uuid::Uuid::new_v4().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        let path = directory.join(format!("export-{token}.ndjson"));
+        let result = (|| {
+            session
+                .dictionary_snapshot_to_file(&path)
+                .map_err(|error| super::CommandError { code: error.code() })?;
+            let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
+                "operation": "inspect",
+                "path": path.to_string_lossy(),
+            }))?)?;
+            let text = fs::read_to_string(&path).map_err(|_| snapshot_command_error())?;
+            Ok(serde_json::json!({
+                "text": text,
+                "filename": "msime-dictionary-snapshot.ndjson",
+                "snapshot": metadata,
+            }))
+        })();
+        let _ = fs::remove_file(path);
+        result
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_restore_preview(
+    state: State<'_, AccountState>,
+    text: String,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let directory = state.snapshot_directory.clone();
+    let token = uuid::Uuid::new_v4().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        let path = directory.join(format!("restore-{token}.ndjson"));
+        let result = (|| {
+            fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
+            let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
+                "operation": "inspect",
+                "path": path.to_string_lossy(),
+            }))?)?;
+            let page = session
+                .dictionary_catalog(DictionaryKind::Quick, "", 0, "pinyin", "xiaohe")
+                .map_err(|error| super::CommandError { code: error.code() })?;
+            Ok(serde_json::json!({
+                "snapshot": metadata,
+                "expectedRevision": page.revision,
+            }))
+        })();
+        let _ = fs::remove_file(path);
+        result
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_restore(
+    state: State<'_, AccountState>,
+    text: String,
+    expected_sha256: String,
+    revision: i64,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let directory = state.snapshot_directory.clone();
+    let token = uuid::Uuid::new_v4().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        let path = directory.join(format!("restore-{token}.ndjson"));
+        let result = (|| {
+            fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
+            let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
+                "operation": "inspect",
+                "path": path.to_string_lossy(),
+            }))?)?;
+            if metadata.sha256 != expected_sha256 {
+                return Err(super::CommandError {
+                    code: "snapshot_invalid",
+                });
+            }
+            let result = session
+                .restore_dictionary_snapshot(text.as_bytes(), revision)
+                .map_err(|error| super::CommandError { code: error.code() })?;
+            Ok(serde_json::json!({
+                "revision": result.revision,
+                "reset": result.reset,
+            }))
+        })();
+        let _ = fs::remove_file(path);
+        result
+    })
+    .await
+    .map_err(|_| snapshot_command_error())?
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_status(
+    _state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    snapshot_response_without_account(snapshot_bridge(serde_json::json!({
+        "operation": "state",
+    }))?)
+}
+
+#[cfg(target_os = "ios")]
+async fn dictionary_snapshot_cancel(
+    state: State<'_, AccountState>,
+) -> Result<Value, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let previews = Arc::clone(&state.snapshot_previews);
+    let account_id = tauri::async_runtime::spawn_blocking(move || {
+        session
+            .profile()
+            .map(|profile| profile.user.id)
+            .map_err(|error| super::CommandError { code: error.code() })
+    })
+    .await
+    .map_err(|_| snapshot_command_error())??;
+    clear_snapshot_previews(&previews);
+    snapshot_response_without_account(snapshot_bridge(serde_json::json!({
+        "operation": "cancel",
+        "accountId": account_id,
+    }))?)
+}
+
+#[cfg(target_os = "ios")]
 pub async fn cloud_dictionary_request(
     state: State<'_, AccountState>,
     action: Value,
@@ -1272,16 +1654,24 @@ pub async fn cloud_dictionary_request(
             let kind = dictionary_kind(&kind)?;
             call(state, move |session| session.export_dictionary(kind, &format).map(|result| serde_json::json!({ "text": result.text, "filename": result.filename }))).await
         }
-        CloudDictionaryRequest::SnapshotPreview
-        | CloudDictionaryRequest::SnapshotExport
-        | CloudDictionaryRequest::SnapshotRestorePreview { .. }
-        | CloudDictionaryRequest::SnapshotRestore { .. }
-        | CloudDictionaryRequest::SnapshotRestoreNative { .. }
-        | CloudDictionaryRequest::SnapshotEnqueue { .. }
-        | CloudDictionaryRequest::SnapshotStatus
-        | CloudDictionaryRequest::SnapshotCancel => Err(super::CommandError {
-            code: "invalid_cloud_dictionary",
+        CloudDictionaryRequest::SnapshotPreview => dictionary_snapshot_preview(state).await,
+        CloudDictionaryRequest::SnapshotExport => dictionary_snapshot_export(state).await,
+        CloudDictionaryRequest::SnapshotRestorePreview { text } => {
+            dictionary_snapshot_restore_preview(state, text).await
+        }
+        CloudDictionaryRequest::SnapshotRestore {
+            text,
+            expected_sha256,
+            revision,
+        } => dictionary_snapshot_restore(state, text, expected_sha256, revision).await,
+        CloudDictionaryRequest::SnapshotRestoreNative { .. } => Err(super::CommandError {
+            code: "snapshot_unavailable",
         }),
+        CloudDictionaryRequest::SnapshotEnqueue { token } => {
+            dictionary_snapshot_enqueue(state, token).await
+        }
+        CloudDictionaryRequest::SnapshotStatus => dictionary_snapshot_status(state).await,
+        CloudDictionaryRequest::SnapshotCancel => dictionary_snapshot_cancel(state).await,
     }
 }
 
