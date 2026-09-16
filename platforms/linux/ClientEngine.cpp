@@ -1909,6 +1909,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
           (!s.cloud_candidates && source == 0)) continue;
       groups[source].push_back(candidate);
     }
+    bool ai_applied = false;
     for (uint8_t source = 0; source < 2; ++source) {
       if (groups[source].empty()) continue;
       const auto encoded = groups[source].dump();
@@ -1916,9 +1917,18 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
           s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source));
       s.view = applied.at("view");
+      if (source == 1 && applied.value("applied", false))
+        ai_applied = true;
     }
     render(engine, s.view);
-    translation_schedule(engine);
+    // AI insertion changes the visible candidate generation just like cloud
+    // insertion. Refresh translations immediately for the AI path so the new
+    // row and its neighbours are not left unannotated during the idle delay.
+    // Cloud-only updates retain the normal 500ms debounce.
+    if (ai_applied)
+      translation_dispatch(engine);
+    else
+      translation_schedule(engine);
   } catch (...) {}
 }
 } // namespace
