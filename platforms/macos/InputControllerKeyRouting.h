@@ -46,6 +46,25 @@ constexpr CandidatePageShortcut NormalizeCandidatePageShortcut(int value)
     }
 }
 
+// Candidate paging is a physical-key binding.  The character is still
+// checked for the selected ANSI key so a layout cannot make an unrelated key
+// with the same glyph trigger the shortcut.
+constexpr bool IsPhysicalCandidatePageShortcut(unsigned short keyCode, CandidatePageShortcut shortcut, char character)
+{
+    switch (shortcut)
+    {
+    case CandidatePageShortcut::MinusEqual:
+        return (keyCode == kVK_ANSI_Minus && character == '-') ||
+               (keyCode == kVK_ANSI_Equal && character == '=');
+    case CandidatePageShortcut::Brackets:
+        return (keyCode == kVK_ANSI_LeftBracket && character == '[') ||
+               (keyCode == kVK_ANSI_RightBracket && character == ']');
+    case CandidatePageShortcut::PageKeys:
+        return false;
+    }
+    return false;
+}
+
 constexpr size_t CandidatePageStart(size_t selectedIndex, size_t candidateCount, size_t pageSize)
 {
     if (candidateCount == 0 || pageSize == 0)
@@ -67,7 +86,7 @@ constexpr size_t CandidatePageEnd(size_t selectedIndex, size_t candidateCount, s
 constexpr ControllerKeyAction ClassifyControllerKey(
     unsigned short keyCode, bool candidatePanelVisible,
     CandidatePageShortcut pageShortcut = CandidatePageShortcut::MinusEqual, char pageShortcutCharacter = '\0',
-    bool pageShortcutModified = false)
+    bool pageShortcutModified = false, bool japaneseInput = false)
 {
     if (candidatePanelVisible)
     {
@@ -93,15 +112,15 @@ constexpr ControllerKeyAction ClassifyControllerKey(
             break;
         }
 
-        if (!pageShortcutModified)
+        if (!pageShortcutModified && !(japaneseInput && (keyCode == kVK_ANSI_Minus || keyCode == kVK_ANSI_Equal)))
         {
-            if ((pageShortcut == CandidatePageShortcut::MinusEqual && pageShortcutCharacter == '-') ||
-                (pageShortcut == CandidatePageShortcut::Brackets && pageShortcutCharacter == '['))
+            if (IsPhysicalCandidatePageShortcut(keyCode, pageShortcut, pageShortcutCharacter) &&
+                (keyCode == kVK_ANSI_Minus || keyCode == kVK_ANSI_LeftBracket))
             {
                 return ControllerKeyAction::MoveCandidatePageUp;
             }
-            if ((pageShortcut == CandidatePageShortcut::MinusEqual && pageShortcutCharacter == '=') ||
-                (pageShortcut == CandidatePageShortcut::Brackets && pageShortcutCharacter == ']'))
+            if (IsPhysicalCandidatePageShortcut(keyCode, pageShortcut, pageShortcutCharacter) &&
+                (keyCode == kVK_ANSI_Equal || keyCode == kVK_ANSI_RightBracket))
             {
                 return ControllerKeyAction::MoveCandidatePageDown;
             }

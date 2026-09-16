@@ -15,9 +15,13 @@ int main() {
     require(CandidatePageStart(0, 0, 9) == 0 && CandidatePageEnd(0, 0, 9) == 0, "empty page");
     require(ClassifyControllerKey(kVK_PageUp, true) == ControllerKeyAction::MoveCandidatePageUp, "page up key");
     require(ClassifyControllerKey(kVK_PageDown, true) == ControllerKeyAction::MoveCandidatePageDown, "page down key");
-    require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, '[', false) == ControllerKeyAction::MoveCandidatePageUp, "bracket page up");
-    require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, ']', false) == ControllerKeyAction::MoveCandidatePageDown, "bracket page down");
-    require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, '[', true) == ControllerKeyAction::Character, "modified bracket passthrough");
+    require(ClassifyControllerKey(kVK_ANSI_LeftBracket, true, CandidatePageShortcut::Brackets, '[', false) == ControllerKeyAction::MoveCandidatePageUp, "bracket page up");
+    require(ClassifyControllerKey(kVK_ANSI_RightBracket, true, CandidatePageShortcut::Brackets, ']', false) == ControllerKeyAction::MoveCandidatePageDown, "bracket page down");
+    require(ClassifyControllerKey(kVK_ANSI_LeftBracket, true, CandidatePageShortcut::Brackets, '[', true) == ControllerKeyAction::Character, "modified bracket passthrough");
+    require(ClassifyControllerKey(kVK_ANSI_LeftBracket, true, CandidatePageShortcut::Brackets, '[', false) == ControllerKeyAction::MoveCandidatePageUp, "physical bracket page up");
+    require(ClassifyControllerKey(kVK_ANSI_Minus, true, CandidatePageShortcut::MinusEqual, '-', false, true) == ControllerKeyAction::Character, "Japanese minus passthrough");
+    require(ClassifyControllerKey(kVK_ANSI_Equal, true, CandidatePageShortcut::MinusEqual, '+', false) == ControllerKeyAction::Character, "Unicode plus passthrough");
+    require(ClassifyControllerKey(0, true, CandidatePageShortcut::Brackets, '[', false) == ControllerKeyAction::Character, "wrong physical bracket rejected");
     require(msime::mac::IsJapaneseMinusEqualInput(3, false, '-') && msime::mac::IsJapaneseMinusEqualInput(3, false, '='), "direct Japanese scheme punctuation");
     require(msime::mac::IsJapaneseMinusEqualInput(0, true, '-') && msime::mac::IsJapaneseMinusEqualInput(0, true, '='), "temporary Japanese punctuation");
     require(!msime::mac::IsJapaneseMinusEqualInput(0, false, '-') && !msime::mac::IsJapaneseMinusEqualInput(3, false, '['), "non-Japanese punctuation remains navigation");
