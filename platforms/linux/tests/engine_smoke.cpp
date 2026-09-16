@@ -1557,6 +1557,33 @@ int main(int argc, char **argv) {
     require(key('<') && key('<'), "Paired book title marks were not consumed");
     require(seen.committed == paired_book_titles + "《》《》",
             "Auto-closed book title marks left Engine nesting elevated");
+
+    // Mixed input keeps the ordinary Chinese session while inserting the
+    // fixed-resource English/Emoji candidate into the same lookup table.
+    invoke("Reset");
+    seen.committed.clear();
+    for (const char character : std::string("xiaolian"))
+      require(key(static_cast<guint>(character)), "Mixed Emoji input was not consumed");
+    const auto mixed_emoji = std::find(seen.candidates.begin(), seen.candidates.end(), "😀");
+    require(mixed_emoji != seen.candidates.end(),
+            "Mixed Emoji candidate was not exposed in the Chinese session");
+    const auto mixed_emoji_index = static_cast<guint>(mixed_emoji - seen.candidates.begin());
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_emoji_index, 0));
+    require(seen.committed == "😀" && !seen.preedit_visible && !seen.lookup_visible,
+            "Mixed Emoji candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    for (const char character : std::string("hello"))
+      require(key(static_cast<guint>(character)), "Mixed English input was not consumed");
+    const auto mixed_english = std::find(seen.candidates.begin(), seen.candidates.end(), "hello");
+    require(mixed_english != seen.candidates.end(),
+            "Mixed English candidate was not exposed at the configured prefix threshold");
+    const auto mixed_english_index = static_cast<guint>(mixed_english - seen.candidates.begin());
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_english_index, 0));
+    require(seen.committed == "hello" && !seen.preedit_visible && !seen.lookup_visible,
+            "Mixed English candidate was not committed through IBus");
+
     invoke("Reset");
     require(key('u', IBUS_SHIFT_MASK), "Shift+U Unicode mode was not consumed");
     require(seen.preedit_visible && seen.preedit == "U",
