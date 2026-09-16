@@ -4806,6 +4806,30 @@ mod tests {
         assert_eq!(created["ok"], true);
         created["value"]["session"].as_u64().unwrap()
     }
+    fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preferences) -> u64 {
+        let path = |name| {
+            let path = root.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let resources = path("resources");
+        let dictionaries = path("dictionaries");
+        let fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       INSERT INTO tbl_2_n VALUES('ni''hao','nh','本地',100),('ni''hao','nh','拟好',80);
+                       CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+        for directory in [&resources, &dictionaries] {
+            rusqlite::Connection::open(directory.join("msime.db"))
+                .unwrap()
+                .execute_batch(fixture)
+                .unwrap();
+        }
+        let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true);
+        created["value"]["session"].as_u64().unwrap()
+    }
     fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {
         let snapshot =
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
@@ -5643,7 +5667,7 @@ mod tests {
             cloud_candidates: true,
             ..chinese_preferences()
         };
-        let handle = test_host_preferences(dir.path(), preferences.clone());
+        let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
         read(msime_client_focus(handle, true));
         assert!(read(msime_client_online_query(handle))["value"].is_null());
         for byte in b"nihao" {
@@ -5663,6 +5687,7 @@ mod tests {
             })
         };
         let before = read(msime_client_view(handle))["value"].clone();
+        assert!(!before["candidates"].as_array().unwrap().is_empty());
         for candidate in ["", "bad\nvalue"] {
             let result = read(unsafe {
                 msime_client_apply_online_candidate(
@@ -5720,6 +5745,38 @@ mod tests {
             "invalid online query document"
         );
         read(msime_client_destroy(other));
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn cloud_candidate_requires_an_existing_local_candidate_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            scheme: InputScheme::Quanpin,
+            cloud_candidates: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_preferences(dir.path(), preferences);
+        read(msime_client_focus(handle, true));
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let query = read(msime_client_online_query(handle))["value"].to_string();
+        let before = read(msime_client_view(handle))["value"].clone();
+        assert!(before["candidates"].as_array().unwrap().is_empty());
+        let candidate = "你好";
+        let result = read(unsafe {
+            msime_client_apply_online_candidate(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidate.as_ptr(),
+                candidate.len(),
+                0,
+            )
+        });
+        assert_eq!(result["value"]["applied"], false);
+        assert_eq!(result["value"]["view"], before);
         read(msime_client_destroy(handle));
     }
 

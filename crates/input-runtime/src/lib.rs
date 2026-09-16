@@ -1403,6 +1403,13 @@ impl Runtime<Session> {
             || candidate.len() > 4096
             || candidate.chars().any(char::is_control)
             || source > 1
+            // Windows only merges a cloud suggestion into an existing
+            // candidate page.  A callback arriving after the local page was
+            // cleared must not manufacture a new page from stale provider
+            // state.  AI suggestions intentionally do not use this guard:
+            // Windows accepts them for an otherwise eligible pinyin query
+            // even when the local dictionary returned no rows.
+            || (source == 0 && self.cached.candidates.is_empty())
             || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
             || (source == 1 && !query.ai_eligible)
         {
@@ -1457,6 +1464,7 @@ impl Runtime<Session> {
                 text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
             })
             || source > 1
+            || (source == 0 && self.cached.candidates.is_empty())
             || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
             || (source == 1 && !query.ai_eligible)
         {
