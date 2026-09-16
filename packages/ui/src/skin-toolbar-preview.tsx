@@ -6,6 +6,8 @@ import type { FloatingToolbarPreferences } from "./index";
 export function SkinToolbarPreview({ preferences }: { preferences?: FloatingToolbarPreferences }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const language = host.current?.querySelector<HTMLElement>('[data-toolbar-item="language"]');
+    if (language) language.style.display = !preferences || preferences.english_mode ? "flex" : "none";
     for (const item of ["fullwidth", "punctuation", "character_set", "emoji", "screen_keyboard", "settings"] as const) {
       const element = host.current?.querySelector<HTMLElement>(`[data-toolbar-item="${item}"]`);
       if (element) element.style.display = !preferences || preferences[item] ? "flex" : "none";

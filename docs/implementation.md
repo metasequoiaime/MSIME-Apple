@@ -1084,3 +1084,9 @@ macOS 原生 `FloatingToolbarPanel` 现在消费共享 `floating_toolbar.english
 macOS 原生 `AppearancePreferences` 的浮动工具栏共享组件白名单现在包含 `english_mode`，并在共享快照合并时保留 Tauri 设置的布尔值；没有共享值时输出默认开启。这样原生偏好回写不会丢失英文模式按钮的显示开关。
 
 本地验证：`ToolbarVisibilityPreferencesTest` 覆盖默认输出、共享关闭值的缓存与回写；未执行签名安装后的真实设置窗口到输入源链路验收，CI 保持禁用。
+
+### Tauri 浮动工具栏预览英文模式组件
+
+共享设置页的浮动工具栏预览现在消费 `floating_toolbar.english_mode`，隐藏或显示语言按钮，与 macOS 原生工具栏及其余可选组件保持同一套预览语义。预览仍是静态、无宿主动作的 UI 样例，不代表安装后的系统输入源视觉验收。
+
+本地验证：`skin-toolbar-preview` Vitest 覆盖英文模式按钮隐藏/显示、其他组件开关、尺寸变量和静态资源安全约束，CI 保持禁用。
