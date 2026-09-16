@@ -108,6 +108,17 @@ test("profile card opens the shared editor and copies the complete account ID", 
   expect(screen.queryByRole("dialog", { name: "编辑个人资料" })).toBeNull();
 });
 
+test("mobile profile card opens a back-stack page with account actions", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="android" />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "退出登录" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "‹ 返回" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "编辑个人资料" })).not.toBeNull());
+});
+
 test("iOS Apple sign-in stays behind the native account client boundary", async () => {
   const appleLogin = vi.fn().mockResolvedValue({ user });
   const client = account({
