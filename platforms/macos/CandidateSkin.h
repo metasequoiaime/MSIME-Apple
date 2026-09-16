@@ -101,9 +101,14 @@ const std::vector<SkinListEntry> &BuiltInSkinEntries();
 SkinTokens BuiltInSkinTokens(std::string_view id, bool dark);
 /// Resolve the palette owned by the floating toolbar rather than candidate
 /// color overrides. The shipped Fluent toolbar uses its own lighter accent;
-/// external packages fall back to that safe default, matching the Windows
-/// host's toolbar contract.
+/// external packages start from that safe default and may opt into the
+/// restricted native palette adapter below.
 SkinTokens ToolbarSkinTokens(std::string_view id, bool dark);
+/// Resolve the native toolbar palette, applying the safe color/geometry
+/// subset of an external package's toolbar stylesheet when one is present.
+/// Unsupported CSS (layout, scripts, images, effects) is intentionally ignored
+/// because the macOS toolbar is an AppKit view rather than a WebView.
+SkinTokens ToolbarSkinTokens(std::string_view id, bool dark, const std::filesystem::path &skinsRoot);
 std::optional<Rgba> ParseCssColor(std::string_view text);
 std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoot, const std::string &id,
                                            std::string *error = nullptr);

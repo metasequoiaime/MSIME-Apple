@@ -154,7 +154,22 @@ width_dip = 0
 [candidate.dark]
 accent = "#ff0000"
 )toml");
-    WriteFile(root / "wechat-based" / "toolbar.css", ".toolbar { color: red; }\n");
+    WriteFile(root / "wechat-based" / "toolbar.css", R"css(
+:root {
+  --toolbar-bg: #121212;
+  --toolbar-border: rgba(255, 255, 255, .25);
+  --toolbar-text: #f8f8f8;
+  --toolbar-accent: #ff8800;
+  --toolbar-radius: 12px;
+  --toolbar-border-width: 2px;
+  --toolbar-padding: 7px;
+}
+.toolbar:hover { background-color: #221100; }
+html[data-theme="light"] {
+  --toolbar-bg: #fffaf0;
+  --toolbar-text: #302000;
+}
+)css");
     auto wechatBased = msime::mac::LoadSkinPackage(root, "wechat-based", &error);
     Require(wechatBased.has_value() && wechatBased->base == "wechat",
             "A wechat-based skin with a valid toolbar stylesheet was rejected.");
@@ -162,6 +177,15 @@ accent = "#ff0000"
     Require(resolvedWechat.id == "wechat-based" && !resolvedWechat.tokens.showSelectedBar &&
                 resolvedWechat.tokens.selected.g > 0.6f && resolvedWechat.tokens.accent.r > 0.9f,
             "External skin tokens did not inherit the declared base skin.");
+    const auto toolbarDark = msime::mac::ToolbarSkinTokens("wechat-based", true, root);
+    Require(toolbarDark.surface.r < 0.1f && toolbarDark.surface.g < 0.1f && toolbarDark.surface.b < 0.1f &&
+                toolbarDark.border.a > 0.2f && toolbarDark.text.r > 0.9f && toolbarDark.accent.r > 0.9f &&
+                toolbarDark.radius == 12.0f && toolbarDark.borderWidth == 2.0f && toolbarDark.pad == 7.0f &&
+                toolbarDark.hover.r > 0.1f,
+            "The native toolbar did not apply the supported external CSS palette.");
+    const auto toolbarLight = msime::mac::ToolbarSkinTokens("wechat-based", false, root);
+    Require(toolbarLight.surface.r > 0.9f && toolbarLight.surface.g > 0.9f && toolbarLight.text.r < 0.3f,
+            "Theme-scoped toolbar CSS did not apply to the light palette.");
     Require(msime::mac::SupportsSkin(*wechatBased, "horizontal", "dark") &&
                 !msime::mac::SupportsSkin(*wechatBased, "vertical", "dark"),
             "External skin layout and theme support was not enforced.");
