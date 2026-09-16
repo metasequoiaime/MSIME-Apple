@@ -43,7 +43,9 @@ use msime_tauri_mobile_platform::AndroidVoicePlatform;
 #[cfg(any(target_os = "ios", test))]
 use msime_tauri_mobile_platform::IosVoiceRequestHeader;
 #[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
+use msime_tauri_mobile_platform::MobilePlatform;
+#[cfg(any(target_os = "ios", test))]
+use msime_tauri_mobile_platform::{IosKeyboardAiPreferences, IosVoiceTranscriptionRequest};
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
@@ -651,15 +653,32 @@ async fn load_preferences(
 async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     runtime: tauri::State<'_, RuntimeOptionsState>,
+    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
     expected_revision: u64,
     preferences: Preferences,
 ) -> Result<PreferencesSnapshot, CommandError> {
     let store = store.inner().clone();
     let runtime = runtime.inner().clone();
+    #[cfg(target_os = "ios")]
+    let platform = platform.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "ios")]
+        let previous = store.load().map_err(CommandError::from)?;
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
+        #[cfg(target_os = "ios")]
+        if let Err(_) = platform.save_keyboard_ai(&ios_keyboard_ai_preferences(
+            &snapshot.preferences.ai_assistant,
+        )) {
+            // Do not leave the canonical Rust document and the keyboard's
+            // native mirror describing different AI services. The revision
+            // returned by save() is the only revision that can safely roll
+            // back the write; a concurrent writer is reported as storage
+            // failure rather than overwritten.
+            let _ = store.save(snapshot.revision, previous.preferences);
+            return Err(CommandError { code: "ai_storage" });
+        }
         if clipboard_history_uses_preference(host_platform())
             && !snapshot.preferences.clipboard_history
         {
@@ -673,6 +692,70 @@ async fn save_preferences(
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_keyboard_ai_preferences(
+    preferences: &msime_client_core::preferences::AiAssistantPreferences,
+) -> IosKeyboardAiPreferences {
+    let provider = match preferences.provider.as_str() {
+        "everyapi" => "everyAPI",
+        "openai" => "openAI",
+        "anthropic" => "anthropic",
+        "gemini" => "gemini",
+        "deepseek" => "deepSeek",
+        "qwen" => "qwen",
+        "kimi" => "kimi",
+        "zhipu" => "zhipu",
+        "siliconflow" => "siliconFlow",
+        "openrouter" => "openRouter",
+        _ => "custom",
+    }
+    .to_owned();
+    let token = reqwest::Url::parse(preferences.endpoint.trim())
+        .ok()
+        .and_then(|url| {
+            if url.scheme() != "https"
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
+            {
+                return None;
+            }
+            let origin = format!(
+                "https://{}:{}",
+                url.host_str()?.to_ascii_lowercase(),
+                url.port().unwrap_or(443)
+            );
+            preferences
+                .tokens
+                .get(&preferences.provider)
+                .or_else(|| preferences.tokens.get(&origin))
+                .or_else(|| (!preferences.token.is_empty()).then_some(&preferences.token))
+                .cloned()
+        })
+        .unwrap_or_default();
+    let enabled = preferences.enabled
+        && !preferences.endpoint.trim().is_empty()
+        && !preferences.model.trim().is_empty()
+        && !preferences.prompt.trim().is_empty()
+        && !token.trim().is_empty();
+    IosKeyboardAiPreferences {
+        // Rust preferences may intentionally be enabled before the user has
+        // supplied a credential. Keep that draft in the canonical store, but
+        // clear the native mirror until the keyboard can actually authenticate.
+        enabled,
+        provider,
+        endpoint: preferences.endpoint.clone(),
+        model: preferences.model.clone(),
+        prompt: if preferences.prompt.trim().is_empty() {
+            "请润色以下文字，保持原意，只返回修改后的文字。".to_owned()
+        } else {
+            preferences.prompt.clone()
+        },
+        token,
+    }
 }
 
 #[cfg(any(target_os = "linux", all(test, unix)))]
@@ -5383,6 +5466,28 @@ mod tests {
         assert_eq!(configuration.model, "fixture-model");
         assert_eq!(configuration.token, "synthetic-slot");
         assert!(configuration.headers.is_empty());
+    }
+
+    #[test]
+    fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_drafts() {
+        let mut preferences = msime_client_core::preferences::Preferences::default();
+        preferences.ai_assistant.enabled = true;
+        preferences.ai_assistant.provider = "deepseek".into();
+        preferences.ai_assistant.endpoint =
+            "https://API.Example.invalid/v1/chat/completions".into();
+        preferences.ai_assistant.model = "fixture-model".into();
+        preferences.ai_assistant.prompt = "只返回结果".into();
+        preferences.ai_assistant.tokens.insert(
+            "https://api.example.invalid:443".into(),
+            "fixture-origin-token".into(),
+        );
+        let native = super::ios_keyboard_ai_preferences(&preferences.ai_assistant);
+        assert!(native.enabled);
+        assert_eq!(native.provider, "deepSeek");
+        assert_eq!(native.token, "fixture-origin-token");
+
+        preferences.ai_assistant.tokens.clear();
+        assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
     }
 
     #[test]
