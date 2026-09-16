@@ -59,6 +59,7 @@
 #include "PairedPunctuation.h"
 #include "PairedPunctuation.h"
 #include "TypingStatistics.h"
+#include "DiagnosticLog.h"
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
@@ -2184,6 +2185,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _modifierTap.reset();
     [super activateServer:sender];
     [self ensureAppearance];
+    msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
@@ -2364,6 +2366,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    NSDictionary *diagnostic = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"diagnostic_log"] : nil;
+    const BOOL diagnosticEnabled = [diagnostic isKindOfClass:NSDictionary.class] &&
+        [diagnostic[@"server"] isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)diagnostic[@"server"]) == CFBooleanGetTypeID() &&
+        [diagnostic[@"server"] boolValue];
+    const std::string directory = _preferencesDirectory.UTF8String ? _preferencesDirectory.UTF8String : "";
+    msime_macos_diagnostic_configure(directory, diagnosticEnabled);
+    if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
         _voiceThemePreferences = [preferences copy];
         _menuThemePreferences = [preferences copy];
@@ -2460,6 +2470,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    msime_macos_diagnostic_write("focus_out");
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
     [self cancelLiveVoiceInput];
