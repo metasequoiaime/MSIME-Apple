@@ -3,6 +3,7 @@
 #include "FocusGate.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -50,10 +51,11 @@ private:
   std::atomic<uint64_t> latest_serial_{0};
   std::atomic<bool> stopping_{false};
   std::mutex join_mutex_;
-  // Positive results are reusable across generations. The key includes the
-  // provider scope, target language, and planned source/target items, but no
-  // credentials.
+  // Results are reusable across generations. Keys include provider scope,
+  // target language, direction, and source/target items, but no credentials.
   std::unordered_map<std::string, std::string> translation_cache_;
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point>
+      translation_negative_cache_;
   std::thread worker_;
 };
 } // namespace msime::windows

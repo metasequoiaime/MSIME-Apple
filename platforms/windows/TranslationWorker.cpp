@@ -21,6 +21,8 @@ constexpr size_t kMaximumResponseBytes = 1024 * 1024;
 constexpr long kCustomTranslationTimeoutMs = 2500;
 constexpr long kTencentTranslationTimeoutMs = 2000;
 constexpr long kNiuTransTranslationTimeoutMs = 2500;
+constexpr auto kNegativeTranslationTtl = std::chrono::minutes(8);
+constexpr size_t kMaximumTranslationCacheEntries = 4096;
 
 struct HttpResponse {
   std::string body;
@@ -405,10 +407,10 @@ TranslationWorker::translate(const Request &request,
     if (!plan || !plan->is_array() || plan->empty() || cancelled())
       return std::nullopt;
 
-    // Translation results are valid across candidate generations. Reusing a
-    // completed page avoids repeating paid provider calls when the same
-    // candidates reappear after a navigation or preference refresh. The key
-    // deliberately excludes credentials and the generation.
+    // Translation results are valid across candidate generations. Cache each
+    // item independently so one provider miss does not suppress retries for
+    // unrelated candidates. Keys deliberately exclude credentials and the
+    // generation.
     std::string provider_scope;
     auto translations = nlohmann::json::array().dump();
     const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
@@ -424,28 +426,46 @@ TranslationWorker::translate(const Request &request,
         return std::nullopt;
       provider_scope = "tencent";
     }
-    nlohmann::json cache_key = {
-        {"provider", provider_scope},
-        {"target_language", query.at("target_language")},
-        {"items", nlohmann::json::array()},
+    const auto target_language = query.at("target_language");
+    const auto item_cache_id = [&](const nlohmann::json &item) {
+      return nlohmann::json{
+          {"provider", provider_scope},
+          {"target_language", target_language},
+          {"key", item.at("key")},
+          {"direction", item.at("source_language").get<std::string>() + ">" +
+                            item.at("target_language").get<std::string>()},
+          {"source_language", item.at("source_language")},
+          {"item_target_language", item.at("target_language")}}
+          .dump();
     };
-    for (const auto &item : *plan)
-      cache_key["items"].push_back({item.at("key"), item.at("source_language"),
-                                    item.at("target_language")});
-    const auto cache_id = cache_key.dump();
-    if (const auto cached = translation_cache_.find(cache_id);
-        cached != translation_cache_.end())
-      return TranslationWorker::Result{request.lease, generation,
-                                       cached->second};
+    std::vector<nlohmann::json> pending;
+    for (const auto &item : *plan) {
+      const auto cache_id = item_cache_id(item);
+      if (const auto cached = translation_cache_.find(cache_id);
+          cached != translation_cache_.end()) {
+        auto output = nlohmann::json::parse(translations);
+        output.push_back(
+            {{"text", item.at("text")}, {"translation", cached->second}});
+        translations = output.dump();
+        continue;
+      }
+      const auto negative = translation_negative_cache_.find(cache_id);
+      if (negative != translation_negative_cache_.end()) {
+        if (negative->second > std::chrono::steady_clock::now())
+          continue;
+        translation_negative_cache_.erase(negative);
+      }
+      pending.push_back(item);
+    }
 
     if (niutrans.is_object() && niutrans.value("enabled", false)) {
-      for (const auto &item : *plan) {
+      for (const auto &item : pending) {
         if (cancelled())
           return std::nullopt;
         append_niutrans_item(niutrans, item, translations, cancelled);
       }
     } else if (custom.is_object() && custom.value("enabled", false)) {
-      for (const auto &item : *plan) {
+      for (const auto &item : pending) {
         if (cancelled())
           return std::nullopt;
         if (auto value = custom_translation(custom, item, cancelled)) {
@@ -460,7 +480,7 @@ TranslationWorker::translate(const Request &request,
       if (!tencent.is_object() || !tencent.value("enabled", false))
         return std::nullopt;
       std::unordered_map<std::string, std::vector<nlohmann::json>> groups;
-      for (const auto &item : *plan)
+      for (const auto &item : pending)
         groups[item.at("source_language").get<std::string>() + "\n" +
                item.at("target_language").get<std::string>()]
             .push_back(item);
@@ -469,14 +489,41 @@ TranslationWorker::translate(const Request &request,
         append_tencent_group(tencent, items, translations, cancelled);
       }
     }
-    if (translations == "[]" || cancelled())
+    if (cancelled())
       return std::nullopt;
-    persist_english_glosses(query, translations);
-    if (translation_cache_.size() >= 4096)
-      translation_cache_.clear();
-    translation_cache_.emplace(cache_id, translations);
-    return TranslationWorker::Result{request.lease, generation,
-                                     std::move(translations)};
+    const auto output = nlohmann::json::parse(translations);
+    for (const auto &item : pending) {
+      const auto cache_id = item_cache_id(item);
+      const auto found =
+          std::find_if(output.begin(), output.end(), [&](const auto &entry) {
+            return entry.is_object() && entry.value("text", std::string{}) ==
+                                            item.at("text").get<std::string>();
+          });
+      if (found != output.end() &&
+          found->value("translation", std::string{}) != std::string{}) {
+        const auto value = found->at("translation").get<std::string>();
+        if (translation_cache_.size() >= kMaximumTranslationCacheEntries)
+          translation_cache_.clear();
+        translation_cache_[cache_id] = value;
+        translation_negative_cache_.erase(cache_id);
+        persist_english_glosses(
+            nlohmann::json{
+                {"target_language", target_language},
+                {"user_data", query.value("user_data", std::string{})}},
+            nlohmann::json::array(
+                {{{"text", item.at("text")}, {"translation", value}}})
+                .dump());
+      } else {
+        if (translation_negative_cache_.size() >=
+            kMaximumTranslationCacheEntries)
+          translation_negative_cache_.clear();
+        translation_negative_cache_[cache_id] =
+            std::chrono::steady_clock::now() + kNegativeTranslationTtl;
+      }
+    }
+    if (output.empty())
+      return std::nullopt;
+    return TranslationWorker::Result{request.lease, generation, output.dump()};
   } catch (...) {
     return std::nullopt;
   }
