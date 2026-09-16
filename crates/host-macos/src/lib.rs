@@ -40,8 +40,10 @@ impl Drop for DetachedWindowContent {
     }
 }
 
-/// A launch-only identity, never a cached destination for future key strokes.
+/// A process identity pinned by PID and launch time. The same identity is used
+/// for startup focus restoration and for non-activating panel key delivery.
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug)]
 pub struct LaunchTarget {
     pid: i32,
     launched: f64,
@@ -66,6 +68,34 @@ pub fn restore_launch_target(target: LaunchTarget) -> bool {
     }
     // SAFETY: scalar ABI; native side validates thread, process identity and focus.
     unsafe { msime_macos_restore_launch_target(target.pid, target.launched) }
+}
+
+/// Post a keyboard stroke to the application captured before a non-activating
+/// panel was shown. The launch time is checked again in native code so a
+/// recycled PID can never receive input intended for the old application.
+#[cfg(target_os = "macos")]
+pub fn send_keyboard_key_to_target(request: &KeyboardInputRequest, target: &LaunchTarget) -> bool {
+    let Some(stroke) = keyboard_stroke(request) else {
+        return false;
+    };
+    unsafe extern "C" {
+        fn msime_macos_send_keyboard_key_to_target(
+            pid: i32,
+            launched: f64,
+            code: u16,
+            flags: u64,
+        ) -> bool;
+    }
+    // SAFETY: scalar ABI; native code validates the target identity, main
+    // thread, Accessibility permission and event allocation before posting.
+    unsafe {
+        msime_macos_send_keyboard_key_to_target(
+            target.pid,
+            target.launched,
+            stroke.code,
+            stroke.flags,
+        )
+    }
 }
 
 /// Enumerate input-capable CoreAudio devices using their stable UIDs. The

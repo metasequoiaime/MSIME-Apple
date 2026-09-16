@@ -773,7 +773,15 @@ enum PanelInputTarget {
 #[derive(Clone, Copy, Debug)]
 struct PanelInputTarget(msime_host_windows::InputTarget);
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug)]
+struct PanelInputTarget(msime_host_macos::LaunchTarget);
+
+#[cfg(all(
+    not(target_os = "linux"),
+    not(target_os = "windows"),
+    not(target_os = "macos")
+))]
 #[derive(Clone, Debug)]
 struct PanelInputTarget;
 
@@ -2704,6 +2712,17 @@ fn remember_input_target(
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window;
+            let target = msime_host_macos::capture_launch_target().ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+            *state.0.lock().map_err(|_| HostActionError {
+                code: "unavailable",
+            })? = Some(PanelInputTarget(target));
+            return Ok(());
+        }
         let _ = (window, state);
         Ok(())
     }
@@ -2748,7 +2767,6 @@ async fn send_key(
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
     #[cfg(target_os = "macos")]
     {
-        let _ = state;
         request.validate().map_err(|_| HostActionError {
             code: "invalid_key",
         })?;
@@ -2759,9 +2777,21 @@ async fn send_key(
                 code: "unavailable",
             });
         }
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .clone()
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         let (send, received) = std::sync::mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
-            let _ = send.send(msime_host_macos::send_keyboard_key(&request));
+            let _ = send.send(msime_host_macos::send_keyboard_key_to_target(
+                &request, &target.0,
+            ));
         })
         .map_err(|_| HostActionError {
             code: "unavailable",
