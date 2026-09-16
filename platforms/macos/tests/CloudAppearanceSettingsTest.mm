@@ -51,7 +51,7 @@ int main() {
     NSDictionary *saved = [values copy];
     // Every size offered by the active native UI survives cloud export/import.
     for (NSInteger font = 12; font <= 32; ++font) {
-      for (NSInteger page = 1; page <= 9; ++page) {
+      for (NSInteger page : {5, 7, 9}) {
         [defaults setInteger:font forKey:@"MSIMEClientCandidateFontSize"];
         [defaults setInteger:page forKey:@"MSIMEClientCandidatePageSize"];
         NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
@@ -96,7 +96,7 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (id invalid in @[@YES, @0, @10, @1.5, @"5", NSNull.null]) {
+    for (id invalid in @[@YES, @0, @1, @6, @10, @1.5, @"5", NSNull.null]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));

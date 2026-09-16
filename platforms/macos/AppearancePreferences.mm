@@ -7,6 +7,7 @@
 #import "AISettingsWindow.h"
 #import "SharedVoicePreferences.h"
 #include "ShuangpinProfileNames.h"
+#include "CandidatePageSize.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
@@ -1232,11 +1233,11 @@ static BOOL ValidToolbarFontSize(id value) {
 }
 - (NSUInteger)pageSize {
     NSInteger value = _sharedPageSize ? _sharedPageSize.integerValue : [_defaults integerForKey:PageSizeKey];
-    return value >= 1 && value <= 9 ? value : 9;
+    return msime::mac::NormalizeCandidatePageSize(static_cast<NSUInteger>(MAX(0, value)));
 }
 - (void)setPageSize:(NSUInteger)value {
     _sharedPageSize = nil;
-    [_defaults setInteger:value >= 1 && value <= 9 ? value : 9 forKey:PageSizeKey];
+    [_defaults setInteger:msime::mac::NormalizeCandidatePageSize(value) forKey:PageSizeKey];
     [self preferencesChanged];
 }
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences {
@@ -1290,7 +1291,8 @@ static BOOL ValidToolbarFontSize(id value) {
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
-    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9) _sharedPageSize = page;
+    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9)
+        _sharedPageSize = @(msime::mac::NormalizeCandidatePageSize([page unsignedIntegerValue]));
     id theme = preferences[@"theme"];
     if ([@[@"dark", @"light", @"system"] containsObject:theme]) _sharedTheme = [theme copy];
     id candidateTheme = preferences[@"candidate_theme"];
@@ -1406,7 +1408,7 @@ static BOOL ValidToolbarFontSize(id value) {
     [_preeditFontButton selectItemAtIndex:self.preeditFontSize - 12];
     [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
-    [_pageSizeButton selectItemAtIndex:self.pageSize - 1];
+    [_pageSizeButton selectItemAtIndex:msime::mac::CandidatePageSizeOptionIndex(self.pageSize)];
     [_skinButton removeAllItems];
     for (const auto &entry : _skins) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@(entry.name.c_str()) action:nil keyEquivalent:@""];
@@ -1538,7 +1540,7 @@ static BOOL ValidToolbarFontSize(id value) {
     navigationControls.orientation = NSUserInterfaceLayoutOrientationVertical;
     navigationControls.alignment = NSLayoutAttributeLeading;
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSUInteger size = 1; size <= 9; ++size)
+    for (NSUInteger size : {static_cast<NSUInteger>(5), static_cast<NSUInteger>(7), static_cast<NSUInteger>(9)})
         [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个", (unsigned long)size]];
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
@@ -1862,7 +1864,7 @@ static BOOL ValidToolbarFontSize(id value) {
     [self setWordCharacterEnabled:_wordCharacterButton.state == NSControlStateValueOn keys:_wordCharacterKeys.indexOfSelectedItem == 1 ? @"minus_equal" : @"brackets"];
 }
 - (void)pageSizeChanged:(NSPopUpButton *)sender {
-    self.pageSize = sender.indexOfSelectedItem + 1;
+    self.pageSize = msime::mac::CandidatePageSizeForOptionIndex(MAX(0, sender.indexOfSelectedItem));
 }
 - (void)fontChanged:(NSPopUpButton *)sender {
     NSInteger index = sender.indexOfSelectedItem;

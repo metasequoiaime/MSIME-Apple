@@ -124,7 +124,7 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     NSDictionary *effective = [preferences cloudSettingsSnapshot];
     assert(MSIMEValidateCloudAppearance(effective));
     assert([effective[@"platform.macos.candidate_font_size"] isEqual:@12]);
-    assert([effective[@"platform.macos.candidate_page_size"] isEqual:@1]);
+    assert([effective[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([effective[@"platform.macos.candidate_panel_style"] isEqual:@1]);
     assert([effective[@"platform.macos.input_scheme"] isEqual:@2]);
     for (NSString *key in @[@"autocorrect", @"chinese_punctuation", @"shuangpin_preedit_uses_raw", @"floating_toolbar"])
@@ -268,7 +268,7 @@ int main(int argc, const char **argv) {
             preferences.skinID = skin;
             for (NSNumber *vertical in @[@NO, @YES]) {
                 preferences.vertical = vertical.boolValue;
-                for (NSNumber *size in @[@1, @2, @5, @7, @9]) {
+                for (NSNumber *size in @[@5, @7, @9]) {
                     preferences.pageSize = size.unsignedIntegerValue;
                     for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;

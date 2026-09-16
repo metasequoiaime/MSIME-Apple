@@ -90,7 +90,7 @@ SessionPreferences ReadSessionPreferences()
         [MetasequoiaPreferencesWindowController storedChinesePunctuationEnabled] == YES,
         metasequoia::mac::NormalizeCandidatePanelStyle(
             [MetasequoiaPreferencesWindowController storedCandidatePanelStyle]),
-        metasequoia::mac::NormalizeCandidatePageSize(
+        msime::mac::NormalizeCandidatePageSize(
             static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidatePageSize])),
         metasequoia::mac::NormalizeCandidateFontSize(
             static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidateFontSize])),
