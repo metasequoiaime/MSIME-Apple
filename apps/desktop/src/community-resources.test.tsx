@@ -48,6 +48,16 @@ test("community home opens the requested resource collection", async () => {
   expect(screen.getByRole("tab", { name: "回复" }).getAttribute("aria-selected")).toBe("true");
 });
 
+test("resource scope also has a compact filter menu for mobile layouts", async () => {
+  const list = vi.fn().mockResolvedValue({ items: [], has_more: false });
+  render(<CommunityResourcesPage client={client({ list })} kind="reply" initialScope="saved" />);
+  await waitFor(() => expect(list).toHaveBeenCalledWith("reply", "saved", "", 0));
+  const filter = screen.getByRole("group", { name: "回复筛选范围" });
+  expect(filter.querySelector("button[aria-pressed='true']")?.textContent).toBe("收藏");
+  fireEvent.click(screen.getByRole("button", { name: "筛选范围：我的作品" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith("reply", "mine", "", 0));
+});
+
 test("dictionary details apply the displayed revision and refresh saved state", async () => {
   const item = base("dictionary");
   const detail = vi.fn().mockResolvedValue(item); const apply = vi.fn().mockResolvedValue({ revision: 3, imported: 1, resource_revision: 2 });
