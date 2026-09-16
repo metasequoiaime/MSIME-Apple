@@ -15,6 +15,13 @@ struct BackendCommunityResourcesView: View {
   @State private var selected: BackendAccountClient.CommunityResource?
   @State private var creating = false
   private let client = BackendAccountClient()
+  private var scopeTitle: String {
+    switch scope {
+    case .mine: return "我发布的"
+    case .saved: return "我收藏的"
+    default: return "全部"
+    }
+  }
   private func authorize() async throws -> String {
     let value = try await BackendAccountSession.shared.credentials(matchingUserID: accountID)
     try Task.checkCancellation(); return value.token
@@ -22,14 +29,10 @@ struct BackendCommunityResourcesView: View {
   var body: some View {
     // 这一页是被推进来的,却自带一个「词包与回复模板」标题加一个调 dismiss 的「完成」—— 导航栏和它叠在一起,是两层标题,而「完成」在推进来的页面上只会把人弹回去,看起来像取消。
     List {
+      // 只有一条分段:资源类型是这一页的主分栏。范围是个筛选条件,两条分段叠在一起会读成两层标签页,而第二层其实只是在缩小第一层的结果。
       Section {
         Picker("资源", selection: $kind) { ForEach(BackendAccountClient.ResourceKind.allCases) { Text($0.title).tag($0) } }
           .pickerStyle(.segmented).labelsHidden()
-        Picker("范围", selection: $scope) {
-          Text("全部").tag(BackendAccountClient.ResourceScope.all)
-          Text("我发布的").tag(BackendAccountClient.ResourceScope.mine)
-          Text("我收藏的").tag(BackendAccountClient.ResourceScope.saved)
-        }.pickerStyle(.segmented).labelsHidden()
       }
       .disabled(busy)
       .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
@@ -51,6 +54,8 @@ struct BackendCommunityResourcesView: View {
             load(append: true)
           }
         }
+      } header: {
+        Text(scopeTitle)
       } footer: {
         Text("点一份作品查看详情，可以导入到自己的云端词库，或收藏起来以后再用。")
       }
@@ -62,6 +67,20 @@ struct BackendCommunityResourcesView: View {
     .navigationTitle("词包与回复模板")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      ToolbarItem(placement: .navigationBarTrailing) {
+        Menu {
+          Picker("范围", selection: $scope) {
+            Text("全部").tag(BackendAccountClient.ResourceScope.all)
+            Text("我发布的").tag(BackendAccountClient.ResourceScope.mine)
+            Text("我收藏的").tag(BackendAccountClient.ResourceScope.saved)
+          }
+        } label: {
+          Label(scopeTitle, systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .disabled(busy)
+        .accessibilityLabel("筛选范围")
+        .accessibilityIdentifier("filterCommunityResourceScope")
+      }
       ToolbarItem(placement: .navigationBarTrailing) {
         Button { creating = true } label: { Label("分享\(kind.title)", systemImage: "plus") }
           .disabled(busy)
