@@ -115,6 +115,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_online_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
+- (NSDictionary *)aiRequestForQuery:(NSDictionary *)query error:(NSError **)error {
+    if (![query isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:query]) {
+        setError(error, @"AI 查询格式错误"); return nil;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"AI 查询过大"); return nil; }
+    id value = decodeValue(msime_client_ai_request_for_query(
+        _handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     id value = decodeValue(msime_client_translation_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;

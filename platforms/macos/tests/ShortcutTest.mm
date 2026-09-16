@@ -2278,7 +2278,8 @@ static void TestAiCandidateEngineDelivery() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
         @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"default_ime_mode":@"chinese",
-        @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"candidate_limit":@3}}} mutableCopy];
+        @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"endpoint":@"https://synthetic.invalid/chat",
+            @"model":@"synthetic", @"token":@"synthetic-private", @"candidate_limit":@3}}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -2291,6 +2292,10 @@ static void TestAiCandidateEngineDelivery() {
     for (char byte : std::string("nihaoshijie")) [session typeASCII:byte shift:NO error:&error];
     NSDictionary *query = [session onlineQueryWithError:&error];
     assert(!error && [query[@"ai_eligible"] boolValue]);
+    assert(!query[@"ai_assistant"][@"token"]); // Copied queries never expose credentials.
+    NSDictionary *sessionDescriptor = [session aiRequestForQuery:query error:&error];
+    assert(sessionDescriptor && !error &&
+        [sessionDescriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-private"]);
     NSDictionary *applied = [session applyOnlineCandidates:parsed source:1 query:query error:&error];
     assert(!error && [applied[@"applied"] boolValue]);
     NSArray *candidates = applied[@"view"][@"candidates"];
@@ -2511,10 +2516,23 @@ static void TestCloudCandidatePreference() {
 @interface AIShortcutSession : ShortcutSession
 @property(nonatomic, copy) NSDictionary *query;
 @property(nonatomic) NSUInteger applications;
+@property(nonatomic) NSUInteger descriptorRequests;
 @property(nonatomic) BOOL rejectNextAI;
 @end
 @implementation AIShortcutSession
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
+- (NSDictionary *)aiRequestForQuery:(NSDictionary *)query error:(NSError **)error {
+    (void)error;
+    assert([query isEqual:self.query]);
+    ++self.descriptorRequests;
+    if ([query[@"ai_assistant"][@"provider"] isEqual:@"invalid"]) return nil;
+    NSString *context = [query[@"ai_context"] isKindOfClass:NSString.class] ? query[@"ai_context"] : @"";
+    return @{ @"url": @"https://synthetic.invalid/chat", @"method": @"POST",
+        @"headers": @{ @"Content-Type": @"application/json", @"Authorization": @"Bearer synthetic" },
+        @"body": @{ @"messages": @[@{ @"role": @"system", @"content": @"synthetic" },
+            @{ @"role": @"user", @"content": context }] }, @"timeout_ms": @8000,
+        @"connect_timeout_ms": @2500, @"max_response_bytes": @1048576 };
+}
 - (NSDictionary *)applyOnlineCandidates:(NSArray<NSString *> *)candidates source:(uint8_t)source
                                   query:(NSDictionary *)query error:(NSError **)error {
     (void)error;
@@ -2559,7 +2577,7 @@ static void TestAiCandidateScheduling() {
     NSTimer *timer = [controller valueForKey:@"aiTimer"];
     assert(timer);
     [timer fire];
-    assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
+    assert(session.descriptorRequests == 1 && controller.aiBatches.count == 1 && controller.aiBatches[0].started);
     NSDictionary *requestBody = controller.aiBatches[0].items[0][@"request"][@"body"];
     assert([requestBody[@"messages"][1][@"content"] containsString:@"最近提交的上下文"]);
     controller.aiBatches[0].reply(@[@{ @"translation": @"合成候选" }]);
@@ -2612,13 +2630,16 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     [controller synchronizeAITranslations];
     assert(controller.aiBatches.count == 0 && [controller valueForKey:@"aiQuery"] == nil);
+    assert(session.descriptorRequests == 1);
     NSMutableDictionary *query = [session.query mutableCopy];
     query[@"ai_assistant"] = @{ @"enabled": @YES, @"provider": @"openai",
         @"endpoint": @"https://synthetic.invalid/chat", @"model": @"synthetic", @"candidate_limit": @3 };
     session.query = query;
     [controller synchronizeAITranslations];
-    assert(controller.aiBatches.count == 0); // Descriptor creation still rejects this synthetic transport.
-    assert([controller valueForKey:@"aiQuery"] == nil);
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    assert(timer && session.descriptorRequests == 2);
+    [timer fire];
+    assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
     [controller cancelAITranslations];
 }
 @interface CustomTranslationController : CloudShortcutController
