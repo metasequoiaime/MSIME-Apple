@@ -1679,6 +1679,18 @@ fn x11_window_is_owned_by_process(pid_output: &str, process_id: u32) -> bool {
 }
 
 #[cfg(target_os = "linux")]
+fn x11_target_is_owned_by_current_process(window: &str) -> bool {
+    linux_process::read_text(
+        "xdotool",
+        &["getwindowpid", window],
+        64,
+        std::time::Duration::from_secs(1),
+    )
+    .map(|pid| x11_window_is_owned_by_process(&pid, std::process::id()))
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
     let read = |program: &str, arguments: &[&str], limit: usize| {
         linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
@@ -1712,9 +1724,7 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
             // settings UI instead of the user's application. If the PID
             // probe is unavailable, retain the legacy target so restricted
             // X11 helpers do not make panels unusable.
-            let owned = read("xdotool", &["getwindowpid", id], 64)
-                .map(|pid| x11_window_is_owned_by_process(&pid, std::process::id()))
-                .unwrap_or(false);
+            let owned = x11_target_is_owned_by_current_process(id);
             if !owned {
                 return Ok(PanelInputTarget::X11(id.to_owned()));
             }
@@ -2103,6 +2113,14 @@ fn with_panel_focus_released<T>(
 
 #[cfg(target_os = "linux")]
 fn send_x11_panel_key(window: &str, key: &str) -> Result<(), HostActionError> {
+    // Window IDs can be reused after the original editor exits. Re-check the
+    // owner immediately before injection so a reused ID cannot target one of
+    // this process's own Tauri windows.
+    if x11_target_is_owned_by_current_process(window) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     // Explicit --window key delivery uses XSendEvent, which many applications
     // reject. Activate first, then use XTEST through the empty window stack.
     // Bound activation as a window manager may decline to focus the target.
@@ -2214,6 +2232,11 @@ fn send_panel_text_to_target(
     }
     with_panel_focus_released(app, target, || {
         if let PanelInputTarget::X11(window) = target {
+            if x11_target_is_owned_by_current_process(window) {
+                return Err(HostActionError {
+                    code: "unavailable",
+                });
+            }
             // Use focused XTEST input for applications that reject XSendEvent.
             // --file - reads stdin, keeping the text out of process arguments.
             return linux_process::write_input(
