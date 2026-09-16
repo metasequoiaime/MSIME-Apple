@@ -2737,7 +2737,7 @@ async fn send_key(
 ) -> Result<(), HostActionError> {
     // Linux routes through the display server, Windows injects directly, so the
     // app handle belongs to only one of them.
-    let _ = (&app, &window);
+    let _ = (&app, &window, &state);
     #[cfg(target_os = "linux")]
     {
         request.validate().map_err(|_| HostActionError {
@@ -2771,27 +2771,18 @@ async fn send_key(
             code: "invalid_key",
         })?;
         // Only the non-focusable keyboard follows the current editor. Other
-        // panels will use their own captured input-session handoff.
+        // panels use their own captured input-session handoff.
         if window.label() != "keyboard-panel" {
             return Err(HostActionError {
                 code: "unavailable",
             });
         }
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .clone()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
         let (send, received) = std::sync::mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
-            let _ = send.send(msime_host_macos::send_keyboard_key_to_target(
-                &request, &target.0,
-            ));
+            // The keyboard is non-activating, so the user can switch editors
+            // while it remains open. Resolve the foreground target immediately
+            // before each stroke and re-check it in native code before posting.
+            let _ = send.send(msime_host_macos::send_keyboard_key(&request));
         })
         .map_err(|_| HostActionError {
             code: "unavailable",
