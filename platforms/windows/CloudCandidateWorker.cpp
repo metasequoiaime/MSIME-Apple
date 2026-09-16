@@ -140,7 +140,7 @@ std::string CloudCandidateWorker::fetch(const std::string &query,
     curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2000L);
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 2500L);
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 2000L);
     curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "MSIME-Client/1.0");
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
