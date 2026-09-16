@@ -15,6 +15,7 @@
 #include "CandidateActionPolicy.h"
 #include "PairedPunctuation.h"
 #include "ShuangpinProfileNames.h"
+#include "ClientInputModeMemory.h"
 #include "DiagnosticLog.h"
 #include "TypingStatistics.h"
 #include "msime_client.h"
@@ -189,6 +190,7 @@ struct State {
   uint64_t seen_menu_configuration = 0;
   bool input_enabled = true;
   bool mode_scope_global = false;
+  msime::linux_host::ClientInputModeMemory app_input_modes;
   bool chinese_punctuation = true;
   bool properties_registered = false;
   std::optional<bool> english_override;
@@ -327,6 +329,17 @@ struct State {
       g_clear_object(&clipboard_monitor);
     }
     g_clear_object(&clipboard_watch_file);
+  }
+  void remember_app_input_mode() {
+    if (!mode_scope_global)
+      app_input_modes.remember(focused_client, input_enabled);
+  }
+  void restore_app_input_mode() {
+    if (mode_scope_global)
+      return;
+    const auto fallback = configured.value("preferences", Json::object())
+                              .value("default_ime_mode", "chinese") != "english";
+    input_enabled = app_input_modes.restore(focused_client, fallback);
   }
   void configure_clipboard(std::string path, bool enabled) {
     if (!path.empty() && path.front() != '/')
@@ -3687,6 +3700,7 @@ void focus_in(IBusEngine *engine) {
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     // Host shortcuts and presentation also apply before a runtime is needed.
     s.refresh_host_preferences(configured.at("preferences"));
+    s.restore_app_input_mode();
     s.open();
     s.key_router.set_lease(
         {s.client_token, s.focus_epoch,
@@ -3713,6 +3727,7 @@ void focus_in(IBusEngine *engine) {
 void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
+    s.remember_app_input_mode();
     msime_linux_diagnostic_write("focus_out");
     voice_cancel(engine);
     s.key_router.cancel(
@@ -4943,6 +4958,7 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = !s.input_enabled;
+  s.remember_app_input_mode();
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
   s.open();
@@ -6373,11 +6389,15 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
 #if IBUS_CHECK_VERSION(1, 5, 27)
   engine->focus_in_id = [](IBusEngine *engine, const gchar *context, const gchar *client) {
     auto &s = state(engine);
-    if (s.focused && !s.focused_context.empty() &&
-        s.focused_context != (context ? context : ""))
+    const std::string next_client = client ? client : "";
+    if (s.focused && s.focused_client != next_client)
+      s.remember_app_input_mode();
+    if (s.focused &&
+        (s.focused_context != (context ? context : "") ||
+         s.focused_client != next_client))
       focus_out(engine);
     s.focused_context = context ? context : "";
-    s.focused_client = client ? client : "";
+    s.focused_client = next_client;
     s.surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
     focus_in(engine);
   };
@@ -6396,6 +6416,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
       global_input_enabled.reset();
       // The daemon clears properties on disable; register them on reactivation.
       state(engine).properties_registered = false;
+      state(engine).app_input_modes.clear();
       state(engine).input_enabled = configured.at("preferences").value(
           "default_ime_mode", "chinese") != "english";
     });
