@@ -1225,6 +1225,9 @@ def load_config(path):
             entry.setdefault("app_key", "")
             for key in ("model", "resource_id", "app_key"):
                 value = entry[key]
+                if isinstance(value, str):
+                    value = value.strip(" \t\r\n")
+                    entry[key] = value
                 if not isinstance(value, str) or len(value) > 512 or any(ord(c) < 33 or ord(c) > 126 for c in value):
                     raise ValueError()
             if (not entry["resource_id"] or entry["app_key"].startswith(("<", "FAKESECRET_")) or

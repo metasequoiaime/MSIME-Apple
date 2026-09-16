@@ -27,16 +27,24 @@ def normalize_doubao_auth_mode(mode, app_key):
 
 
 def doubao_headers(config, request_id):
-    mode = normalize_doubao_auth_mode(config.get("doubao_auth_mode"), config.get("app_key"))
-    headers = {"X-Api-Resource-Id": config["resource_id"],
+    app_key = config.get("app_key", "")
+    token = config.get("token", "")
+    resource_id = config.get("resource_id", "")
+    if not all(isinstance(value, str) for value in (app_key, token, resource_id)):
+        raise ValueError("invalid Doubao authentication configuration")
+    app_key = app_key.strip(" \t\r\n")
+    token = token.strip(" \t\r\n")
+    resource_id = resource_id.strip(" \t\r\n")
+    mode = normalize_doubao_auth_mode(config.get("doubao_auth_mode"), app_key)
+    headers = {"X-Api-Resource-Id": resource_id,
                "X-Api-Request-Id": request_id}
     if mode == "legacy":
-        if not config.get("app_key"):
+        if not app_key:
             raise ValueError("legacy Doubao authentication requires an App ID")
-        headers.update({"X-Api-App-Key": config["app_key"],
-                        "X-Api-Access-Key": config["token"]})
+        headers.update({"X-Api-App-Key": app_key,
+                        "X-Api-Access-Key": token})
     else:
-        headers["X-Api-Key"] = config["token"]
+        headers["X-Api-Key"] = token
     return headers
 
 

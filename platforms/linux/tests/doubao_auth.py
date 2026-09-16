@@ -55,6 +55,22 @@ class DoubaoAuthentication(unittest.TestCase):
             read_config({"provider": "doubao", "token": "fixture-token",
                          "doubao_auth_mode": "legacy"})
 
+        normalized = read_config({"provider": "doubao", "token": " fixture-token\n",
+                                  "app_key": " fixture-app\t",
+                                  "resource_id": " fixture-resource\r\n"})
+        self.assertEqual(normalized["token"], "fixture-token")
+        self.assertEqual(normalized["app_key"], "fixture-app")
+        self.assertEqual(normalized["resource_id"], "fixture-resource")
+
+    def test_doubao_headers_normalize_direct_config_values(self):
+        headers = doubao_headers({"resource_id": " fixture-resource\n",
+                                  "token": " fixture-token\r\n",
+                                  "app_key": " fixture-app\t",
+                                  "doubao_auth_mode": "legacy"}, "fixture-request")
+        self.assertEqual(headers["X-Api-Resource-Id"], "fixture-resource")
+        self.assertEqual(headers["X-Api-App-Key"], "fixture-app")
+        self.assertEqual(headers["X-Api-Access-Key"], "fixture-token")
+
 
 if __name__ == "__main__":
     unittest.main()
