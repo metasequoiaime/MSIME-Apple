@@ -293,7 +293,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     scroll.drawsBackground = NO;
     scroll.documentView = page;
     scroll.accessibilityLabel = [title stringByAppendingString:@"设置页"];
-    [page.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor].active = YES;
+    // The document view opts out of autoresizing, so its origin needs pinning as well as its
+    // width; width plus an intrinsic height alone leaves the page's position ambiguous.
+    [NSLayoutConstraint activateConstraints:@[
+        [page.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        [page.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+        [page.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+    ]];
     return scroll;
 }
 

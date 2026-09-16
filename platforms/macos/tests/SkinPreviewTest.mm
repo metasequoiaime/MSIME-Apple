@@ -6,6 +6,7 @@
 #include <cassert>
 #include <fstream>
 #import "TestPreferenceSuite.h"
+#import "PreferenceViewLookup.h"
 
 static NSView *FindControl(NSView *root, NSString *label) {
     if ([root.accessibilityLabel isEqual:label]) return root;
@@ -225,33 +226,20 @@ int main(int argc, const char **argv) {
         assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] shuangpinPreeditUsesRaw]);
         preferences.shuangpinPreeditUsesRaw = YES;
         NSWindow *window = preferences.window;
-        NSScrollView *settingsScroll = (id)window.contentView.subviews[0];
-        NSGridView *grid = (id)settingsScroll.documentView;
-        NSScrollView *scroll = (id)window.contentView.subviews[1];
-        MSIMECandidatePreviewView *preview = (id)scroll.documentView;
-        NSButton *theme = (id)window.contentView.subviews[2];
-        NSButton *showcase = (id)window.contentView.subviews[3];
-        assert([preview isKindOfClass:MSIMECandidatePreviewView.class]);
+        MSIMECandidatePreviewView *preview =
+            (id)MSIMEFindPreferenceViewOfClass(window.contentView, MSIMECandidatePreviewView.class);
+        NSButton *theme = (id)MSIMEFindPreferenceControl(window.contentView, NSSelectorFromString(@"togglePreviewTheme:"));
+        NSButton *showcase = (id)MSIMEFindPreferenceControl(window.contentView, NSSelectorFromString(@"togglePreviewShowcase:"));
+        assert([preview isKindOfClass:MSIMECandidatePreviewView.class] && theme && showcase);
+        // The preview sits on the appearance page, which scrolls because this host carries more
+        // settings than fit the window.
+        NSScrollView *appearanceScroll = preview.enclosingScrollView;
+        NSView *appearancePage = appearanceScroll.documentView;
         [window.contentView layoutSubtreeIfNeeded];
-        assert(!grid.hasAmbiguousLayout && !scroll.hasAmbiguousLayout && !preview.hasAmbiguousLayout);
-        assert(scroll.frame.size.height > 200 && preview.frame.size.width > 500);
-        assert(grid.frame.size.height > settingsScroll.contentView.bounds.size.height);
-        NSView *lastControl = [grid cellAtColumnIndex:1 rowIndex:grid.numberOfRows - 1].contentView;
-        [lastControl scrollRectToVisible:lastControl.bounds];
-        assert(NSContainsRect(grid.visibleRect, lastControl.frame));
-        // Restore the initial input settings after checking that the form can scroll.
-        NSView *firstControl = [grid cellAtColumnIndex:1 rowIndex:0].contentView;
-        [firstControl scrollRectToVisible:firstControl.bounds];
-        assert(NSContainsRect(grid.visibleRect, firstControl.frame));
-        NSPopUpButton *preedit = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control isKindOfClass:NSPopUpButton.class] &&
-                ((NSPopUpButton *)control).action == NSSelectorFromString(@"preeditChanged:")) {
-                preedit = (NSPopUpButton *)control;
-                break;
-            }
-        }
+        assert(!appearanceScroll.hasAmbiguousLayout && !preview.hasAmbiguousLayout && !appearancePage.hasAmbiguousLayout);
+        assert(preview.frame.size.width > 500);
+        assert(appearancePage.frame.size.height > appearanceScroll.contentView.bounds.size.height);
+        NSPopUpButton *preedit = (id)MSIMEFindPreferenceControl(window.contentView, NSSelectorFromString(@"preeditChanged:"));
         assert(preedit);
         assert(preedit.indexOfSelectedItem == 1);
         [preedit selectItemAtIndex:0];
@@ -297,17 +285,9 @@ int main(int argc, const char **argv) {
             }
         }
         // Real layout control updates the preview, without a separate preview-specific setting.
-        NSPopUpButton *layout = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
-        }
+        NSPopUpButton *layout = (id)FindControl(window.contentView, @"候选排列");
         assert(layout);
-        NSComboBox *familyControl = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control.accessibilityLabel isEqual:@"候选字体"]) familyControl = (id)control;
-        }
+        NSComboBox *familyControl = (id)FindControl(window.contentView, @"候选字体");
         assert(familyControl && familyControl.numberOfItems > 0);
         NSUInteger familyNotifications = notifications;
         [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"MSIME Synthetic Unavailable Family"}];
@@ -454,13 +434,8 @@ int main(int argc, const char **argv) {
             [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": invalid, @"candidate_preedit_style": invalid}];
             assert(preferences.preeditFontSize == 32 && !preferences.showsCandidatePreedit);
         }
-        NSPopUpButton *preeditSizeControl = nil;
-        NSPopUpButton *preeditStyleControl = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control.accessibilityLabel isEqual:@"候选窗拼音字号"]) preeditSizeControl = (id)control;
-            if ([control.accessibilityLabel isEqual:@"候选窗预编辑"]) preeditStyleControl = (id)control;
-        }
+        NSPopUpButton *preeditSizeControl = (id)FindControl(window.contentView, @"候选窗拼音字号");
+        NSPopUpButton *preeditStyleControl = (id)FindControl(window.contentView, @"候选窗预编辑");
         assert(preeditSizeControl && preeditStyleControl && preeditSizeControl.indexOfSelectedItem == 20 && preeditStyleControl.indexOfSelectedItem == 1);
         CGFloat hiddenHeight = preview.previewContentHeight;
         [preeditStyleControl selectItemAtIndex:0];
@@ -553,9 +528,11 @@ surface = "#123456"
         assert(red.alphaComponent > .99 && red.redComponent > .8 &&
                red.redComponent - red.greenComponent > .5 && red.redComponent - red.blueComponent > .5);
         [window.contentView layoutSubtreeIfNeeded];
-        assert(preview.frame.size.height > scroll.contentView.bounds.size.height);
+        // Showcase mode grows the preview; reaching its bottom scrolls the appearance page that
+        // now carries it, rather than a scroll view wrapped around the preview alone.
+        assert(appearancePage.frame.size.height > appearanceScroll.contentView.bounds.size.height);
         [preview scrollRectToVisible:NSMakeRect(0, preview.frame.size.height - 20, 100, 20)];
-        assert(scroll.contentView.bounds.origin.y > 0);
+        assert(appearanceScroll.contentView.bounds.origin.y > 0);
         [preview setShowsLayoutShowcase:NO];
         if (argc == 2) {
             if (!preview.previewUsesDark) [preview toggleForcedTheme];

@@ -6,6 +6,7 @@
 #include <sqlite3.h>
 #import <objc/runtime.h>
 #import "TestPreferenceSuite.h"
+#import "PreferenceViewLookup.h"
 
 static NSUInteger missingKeyFontCalls;
 static IMP originalMonospacedFont;
@@ -18,15 +19,9 @@ static NSFont *MissingKeyFont(id cls, SEL selector, CGFloat size, NSFontWeight w
 }
 
 static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL action) {
-    NSScrollView *scroll = (id)preferences.window.contentView.subviews.firstObject;
-    assert([scroll isKindOfClass:NSScrollView.class]);
-    NSGridView *grid = (id)scroll.documentView;
-    for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-        NSView *view = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
-        if ([view isKindOfClass:NSControl.class] && [(NSControl *)view action] == action) return (id)view;
-    }
-    assert(false && "Missing preference action");
-    return nil;
+    NSControl *control = MSIMEFindPreferenceControl(preferences.window.contentView, action);
+    assert(control && "Missing preference action");
+    return control;
 }
 
 static void CheckMenu(NSMenu *menu, id controller) {
@@ -478,15 +473,12 @@ static void TestIndependentAssistancePreferences() {
     assert([edited[@"quanpin_helpcode"][@"auto_display"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"future_field"] isEqual:@7]);
     [controller applySharedToolbarPreferences:shared];
     assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 3);
-    NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
-    NSGridView *grid = (id)scroll.documentView;
     NSMutableDictionary *schemaControls = [NSMutableDictionary dictionary];
     NSMutableDictionary *displayControls = [NSMutableDictionary dictionary];
-    for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-        NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-        if ([control isKindOfClass:NSControl.class] && control.action == @selector(helpcodeSchemaChanged:)) schemaControls[control.identifier] = control;
-        if ([control isKindOfClass:NSControl.class] && control.action == @selector(helpcodeDisplayChanged:)) displayControls[control.identifier] = control;
-    }
+    for (NSControl *control in MSIMEFindPreferenceControls(prefs.window.contentView, @selector(helpcodeSchemaChanged:)))
+        schemaControls[control.identifier] = control;
+    for (NSControl *control in MSIMEFindPreferenceControls(prefs.window.contentView, @selector(helpcodeDisplayChanged:)))
+        displayControls[control.identifier] = control;
     assert(schemaControls.count == 2 && displayControls.count == 2);
     NSDictionary *options = @{@"quanpin_helpcode": @{@"schema": @"shouyou2_0", @"show_in_candidate_window": @NO}, @"shuangpin_helpcode": @{@"schema": @"xiaohe", @"show_in_candidate_window": @YES}};
     [prefs applySharedAssistancePreferences:options];
