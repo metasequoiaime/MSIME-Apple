@@ -1,4 +1,6 @@
-name: Release
+name: Release macOS
+
+# macOS 的发布:构建、签名、公证、打包、Sparkle appcast。iOS 走 release-ios.yml,两者各自触发、各自打 tag、各自出产物。
 
 on:
   push:
@@ -14,14 +16,6 @@ on:
         description: Prepare and publish the next semantic version with release-please (leave tag empty)
         type: boolean
         default: false
-      platform:
-        description: Platforms a new build covers (leave tag empty to create one; an existing tag already names its own)
-        type: choice
-        default: both
-        options:
-          - both
-          - macos
-          - ios
 
 permissions:
   contents: read
@@ -45,14 +39,11 @@ jobs:
       tag_name: ${{ steps.build_release.outputs.tag_name || (!inputs.bump_version && inputs.tag) || steps.finalized_promoted_release.outputs.tag_name || steps.finalized_release.outputs.tag_name || steps.release.outputs.tag_name }}
       target_sha: ${{ steps.build_release.outputs.target_sha || steps.requested_release.outputs.target_sha || steps.promote_release_commit.outputs.target_sha || steps.finalized_release.outputs.sha || steps.release.outputs.sha }}
       build_number: ${{ steps.build_number.outputs.value }}
-      macos: ${{ steps.platforms.outputs.macos }}
-      ios: ${{ steps.platforms.outputs.ios }}
     steps:
       - name: Validate invocation
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
           BUMP_VERSION: ${{ inputs.bump_version }}
-          REQUESTED_PLATFORM: ${{ inputs.platform }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
@@ -89,70 +80,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Select the platforms this release covers
-        id: platforms
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          BEFORE_SHA: ${{ github.event.before }}
-          AFTER_SHA: ${{ github.sha }}
-          REQUESTED_TAG: ${{ inputs.tag }}
-          REQUESTED_PLATFORM: ${{ inputs.platform }}
-        run: |
-          # A push builds the platforms whose sources moved. Everything both of them compile --
-          # shared code, the engine, the build system, the release automation itself -- reaches
-          # both, and so does anything unrecognised. The bias is deliberate: publishing a platform
-          # that did not change costs one build, while skipping one that did ships a fix that never
-          # reaches its users.
-          macos=false
-          ios=false
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            # A manual run has no range of paths to classify, so it is told rather than inferred.
-            # An existing draft already carries its platforms in its name, and the packaging and
-            # publishing scripts read that name, so the tag decides whenever there is one.
-            selection=$REQUESTED_PLATFORM
-            case "$REQUESTED_TAG" in
-              macos-*) selection=macos ;;
-              ios-*) selection=ios ;;
-            esac
-            case "$selection" in
-              macos) macos=true ;;
-              ios) ios=true ;;
-              *) macos=true; ios=true ;;
-            esac
-          else
-            changed=""
-            if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
-                  "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-              if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
-                --jq '.files[].filename'); then
-                printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
-                changed=""
-              fi
-            fi
-            if [[ -z "$changed" ]]; then
-              # A first push has no predecessor to compare against, so it cannot be classified.
-              macos=true
-              ios=true
-            else
-              while IFS= read -r path; do
-                [[ -n "$path" ]] || continue
-                case "$path" in
-                  platforms/ios/*) ios=true ;;
-                  platforms/macos/*) macos=true ;;
-                  docs/*|licenses/*|*.md|LICENSE|.mailmap|.gitignore) ;;
-                  *) macos=true; ios=true ;;
-                esac
-              done <<< "$changed"
-            fi
-          fi
-          if [[ "$macos" != true && "$ios" != true ]]; then
-            # A push to main is a deliberate promotion, so publish both rather than nothing.
-            macos=true
-            ios=true
-          fi
-          printf 'Publishing macOS: %s\nPublishing iOS: %s\n' "$macos" "$ios"
-          printf 'macos=%s\nios=%s\n' "$macos" "$ios" >> "$GITHUB_OUTPUT"
       - name: Create the build draft
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag == '') }}
         id: build_release
@@ -160,8 +87,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
-          RELEASE_MACOS: ${{ steps.platforms.outputs.macos }}
-          RELEASE_IOS: ${{ steps.platforms.outputs.ios }}
         run: |
           version=$(cat version.txt)
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -174,10 +99,6 @@ jobs:
           # the complete release it is; only the promoted versions have no -build. suffix, so the
           # two cannot be confused.
           tag="v$version-build.$BUILD_NUMBER"
-          case "$RELEASE_MACOS:$RELEASE_IOS" in
-            true:false) tag="macos-$tag" ;;
-            false:true) tag="ios-$tag" ;;
-          esac
           gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --draft --prerelease
           printf 'release_created=true\ntag_name=%s\ntarget_sha=%s\n' "$tag" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       - name: Capture existing release branch
@@ -372,7 +293,6 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --timeout 20
       - name: Verify input method bundle
-        if: ${{ needs.prepare.outputs.macos == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           SIGNING_ENABLED: ${{ steps.signing.outputs.signing_enabled }}
@@ -389,7 +309,6 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${version%%-build.*}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/MetasequoiaIME.app/Contents/Info.plist)" = "$METASEQUOIA_BUILD_NUMBER"
       - name: Package release
-        if: ${{ needs.prepare.outputs.macos == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           METASEQUOIA_REQUIRE_RELEASE_SIGNING: ${{ steps.signing.outputs.signing_enabled }}
@@ -406,113 +325,7 @@ jobs:
         run: exec "$RUNNER_TEMP/package-release.sh" "$TAG_NAME" build/MetasequoiaIME.app dist
       # Build the reproducible iOS artifact first. When App Store Connect and signing secrets are
       # configured, the TestFlight step below also produces the signed release artifacts.
-      - name: Package the iOS dictionary
-        if: ${{ needs.prepare.outputs.ios == 'true' }}
-        run: python3 platforms/ios/scripts/prepare_dictionary.py
-      - name: Build the unsigned iOS archive
-        if: ${{ needs.prepare.outputs.ios == 'true' }}
-        env:
-          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
-        run: exec platforms/ios/scripts/package_ios_archive.sh "$TAG_NAME" dist
-      - name: Prepare App Store Connect API key for TestFlight
-        if: ${{ needs.prepare.outputs.ios == 'true' }}
-        id: testflight_credentials
-        env:
-          IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
-          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
-          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          IOS_APP_PROFILE_BASE64: ${{ secrets.IOS_APP_PROVISIONING_PROFILE_BASE64 }}
-          IOS_KEYBOARD_PROFILE_BASE64: ${{ secrets.IOS_KEYBOARD_PROVISIONING_PROFILE_BASE64 }}
-          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
-          IOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
-          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          skip_testflight() {
-            local reason=$1
-            printf 'enabled=false\n' >> "$GITHUB_OUTPUT"
-            {
-              echo '### TestFlight upload skipped'
-              echo "$reason"
-              echo 'The unsigned iOS artifacts remain available in this release.'
-            } >> "$GITHUB_STEP_SUMMARY"
-          }
-          if [[ -z "${IOS_API_KEY_BASE64:-}" && -z "${IOS_API_KEY_ID:-}" && -z "${IOS_API_KEY_ISSUER_ID:-}" && -z "${IOS_APP_PROFILE_BASE64:-}" && -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" && -z "${IOS_CERTIFICATE_BASE64:-}" && -z "${IOS_CERTIFICATE_PASSWORD:-}" ]]; then
-            skip_testflight 'TestFlight upload skipped: App Store Connect and iOS signing secrets are not configured.'
-            exit 0
-          fi
-          if [[ -z "${IOS_API_KEY_BASE64:-}" || -z "${IOS_API_KEY_ID:-}" || -z "${IOS_API_KEY_ISSUER_ID:-}" || -z "${IOS_APP_PROFILE_BASE64:-}" || -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" || -z "${IOS_CERTIFICATE_BASE64:-}" || -z "${IOS_CERTIFICATE_PASSWORD:-}" || -z "${IOS_KEYCHAIN_PASSWORD:-}" || -z "${IOS_TEAM_ID:-}" ]]; then
-            echo 'TestFlight signing is configured but its required secrets are incomplete.' >&2
-            exit 1
-          fi
-          key_path="$RUNNER_TEMP/AuthKey_${IOS_API_KEY_ID}.p8"
-          printf '%s' "$IOS_API_KEY_BASE64" | base64 -D > "$key_path"
-          chmod 600 "$key_path"
-          app_profile_path="$RUNNER_TEMP/MSIME_iOS_TestFlight.mobileprovision"
-          keyboard_profile_path="$RUNNER_TEMP/MSIME_iOS_Keyboard_TestFlight.mobileprovision"
-          printf '%s' "$IOS_APP_PROFILE_BASE64" | base64 -D > "$app_profile_path"
-          printf '%s' "$IOS_KEYBOARD_PROFILE_BASE64" | base64 -D > "$keyboard_profile_path"
-          chmod 600 "$app_profile_path" "$keyboard_profile_path"
-          ios_keychain="$RUNNER_TEMP/metasequoia-ios-signing.keychain-db"
-          ios_certificate="$RUNNER_TEMP/metasequoia-ios-distribution.p12"
-          printf '%s' "$IOS_CERTIFICATE_BASE64" | base64 -D > "$ios_certificate"
-          chmod 600 "$ios_certificate"
-          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
-          security set-keychain-settings -lut 21600 "$ios_keychain"
-          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
-          if ! security import "$ios_certificate" -k "$ios_keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign; then
-            echo 'The configured iOS distribution certificate could not be imported.' >&2
-            exit 1
-          fi
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
-          security list-keychains -d user -s "$ios_keychain" "$RUNNER_TEMP/metasequoia-signing.keychain-db"
-          security default-keychain -s "$ios_keychain"
-          if ! security find-identity -v -p codesigning "$ios_keychain" | grep -Fq 'Apple Distribution:'; then
-            echo 'The configured iOS certificate does not contain an Apple Distribution identity with a private key.' >&2
-            exit 1
-          fi
-          if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios"; then
-            echo 'The iOS host provisioning profile does not match app.msime.ios.' >&2
-            exit 1
-          fi
-          if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements xml1 -o - - | plutil -convert json -o - - | jq -e -r '."com.apple.security.application-groups"[0] == "group.app.msime.ios"' >/dev/null; then
-            echo 'The iOS host provisioning profile must include group.app.msime.ios.' >&2
-            exit 1
-          fi
-          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios.keyboard"; then
-            echo 'The keyboard provisioning profile does not match app.msime.ios.keyboard.' >&2
-            exit 1
-          fi
-          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements xml1 -o - - | plutil -convert json -o - - | jq -e -r '."com.apple.security.application-groups"[0] == "group.app.msime.ios"' >/dev/null; then
-            echo 'The keyboard provisioning profile must include group.app.msime.ios.' >&2
-            exit 1
-          fi
-          printf 'enabled=true\nkey_path=%s\napp_profile_path=%s\nkeyboard_profile_path=%s\n' \
-            "$key_path" "$app_profile_path" "$keyboard_profile_path" >> "$GITHUB_OUTPUT"
-      - name: Upload iOS build to TestFlight
-        if: ${{ needs.prepare.outputs.ios == 'true' && steps.testflight_credentials.outputs.enabled == 'true' }}
-        env:
-          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
-          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
-          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
-          IOS_APP_PROFILE_PATH: ${{ steps.testflight_credentials.outputs.app_profile_path }}
-          IOS_KEYBOARD_PROFILE_PATH: ${{ steps.testflight_credentials.outputs.keyboard_profile_path }}
-          METASEQUOIA_PROJECT_ROOT: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          export METASEQUOIA_IOS_TEAM_ID="$IOS_TEAM_ID"
-          export METASEQUOIA_IOS_AUTH_KEY_ID="$IOS_API_KEY_ID"
-          export METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID="$IOS_API_KEY_ISSUER_ID"
-          export METASEQUOIA_IOS_AUTH_KEY_PATH="$IOS_API_KEY_PATH"
-          export METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH="$IOS_APP_PROFILE_PATH"
-          export METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH="$IOS_KEYBOARD_PROFILE_PATH"
-          export METASEQUOIA_IOS_RELEASE_DIR="$GITHUB_WORKSPACE/dist"
-          exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
       - name: Detect the Sparkle update key
-        if: ${{ needs.prepare.outputs.macos == 'true' }}
         id: sparkle
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
@@ -525,7 +338,7 @@ jobs:
             printf 'appcast_enabled=false\n' >> "$GITHUB_OUTPUT"
           fi
       - name: Generate signed Sparkle appcast
-        if: ${{ needs.prepare.outputs.macos == 'true' && steps.sparkle.outputs.appcast_enabled == 'true' }}
+        if: ${{ steps.sparkle.outputs.appcast_enabled == 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
@@ -549,7 +362,7 @@ jobs:
           SPARKLE_TOOLS_DIR="$sparkle_root/bin" \
             exec "$RUNNER_TEMP/generate-sparkle-appcast.sh" "$TAG_NAME" "$update_archive" dist/appcast.xml
       - name: Skip Sparkle appcast without an update key
-        if: ${{ needs.prepare.outputs.macos == 'true' && steps.sparkle.outputs.appcast_enabled != 'true' }}
+        if: ${{ steps.sparkle.outputs.appcast_enabled != 'true' }}
         run: echo 'No SPARKLE_ED_PRIVATE_KEY is configured, so this release ships without an appcast and automatic updates stay paused.' >> "$GITHUB_STEP_SUMMARY"
       - name: Revalidate draft release target
         env:
@@ -568,9 +381,10 @@ jobs:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           ASSET_SUFFIX: ${{ steps.signing.outputs.asset_suffix }}
           SIGNING_ENABLED: ${{ steps.signing.outputs.signing_enabled }}
-          IOS_TESTFLIGHT_ENABLED: ${{ steps.testflight_credentials.outputs.enabled }}
-          RELEASE_MACOS: ${{ needs.prepare.outputs.macos }}
-          RELEASE_IOS: ${{ needs.prepare.outputs.ios }}
+          # 这一份只发 macOS,没有 TestFlight 那一步可问。
+          IOS_TESTFLIGHT_ENABLED: 'false'
+          RELEASE_MACOS: 'true'
+          RELEASE_IOS: 'false'
           # Decides which channel the release is published into: push is an automatic per-merge build, workflow_dispatch is one somebody asked for.
           RELEASE_TRIGGER: ${{ github.event_name }}
         run: exec "$RUNNER_TEMP/publish-release.sh"

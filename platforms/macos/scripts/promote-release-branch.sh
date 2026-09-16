@@ -151,12 +151,12 @@ if [[ "$head_changelog_tail" != "## [$head_version]"* || "$head_changelog_tail" 
     exit 1
 fi
 
-gh workflow run ci.yml --repo "$GH_REPO" --ref "$RELEASE_BRANCH" --field mac_only=true
+gh workflow run ci-macos.yml --repo "$GH_REPO" --ref "$RELEASE_BRANCH"
 max_polls=${METASEQUOIA_RELEASE_CI_MAX_POLLS:-150}
 poll_interval=${METASEQUOIA_RELEASE_CI_POLL_INTERVAL:-2}
 run_id=""
 for ((attempt = 1; attempt <= max_polls; ++attempt)); do
-    run_id=$(gh run list --repo "$GH_REPO" --workflow ci.yml --branch "$RELEASE_BRANCH" \
+    run_id=$(gh run list --repo "$GH_REPO" --workflow ci-macos.yml --branch "$RELEASE_BRANCH" \
         --event workflow_dispatch --limit 20 --json databaseId,headSha \
         --jq "map(select(.headSha == \"$head_sha\")) | first | .databaseId // empty")
     if [[ -n "$run_id" ]]; then

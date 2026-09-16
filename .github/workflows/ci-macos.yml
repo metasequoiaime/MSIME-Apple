@@ -1,0 +1,211 @@
+name: macOS CI
+
+# macOS 的构建、测试与 sanitizer。iOS 的改动不该让 macOS 的编译器跑起来,反过来也一样 —— 这两半原来同在 ci.yml 里,任何一次改动都要两边都编一遍。
+#
+# 触发条件不按路径过滤,而是文件内部先算一遍改动范围,再决定重活跑不跑。分支保护是按 job 名字要求检查的:workflow 整个没被触发时它什么都不上报,PR 就永远卡在等一个不会来的检查上;而在 workflow 内部被 `if:` 跳过的 job 会上报 skipped,那是算通过的。
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
+  pull_request:
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
+  workflow_dispatch:
+
+  merge_group:
+
+concurrency:
+  # Keyed by event as well as branch: promote-release-branch.sh and merge-release-pr.sh dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Decide whether macOS needs building
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the changed paths
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # 手动触发和合并队列一律构建:前者是有人明确要这一次,后者是合并前最后一道,两种情况都不该由路径来猜。
+          if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          printf '改动文件:\n%s\n' "$changed"
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              platforms/macos/*|LICENSE|THIRD_PARTY_NOTICES.txt)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "macOS 改动: $path"; exit 0 ;;
+              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+            esac
+          done <<< "$changed"
+          echo "build=false" >> "$GITHUB_OUTPUT"
+          echo "本次改动不涉及macOS,跳过构建。"
+
+  macos:
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' }}
+    name: macOS 15 ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Cheap and runs before the build so a formatting slip fails in seconds rather than after the
+      # full compile. Formatting is architecture independent, so only one leg checks it. Same
+      # pinned formatter version as MSIME-Linux and MSIME-Engine.
+      - name: Check formatting
+        if: ${{ matrix.architecture == 'arm64' }}
+        run: scripts/format.sh --check
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Remove unused runner taps
+        run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
+      - name: Install dependencies
+        run: brew install boost fmt spdlog nlohmann-json
+      # Against /usr/bin/python3 specifically, which is the Command Line Tools interpreter a
+      # contributor gets by default and is several minor versions behind the runner's python3. A
+      # PEP 701 f-string shipped in fetch_dictionary.py and broke build.sh on a clean machine while
+      # CI stayed green, because CI never ran it under that interpreter.
+      - name: Check the tooling parses under the stock macOS interpreter
+        run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
+      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Validate the product lock
+        run: |
+          python3 scripts/check-dictionary-contract.py
+          python3 scripts/check-product-lock-contract.py
+          python3 scripts/product_lock.py validate
+          python3 platforms/macos/tests/ProductLockTests.py
+      # The unit tests run against a fixture rather than the released database: they assert behaviour
+      # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
+      # nothing. The release build is what verifies the real data, against the digests in the lock.
+      - name: Create test dictionary
+        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
+      - name: Type-check registration helper
+        run: xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
+      - name: Verify input method bundle
+        run: |
+          codesign --verify --deep --strict --verbose=2 build/MetasequoiaIME.app
+          lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
+          plutil -lint build/MetasequoiaIME.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "app.msime.inputmethod.MetasequoiaIME"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TISIntendedLanguage' build/MetasequoiaIME.app/Contents/Info.plist)" = "zh-Hans"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
+
+  # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
+  # layer that parses untrusted input", written after an audit of a sibling frontend turned up a
+  # batch of races and null dereferences that no Debug build would have caught. Linux acted on it;
+  # this repository had no sanitizer coverage at all, and it is the cheapest of the three to add
+  # because clang is native here and there is no package manager tree to rebuild.
+  #
+  # arm64 only: this catches memory and undefined-behaviour bugs, which are not architecture
+  # specific, and a second sanitized leg would double a 60-plus-minute job for very little.
+  sanitizers:
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' }}
+    name: Sanitizers
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
+      - name: Point the Sparkle download at the cache
+        run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Remove unused runner taps
+        run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
+      - name: Install dependencies
+        run: brew install boost fmt spdlog nlohmann-json
+      - name: Create test dictionary
+        run: |
+          mkdir -p "$RUNNER_TEMP/dictionary"
+          python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"
+      - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >
+          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build-sanitizers --parallel
+      # detect_leaks is off because Apple's runtime ships no LeakSanitizer; the Linux job in the
+      # engine repository is where leak detection happens.
+      - name: Test memory safety and undefined behavior
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --no-tests=error --test-dir build-sanitizers --output-on-failure --timeout 300
+

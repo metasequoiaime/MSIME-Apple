@@ -27,6 +27,19 @@ def requires(*tools):
     return unittest.skipIf(missing, f"{', '.join(missing)} unavailable; the macOS job runs this case")
 
 
+def path_lists_of(workflow, key):
+    """Every list written under `key:` in a workflow, as lists of entries."""
+    lists = []
+    for block in workflow.split(f"{key}:\n")[1:]:
+        entries = []
+        for line in block.splitlines():
+            if not line.startswith("      - "):
+                break
+            entries.append(line.removeprefix("      - "))
+        lists.append(entries)
+    return lists
+
+
 class ReleaseConfigurationTests(unittest.TestCase):
     @requires("zsh", "plutil", "/usr/libexec/PlistBuddy")
     def test_signed_packaging_rejects_apple_signin_before_touching_artifacts(self):
@@ -90,23 +103,31 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("零声母", readme)
 
     def test_ci_cancels_duplicate_runs_for_the_same_source_branch(self):
-        workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
-
-        self.assertIn(
-            "group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}",
-            workflow,
-        )
-        self.assertIn("cancel-in-progress: true", workflow)
-        # merge-release-pr.sh dispatches ci.yml and waits on that run with --exit-status, so a pull_request run on the same branch must land in a different concurrency group or it cancels the release.
-        self.assertIn("${{ github.event_name }}", workflow.split("concurrency:", 1)[1].split("permissions:", 1)[0])
-        self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n", workflow)
-        self.assertIn("\n  pull_request:\n", workflow)
+        # 三个 workflow 都要按事件分组。被发布脚本派去等的那一轮是 ci-macos.yml,一个同分支的
+        # pull_request run 绝不能把它顶掉 —— merge-release-pr.sh 用 --exit-status 等的就是那一轮。
+        for name in ("ci.yml", "ci-ios.yml", "ci-macos.yml"):
+            workflow = (PROJECT_ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("cancel-in-progress: true", workflow, name)
+            grouping = workflow.split("concurrency:", 1)[1].split("permissions:", 1)[0]
+            self.assertIn("${{ github.event_name }}", grouping, name)
+            self.assertIn("github.event.pull_request.head.ref || github.ref_name", grouping, name)
+            self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n", workflow, name)
+            self.assertIn("\n  pull_request:\n", workflow, name)
 
     def test_documentation_paths_are_skipped_by_a_workflow_that_reports_the_same_checks(self):
+        # 三个 workflow 各自带着同一份忽略名单:平台拆开之后,文档改动要让三个都不触发,而占位那份要替它们全部上报。
         ci = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
         docs = (PROJECT_ROOT / ".github/workflows/ci-docs.yml").read_text()
+        for platform in ("ci-ios.yml", "ci-macos.yml"):
+            body = (PROJECT_ROOT / ".github/workflows" / platform).read_text()
+            self.assertEqual(
+                path_lists_of(body, "paths-ignore"), path_lists_of(ci, "paths-ignore"),
+                f"{platform} must ignore exactly the documentation paths ci.yml ignores"
+            )
 
-        def path_lists(workflow, key):
+        path_lists = path_lists_of
+
+        def _unused(workflow, key):
             lists = []
             for block in workflow.split(f"{key}:\n")[1:]:
                 entries = []
@@ -137,9 +158,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
         for build_input in ("LICENSE", "THIRD_PARTY_NOTICES.txt"):
             self.assertNotIn(build_input, ignored[0])
 
-        # Branch protection requires check names, so the substitutes have to be named identically and must not spend a macOS runner to say nothing happened.
-        for required_check in ("name: macOS 15 ${{ matrix.architecture }}", "name: iOS Simulator"):
-            self.assertIn(required_check, ci)
+        # Branch protection requires check names, so the substitutes have to be named identically and must not spend a macOS runner to say nothing happened. 平台拆开之后名字各自住在自己的 workflow 里,占位那份仍要两个都报。
+        owners = {
+            "name: macOS 15 ${{ matrix.architecture }}": "ci-macos.yml",
+            "name: iOS Simulator": "ci-ios.yml",
+        }
+        for required_check, owner in owners.items():
+            self.assertIn(required_check, (PROJECT_ROOT / ".github/workflows" / owner).read_text())
             self.assertIn(required_check, docs)
         self.assertIn("architecture: [arm64, x86_64]", docs)
         self.assertIn("uses: ./.github/workflows/quality.yml", docs)
@@ -485,7 +510,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
     def test_release_automation_bumps_tags_and_uploads_installable_assets(self):
         config = json.loads((PROJECT_ROOT / "release-please-config.json").read_text())
         package = config["packages"]["."]
-        workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+        workflow = "\n".join((PROJECT_ROOT / ".github/workflows" / name).read_text()
+                           for name in ("release-macos.yml", "release-ios.yml"))
         merge_release_pr = (MACOS_ROOT / "scripts/merge-release-pr.sh").read_text()
         promote_release_branch = (MACOS_ROOT / "scripts/promote-release-branch.sh").read_text()
         create_promoted_release = (MACOS_ROOT / "scripts/create-promoted-release.sh").read_text()
@@ -497,13 +523,21 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn({"type": "generic", "path": "CMakeLists.txt"}, package["extra-files"])
         # The iOS marketing version used to sit at 0.1.0 forever, so an iOS artifact would have
         # carried a version matching no release. release-please bumps it with everything else now.
-        self.assertIn(
-            {"type": "generic", "path": "platforms/ios/project.yml"}, package["extra-files"]
+        # iOS 有自己的 release-please 组件,版本号跟 macOS 各走各的。一个只改了键盘的版本没有理由让 macOS 的版本号跟着跳,反过来也一样;而 Sparkle 认的是 macOS 这条链上的 tag,所以那一条保持原样,独立出去的是 iOS。
+        ios_package = config["packages"]["platforms/ios"]
+        self.assertEqual(ios_package["component"], "ios")
+        self.assertTrue(ios_package["include-component-in-tag"])
+        self.assertIn({"type": "generic", "path": "project.yml"}, ios_package["extra-files"])
+        self.assertNotIn(
+            {"type": "generic", "path": "platforms/ios/project.yml"}, package["extra-files"],
+            "macOS 那个组件不该再替 iOS 改版本号"
         )
         project_spec = (PROJECT_ROOT / "platforms/ios/project.yml").read_text()
         self.assertIn("x-release-please-version", project_spec)
-        version = (PROJECT_ROOT / "version.txt").read_text().strip()
-        self.assertIn(f"MARKETING_VERSION: {version} # x-release-please-version", project_spec)
+        ios_version = (PROJECT_ROOT / "platforms/ios/version.txt").read_text().strip()
+        ios_manifest = json.loads((PROJECT_ROOT / ".release-please-manifest.json").read_text())
+        self.assertEqual(ios_manifest["platforms/ios"], ios_version)
+        self.assertIn(f"MARKETING_VERSION: {ios_version} # x-release-please-version", project_spec)
         # Every release builds an unsigned fallback archive; a configured TestFlight build replaces
         # those assets with its distribution-signed counterparts before publication.
         self.assertIn("platforms/ios/scripts/package_ios_archive.sh", workflow)
@@ -537,7 +571,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertTrue(package["force-tag-creation"])
         self.assertFalse(package.get("include-component-in-tag", True))
 
-        ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
+        ci_workflow = "\n".join((PROJECT_ROOT / ".github/workflows" / name).read_text()
+                                 for name in ("ci.yml", "ci-ios.yml", "ci-macos.yml"))
         # 这份名单是受信任的第三方代码的边界,加一项就是扩大 CI 里能跑的代码范围,所以要显式改这里,
         # 而不是让断言自动接受新出现的 action。actions/cache 是 GitHub 自家的,和名单上其余几项同源,
         # 并且下面那条断言仍然要求它钉在 40 位 commit SHA 上。
@@ -607,8 +642,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("GH_REPO: ${{ github.repository }}", workflow)
-        self.assertIn("gh workflow run ci.yml", merge_release_pr)
-        self.assertIn("--field mac_only=true", promote_release_branch)
+        self.assertIn("gh workflow run ci-macos.yml", merge_release_pr)
+        # macOS 自己就是一个 workflow 了,不再需要「只跑 macOS」这个开关。
+        self.assertIn("gh workflow run ci-macos.yml", promote_release_branch)
         self.assertIn("gh run watch", merge_release_pr)
         self.assertIn("--match-head-commit", merge_release_pr)
         self.assertTrue(merge_release_pr.startswith("#!/usr/bin/env bash\n"))
@@ -921,12 +957,18 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("PRIVACY.md", readme)
 
     def test_a_manual_run_can_release_one_platform_on_its_own(self):
-        workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+        workflow = "\n".join((PROJECT_ROOT / ".github/workflows" / name).read_text()
+                           for name in ("release-macos.yml", "release-ios.yml"))
 
-        # Path classification only ever runs on a push, so before this the two products could not
-        # be released apart deliberately: it took a merge that happened to touch one of them.
-        self.assertIn("      platform:\n", workflow)
-        self.assertIn("          - macos\n          - ios\n", workflow)
+        # 一个 workflow 发两个产品时,想单独发一个只能靠一个 platform 选项;拆成两个文件之后,
+        # 单独发一个就是单独触发一个文件,那个选项没有存在的余地了。
+        self.assertNotIn("      platform:\n", workflow)
+        for name, mine, theirs in [("release-macos.yml", "RELEASE_MACOS", "RELEASE_IOS"),
+                                   ("release-ios.yml", "RELEASE_IOS", "RELEASE_MACOS")]:
+            body = (PROJECT_ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("  workflow_dispatch:\n", body, name)
+            self.assertIn(f"{mine}: 'true'", body, name)
+            self.assertIn(f"{theirs}: 'false'", body, name)
         # A dispatch that names no tag creates its own draft rather than requiring one to exist,
         # and that is the step which puts the platform prefix on the tag.
         self.assertIn(
@@ -949,7 +991,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
             self.assertIn(guard, verification)
 
     def test_testflight_signing_configuration_is_required_when_enabled(self):
-        workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+        workflow = "\n".join((PROJECT_ROOT / ".github/workflows" / name).read_text()
+                           for name in ("release-macos.yml", "release-ios.yml"))
 
         # Completely absent iOS credentials still select the documented unsigned fallback; once
         # any signing credential is present, incomplete configuration must fail the job.
@@ -973,7 +1016,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertNotIn('package-ecosystem: "gitsubmodule"', dependabot)
         # The dictionary is deliberately not a submodule. Vendoring the sources meant rebuilding MSIME-Dict's pipeline here and shipping whatever revision the pin happened to hold, which is how the personal data in quick_phrases.txt stayed in shipped builds for two days after it was replaced upstream (MSIME-Windows#74). It is downloaded from a pinned, checksummed release instead; re-adding it as a submodule would reintroduce that drift.
         self.assertFalse((PROJECT_ROOT / ".gitmodules").exists())
-        for workflow in ("ci.yml", "contracts.yml", "release.yml", "codeql.yml"):
+        for workflow in ("ci.yml", "ci-ios.yml", "ci-macos.yml", "contracts.yml", "release-ios.yml", "release-macos.yml", "codeql.yml"):
             body = (PROJECT_ROOT / ".github/workflows" / workflow).read_text()
             self.assertNotIn("submodules:", body, f"{workflow} still asks the checkout for submodules")
 
@@ -1000,7 +1043,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         # Every path that needs the Engine has to prepare it, including the jobs that read its files without ever configuring CMake.
         self.assertIn("scripts/fetch_engine.py", (PROJECT_ROOT / "CMakeLists.txt").read_text())
-        for workflow in ("ci.yml", "contracts.yml", "release.yml", "codeql.yml"):
+        # 平台各有各的 workflow,而两边都要引擎;ci.yml 只剩平台无关的那两样,自己不碰引擎。
+        for workflow in ("ci-ios.yml", "ci-macos.yml", "contracts.yml", "release-ios.yml", "release-macos.yml", "codeql.yml"):
             body = (PROJECT_ROOT / ".github/workflows" / workflow).read_text()
             self.assertIn("run: python3 scripts/fetch_engine.py", body)
         # The lock is rewritten by a script rather than by hand, so a bump moves the submodule pins with the Engine instead of leaving them on the previous commit.
@@ -1058,9 +1102,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
         self.assertIn(
             "run: python3 scripts/fetch_dictionary.py",
-            (PROJECT_ROOT / ".github/workflows/release.yml").read_text(),
+            "\n".join((PROJECT_ROOT / ".github/workflows" / name).read_text()
+                           for name in ("release-macos.yml", "release-ios.yml")),
         )
-        ci = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
+        ci = (PROJECT_ROOT / ".github/workflows/ci-macos.yml").read_text()
         self.assertIn("python3 scripts/product_lock.py validate", ci)
         self.assertIn("python3 platforms/macos/tests/ProductLockTests.py", ci)
 

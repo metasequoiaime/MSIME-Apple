@@ -544,7 +544,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("hasComposition = !snapshot.preedit.isEmpty", controller)
 
     def test_ci_creates_the_generated_project_output_directory(self):
-        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci.yml").read_text()
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
 
         self.assertIn("mkdir -p build/ios", workflow)
 
@@ -561,7 +561,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
     def test_keyboard_packages_the_compact_dictionary(self):
         project = (IOS_ROOT / "project.yml").read_text()
-        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci.yml").read_text()
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
 
         self.assertIn("platforms/ios/KeyboardExtension/Resources/msime.db", project)
         self.assertIn("platforms/ios/KeyboardExtension/Resources/msime.db.sha256", project)
@@ -746,7 +746,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
     def test_project_and_ci_run_native_onboarding_ui_tests(self):
         project = (IOS_ROOT / "project.yml").read_text()
-        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci.yml").read_text()
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
         runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
 
         self.assertIn("MetasequoiaImeIOSUITests:", project)
