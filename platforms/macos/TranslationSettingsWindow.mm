@@ -197,7 +197,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSString *niuTransKey = _revealNiuTrans.state == NSControlStateValueOn ? _plainNiuTransKey.stringValue : _niuTransKey.stringValue;
     NSDictionary *niutrans = @{@"enabled":@(selectedNiuTrans), @"app_id":_appId.stringValue, @"apikey":niuTransKey};
     if (selectedNiuTrans) {
-        NSDictionary *request = [MSIMEClientSession niutransTranslationHTTPRequest:@{@"config":niutrans,
+        NSDictionary *request = [MSIMEClientSession niuTransTranslationHTTPRequest:@{@"config":niutrans,
             @"text":@"validation", @"source_language":@"en", @"target_language":@"zh", @"timestamp":@"1704067200000"} error:nil];
         if (!request || ![request[@"url"] isKindOfClass:NSString.class]) {
             _status.stringValue = @"请输入有效的小牛翻译 App ID 和 API Key。"; return;
