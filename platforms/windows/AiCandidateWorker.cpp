@@ -19,6 +19,7 @@ constexpr auto kDebounce = std::chrono::milliseconds(650);
 constexpr size_t kMaximumQueryBytes = 16384;
 constexpr size_t kMaximumResponseBytes = 1024 * 1024;
 constexpr uint8_t kDefaultLimit = 3;
+constexpr size_t kMaximumCacheEntries = 4096;
 
 struct HttpResponse {
   std::string body;
@@ -84,6 +85,30 @@ std::optional<nlohmann::json> ai_descriptor(const std::string &query,
         !response.at("value").is_object())
       return std::nullopt;
     return response.at("value");
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::optional<std::string> ai_cache_key(const std::string &query) {
+  try {
+    const auto parsed = nlohmann::json::parse(query, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object())
+      return std::nullopt;
+    const auto config = parsed.value("ai_assistant", nlohmann::json::object());
+    const auto segments =
+        parsed.value("pinyin_segments", nlohmann::json::array());
+    if (!config.is_object() || !config.value("enabled", false) ||
+        !segments.is_array() || segments.empty())
+      return std::nullopt;
+    // Match the source worker's cache identity. Deliberately omit token,
+    // prompt, context, session, and generation so no secrets are retained and
+    // an unchanged prefix can be reused after a candidate refresh.
+    return nlohmann::json{{"provider", config.value("provider", std::string{})},
+                          {"endpoint", config.value("endpoint", std::string{})},
+                          {"model", config.value("model", std::string{})},
+                          {"pinyin_segments", segments}}
+        .dump();
   } catch (...) {
     return std::nullopt;
   }
@@ -279,11 +304,15 @@ void AiCandidateWorker::run() {
     };
     std::vector<std::string> candidates;
     bool cached = false;
+    const auto cache_key = ai_cache_key(request.query);
     {
       std::lock_guard lock(mutex_);
-      if (!cached_query_.empty() && cached_query_ == request.query) {
-        candidates = cached_candidates_;
-        cached = true;
+      if (cache_key) {
+        const auto found = candidate_cache_.find(*cache_key);
+        if (found != candidate_cache_.end()) {
+          candidates = found->second;
+          cached = true;
+        }
       }
     }
     if (!cached) {
@@ -301,8 +330,11 @@ void AiCandidateWorker::run() {
       // would then be mistaken for a valid answer until the query changed.
       if (!candidates.empty()) {
         std::lock_guard lock(mutex_);
-        cached_query_ = request.query;
-        cached_candidates_ = candidates;
+        if (cache_key) {
+          if (candidate_cache_.size() >= kMaximumCacheEntries)
+            candidate_cache_.clear();
+          candidate_cache_[*cache_key] = candidates;
+        }
       }
     }
     if (candidates.empty() || is_cancelled())

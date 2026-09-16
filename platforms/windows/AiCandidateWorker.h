@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace msime::windows {
@@ -60,10 +61,9 @@ private:
   std::atomic<uint64_t> latest_serial_{0};
   std::atomic<bool> stopping_{false};
   std::atomic<bool> failed_{false};
-  // Last answered query and its result, so repeating a prefix does not spend a
-  // second request on an answer already in hand.
-  std::string cached_query_;
-  std::vector<std::string> cached_candidates_;
+  // Successful results are reusable across candidate generations. The key is
+  // derived from provider identity and pinyin segments, never credentials.
+  std::unordered_map<std::string, std::vector<std::string>> candidate_cache_;
   std::thread worker_;
 };
 } // namespace msime::windows
