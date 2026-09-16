@@ -180,6 +180,11 @@ struct State {
   bool private_input = false;
   guint preferences_timer = 0;
   bool preferences_loading = false;
+  // IBus hide notifications can trail the next confirmed candidate update;
+  // retain the last lookup table for one short grace window while invalidating
+  // its action snapshot immediately.
+  guint candidate_hide_source = 0;
+  uint64_t candidate_hide_serial = 0;
   uint64_t seen_menu_status_generation = 0;
   uint64_t seen_menu_configuration = 0;
   bool input_enabled = true;
@@ -375,6 +380,12 @@ struct State {
     close();
   }
   void close() {
+    if (candidate_hide_source) {
+      const auto source = candidate_hide_source;
+      candidate_hide_source = 0;
+      g_source_remove(source);
+    }
+    ++candidate_hide_serial;
     translation_reset_pending = false;
     applied_preferences_revision = 0;
     applied_preferences_snapshot = nullptr;
@@ -2819,7 +2830,60 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, local_modes_property);
   }
 }
+struct CandidateHideRequest {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t serial;
+};
+
+gboolean apply_candidate_hide(gpointer data) {
+  auto *request = static_cast<CandidateHideRequest *>(data);
+  if (!request->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(request->engine);
+  if (s.candidate_hide_serial != request->serial)
+    return G_SOURCE_REMOVE;
+  s.candidate_hide_source = 0;
+  ibus_engine_hide_lookup_table(request->engine);
+  ibus_engine_hide_auxiliary_text(request->engine);
+  s.rendered_view = nullptr;
+  s.rendered_candidates = Json::array();
+  s.rendered_scheme = 255;
+  s.rendered_session = 0;
+  ibus_engine_update_property(request->engine, candidate_actions(request->engine));
+  ibus_engine_update_property(request->engine, nine_key_spellings(request->engine));
+  return G_SOURCE_REMOVE;
+}
+
+void destroy_candidate_hide_request(gpointer data) {
+  auto *request = static_cast<CandidateHideRequest *>(data);
+  g_object_unref(request->engine);
+  delete request;
+}
+
+void cancel_candidate_hide(IBusEngine *engine) {
+  auto &s = state(engine);
+  ++s.candidate_hide_serial;
+  if (s.candidate_hide_source) {
+    const auto source = s.candidate_hide_source;
+    s.candidate_hide_source = 0;
+    g_source_remove(source);
+  }
+}
+
+void schedule_candidate_hide(IBusEngine *engine) {
+  auto &s = state(engine);
+  cancel_candidate_hide(engine);
+  const auto serial = s.candidate_hide_serial;
+  auto *request = new CandidateHideRequest{
+      IBUS_ENGINE(g_object_ref(engine)), s.alive, serial};
+  s.candidate_hide_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 24, apply_candidate_hide, request,
+      destroy_candidate_hide_request);
+}
+
 void clear(IBusEngine *engine) {
+  cancel_candidate_hide(engine);
   ibus_engine_update_preedit_text_with_mode(
       engine, ibus_text_new_from_static_string(""), 0, FALSE,
       IBUS_ENGINE_PREEDIT_CLEAR);
@@ -2899,6 +2963,7 @@ void sync_global_input_mode(IBusEngine *engine) {
     }
 }
 void render(IBusEngine *engine, const Json &view) {
+  cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
@@ -2944,15 +3009,20 @@ void render(IBusEngine *engine, const Json &view) {
       style != "empty" && !text.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
   const auto &candidates = view.at("candidates");
   if (candidates.empty()) {
-    ibus_engine_hide_lookup_table(engine);
-    ibus_engine_hide_auxiliary_text(engine);
     auto &s = state(engine);
+    const bool had_candidates = s.rendered_candidates.is_array() &&
+                                !s.rendered_candidates.empty();
+    ibus_engine_hide_auxiliary_text(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, nine_key_spellings(engine));
+    if (had_candidates)
+      schedule_candidate_hide(engine);
+    else
+      ibus_engine_hide_lookup_table(engine);
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
