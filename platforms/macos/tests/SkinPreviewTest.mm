@@ -215,6 +215,14 @@ int main(int argc, const char **argv) {
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
         TestCandidateSurfaceTheme(preferences);
+        // Match the Windows install default and the shared Tauri settings
+        // fallback: a new macOS profile starts with word-to-character on for
+        // the bracket key group. The bracket paging shortcut remains off by
+        // default, so the two bindings are not ambiguous.
+        NSDictionary *defaultWordCharacter = [preferences wordCharacterOptions];
+        assert([defaultWordCharacter[@"enabled"] boolValue]);
+        assert([defaultWordCharacter[@"keys"] isEqual:@"brackets"]);
+        assert(![preferences navigationEnabled:@"brackets"]);
         NSDictionary *input = @{@"shuangpin_preedit_uses_raw": @NO, @"synthetic_unowned": @42};
         assert(preferences.shuangpinPreeditUsesRaw);
         assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@YES]);
