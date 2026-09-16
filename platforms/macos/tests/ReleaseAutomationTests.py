@@ -26,7 +26,7 @@ SIGNING_SECRETS = (
 
 class BuildNumberTests(unittest.TestCase):
     def run_step(self, step, prefix="", **values):
-        workflow = (MACOS_ROOT.parents[1] / ".github/workflows/release.yml").read_text()
+        workflow = (MACOS_ROOT.parents[1] / ".github/workflows/release-macos.yml").read_text()
         body = workflow.split("      - name: " + step + "\n", 1)[1]
         body = body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
         with tempfile.TemporaryDirectory() as directory:
@@ -99,123 +99,24 @@ class BuildNumberTests(unittest.TestCase):
                                      REQUESTED_PLATFORM=platform)
             self.assertEqual(result.returncode == 0, valid, f"{bump}/{tag}/{platform}")
 
-    def platforms_for(self, *paths, event="push", before=BASE_SHA, platform="both", tag=""):
-        quoted = " ".join('"' + path + '"' for path in paths)
-        stub = 'gh() { printf "%s\\n" ' + quoted + '; }' if paths else "gh() { :; }"
-        result, output = self.run_step(
-            "Select the platforms this release covers", prefix=stub,
-            GITHUB_EVENT_NAME=event, BEFORE_SHA=before, AFTER_SHA=HEAD_SHA,
-            REQUESTED_PLATFORM=platform, REQUESTED_TAG=tag)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        values = dict(line.split("=", 1) for line in output.strip().split("\n"))
-        return values["macos"], values["ios"]
+    def test_each_workflow_publishes_only_its_own_platform(self):
+        """发布拆成了两个 workflow,平台不再由一次判定得出,而是由文件本身决定。
 
-    def test_release_covers_only_the_platforms_whose_sources_changed(self):
-        self.assertEqual(self.platforms_for("platforms/ios/App/Sources/App.swift"), ("false", "true"))
-        self.assertEqual(self.platforms_for("platforms/macos/src/Controller.mm"), ("true", "false"))
-        self.assertEqual(
-            self.platforms_for("platforms/ios/App/Sources/App.swift", "platforms/macos/src/Controller.mm"),
-            ("true", "true"))
-
-    def test_shared_and_unrecognised_paths_reach_both_platforms(self):
-        # Anything both platforms compile, and anything this list does not name, must not be
-        # narrowed to one platform: a missed platform ships a fix that never reaches its users.
-        for path in ("shared/apple-bridge/InputSessionAdapter.cpp", "vendor/MetasequoiaImeEngine",
-                     "CMakeLists.txt", "cmake/Toolchain.cmake", "product-lock.json",
-                     ".github/workflows/release.yml", "some/new/directory/file.txt"):
-            self.assertEqual(self.platforms_for(path), ("true", "true"), path)
-
-    def test_documentation_alone_still_publishes_both(self):
-        # A push to main is a deliberate promotion, so a docs-only range publishes rather than
-        # leaving the draft this run already created with nothing attached to it.
-        self.assertEqual(self.platforms_for("README.md", "docs/guide.md", "LICENSE"), ("true", "true"))
-
-    def test_a_first_push_publishes_both(self):
-        # Without a predecessor there is no range to classify.
-        self.assertEqual(self.platforms_for("platforms/ios/a.swift", before="0" * 40), ("true", "true"))
-        self.assertEqual(self.platforms_for(), ("true", "true"))
-
-    def test_a_manual_run_takes_its_platforms_from_the_input(self):
-        # A dispatch carries no range of paths, so the paths a stubbed compare would report must not
-        # reach the decision: it is the operator, not the diff, that names a manual build.
-        for platform, expected in [("both", ("true", "true")), ("macos", ("true", "false")),
-                                   ("ios", ("false", "true"))]:
-            self.assertEqual(
-                self.platforms_for("platforms/ios/a.swift", event="workflow_dispatch",
-                                   platform=platform),
-                expected, platform)
-
-    def test_a_requested_tag_outranks_the_platform_input(self):
-        # The packaging and publishing scripts read the platform off the tag, so a draft named
-        # ios-v... must not be handed macOS assets even if the input somehow said otherwise.
-        for tag, expected in [("ios-v0.48.6-build.2.23.1", ("false", "true")),
-                              ("macos-v0.48.6-build.2.23.1", ("true", "false")),
-                              ("v0.48.6-build.2.23.1", ("true", "true"))]:
-            self.assertEqual(
-                self.platforms_for(event="workflow_dispatch", platform="both", tag=tag),
-                expected, tag)
-
-    def test_a_single_platform_build_names_its_platform_in_the_tag(self):
-        for macos, ios, expected in [("true", "true", "v0.48.6-build.2.23.1"),
-                                     ("true", "false", "macos-v0.48.6-build.2.23.1"),
-                                     ("false", "true", "ios-v0.48.6-build.2.23.1")]:
-            _, output = self.run_step(
-                "Create the build draft",
-                prefix='cat() { printf "0.48.6\\n"; }; gh() { :; }',
-                BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA,
-                RELEASE_MACOS=macos, RELEASE_IOS=ios)
-            self.assertIn(f"tag_name={expected}\n", output, f"{macos}/{ios}")
-
-    def test_the_version_survives_a_platform_prefix(self):
-        # The prefix sits ahead of the v, so ${tag#v} alone leaves macos-v0.48.6 and ships that as
-        # a version. A truncated version has reached a real build once already.
-        for script, variable in [("platforms/ios/scripts/package_ios_archive.sh", "version"),
-                                 ("platforms/ios/scripts/package_ios_testflight.sh", "version"),
-                                 ("platforms/macos/scripts/package_release.sh", "version"),
-                                 ("platforms/macos/scripts/generate-sparkle-appcast.sh", "version")]:
-            body = (MACOS_ROOT.parents[1] / script).read_text()
-            self.assertIn("version=${tag_name#macos-}", body, script)
-            self.assertIn("version=${version#ios-}", body, script)
-            for tag, expected in [("macos-v0.48.6-build.2.23.1", "0.48.6"),
-                                  ("ios-v0.48.6-build.2.23.1", "0.48.6"),
-                                  ("v0.48.6-build.2.23.1", "0.48.6")]:
-                result = subprocess.run(
-                    ["bash", "-c", f'tag_name={tag}\n' + "\n".join(
-                        line for line in body.splitlines()
-                        if line.startswith(("version=${tag_name#", "version=${version#"))
-                    ) + f'\nversion=${{version%%-build.*}}\nprintf %s "${variable}"'],
-                    capture_output=True, text=True)
-                self.assertEqual(result.stdout, expected, f"{script} {tag}")
-
-    def test_artifact_names_carry_the_platform_once(self):
-        # Every artifact name already ends in a platform segment, so building it from the prefixed
-        # tag produced MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. Worse, the packaging
-        # and publishing sides derive the name separately: fixing one and not the other would have
-        # the upload look for a file that packaging no longer writes.
-        root = MACOS_ROOT.parents[1]
-        for script in ["platforms/macos/scripts/package_release.sh",
-                       "platforms/macos/scripts/publish-release.sh",
-                       "platforms/macos/scripts/generate-sparkle-appcast.sh",
-                       "platforms/ios/scripts/package_ios_archive.sh",
-                       "platforms/ios/scripts/package_ios_testflight.sh"]:
-            body = (root / script).read_text()
-            self.assertNotIn("MetasequoiaIME-$TAG_NAME", body, script)
-            self.assertNotIn("MetasequoiaIME-$tag_name", body, script)
-            self.assertIn("MetasequoiaIME-$asset_tag", body, script)
-        workflow = (root / ".github/workflows/release.yml").read_text()
-        self.assertNotIn("MetasequoiaIME-$TAG_NAME", workflow)
-
-    def test_a_promoted_release_still_refuses_a_platform_prefix(self):
-        # Promotions feed Sparkle and release-please, which key on the bare vX.Y.Z name.
-        body = (MACOS_ROOT / "scripts/create-promoted-release.sh").read_text()
-        self.assertIn(r"^v[0-9]+\.[0-9]+\.[0-9]+$", body)
-        self.assertNotIn("macos-", body)
-
-    def test_invalid_build_is_rejected(self):
-        for tag in ["v0.48.6-build.1.100.1", "v0.48.6-build.x", "v0.48.6-build.0.1.1"]:
-            result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(output, "")
+        原先一个 workflow 按改动路径算出这次覆盖哪些平台,那套判定和它的六条用例
+        一起撤掉了 —— 现在 release-macos.yml 只发 macOS,release-ios.yml 只发 iOS,
+        谁也不用猜。
+        """
+        root = MACOS_ROOT.parents[1] / ".github/workflows"
+        for name, mine, theirs, prefix in [
+            ("release-macos.yml", "RELEASE_MACOS", "RELEASE_IOS", ""),
+            ("release-ios.yml", "RELEASE_IOS", "RELEASE_MACOS", "ios-"),
+        ]:
+            workflow = (root / name).read_text()
+            with self.subTest(workflow=name):
+                self.assertIn(f"{mine}: 'true'", workflow)
+                self.assertIn(f"{theirs}: 'false'", workflow)
+                self.assertNotIn("Select the platforms this release covers", workflow)
+                self.assertIn(f'tag="{prefix}v$version-build.$BUILD_NUMBER"', workflow)
 
 
 class ReleaseAutomationTests(unittest.TestCase):
