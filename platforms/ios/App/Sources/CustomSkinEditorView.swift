@@ -22,6 +22,8 @@ private enum SkinEditorTab: String, CaseIterable, Identifiable {
 }
 
 struct CustomSkinEditorView: View {
+  /// 从发布页推进来的那一份不提供发布入口。两边互相能进对方就成了环:发布页 → 去设计一款 → 编辑器 → 发布到社区 → 发布页 → …… 一层套一层没有尽头。推进来的这一程只负责把设计做出来,回去就是发布。
+  var publishable = true
   @Environment(\.scenePhase) private var scenePhase
   @State private var design = CustomKeyboardSkinStore.current
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
@@ -285,7 +287,7 @@ if section == .library {
         }.accessibilityIdentifier("savedSkin_" + item.name)
         Spacer()
         Menu {
-          Button("发布到社区") { publishingSkin = item }
+          if publishable { Button("发布到社区") { publishingSkin = item } }
           Button("用当前设计更新") { replacing = item }
           Button("重命名") { renaming = item.id; name = item.name; showSave = true }
           Button("删除", role: .destructive) { deleting = item }

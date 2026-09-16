@@ -202,14 +202,17 @@ struct CommunityPublishView: View {
               .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
             if let design { CommunityDesignPreview(design: design) }
           }
-          NavigationLink {
-            CustomSkinEditorView().onDisappear { refreshLibrary() }
-          } label: {
-            SettingsRowLabel(title: library.isEmpty ? "去设计一款" : "继续编辑我的皮肤",
-                             detail: "在编辑器里调好，到「我的」命名保存",
-                             symbol: "paintbrush.pointed.fill", color: .pink)
+          // 带着某一款设计从编辑器过来时不给这一行:人就是从那儿来的,再推一次只会把自己套回去。
+          if selectedSkinID == nil {
+            NavigationLink {
+              CustomSkinEditorView(publishable: false).onDisappear { refreshLibrary() }
+            } label: {
+              SettingsRowLabel(title: library.isEmpty ? "去设计一款" : "继续编辑我的皮肤",
+                               detail: "在编辑器里调好，到「我的」命名保存",
+                               symbol: "paintbrush.pointed.fill", color: .pink)
+            }
+            .accessibilityIdentifier("designSkinFromPublish")
           }
-          .accessibilityIdentifier("designSkinFromPublish")
         } header: {
           Text("选择已保存的设计")
         }
