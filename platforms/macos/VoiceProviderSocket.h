@@ -23,15 +23,23 @@ static inline NSString *MSIMEVoiceProviderSocketFromConfiguration(NSDictionary *
     return nil;
 }
 
-static inline NSString *MSIMEVoiceProviderSocket(void) {
-    NSString *optionsPath = [[NSBundle.mainBundle pathForResource:@"runtime-options" ofType:@"json"] copy];
+static inline NSString *MSIMEVoiceProviderSocketFromOptionsPath(NSString *optionsPath,
+                                                                NSDictionary *environment,
+                                                                NSFileManager *fileManager) {
     if (!optionsPath) {
-        NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
+        NSURL *support = [[fileManager URLsForDirectory:NSApplicationSupportDirectory
                                                                    inDomains:NSUserDomainMask] firstObject];
         optionsPath = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
     }
     NSData *data = optionsPath.length ? [NSData dataWithContentsOfFile:optionsPath] : nil;
     NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return MSIMEVoiceProviderSocketFromConfiguration(options, NSProcessInfo.processInfo.environment,
-                                                     NSFileManager.defaultManager);
+    return MSIMEVoiceProviderSocketFromConfiguration(options, environment, fileManager);
+}
+
+static inline NSString *MSIMEVoiceProviderSocket(void) {
+    NSString *optionsPath = NSProcessInfo.processInfo.environment[@"MSIME_CLIENT_HOST_OPTIONS"];
+    if (![optionsPath isKindOfClass:NSString.class] || !optionsPath.isAbsolutePath)
+        optionsPath = [[NSBundle.mainBundle pathForResource:@"runtime-options" ofType:@"json"] copy];
+    return MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, NSProcessInfo.processInfo.environment,
+                                                   NSFileManager.defaultManager);
 }
