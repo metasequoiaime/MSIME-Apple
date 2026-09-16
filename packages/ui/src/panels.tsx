@@ -999,7 +999,11 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }, [client]);
 
   function add() {
-    if (!draft || !enabled) return;
+    if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
+      if (draft.trim().length === 0) setNotice("请输入要上传的文本");
+      else if (draft.length > 4000) setNotice("上传内容不能超过 4000 个 UTF-16 单元");
+      return;
+    }
     const uploadedRevision = draftRevision.current;
     return run(async revision => {
       await client.request({ operation: "add", text: draft });
@@ -1050,7 +1054,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy || !loaded} /></label>
       {confirmDisable && <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true"><p>关闭云剪贴板会删除云端历史，是否继续？</p><button type="button" disabled={busy} onClick={() => void toggle(true)}>确认关闭并删除历史</button><button type="button" onClick={() => setConfirmDisable(false)}>取消</button></div>}
       <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
-      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
+      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><small className={draft.length > 4000 ? "cloud-clipboard-length invalid" : "cloud-clipboard-length"}>{draft.length} / 4000</small><button type="button" onClick={() => void add()} disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}>上传明确选择的文本</button></div>
       <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button>{client.copyText && <button type="button" disabled={busy} aria-label="复制此条云端记录" onClick={() => void choose(item, true)}>复制</button>}<button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
       <p className="cloud-clipboard-notice" role="status">{notice}</p>
     </div>

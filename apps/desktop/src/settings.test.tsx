@@ -2129,6 +2129,21 @@ test("cloud clipboard copy-only capability never submits to an unsupported host"
   expect(sendText).not.toHaveBeenCalled();
 });
 
+test("cloud clipboard rejects blank and overlong uploads before contacting the provider", async () => {
+  const request = vi.fn().mockResolvedValue({ enabled: true, items: [] });
+  render(<CloudClipboardPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("暂无云端历史");
+  const input = screen.getByRole("textbox", { name: "待上传文本" }) as HTMLTextAreaElement;
+  const submit = screen.getByRole("button", { name: "上传明确选择的文本" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.change(input, { target: { value: "x".repeat(4001) } });
+  expect(submit.disabled).toBe(true);
+  expect(screen.getByText("4001 / 4000")).toBeDefined();
+  fireEvent.change(input, { target: { value: "  " } });
+  expect(submit.disabled).toBe(true);
+  expect(request).not.toHaveBeenCalledWith({ operation: "add", text: expect.any(String) });
+});
+
 test("cloud clipboard confirms destructive disable and clears history", async () => {
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => action.operation === "list"
     ? { enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] } : { enabled: false });
