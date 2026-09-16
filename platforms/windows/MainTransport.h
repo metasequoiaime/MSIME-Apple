@@ -16,6 +16,9 @@ public:
   // Display-only probe: never wait for a mutex or perform I/O. False also
   // means busy, so it must not be used to disconnect or reject input work.
   virtual bool try_current(const PipeTicket &ticket) = 0;
+  // Snapshot complete registered transports. The default is empty for
+  // deterministic transports that do not model registration enumeration.
+  virtual std::vector<PipeTicket> current_tickets() { return {}; }
   virtual std::optional<FanyImeNamedpipeData>
   read(const PipeTicket &ticket) = 0;
   // Complete write only; false includes uncertain delivery. No retries.

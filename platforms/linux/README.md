@@ -38,11 +38,11 @@
 
 `preferences.cloud_candidates` 会随 OnlineQuery 传给 provider；关闭后宿主不发起仅云候选请求，并拒绝返回的云来源候选，但仍保留符合条件的 AI 联想。
 
-IBus 属性菜单中的“云联想”提供当前会话覆盖；切换会立即使正在进行的 provider 请求失效，不改写共享偏好文件。
+IBus 属性菜单中的“云联想”在配置绝对共享偏好目录时按 revision 持久化，保存成功后使正在进行的 provider 请求失效；未配置目录的直接预览只覆盖当前会话。
 
-IBus 属性菜单中的“候选翻译”提供当前会话覆盖；关闭后不会发起翻译 provider 请求，切换会使正在进行的请求失效，不改写共享偏好文件。
+IBus 属性菜单中的“候选翻译”在配置绝对共享偏好目录时按 revision 持久化，保存成功后使正在进行的请求失效；未配置目录时只覆盖当前会话，关闭后不会发起翻译 provider 请求。
 
-“翻译目标语言”菜单可在当前会话选择英语、法语、日语、西班牙语、俄语、德语或韩语；切换会使旧语言的请求失效并按当前候选重新请求，不改写共享偏好文件。
+“翻译目标语言”菜单可选择英语、法语、日语、西班牙语、俄语、德语或韩语；配置绝对共享偏好目录时按 revision 持久化，保存成功后使旧语言请求失效并按当前候选重新请求，未配置目录时只覆盖当前会话。
 
 语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”首次点击启动录音，再次点击结束录音并等待识别结果上屏，与 Windows 托盘语音操作一致；识别和润色期间该属性不可重复操作，Esc 仍可取消当前语音代次。用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial"}` 以及最终的 `{"text":"识别结果","type":"final"}`；旧版只返回 `{"text":"识别结果"}` 的服务仍按最终结果处理。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 和再次点击 IBus“语音输入”属性也使用该完成路径。`preferences.voice_input.stream_inline_preedit` 开启且 `commit_mode` 为 `tsf`（省略该字段按 `tsf` 处理）时，中间文本更新 IBus 预编辑；选择 `sendinput` 或 `ctrl_v` 时只在辅助区域显示实时转写并提交最终文本，关闭该选项时也只提交最终文本。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；最终文本为空但已有有效中间转写时，输入法保留该转写提交，只有没有任何可提交文本的空结果、过期结果和取消结果才不会上屏。若 Engine 应用结果失败，宿主也会把同一有界文本直接提交到 IBus。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-client-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
 
@@ -84,13 +84,13 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 屏幕键盘使用共享的 `touch_key_spacing_tenths` 和 `touch_row_spacing_tenths` 设置实时调整键位与行间距；启用 `touch_voice_shortcut` 时，键盘标题栏提供“语音”入口并复用已保存的输入目标打开语音面板。设置变化只影响当前面板布局，不改变 IBus Engine 组合状态。
 
-IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCandidates` 三个混输开关。切换属性会结束当前组合并重建本会话的 Engine，避免把新旧混输候选规则混在同一代视图中；覆盖只作用于当前 IBus 会话，不改写共享偏好文件。Windows 的设置窗口仍负责持久化配置，Linux 桌面 panel 只负责会话级快速切换。
+IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCandidates` 三个混输开关。配置绝对共享偏好目录时，切换先按 revision 保存，再由共享运行时决定活动组合后的应用时机；未配置目录时会结束当前组合并重建本会话的 Engine，避免把新旧混输候选规则混在同一代视图中。
 
 IBus 属性面板另提供 `EnglishMode` 独立英文输入模式。Ctrl+Shift+E 或属性开关调用 Engine 的 dedicated English 模式，保留中文输入法会话和 IBus 输入源边界；它与 `EnglishCandidates` 混输候选开关相互独立。状态按当前 IBus 会话保留，切换时由 Engine 清理正在进行的组合。
 
 Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主只在当前输入上下文获得焦点且不是密码等受限字段时消费该组合，并通过现有桌面面板启动器打开键盘；Super 组合是否能到达 IBus 仍由桌面环境的全局快捷键策略决定。
 
-IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本通过系统 ICU 的 `Simplified-Traditional` 转换器转换为繁体；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。这个开关只覆盖当前 IBus 会话，偏好文件中的 `traditional_chinese_output` 作为新会话默认值。
+IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本通过系统 ICU 的 `Simplified-Traditional` 转换器转换为繁体；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。配置绝对共享偏好目录时开关按 revision 保存 `traditional_chinese_output`，未配置目录时只覆盖当前会话。
 
 `Ctrl+Shift+F` 使用同一简繁输出路径：配置了共享偏好目录时通过 revision 保存 `traditional_chinese_output`，保存成功后更新当前会话；没有可写偏好目录时保留会话级切换。持久化写入进行中不会吞掉该快捷键，避免重复操作覆盖较新的 revision。
 
@@ -654,8 +654,6 @@ Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳�
 菜单设置保存期间，“桌面工具”显示保存中状态；存储失败或版本冲突后显示“设置未保存，点击重试”。重试重新读取最新偏好，只重放上次选择的字段并再次比较 revision，不覆盖其他并发修改。提示不展示原始错误、路径或输入内容；更换运行配置后旧重试入口失效，新的菜单修改替代旧重试记录。
 
 菜单保存状态按共享代次同步到当前焦点上下文，即使保存由另一个编辑器发起、保存失败未改变偏好文件，或偏好读取仍在进行，也会在既有刷新周期更新保存中、可重试及菜单可用状态。运行配置变更同样使旧重试提示刷新失效，不额外启动轮询线程。
-
-输入法模式菜单和工具栏入口在配置共享偏好目录时保存 ime_mode（chinese 或 english），成功后通过共享偏好热重载更新新会话和当前菜单；关闭中文输入时仍按 Linux 宿主规则提交原始组合并失效 provider。保存失败保留原模式，保存期间禁止重复操作；无存储目录的预览保留会话级切换。
 
 候选操作菜单现在根据焦点、输入启用状态和当前会话动态标记可用性；失焦、密码输入或会话尚未建立时，固定、删除、定位和取消固定动作会整体禁用，避免向已失效的 Engine 身份发送操作。候选来源和代次校验仍由宿主与 Engine 共同执行。
 

@@ -902,7 +902,8 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidatePage &page) { (void)pages.submit(page); },
         [&](const CandidatePresentation &value) {
           server.candidate_rendered(value.lease, value.render_serial);
-        });
+        },
+        config.navigation.mouse_wheel);
     const auto palette = resolve_palette(config);
     // An external package may ask for a wider card than the font implies; the
     // artwork is drawn against that width.

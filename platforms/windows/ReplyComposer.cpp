@@ -184,9 +184,36 @@ const PendingReply &ReplyComposer::dispatch(
         !local_text || *local_text != prefix_ + raw)
       throw std::invalid_argument("Invalid local commit observation");
   }
-  auto result = path == ReplyPath::Punctuation
-                    ? session.punctuation(packet, epoch)
-                    : session.key(packet, epoch);
+  const auto action = translate_key(packet);
+  const bool candidate_enter =
+      path == ReplyPath::Selection && action.kind == KeyKind::Command &&
+      action.value == MSIME_COMMIT_RAW;
+  KeyResult result;
+  if (path == ReplyPath::Punctuation) {
+    result = session.punctuation(packet, epoch);
+  } else if (candidate_enter) {
+    if (packet.event_type != FanyImePipeEventType::KeyEvent ||
+        !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID ||
+        packet.pinyin_length < 0 || packet.pinyin_length >= 128)
+      throw std::invalid_argument("Invalid Windows candidate Enter request");
+    const auto current = session.view();
+    std::optional<std::pair<uint64_t, size_t>> highlighted;
+    for (const auto &candidate : current.at("candidates")) {
+      if (!candidate.at("highlighted").get<bool>())
+        continue;
+      if (highlighted)
+        throw std::logic_error("Ambiguous candidate highlight");
+      const auto &id = candidate.at("id");
+      highlighted = std::pair<uint64_t, size_t>{
+          id.at("generation").get<uint64_t>(), id.at("index").get<size_t>()};
+    }
+    if (!highlighted)
+      throw std::logic_error("Missing candidate highlight");
+    auto transition = session.select(epoch, highlighted->first, highlighted->second);
+    result = {client_, epoch, packet.request_id, true, std::move(transition)};
+  } else {
+    result = session.key(packet, epoch);
+  }
   if (!session.input_enabled())
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
                                  : ReplyPath::NoReply;
@@ -210,9 +237,15 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (action.kind == KeyKind::CancelAndForward)
     return std::nullopt; // Configuration-specific shortcuts are not generic
                          // cancel.
-  if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW)
-    return dispatch(session, packet, epoch, ReplyPath::LocalCommit, uiless,
+  if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW) {
+    const auto current = session.view();
+    const bool candidate_active =
+        (packet.modifiers_down & PipeMetadata::CandidateActive) != 0;
+    const bool has_candidates = candidate_active && !current.at("candidates").empty();
+    const auto path = has_candidates ? ReplyPath::Selection : ReplyPath::LocalCommit;
+    return dispatch(session, packet, epoch, path, uiless,
                     std::move(local_text));
+  }
   if (auto edited = edit(session, packet, epoch, style))
     return edited;
   const auto view = session.view();
@@ -220,7 +253,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (mode == "unknown")
     return std::nullopt;
   const auto key = normalize_digit_key(packet.keycode);
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   const bool digit = key >= '1' && key <= '9';
   if ((key == 0x20 && modifiers == 0) ||
       (digit && modifiers == (mode == "unicode" ? 1u : 0u)))

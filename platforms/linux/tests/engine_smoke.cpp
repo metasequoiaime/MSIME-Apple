@@ -32,6 +32,7 @@ struct Observation {
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
+  std::string clipboard_clear_name;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -42,6 +43,8 @@ struct Observation {
   bool traditional_output = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
+  bool clipboard_toggle_sensitive = false;
+  bool clipboard_clear_sensitive = false;
   bool punctuation_enabled = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
@@ -82,6 +85,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
     }
+    if (key == "ClipboardHistory") {
+      seen.clipboard_clear_name.clear();
+      seen.clipboard_clear_sensitive = false;
+    }
     if (seen.first_candidate_fix_name.empty() &&
         (key == "CandidateFix1" || key.rfind("CandidateFix1/", 0) == 0))
       seen.first_candidate_fix_name = key;
@@ -95,6 +102,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     }
     if (key == "SmartPunctuation")
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
+    if (key == "ClipboardHistory/Enabled")
+      seen.clipboard_toggle_sensitive = ibus_property_get_sensitive(property);
+    if (key.rfind("ClipboardHistory/Clear/", 0) == 0) {
+      seen.clipboard_clear_name = key;
+      seen.clipboard_clear_sensitive = ibus_property_get_sensitive(property);
+    }
     if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "TraditionalOutput")
@@ -745,12 +758,132 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
+    {
+      const auto history_path = root / "clipboard-generation-history.json";
+      std::ofstream(history_path)
+          << nlohmann::json::array({"synthetic-old"}).dump();
+      auto clipboard = options;
+      clipboard["clipboard_history_path"] = history_path.string();
+      clipboard["preferences"]["clipboard_history"] = true;
+      msime_preview_configure(clipboard.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      auto wait_clipboard = [&](auto ready) {
+        const auto deadline = g_get_monotonic_time() + 3000000;
+        while (!ready() && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {
+          }
+          g_usleep(1000);
+        }
+        return ready();
+      };
+      require(wait_clipboard([&] {
+                return seen.clipboard_clear_sensitive &&
+                       !seen.clipboard_clear_name.empty();
+              }),
+              "Synthetic clipboard history did not publish a clear action");
+      const auto stale_clear = seen.clipboard_clear_name;
+      const auto replacement = history_path.string() + ".next";
+      std::ofstream(replacement)
+          << nlohmann::json::array({"synthetic-new"}).dump();
+      std::filesystem::rename(replacement, history_path);
+      require(wait_clipboard([&] {
+                return seen.clipboard_clear_sensitive &&
+                       seen.clipboard_clear_name != stale_clear;
+              }),
+              "Clipboard replacement did not publish a fresh clear action");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", stale_clear.c_str(), PROP_STATE_UNCHECKED));
+      require(std::filesystem::exists(history_path) &&
+                  nlohmann::json::parse(std::ifstream(history_path)) ==
+                      nlohmann::json::array({"synthetic-new"}),
+              "Stale clipboard clear action deleted refreshed history");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", seen.clipboard_clear_name.c_str(),
+                           PROP_STATE_UNCHECKED));
+      require(!std::filesystem::exists(history_path),
+              "Current clipboard clear action did not delete history");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
     msime_preview_configure(options.dump());
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");
-    require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
-            "Input mode property was not registered");
+    require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive &&
+                seen.clipboard_toggle_sensitive,
+            "Initial input and clipboard properties were not available");
+    {
+      const auto panel_marker = root / "panel-launches.log";
+      const auto panel_launcher = root / "panel-launcher";
+      std::ofstream(panel_launcher)
+          << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" >> \""
+          << panel_marker.string() << "\"\n";
+      std::filesystem::permissions(panel_launcher,
+                                   std::filesystem::perms::owner_read |
+                                       std::filesystem::perms::owner_write |
+                                       std::filesystem::perms::owner_exec,
+                                   std::filesystem::perm_options::replace);
+      auto panel_routes = [&] {
+        std::vector<std::string> routes;
+        std::ifstream input(panel_marker);
+        for (std::string route; std::getline(input, route);)
+          routes.push_back(std::move(route));
+        return routes;
+      };
+      auto wait_panel = [&](auto ready) {
+        const auto deadline = g_get_monotonic_time() + 2000000;
+        while (!ready() && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {
+          }
+          g_usleep(1000);
+        }
+        return ready();
+      };
+      g_setenv("MSIME_CLIENT_SETTINGS_COMMAND", panel_launcher.c_str(), TRUE);
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      require(wait_panel([&] { return panel_routes().size() == 1; }) &&
+                  panel_routes().front() == "emoji",
+              "Active toolbar panel action did not launch its route");
+      invoke("FocusOut");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      g_usleep(100000);
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
+      require(panel_routes().size() == 1,
+              "Stale toolbar panel action launched after focus out");
+      invoke("FocusIn");
+      invoke("Set", g_variant_new(
+                        "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                        g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "Toolbar/Emoji", PROP_STATE_UNCHECKED));
+      g_usleep(100000);
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
+      require(panel_routes().size() == 1,
+              "Toolbar panel action launched in a restricted field");
+      invoke("Set",
+             g_variant_new(
+                 "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                 g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
+      g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
+    }
+    auto relative_preferences = options;
+    relative_preferences["preferences_directory"] = "relative";
+    invoke("FocusOut");
+    msime_preview_configure(relative_preferences.dump());
+    invoke("FocusIn");
+    require(!seen.clipboard_toggle_sensitive,
+            "Relative preferences directory enabled the clipboard toggle");
+    invoke("FocusOut");
+    msime_preview_configure(options.dump());
+    invoke("FocusIn");
+    require(seen.clipboard_toggle_sensitive,
+            "Absolute preferences directory did not restore the clipboard toggle");
     for (const bool enabled : {false, true}) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode",
           enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED));
@@ -852,11 +985,16 @@ int main(int argc, char **argv) {
       return false;
     };
     invoke("PropertyActivate",
+           g_variant_new("(su)", "DesktopTools/VoiceEnabled",
+                         PROP_STATE_INCONSISTENT));
+    invoke("PropertyActivate",
            g_variant_new("(su)", "NumberRowSelection", PROP_STATE_UNCHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
-              return !preferences.value("number_row_selection", true);
+              return !preferences.value("number_row_selection", true) &&
+                     preferences.value("voice_input", nlohmann::json::object())
+                         .value("enabled", true);
             }),
-            "Number-row selection disable was not persisted");
+            "Invalid desktop voice state occupied the menu save slot");
     phrase();
     const auto number_row_commit = seen.committed;
     require(!key(IBUS_1) && seen.committed == number_row_commit &&
@@ -1057,6 +1195,9 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
     require(wait_voice([&] { return voice_provider.started.load() == 1; }),
             "Synthetic voice capture did not start");
+    require(seen.first_candidate_fix_name.empty() &&
+                seen.first_candidate_clear_name.empty(),
+            "Voice overlay retained stale candidate actions");
     voice_provider.release_partial = true;
     require(wait_voice([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
             "Streaming voice did not publish synthetic preedit");
@@ -1087,6 +1228,40 @@ int main(int argc, char **argv) {
     const bool fresh_committed = wait_voice([&] { return seen.committed == "synthetic voice"; });
     require(fresh_committed,
             "Fresh voice result did not commit after mode cancellation");
+    seen.committed.clear();
+    // Recreating the Engine session on the same IBus object must invalidate
+    // callbacks from the old session, even when the voice generation resets.
+    const auto recreate_starts = voice_provider.started.load();
+    const auto recreate_finals = voice_provider.finished.load();
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 1; }),
+            "Session-recreation voice fixture did not start");
+    // Deliver the old result before rebuilding, but leave its idle callback
+    // queued so the replacement session is active when it is dispatched.
+    voice_provider.release_final = true;
+    const auto old_result_deadline = g_get_monotonic_time() + 2000000;
+    while (voice_provider.finished.load() < recreate_finals + 1 &&
+           g_get_monotonic_time() < old_result_deadline)
+      g_usleep(1000);
+    require(voice_provider.finished.load() == recreate_finals + 1,
+            "Session-recreation fixture did not produce the old result");
+    g_usleep(50000);
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        engine, "ShuangpinProfile/ziranma", PROP_STATE_CHECKED);
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        engine, "VoiceInput", PROP_STATE_CHECKED);
+    require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 2; }),
+            "Voice capture did not restart after Engine session recreation");
+    const auto recreate_settle = g_get_monotonic_time() + 100000;
+    while (g_get_monotonic_time() < recreate_settle) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
+    require(seen.committed.empty(),
+            "Old-session voice result committed after Engine session recreation");
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+            "Current-session voice result did not commit after recreation");
     seen.committed.clear();
     const auto escape_starts = voice_provider.started.load();
     const auto escape_cancels = voice_provider.cancelled.load();
@@ -1328,7 +1503,18 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
+    const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
+    const auto committed_before_stale_action = seen.committed;
+    invoke("PropertyActivate",
+           g_variant_new("(su)", stale_candidate_action.c_str(),
+                         PROP_STATE_UNCHECKED));
+    require(seen.committed == committed_before_stale_action,
+            "Stale candidate action mutated a cleared snapshot");
+    const auto stale_wheel_candidates = seen.candidates;
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, 4, 0));
+    require(seen.candidates == stale_wheel_candidates && !seen.lookup_visible,
+            "Stale candidate wheel event mutated a cleared snapshot");
     phrase();
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
@@ -1356,6 +1542,11 @@ int main(int argc, char **argv) {
     require(seen.committed == "你好" + selected,
             "Candidate click did not use shared global index");
     invoke("Reset");
+    const auto committed_before_stale_click = seen.committed;
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+    require(seen.committed == committed_before_stale_click &&
+                !seen.lookup_visible,
+            "Candidate click used a cleared rendered snapshot");
     require(key(','), "Punctuation not consumed");
     require(seen.committed == "你好" + selected + "，",
             "Chinese punctuation not applied");
@@ -1501,11 +1692,22 @@ int main(int argc, char **argv) {
             "Quanpin scheme was not restored");
     auto committed = seen.committed;
     phrase();
+    int pending_punctuation_lock =
+        open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+    require(pending_punctuation_lock >= 0 &&
+                flock(pending_punctuation_lock, LOCK_EX | LOCK_NB) == 0,
+            "Cannot lock pending punctuation preference");
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_UNCHECKED));
+    require(seen.punctuation_enabled && seen.preedit_visible &&
+                seen.preedit == "nihao" && seen.lookup_visible &&
+                seen.committed == committed,
+            "Pending punctuation save changed the active session");
+    flock(pending_punctuation_lock, LOCK_UN);
+    close(pending_punctuation_lock);
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return !preferences.value("chinese_punctuation", true);
-            }),
+            }) && !seen.punctuation_enabled,
             "English punctuation mode was not persisted");
     require(seen.preedit_visible && seen.preedit == "nihao" &&
                 seen.lookup_visible && seen.committed == committed,
@@ -1591,22 +1793,31 @@ int main(int argc, char **argv) {
             "Private text focus did not recover");
     invoke("FocusOut");
     invoke("FocusIn");
+    int pending_width_lock =
+        open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+    require(pending_width_lock >= 0 &&
+                flock(pending_width_lock, LOCK_EX | LOCK_NB) == 0,
+            "Cannot lock pending character-width preference");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
-    require(key('1'), "Fullwidth idle digit was not handled");
-    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
+    require(!key('1') && seen.committed == committed + "你好",
+            "Pending fullwidth save changed idle character handling");
+    flock(pending_width_lock, LOCK_UN);
+    close(pending_width_lock);
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return preferences.value("character_width", "halfwidth") ==
                      "fullwidth";
             }),
             "Fullwidth idle mode was not persisted");
+    require(key('1'), "Fullwidth idle digit was not handled");
+    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
-    require(!key('2'), "Halfwidth idle digit was intercepted");
-    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return preferences.value("character_width", "fullwidth") ==
                      "halfwidth";
             }),
             "Halfwidth idle mode was not restored");
+    require(!key('2'), "Halfwidth idle digit was intercepted");
+    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {

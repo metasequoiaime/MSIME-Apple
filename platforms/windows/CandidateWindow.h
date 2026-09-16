@@ -37,7 +37,8 @@ public:
                            std::vector<std::string> fallback_fonts = {},
                            std::optional<bool> dark_theme = std::nullopt,
                            bool horizontal = false, bool show_preedit = true,
-                           Page page = {}, Rendered rendered = {});
+                           Page page = {}, Rendered rendered = {},
+                           bool mouse_wheel = false);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -133,6 +134,9 @@ private:
   // Tallest this vertical list has been since the last hide(), in physical
   // pixels. Only the flip decision reads it; placement uses the real height.
   int64_t tallest_ = 0;
+  // Wheel paging is opt-in. Off, the wheel goes back to DefWindowProc rather
+  // than being swallowed by this NOACTIVATE window.
+  bool mouse_wheel_ = false;
   int wheel_accumulator_ = 0;
 };
 } // namespace msime::windows

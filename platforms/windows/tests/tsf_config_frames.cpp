@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "../tsf/Global/PairedPunctuationHostPolicy.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <iostream>
 #include <stdexcept>
@@ -80,6 +81,9 @@ int main() {
     config.paging_comma_period = false;
     config.preedit_style = "empty";
     require(frame_text(tsf_config_frames(config)[0]) == L"0|empty");
+    require(Global::IsPairedPunctuationExcludedProcess(L"EXCEL.EXE"));
+    require(Global::IsPairedPunctuationExcludedProcess(L"excel.exe"));
+    require(!Global::IsPairedPunctuationExcludedProcess(L"WINWORD.EXE"));
     // An unknown style is omitted rather than forwarded, so the TIP keeps its
     // own value instead of being handed something it cannot parse.
     config.preedit_style = "nonsense";

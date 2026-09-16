@@ -165,6 +165,14 @@ struct State {
   uint64_t focus_epoch = 0;
   msime::linux_host::KeyRouterAdapter key_router;
   Json view;
+  Json rendered_view;
+  // IBus reports only the row index for a candidate click. Keep the exact
+  // candidate page that was most recently handed to the panel so an
+  // asynchronous Engine refresh cannot make that index resolve against a
+  // different page.
+  Json rendered_candidates = Json::array();
+  int rendered_scheme = 255;
+  uint64_t rendered_session = 0;
   bool focused = false;
   std::string focused_context;
   std::string focused_client;
@@ -403,6 +411,10 @@ struct State {
            msime::linux_host::KeyRouterAdapter::lease_token(client_token,
                                                              session)});
     view = nullptr;
+    rendered_view = nullptr;
+    rendered_candidates = Json::array();
+    rendered_scheme = 255;
+    rendered_session = 0;
     surrounding_text.clear();
     surrounding_valid = false;
     surrounding_cursor = 0;
@@ -1963,14 +1975,15 @@ std::string nine_key_spelling_action_name(uint64_t session, uint64_t generation,
 IBusProperty *nine_key_spellings(IBusEngine *engine) {
   const auto &s = state(engine);
   auto menu = ibus_prop_list_new();
-  const auto spellings = s.view.is_object()
-                             ? s.view.value("nine_key_spellings", Json::array())
+  const auto spellings = s.rendered_view.is_object()
+                             ? s.rendered_view.value("nine_key_spellings", Json::array())
                              : Json::array();
   const bool available = s.session && s.focused && !s.blocked && s.input_enabled &&
-                         s.view.value("nine_key", false) && spellings.is_array();
+                         s.rendered_session == s.session && s.rendered_view.is_object() &&
+                         s.rendered_view.value("nine_key", false) && spellings.is_array();
   bool has_items = false;
   if (available) {
-    const auto generation = s.view.value("generation", uint64_t{0});
+    const auto generation = s.rendered_view.value("generation", uint64_t{0});
     for (size_t index = 0; index < spellings.size(); ++index) {
       if (!spellings.at(index).is_string())
         continue;
@@ -1996,11 +2009,16 @@ IBusProperty *nine_key_spellings(IBusEngine *engine) {
 IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
-  const auto candidates = s.view.is_object()
-                              ? s.view.value("candidates", Json::array())
+  // Candidate actions must describe the same page that was last handed to
+  // IBus. The live Engine view can advance before the panel redraws (and is
+  // retained while voice owns the preedit), so reading it here can bind a
+  // menu action to an invisible or newer candidate.
+  const auto candidates = s.rendered_candidates.is_array()
+                              ? s.rendered_candidates
                               : Json::array();
-  const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
-  const bool actions_available = s.focused && !s.blocked && s.input_enabled && s.session;
+  const auto scheme = s.rendered_scheme;
+  const bool actions_available = s.focused && !s.blocked && s.input_enabled &&
+                                 s.session && s.rendered_session == s.session;
   bool editable_candidates = false;
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
@@ -2332,12 +2350,16 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
+  const auto preferences_directory =
+      configured.value("preferences_directory", std::string{});
   auto clipboard_toggle = ibus_property_new(
       "ClipboardHistory/Enabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("启用历史采集"), "",
       ibus_text_new_from_static_string("启用或停用本地剪贴板历史记录"),
       s.focused && !s.blocked && !menu_save_pending &&
-          !configured.value("preferences_directory", std::string{}).empty(), TRUE,
+          !preferences_directory.empty() &&
+          preferences_directory.front() == '/',
+      TRUE,
       s.clipboard_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, clipboard_toggle);
   auto open_clipboard = ibus_property_new(
@@ -2389,10 +2411,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(page, remove);
   }
   auto clear_clipboard = ibus_property_new(
-      "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
-      ibus_text_new_from_static_string("清空历史"), "",
+      (std::string("ClipboardHistory/Clear/") +
+       std::to_string(s.clipboard_generation))
+          .c_str(),
+      PROP_TYPE_NORMAL, ibus_text_new_from_static_string("清空历史"), "",
       ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
-      clipboard_menu_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_menu_available && !items.empty(), TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
   ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
@@ -2789,6 +2814,13 @@ void clear(IBusEngine *engine) {
       IBUS_ENGINE_PREEDIT_CLEAR);
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
+  auto &s = state(engine);
+  s.rendered_view = nullptr;
+  s.rendered_candidates = Json::array();
+  s.rendered_scheme = 255;
+  s.rendered_session = 0;
+  ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2856,7 +2888,6 @@ void sync_global_input_mode(IBusEngine *engine) {
     }
 }
 void render(IBusEngine *engine, const Json &view) {
-  ibus_engine_update_property(engine, candidate_actions(engine));
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
@@ -2868,6 +2899,12 @@ void render(IBusEngine *engine, const Json &view) {
         static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
         !s.voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
+    s.rendered_candidates = Json::array();
+    s.rendered_scheme = 255;
+    s.rendered_session = 0;
+    s.rendered_view = nullptr;
+    ibus_engine_update_property(engine, candidate_actions(engine));
+    ibus_engine_update_property(engine, nine_key_spellings(engine));
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -2898,6 +2935,13 @@ void render(IBusEngine *engine, const Json &view) {
   if (candidates.empty()) {
     ibus_engine_hide_lookup_table(engine);
     ibus_engine_hide_auxiliary_text(engine);
+    auto &s = state(engine);
+    s.rendered_candidates = Json::array();
+    s.rendered_scheme = 255;
+    s.rendered_session = 0;
+    s.rendered_view = nullptr;
+    ibus_engine_update_property(engine, candidate_actions(engine));
+    ibus_engine_update_property(engine, nine_key_spellings(engine));
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
@@ -3010,6 +3054,13 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_lookup_table_set_cursor_pos(table, static_cast<guint>(index));
   }
   ibus_engine_update_lookup_table(engine, table, TRUE);
+  auto &s = state(engine);
+  s.rendered_view = view;
+  s.rendered_candidates = candidates;
+  s.rendered_scheme = view.value("scheme", 255);
+  s.rendered_session = s.session;
+  ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
@@ -3062,6 +3113,7 @@ struct VoiceResult {
   std::shared_ptr<std::atomic_bool> alive;
   uint64_t generation;
   uint64_t focus_epoch;
+  uint64_t session;
   std::string text;
   bool final = true;
   unsigned level = 0;
@@ -3255,6 +3307,7 @@ void voice_start_impl(IBusEngine *engine) {
     apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
+  const auto session_id = s.session;
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
   s.voice_phase = "正在录音…";
@@ -3275,7 +3328,7 @@ void voice_start_impl(IBusEngine *engine) {
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   s.voice_worker.run_stream(
-      [socket, language, generation, focus_epoch, engine, alive, provider_succeeded,
+      [socket, language, generation, session_id, focus_epoch, engine, alive, provider_succeeded,
        provider_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
@@ -3284,15 +3337,16 @@ void voice_start_impl(IBusEngine *engine) {
                                 {"generation", generation},
                                 {"options", provider_options}}
                                .dump();
-        VoiceStreamContext stream{progress, [engine, alive, generation, focus_epoch, &cancelled](uint8_t phase) {
+        VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
           const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
-          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, labels[phase], false};
+          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, labels[phase], false};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
             if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                 !s.session || !s.focused || s.blocked || !s.input_enabled)
               return G_SOURCE_REMOVE;
@@ -3309,15 +3363,16 @@ void voice_start_impl(IBusEngine *engine) {
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
           }, result, nullptr);
-        }, [engine, alive, generation, focus_epoch, &cancelled](float level) {
+        }, [engine, alive, generation, session_id, focus_epoch, &cancelled](float level) {
           if (cancelled.load()) return;
-          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, {}, false,
+          auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, {}, false,
               static_cast<unsigned>(level * 10.0f + 0.5f)};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
             if (!s.voice_active || s.voice_stopping || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                 !s.session || !s.focused || s.blocked || !s.input_enabled)
               return G_SOURCE_REMOVE;
@@ -3352,11 +3407,11 @@ void voice_start_impl(IBusEngine *engine) {
           return std::string{};
         }
       },
-      [engine, alive, generation, focus_epoch,
+      [engine, alive, generation, session_id, focus_epoch,
        stream_inline_preedit](std::string text, bool final) {
         if (final || text.empty())
           return;
-        auto *result = new VoiceResult{engine, alive, generation, focus_epoch,
+        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id,
                                        std::move(text), false};
         result->inline_preedit = stream_inline_preedit;
         g_idle_add_full(
@@ -3367,6 +3422,7 @@ void voice_start_impl(IBusEngine *engine) {
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
               if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                   !s.session || !s.focused || s.blocked || !s.input_enabled)
                 return G_SOURCE_REMOVE;
@@ -3385,8 +3441,8 @@ void voice_start_impl(IBusEngine *engine) {
             },
             result, nullptr);
       },
-      [engine, alive, generation, focus_epoch, provider_succeeded](std::string text) {
-        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, std::move(text),
+      [engine, alive, generation, session_id, focus_epoch, provider_succeeded](std::string text) {
+        auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, std::move(text),
                                        true, 0, !provider_succeeded->load()};
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
@@ -3396,6 +3452,7 @@ void voice_start_impl(IBusEngine *engine) {
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
               if (!s.voice_active || s.voice_generation != result->generation ||
+                s.session != result->session ||
                 s.focus_epoch != result->focus_epoch ||
                   !s.session || !s.focused || s.blocked || !s.input_enabled) {
                 return G_SOURCE_REMOVE;
@@ -3601,7 +3658,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled)
         return;
-      for (const auto &candidate : s.view.at("candidates")) {
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
         const auto &id = candidate.at("id");
         const bool pin = candidate_name == candidate_action_name("CandidatePin", id);
         const bool remove = candidate_name == candidate_action_name("CandidateRemove", id);
@@ -3619,7 +3681,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         if (id.at("session").get<uint64_t>() != s.session)
           return;
         const auto source = candidate.value("source", 0);
-        if (s.view.value("scheme", 255) == 3 ||
+        if (s.rendered_scheme == 3 ||
             (source != 0 && source != 1 && source != 4))
           return;
         const auto generation = id.at("generation").get<uint64_t>();
@@ -3644,12 +3706,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     guarded(engine, "nine_key_spelling", [&] {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled ||
-          !s.view.value("nine_key", false))
+          s.rendered_session != s.session || !s.rendered_view.is_object() ||
+          !s.rendered_view.value("nine_key", false) ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
         return;
-      const auto spellings = s.view.value("nine_key_spellings", Json::array());
+      const auto spellings = s.rendered_view.value("nine_key_spellings", Json::array());
       if (!spellings.is_array())
         return;
-      const auto generation = s.view.value("generation", uint64_t{0});
+      const auto generation = s.rendered_view.value("generation", uint64_t{0});
       for (size_t index = 0; index < spellings.size(); ++index) {
         if (!spellings.at(index).is_string() ||
             candidate_name != nine_key_spelling_action_name(s.session, generation, index))
@@ -3677,7 +3742,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (!s.focused || s.blocked)
       return;
     if (property_name == "DesktopTools/VoiceEnabled") {
-      if (menu_save_pending || !s.focused || s.blocked) return;
+      if (menu_save_pending || !s.focused || s.blocked ||
+          (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+        return;
       save_menu_preference(engine, MenuPreference::VoiceEnabled, value == PROP_STATE_CHECKED);
       return;
     }
@@ -3705,6 +3772,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     return;
   }
   if (property_name.rfind("Toolbar/", 0) == 0) {
+    if (!s.focused || s.blocked)
+      return;
     if (property_name == "Toolbar/Emoji") {
       launch_desktop_panel("emoji");
       return;
@@ -3728,14 +3797,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       property_activate(engine, target, value);
     return;
   }
-  const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
-                               property_name != "ClipboardHistory/Refresh" &&
-                               property_name != "ClipboardHistory/Latest" &&
-                               property_name != "ClipboardHistory/Clear" &&
-                               property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
+  const bool clipboard_item =
+      property_name.rfind("ClipboardHistory/", 0) == 0 &&
+      property_name != "ClipboardHistory/Refresh" &&
+      property_name != "ClipboardHistory/Latest" &&
+      property_name.rfind("ClipboardHistory/Clear/", 0) != 0 &&
+      property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
   const bool clipboard_remove = property_name.rfind("ClipboardHistory/Remove/", 0) == 0;
+  const bool clipboard_clear =
+      property_name.rfind("ClipboardHistory/Clear/", 0) == 0;
   if (!name ||
-       (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
+      (!(clipboard_item || clipboard_remove || clipboard_clear) &&
        property_name != "ClipboardHistory/Refresh" &&
        std::string(name) != "InputMode" &&
        std::string(name) != "ClipboardHistory/Enabled" &&
@@ -3777,8 +3849,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateTheme/dark" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese" &&
-       property_name != "Scheme/Quanpin" && property_name != "Scheme/Shuangpin" &&
-       property_name != "Scheme/Wubi" &&
+       property_name != "Scheme/Quanpin" &&
+       property_name != "Scheme/Shuangpin" && property_name != "Scheme/Wubi" &&
        property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
@@ -3920,6 +3992,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        // Persist first. The save callback applies the accepted snapshot and
+        // recreates the runtime through apply_live_preferences; a failed or
+        // conflicting write must not leave a session-only value visible.
+        save_menu_preference(engine, MenuPreference::LocalMode,
+                             Json{{"key", key}, {"enabled", enabled}});
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3928,9 +4008,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::LocalMode,
-                             Json{{"key", key}, {"enabled", enabled}});
       return;
     }
     if (property_name == "WordCharacter") {
@@ -4187,7 +4264,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       return;
     }
-    if (property_name == "ClipboardHistory/Clear") {
+    if (clipboard_clear) {
+      const auto expected = std::string("ClipboardHistory/Clear/") +
+                            std::to_string(s.clipboard_generation);
+      if (property_name != expected)
+        return;
       if (!clipboard_delete(s.clipboard_history_path, std::nullopt))
         return;
       s.clipboard_items_cache.clear();
@@ -4251,6 +4332,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "CharacterMode") {
       if (menu_save_pending || s.fullwidth == (value == PROP_STATE_CHECKED)) return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CharacterWidth,
+                             value == PROP_STATE_CHECKED);
+        return;
+      }
       s.fullwidth = value == PROP_STATE_CHECKED;
       s.paired_tracker.clear();
       if (s.session) {
@@ -4258,9 +4344,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         render(engine, s.view);
       }
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::CharacterWidth,
-                             value == PROP_STATE_CHECKED);
       return;
     }
     if (std::string(name) == "TraditionalOutput") {
@@ -4566,14 +4649,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (!s.input_enabled || !s.session || menu_save_pending)
         return;
       const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
+        return;
+      }
       s.view =
           response(msime_client_set_chinese_punctuation(s.session, enabled));
       s.chinese_punctuation = enabled;
       s.punctuation_override = enabled;
       s.paired_tracker.clear();
       publish_mode(engine);
-      if (!directory.empty() && directory.front() == '/')
-        save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
       return;
     }
     if (enabled != s.input_enabled) {
@@ -5026,9 +5111,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK) &&
       maintenance_candidate_slot.has_value();
   if (maintenance_candidate_key) {
-    const auto candidates = s.view.value("candidates", Json::array());
+    const auto &candidates = s.rendered_candidates;
     const auto index = maintenance_candidate_slot;
-    if (!index || !candidates.is_array() || *index >= candidates.size())
+    if (!index || s.rendered_session != s.session || !candidates.is_array() ||
+        *index >= candidates.size() || !s.rendered_view.is_object() ||
+        s.rendered_view.value("generation", uint64_t{0}) !=
+            s.view.value("generation", uint64_t{0}))
       return FALSE;
     const auto &candidate = candidates.at(*index);
     if (!candidate.is_object() || !candidate.contains("id"))
@@ -5038,8 +5126,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return FALSE;
     const auto source = candidate.value("source", 0);
     if (!msime::linux_host::candidate_dictionary_removal_available(
-            s.view.value("scheme", 255), source,
-            candidate.value("text", std::string{})))
+        s.rendered_scheme, source,
+        candidate.value("text", std::string{})))
       return FALSE;
     guarded(engine, "remove_candidate_shortcut", [&] {
       apply(engine, msime_client_remove_candidate(
@@ -5177,23 +5265,35 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!japanese_long_vowel) {
         if (const auto edge =
                 s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
-          for (const auto &candidate : s.view.at("candidates")) {
-            if (!candidate.at("highlighted").get<bool>())
-              continue;
-            const auto &id = candidate.at("id");
-            if (id.at("session").get<uint64_t>() != s.session)
+          // Edge selection is an identity-bearing action. Resolve the
+          // highlighted candidate from the page actually handed to IBus,
+          // rather than a newer live view that may still be awaiting redraw.
+          const bool rendered_current =
+              s.rendered_session == s.session && s.rendered_view.is_object() &&
+              s.rendered_candidates.is_array() &&
+              !s.rendered_candidates.empty() &&
+              s.rendered_view.value("generation", uint64_t{0}) ==
+                  s.view.value("generation", uint64_t{0});
+          if (rendered_current) {
+            for (const auto &candidate : s.rendered_candidates) {
+              if (!candidate.is_object() ||
+                  !candidate.value("highlighted", false))
+                continue;
+              const auto &id = candidate.value("id", Json::object());
+              if (!id.is_object() ||
+                  id.value("session", uint64_t{0}) != s.session)
+                return;
+              handled = apply(engine,
+                              msime_client_select_edge(
+                                  s.session, id.value("generation", uint64_t{0}),
+                                  id.value("index", size_t{0}), *edge));
+              if (!handled)
+                handled =
+                    apply(engine, msime_client_punctuation(
+                                      s.session, static_cast<uint8_t>(key)));
               return;
-            handled = apply(engine,
-                            msime_client_select_edge(
-                                s.session, id.at("generation").get<uint64_t>(),
-                                id.at("index").get<size_t>(), *edge));
-            if (!handled)
-              handled =
-                  apply(engine, msime_client_punctuation(
-                                    s.session, static_cast<uint8_t>(key)));
-            return;
+            }
           }
-          return;
         }
       }
       if (!japanese_minus_equal) {
@@ -5207,6 +5307,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.view.at("candidates").empty()) {
       if (const auto touch_navigation =
               msime::linux_host::touch_keyboard_command(key)) {
+        // Touch-keyboard page events carry no generation. Keep them aligned
+        // with the page handed to IBus, just like wheel and native page
+        // callbacks, so a delayed event cannot page a newer live view.
+        if (s.rendered_session != s.session || !s.rendered_view.is_object() ||
+            !s.rendered_candidates.is_array() ||
+            s.rendered_candidates.empty() ||
+            s.rendered_view.value("generation", uint64_t{0}) !=
+                s.view.value("generation", uint64_t{0}))
+          return;
         handled = apply(engine, msime_client_command(
                                    s.session, *touch_navigation));
         return;
@@ -5249,10 +5358,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (s.number_row_selection && !s.view.value("nine_key", false) &&
-        !s.view.at("candidates").empty()) {
-      if (const auto index = candidate_digit_slot(key, keycode, flags, s.view)) {
-        if (*index >= s.view.at("candidates").size()) return;
-        const auto &candidate = s.view.at("candidates").at(*index);
+        s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+        !s.rendered_candidates.empty()) {
+      if (const auto index =
+              candidate_digit_slot(key, keycode, flags, s.rendered_view)) {
+        if (*index >= s.rendered_candidates.size()) return;
+        const auto &candidate = s.rendered_candidates.at(*index);
         const auto &id = candidate.at("id");
         if (id.at("session").get<uint64_t>() != s.session) return;
         handled = apply(engine, msime_client_select(
@@ -5262,8 +5373,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
     }
     const bool ordinary_candidate_digit =
-        !s.english_mode && s.view.value("local_mode", "none") == "none" &&
-        !s.view.value("nine_key", false) && !s.view.at("candidates").empty() &&
+        !s.english_mode && s.rendered_view.value("local_mode", "none") == "none" &&
+        !s.rendered_view.value("nine_key", false) &&
+        s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+        !s.rendered_candidates.empty() &&
         ((key >= IBUS_0 && key <= IBUS_9) ||
          (key >= IBUS_KP_0 && key <= IBUS_KP_9));
     if (ordinary_candidate_digit &&
@@ -5533,6 +5646,27 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = true;
         return;
       }
+      // Settle Space against the candidate page most recently handed to the
+      // IBus panel. Engine may have rebuilt or reordered its live view while
+      // the panel was still processing the previous update; selecting by the
+      // rendered candidate identity keeps the key aligned with what the user
+      // was shown, just like the Windows painted-page selection fence.
+      if (candidate_active && s.rendered_session == s.session &&
+          s.rendered_candidates.is_array() && !s.rendered_candidates.empty()) {
+        for (const auto &candidate : s.rendered_candidates) {
+          if (!candidate.is_object() || !candidate.value("highlighted", false))
+            continue;
+          const auto &id = candidate.value("id", Json::object());
+          if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+            break;
+          handled = apply(engine, msime_client_select(
+              s.session, id.value("generation", uint64_t{0}),
+              id.value("index", size_t{0})));
+          if (handled)
+            return;
+          break;
+        }
+      }
       command = MSIME_COMMIT_CANDIDATE;
       break;
     case IBUS_Left:
@@ -5598,13 +5732,22 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
     if (button >= 4) {
+      // Mouse-wheel events can arrive after IBus has hidden the lookup table.
+      // Do not let a late page command mutate a live session without the
+      // candidate snapshot that was visible when the event was generated.
+      if (!s.session || s.rendered_session != s.session ||
+          !s.rendered_candidates.is_array() || s.rendered_candidates.empty() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
       if (const auto wheel = s.navigation.wheel_command(button))
-        if (s.session)
-          apply(engine, msime_client_command(s.session, *wheel));
+        apply(engine, msime_client_command(s.session, *wheel));
       return;
     }
-    const auto candidates = s.view.value("candidates", Json::array());
-    if (!s.session || !candidates.is_array() || index >= candidates.size()) return;
+    const auto &candidates = s.rendered_candidates;
+    if (!s.session || s.rendered_session != s.session ||
+        !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");
@@ -5612,7 +5755,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
     const auto source = entry.value("source", 0);
-    const auto scheme = s.view.value("scheme", 255);
+    const auto scheme = s.rendered_scheme;
     if (button == 3 && scheme != 3 &&
         (source == 0 || source == 1 || source == 4))
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
@@ -5623,7 +5766,14 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
 void page(IBusEngine *engine, uint32_t command) {
   guarded(engine, "page", [&] {
     auto &s = state(engine);
-    if (s.session && s.focused && !s.blocked && s.input_enabled)
+    // IBus page/cursor callbacks carry no generation. Fence them to the
+    // candidate page currently owned by the panel so a delayed callback
+    // cannot page a newer Engine view that has not been rendered yet.
+    if (s.session && s.focused && !s.blocked && s.input_enabled &&
+        s.rendered_session == s.session && s.rendered_view.is_object() &&
+        s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.value("generation", uint64_t{0}) ==
+            s.view.value("generation", uint64_t{0}))
       apply(engine, msime_client_command(s.session, command));
   });
 }

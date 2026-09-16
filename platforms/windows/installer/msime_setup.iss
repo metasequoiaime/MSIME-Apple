@@ -47,8 +47,6 @@ DisableProgramGroupPage=yes
 OutputDir=Output
 OutputBaseFilename=MetasequoiaIME_Setup_v{#MyAppVersion}{#MyOutputSuffix}
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
-; 安装向导中显示 GPLv3 正文。Prepare-PackageFiles.ps1 会把仓库根的 LICENSE 拷成这个文件。
-LicenseFile={#MySourceRoot}\LICENSE.txt
 Compression=lzma2
 SolidCompression=yes
 ; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。

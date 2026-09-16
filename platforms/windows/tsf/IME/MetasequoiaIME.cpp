@@ -1601,6 +1601,7 @@ STDAPI CMetasequoiaIME::Deactivate()
         KillTimer(_msgWndHandle, TIMER_DEFERRED_FOCUS_LOSS);
         KillTimer(_msgWndHandle, TIMER_FOCUS_STATUS_RESEND);
         KillTimer(_msgWndHandle, TIMER_REFRESH_HOST_PREFERENCES);
+        _CancelPairedPunctuationCaretMove();
         DestroyWindow(_msgWndHandle);
         if (Global::msgWndHandle == _msgWndHandle)
         {
@@ -2354,6 +2355,11 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         break;
     }
     case WM_TIMER: {
+        if (wParam == TIMER_PAIRED_PUNCTUATION_CARET)
+        {
+            pIME->_RunPairedPunctuationCaretMove();
+            break;
+        }
         if (wParam == TIMER_REFRESH_HOST_PREFERENCES)
         {
             auto *engine = pIME->GetCompositionProcessorEngine();
@@ -2753,21 +2759,14 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         SendCurrentImeStatusSnapshot(pIME);
         break;
     }
-    case WM_PairedPunctuationMoveLeft: {
+    case WM_PairedPunctuationCaretMove: {
         const uint64_t focusToken = static_cast<uint64_t>(static_cast<uint32_t>(wParam)) |
                                     (static_cast<uint64_t>(static_cast<uint32_t>(lParam)) << 32);
-        if (focusToken == 0 || !pIME->_IsFocusSessionCurrent(focusToken))
+        if (focusToken == 0 || focusToken != pIME->_pendingPairedCaretFocusToken)
         {
             break;
         }
-
-        INPUT inputs[2] = {};
-        inputs[0].type = INPUT_KEYBOARD;
-        inputs[0].ki.wVk = VK_LEFT;
-        inputs[1] = inputs[0];
-        inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-
-        SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+        pIME->_RunPairedPunctuationCaretMove();
         break;
     }
     case WM_ReplaceRepeatedSmartPunctuation: {

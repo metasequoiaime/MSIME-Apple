@@ -22,7 +22,7 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
                           std::string_view editing = {}, size_t caret = 0) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
-  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   if (modifiers & ~1u)
     return EditKind::None;
   const auto key = normalize_digit_key(packet.keycode);

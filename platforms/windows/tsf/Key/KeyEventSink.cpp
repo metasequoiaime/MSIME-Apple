@@ -14,6 +14,7 @@
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
+#include "../../PipeMetadata.h"
 #include <chrono>
 #include "../../../../vendor/MSIME-Engine/contracts/ipc_negotiation.h"
 
@@ -344,7 +345,7 @@ LRESULT CALLBACK CMetasequoiaIME::_MinttyKeyboardHookProc(int code, WPARAM wPara
 {
     CMetasequoiaIME *owner = _minttyKeyboardHookOwner;
     if (code == HC_ACTION && owner != nullptr &&
-        static_cast<ULONG_PTR>(GetMessageExtraInfo()) != SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO)
+        !IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         const UINT virtualKey = static_cast<UINT>(wParam);
         const bool isShift = IsShiftVk(virtualKey);
@@ -1375,7 +1376,7 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     {
         return E_INVALIDARG;
     }
-    if (static_cast<ULONG_PTR>(GetMessageExtraInfo()) == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO)
+    if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
         return S_OK;
@@ -1932,7 +1933,7 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     {
         return E_INVALIDARG;
     }
-    if (static_cast<ULONG_PTR>(GetMessageExtraInfo()) == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO)
+    if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
         return S_OK;
@@ -2199,7 +2200,12 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
                 localCommitObservation.clear();
             }
         }
-        WriteDataToSharedMemory(Global::Keycode, wch, Global::ModifiersDown, nullptr, 0,
+        const UINT ipcModifiers =
+            Global::ModifiersDown |
+            (_candidateMode == CANDIDATE_ORIGINAL
+                 ? msime::windows::PipeMetadata::CandidateActive
+                 : 0u);
+        WriteDataToSharedMemory(Global::Keycode, wch, ipcModifiers, nullptr, 0,
                                 localCommitObservation,
                                 hasLocalCommitObservation && !localCommitObservation.empty()
                                     ? 0b110111
@@ -2358,7 +2364,7 @@ STDAPI CMetasequoiaIME::OnTestKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM 
     {
         return E_INVALIDARG;
     }
-    if (static_cast<ULONG_PTR>(GetMessageExtraInfo()) == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO)
+    if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
         return S_OK;
@@ -2429,7 +2435,7 @@ STDAPI CMetasequoiaIME::OnKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lPar
     {
         return E_INVALIDARG;
     }
-    if (static_cast<ULONG_PTR>(GetMessageExtraInfo()) == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO)
+    if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
         return S_OK;

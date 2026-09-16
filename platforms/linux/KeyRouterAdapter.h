@@ -19,7 +19,14 @@ class KeyRouterAdapter {
     return MSIME_CLIENT_KEY_SENT;
   }
   bool cancel(msime_client_focus_lease lease) {
-    if (lease.client != lease_.client || lease.epoch != lease_.epoch || lease.token != lease_.token)
+    // An all-zero lease is the sentinel for "no active route". Treat it as
+    // invalid even when the adapter is already clear; otherwise a stale
+    // focus-out callback could report a successful cancellation and mask a
+    // routing lifetime bug.
+    if (lease.client == 0 || lease.epoch == 0 || lease.token == 0 ||
+        lease_.client == 0 || lease_.epoch == 0 || lease_.token == 0 ||
+        lease.client != lease_.client || lease.epoch != lease_.epoch ||
+        lease.token != lease_.token)
       return false;
     clear_lease();
     return true;

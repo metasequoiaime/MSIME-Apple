@@ -264,9 +264,9 @@ bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动�
 
 脚本进程控制已另用 macOS 原生探针和 PowerShell 7.6.6 执行验证：默认 12 项及词库跳过、指定含空格目录追加第 13 项、空参数、缺少程序、非零退出和超时终止。探针不链接 Engine，不验证 Windows 二进制、词库内容或 Windows 中文路径。非交叉 CMake 配置找到 pwsh/powershell 时自动登记 windows-runner-control，也可通过 MSIME_POWERSHELL 指定路径；交叉构建不会尝试在本机执行 Windows 探针。探针与临时副本仅用于测试，超时 Kill 后等待进程退出再释放对象。
 
-### 预览 Server 命令行入口
+### Server 命令行入口
 
-完整构建新增 msime-client-server.exe，使用 `--config <绝对配置路径>` 启动，`--help` 不读写状态。配置是最多 16 KiB 的 JSON，以下五个字段必需，另可提供 key_bindings；其余字段拒绝：
+完整构建新增 `msime-client-server.exe`。生产启动使用 `--production`（Watchdog 使用等价的 `--watchdog-managed`），从安装状态目录读取配置并监听生产 TSF 管道；隔离预览使用 `--config <绝对配置路径>`。`--help` 只显示模式说明，不读写状态。TSF 注册仍由安装器负责，Server 不在启动时修改系统输入法注册。预览配置是最多 16 KiB 的 JSON，以下五个字段必需，另可提供 key_bindings；其余字段拒绝：
 
 ```json
 {"format_version":1,"resources":"C:\\MSIME-Preview\\resources","state_root":"C:\\MSIME-Preview\\state","pipe_namespace":"dev-01","preedit_style":"pinyin"}
@@ -286,11 +286,11 @@ key_bindings 可选对象示例：
 
 #### 托盘菜单与共享界面
 
-托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；表情/符号面板、手写识别板、屏幕键盘、语音输入、设置和关于都在共享桌面外壳（Tauri）里打开，与 Linux 的 IBus 属性菜单走同一套契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。
+托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；表情/符号面板、手写识别板、屏幕键盘、设置和关于都在共享桌面外壳（Tauri）里打开，与 Linux 的 IBus 属性菜单走同一套契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
 
 外壳可执行文件按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe`、同目录的 `MSIME Client Preview.exe` 顺序查找。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。外壳用 `CreateProcessW` 启动并继承本进程令牌，因此打包时外壳与 Server 的完整性级别一致。
 
-这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
+隔离预览不注册 TSF，也不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。生产模式复用相同的 Server 会话/窗口实现，并使用安装的生产管道；安装器仍需完成 TSF 注册和 DLL/Server 部署。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 #### TSF 适配器交接契约
 

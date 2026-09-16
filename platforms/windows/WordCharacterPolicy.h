@@ -28,7 +28,8 @@ word_character_edge(const FanyImeNamedpipeData &packet,
     throw std::invalid_argument("Invalid word-to-character binding");
   if (binding == WordCharacterBinding::Disabled ||
       packet.event_type != FanyImePipeEventType::KeyEvent ||
-      (packet.modifiers_down & ~FanyImePipeFlags::UiLess) != 0)
+      (packet.modifiers_down & PipeMetadata::CandidateActive) != 0 ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 0)
     return std::nullopt;
   const bool minus = binding == WordCharacterBinding::MinusEqual;
   if (packet.keycode == (minus ? 0xBDu : 0xDBu) &&

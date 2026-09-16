@@ -570,6 +570,11 @@ fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
     Ok(document)
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct PanelInputState(std::sync::Mutex<HashMap<String, PanelInputTarget>>);
+
+#[cfg(not(target_os = "linux"))]
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 
@@ -887,6 +892,7 @@ fn start_desktop_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
     history: Arc<Mutex<ClipboardHistoryStore>>,
+    #[cfg(target_os = "linux")] history_path: PathBuf,
 ) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
@@ -894,6 +900,24 @@ fn start_desktop_preferences_monitor(
         .spawn(move || {
             let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
             loop {
+                #[cfg(target_os = "windows")]
+                {
+                    // The native Server signals after a successful bounded
+                    // store update. Keep the same timeout as the old poll so
+                    // preferences and writes from other tools remain visible
+                    // even when the event is unavailable.
+                    let _ = msime_host_windows::wait_for_clipboard_history_change(
+                        std::time::Duration::from_millis(750),
+                    );
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = desktop_preferences_monitor::wait_for_filesystem_change(
+                        &history_path,
+                        std::time::Duration::from_millis(750),
+                    );
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "windows")))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
             }
@@ -1569,8 +1593,13 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<tauri::Position> {
-    let target = state.0.lock().ok()?.clone()?;
+fn panel_position(
+    state: &PanelInputState,
+    label: &str,
+    width: f64,
+    height: f64,
+) -> Option<tauri::Position> {
+    let target = state.0.lock().ok()?.get(label).cloned()?;
     let physical = matches!(&target, PanelInputTarget::X11(_));
     let read = |program: &str, arguments: &[&str], limit: usize| {
         linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
@@ -1670,15 +1699,34 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
 #[cfg(target_os = "linux")]
 fn remember_panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
+    label: &str,
     replace: bool,
 ) -> Result<(), HostActionError> {
     let mut target = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
-    if replace || target.is_none() {
-        *target = Some(capture_panel_input_target()?);
+    if replace || !target.contains_key(label) {
+        target.insert(label.to_owned(), capture_panel_input_target()?);
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn panel_input_target(
+    state: &tauri::State<'_, PanelInputState>,
+    label: &str,
+) -> Result<PanelInputTarget, HostActionError> {
+    state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .get(label)
+        .cloned()
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
 }
 
 #[cfg(target_os = "linux")]
@@ -1934,15 +1982,34 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
 }
 
 #[cfg(target_os = "linux")]
+struct PanelFocusRelease {
+    windows: Vec<tauri::WebviewWindow>,
+}
+
+#[cfg(target_os = "linux")]
+impl PanelFocusRelease {
+    fn restore(self) {
+        // Showing a window does not request focus; this restores a panel that
+        // was temporarily hidden for virtual-keyboard injection without
+        // stealing the caret back from the external editor.
+        for window in self.windows {
+            let _ = window.show();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn release_panel_focus(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
-) -> Result<(), HostActionError> {
+) -> Result<PanelFocusRelease, HostActionError> {
     if !matches!(
         target,
         PanelInputTarget::Wayland | PanelInputTarget::Ydotool
     ) {
-        return Ok(());
+        return Ok(PanelFocusRelease {
+            windows: Vec::new(),
+        });
     }
     let windows: Vec<_> = [
         "handwriting-panel",
@@ -1964,14 +2031,39 @@ fn release_panel_focus(
     if focused {
         // Hide every editable panel so the compositor cannot focus another one.
         // The screen keyboard never accepts focus and stays available for typing.
+        let mut hidden = Vec::new();
         for window in windows {
-            window.hide().map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
+            let visible = window.is_visible().unwrap_or(false);
+            if let Err(_) = window.hide() {
+                for hidden_window in hidden {
+                    let _ = hidden_window.show();
+                }
+                return Err(HostActionError {
+                    code: "unavailable",
+                });
+            }
+            if visible {
+                hidden.push(window);
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
+        return Ok(PanelFocusRelease { windows: hidden });
     }
-    Ok(())
+    Ok(PanelFocusRelease {
+        windows: Vec::new(),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn with_panel_focus_released<T>(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+    send: impl FnOnce() -> Result<T, HostActionError>,
+) -> Result<T, HostActionError> {
+    let release = release_panel_focus(app, target)?;
+    let result = send();
+    release.restore();
+    result
 }
 
 #[cfg(target_os = "linux")]
@@ -2040,13 +2132,11 @@ fn send_panel_key(
         let mut command_args = Vec::with_capacity(args.len() + 1);
         command_args.push("key".to_owned());
         command_args.extend(args);
-        release_panel_focus(app, &target)?;
-        return run_ydotool(&command_args);
+        return with_panel_focus_released(app, &target, || run_ydotool(&command_args));
     }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
-    release_panel_focus(app, &target)?;
     let mut args = Vec::new();
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
@@ -2063,7 +2153,7 @@ fn send_panel_key(
         args.extend(["-M".to_owned(), "shift".to_owned()]);
     }
     args.extend(["-k".to_owned(), key.to_owned()]);
-    run_wtype(&target, &args)
+    with_panel_focus_released(app, &target, || run_wtype(&target, &args))
 }
 
 #[cfg(target_os = "linux")]
@@ -2087,51 +2177,52 @@ fn send_panel_text_to_target(
         std::thread::sleep(std::time::Duration::from_millis(30));
         return send_panel_ctrl_v(app, target);
     }
-    release_panel_focus(app, target)?;
-    if let PanelInputTarget::X11(window) = target {
-        // Use focused XTEST input for applications that reject XSendEvent.
-        // --file - reads stdin, keeping the text out of process arguments.
-        return linux_process::write_input(
-            "xdotool",
-            &[
-                "windowactivate",
-                "--sync",
-                window.as_str(),
-                "type",
-                "--delay",
-                "0",
-                "--file",
-                "-",
-            ],
-            text.as_bytes(),
-            std::time::Duration::from_secs(3),
-        )
-        .then_some(())
-        .ok_or(HostActionError {
+    with_panel_focus_released(app, target, || {
+        if let PanelInputTarget::X11(window) = target {
+            // Use focused XTEST input for applications that reject XSendEvent.
+            // --file - reads stdin, keeping the text out of process arguments.
+            return linux_process::write_input(
+                "xdotool",
+                &[
+                    "windowactivate",
+                    "--sync",
+                    window.as_str(),
+                    "type",
+                    "--delay",
+                    "0",
+                    "--file",
+                    "-",
+                ],
+                text.as_bytes(),
+                std::time::Duration::from_secs(3),
+            )
+            .then_some(())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
+        }
+        let sent = if matches!(target, PanelInputTarget::Ydotool) {
+            // ydotool may hold each ASCII key for 20ms even with key-delay=0.
+            // Allow that per-character work while keeping stalls bounded.
+            let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
+            linux_process::write_input(
+                "ydotool",
+                &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
+                text.as_bytes(),
+                timeout,
+            )
+        } else {
+            focus_wtype_target(target)?;
+            linux_process::write_input(
+                "wtype",
+                &["-"],
+                text.as_bytes(),
+                std::time::Duration::from_secs(3),
+            )
+        };
+        sent.then_some(()).ok_or(HostActionError {
             code: "unavailable",
-        });
-    }
-    let sent = if matches!(target, PanelInputTarget::Ydotool) {
-        // ydotool may hold each ASCII key for 20ms even with key-delay=0.
-        // Allow that per-character work while keeping stalls bounded.
-        let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
-        linux_process::write_input(
-            "ydotool",
-            &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
-            text.as_bytes(),
-            timeout,
-        )
-    } else {
-        focus_wtype_target(target)?;
-        linux_process::write_input(
-            "wtype",
-            &["-"],
-            text.as_bytes(),
-            std::time::Duration::from_secs(3),
-        )
-    };
-    sent.then_some(()).ok_or(HostActionError {
-        code: "unavailable",
+        })
     })
 }
 
@@ -2154,6 +2245,7 @@ async fn send_panel_text(
     app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
     typing_statistics: &tauri::State<'_, TypingStatisticsState>,
+    label: String,
     text: String,
     source: TypingSource,
 ) -> Result<(), HostActionError> {
@@ -2167,16 +2259,7 @@ async fn send_panel_text(
             code: "invalid_text",
         });
     }
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
+    let target = panel_input_target(state, &label)?;
     let typing_statistics = typing_statistics.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let result = send_panel_text_to_target(&app, &target, &text);
@@ -2196,28 +2279,29 @@ fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
-    release_panel_focus(app, target)?;
-    if let PanelInputTarget::X11(window) = target {
-        return send_x11_panel_key(window, "ctrl+v");
-    }
-    if let PanelInputTarget::Ydotool = target {
-        return run_ydotool(&[
-            "key".to_owned(),
-            "29:1".to_owned(),
-            "47:1".to_owned(),
-            "47:0".to_owned(),
-            "29:0".to_owned(),
-        ]);
-    }
-    run_wtype(
-        target,
-        &[
-            "-M".to_owned(),
-            "ctrl".to_owned(),
-            "-k".to_owned(),
-            "v".to_owned(),
-        ],
-    )
+    with_panel_focus_released(app, target, || {
+        if let PanelInputTarget::X11(window) = target {
+            return send_x11_panel_key(window, "ctrl+v");
+        }
+        if let PanelInputTarget::Ydotool = target {
+            return run_ydotool(&[
+                "key".to_owned(),
+                "29:1".to_owned(),
+                "47:1".to_owned(),
+                "47:0".to_owned(),
+                "29:0".to_owned(),
+            ]);
+        }
+        run_wtype(
+            target,
+            &[
+                "-M".to_owned(),
+                "ctrl".to_owned(),
+                "-k".to_owned(),
+                "v".to_owned(),
+            ],
+        )
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -2382,8 +2466,13 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
         let state = app.state::<PanelInputState>();
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, f64::from(surface.width), f64::from(surface.height))
+            let _ = remember_panel_input_target(&state, surface.label, true);
+            panel_position(
+                &state,
+                surface.label,
+                f64::from(surface.width),
+                f64::from(surface.height),
+            )
         };
         #[cfg(target_os = "windows")]
         let position = {
@@ -2414,14 +2503,17 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
 }
 
 #[tauri::command]
-fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(), HostActionError> {
+fn remember_input_target(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return remember_panel_input_target(&state, false);
+    return remember_panel_input_target(&state, window.label().as_str(), false);
     #[cfg(target_os = "windows")]
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let _ = state;
+        let _ = (window, state);
         Ok(())
     }
 }
@@ -2447,18 +2539,7 @@ async fn send_key(
         let target = if window.label() == "keyboard-panel" {
             None
         } else {
-            Some(
-                state
-                    .0
-                    .lock()
-                    .map_err(|_| HostActionError {
-                        code: "unavailable",
-                    })?
-                    .clone()
-                    .ok_or(HostActionError {
-                        code: "unavailable",
-                    })?,
-            )
+            Some(panel_input_target(&state, window.label().as_str())?)
         };
         return tauri::async_runtime::spawn_blocking(move || {
             let target = match target {
@@ -3324,6 +3405,7 @@ async fn submit_handwriting_candidate(
             app,
             &state,
             &typing_statistics,
+            window.label(),
             candidate,
             TypingSource::Handwriting,
         )
@@ -3363,7 +3445,15 @@ async fn send_text(
     let _ = (&app, &window, &state);
     let _ = &typing_statistics;
     #[cfg(target_os = "linux")]
-    return send_panel_text(app, &state, &typing_statistics, text, TypingSource::Unknown).await;
+    return send_panel_text(
+        app,
+        &state,
+        &typing_statistics,
+        window.label(),
+        text,
+        TypingSource::Unknown,
+    )
+    .await;
     #[cfg(target_os = "windows")]
     return send_panel_text_windows(&state, &text);
     #[cfg(target_os = "macos")]
@@ -3385,6 +3475,7 @@ fn supports_clipboard_paste() -> bool {
 #[tauri::command]
 async fn paste_clipboard_text(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     text: String,
 ) -> Result<(), HostActionError> {
@@ -3398,16 +3489,7 @@ async fn paste_clipboard_text(
                 code: "invalid_text",
             });
         }
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .clone()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
+        let target = panel_input_target(&state, window.label().as_str())?;
         tauri::async_runtime::spawn_blocking(move || {
             if !write_linux_clipboard(&text) {
                 return Err(HostActionError {
@@ -3455,7 +3537,7 @@ async fn paste_clipboard_text(
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let _ = (app, state, text);
+        let _ = (app, window, state, text);
         Err(HostActionError {
             code: "unavailable",
         })
@@ -3477,7 +3559,7 @@ async fn send_voice_text(
     let _ = (&state, &typing_statistics, &store);
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        let _ = (&app, &window);
         let target = state
             .0
             .lock()
@@ -3529,16 +3611,7 @@ async fn send_voice_text(
     }
     #[cfg(target_os = "linux")]
     {
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .clone()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
+        let target = panel_input_target(&state, window.label().as_str())?;
         let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
@@ -3579,7 +3652,7 @@ async fn send_voice_text(
                 .map_err(|_| HostActionError {
                     code: "unavailable",
                 })?;
-            let _ = (state, typing_statistics, store);
+            let _ = (window, state, typing_statistics, store);
             Ok(())
         }
         #[cfg(target_os = "android")]
@@ -3601,7 +3674,7 @@ async fn send_voice_text(
         }
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
-            let _ = (app, state, typing_statistics, store, text);
+            let _ = (app, window, state, typing_statistics, store, text);
             Err(HostActionError {
                 code: "unavailable",
             })
@@ -3837,8 +3910,8 @@ fn open_keyboard_panel(
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 1100.0, 400.0)
+            let _ = remember_panel_input_target(&state, "keyboard-panel", true);
+            panel_position(&state, "keyboard-panel", 1100.0, 400.0)
         };
         // The panel never activates, so the window that owns the caret now is
         // the one synthetic input has to reach later.
@@ -3871,8 +3944,8 @@ fn open_handwriting_panel(
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 980.0, 650.0)
+            let _ = remember_panel_input_target(&state, "handwriting-panel", true);
+            panel_position(&state, "handwriting-panel", 980.0, 650.0)
         };
         // The panel never activates, so the window that owns the caret now is
         // the one synthetic input has to reach later.
@@ -3907,8 +3980,8 @@ fn open_emoji_panel(
         #[cfg(target_os = "linux")]
         let position = {
             let _ = &options;
-            let _ = remember_panel_input_target(&input, true);
-            panel_position(&input, 720.0, 720.0)
+            let _ = remember_panel_input_target(&input, "emoji-panel", true);
+            panel_position(&input, "emoji-panel", 720.0, 720.0)
         };
         #[cfg(target_os = "windows")]
         let position = {
@@ -3939,8 +4012,8 @@ fn open_voice_panel(
     let _ = &state;
     #[cfg(target_os = "linux")]
     let position = {
-        let _ = remember_panel_input_target(&state, true);
-        panel_position(&state, 620.0, 520.0)
+        let _ = remember_panel_input_target(&state, "voice-panel", true);
+        panel_position(&state, "voice-panel", 620.0, 520.0)
     };
     #[cfg(target_os = "windows")]
     let position = {
@@ -3985,8 +4058,8 @@ fn open_cloud_clipboard_panel(
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 560.0, 560.0)
+            let _ = remember_panel_input_target(&state, "cloud-clipboard-panel", true);
+            panel_position(&state, "cloud-clipboard-panel", 560.0, 560.0)
         };
         #[cfg(not(target_os = "linux"))]
         let position = None;
@@ -4027,8 +4100,8 @@ fn open_cloud_dictionary_panel(
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, true);
-            panel_position(&state, 760.0, 700.0)
+            let _ = remember_panel_input_target(&state, "cloud-dictionary-panel", true);
+            panel_position(&state, "cloud-dictionary-panel", 760.0, 700.0)
         };
         #[cfg(not(target_os = "linux"))]
         let position = None;
@@ -4097,6 +4170,7 @@ fn close_panel(
             label.as_str(),
             "keyboard-panel"
                 | "handwriting-panel"
+                | "emoji-panel"
                 | "clipboard-panel"
                 | "voice-panel"
                 | "cloud-clipboard-panel"
@@ -4104,7 +4178,14 @@ fn close_panel(
         )
     {
         if let Ok(mut target) = state.0.lock() {
-            *target = None;
+            #[cfg(target_os = "linux")]
+            {
+                target.remove(&label);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                *target = None;
+            }
         }
     }
     result
@@ -4336,15 +4417,18 @@ fn sync_clipboard_history_blocking(
     #[cfg(target_os = "linux")]
     let output = linux_clipboard_text();
     #[cfg(target_os = "windows")]
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "Get-Clipboard"])
-        .output();
+    let text = msime_host_windows::read_clipboard_text()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .trim_end_matches(['\r', '\n'])
+        .to_owned();
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let output: Result<std::process::Output, std::io::Error> =
         Err(std::io::Error::other("unsupported"));
     #[cfg(target_os = "linux")]
     let text = output?;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
     let text = {
         let output = output.map_err(|_| HostActionError {
             code: "unavailable",
@@ -4382,6 +4466,14 @@ async fn copy_text_impl(
     #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
     #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
 ) -> Result<(), HostActionError> {
+    // Clipboard writes are shared by Emoji, handwriting and voice panels. Keep
+    // the same bounded text contract as paste/submit so a panel cannot make an
+    // unbounded system-clipboard or history update on any desktop host.
+    if !clipboard_text_is_valid(&text) {
+        return Err(HostActionError {
+            code: "invalid_text",
+        });
+    }
     let state = state.inner().clone();
     let store = store.inner().clone();
     #[cfg(target_os = "android")]
@@ -4467,6 +4559,12 @@ async fn copy_text_impl(
     }
 }
 
+fn clipboard_text_is_valid(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= msime_client_core::clipboard::MAX_TEXT_BYTES
+        && !text.contains('\0')
+}
+
 #[cfg(target_os = "android")]
 #[tauri::command]
 async fn copy_text(
@@ -4535,32 +4633,7 @@ fn copy_text_blocking(
     #[cfg(target_os = "linux")]
     let result = write_linux_clipboard(&text);
     #[cfg(target_os = "windows")]
-    let result = {
-        use std::io::Write;
-        let mut child = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Set-Clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .stdin
-            .take()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-            .write_all(text.as_bytes())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .wait()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .success()
-    };
+    let result = msime_host_windows::write_clipboard_text(&text);
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let result = false;
     if !result {
@@ -4818,6 +4891,8 @@ pub fn run() {
                 app.handle(),
                 preferences.clone(),
                 Arc::clone(&clipboard_state.0),
+                #[cfg(target_os = "linux")]
+                directory.join("clipboard_history.json"),
             );
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
@@ -4985,8 +5060,8 @@ pub fn run() {
                     let panel_input = app.state::<PanelInputState>();
                     #[cfg(target_os = "linux")]
                     let position = {
-                        let _ = remember_panel_input_target(&panel_input, true);
-                        panel_position(&panel_input, width, height)
+                        let _ = remember_panel_input_target(&panel_input, label, true);
+                        panel_position(&panel_input, label, width, height)
                     };
                     #[cfg(target_os = "windows")]
                     let position = {
@@ -5255,6 +5330,21 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
+        assert!(!super::clipboard_text_is_valid(""));
+        assert!(!super::clipboard_text_is_valid("a\0b"));
+
+        let at_limit = "x".repeat(msime_client_core::clipboard::MAX_TEXT_BYTES);
+        assert!(super::clipboard_text_is_valid(&at_limit));
+
+        let over_limit = format!("{at_limit}x");
+        assert!(!super::clipboard_text_is_valid(&over_limit));
+        assert!(super::clipboard_text_is_valid(
+            "第一行\nsecond line\n第三行"
+        ));
+    }
+
     #[test]
     fn windows_restart_payload_is_exact_utf16_without_terminator() {
         let payload = super::windows_restart_payload();
@@ -5659,6 +5749,27 @@ mod tests {
         assert_eq!(ready_json["statistics"]["enabled"], false);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn panel_input_targets_are_isolated_by_surface() {
+        let state = super::PanelInputState::default();
+        let mut targets = state.0.lock().unwrap();
+        targets.insert(
+            "emoji-panel".into(),
+            super::PanelInputTarget::X11("11".into()),
+        );
+        targets.insert(
+            "keyboard-panel".into(),
+            super::PanelInputTarget::X11("22".into()),
+        );
+        targets.remove("emoji-panel");
+        assert!(targets.get("emoji-panel").is_none());
+        assert!(matches!(
+            targets.get("keyboard-panel"),
+            Some(super::PanelInputTarget::X11(window)) if window == "22"
+        ));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn keyboard_does_not_accept_focus_but_editable_panels_do() {
@@ -5777,6 +5888,86 @@ themes = ['light']
 
     #[cfg(target_os = "linux")]
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_xdotool_geometry_requires_complete_numeric_shell_fields() {
+        let geometry = "WINDOW=4194305\nX=120\nY=48\nWIDTH=1280\nHEIGHT=720\nSCREEN=1\n";
+        assert_eq!(
+            parse_xdotool_geometry(geometry),
+            Some((120.0, 48.0, 1280.0, 720.0))
+        );
+
+        for malformed in [
+            "X=120\nY=48\nWIDTH=1280\n",
+            "X=120\nY=48\nWIDTH=1280\nHEIGHT=oops\n",
+            "X=120\nY=48\nWIDTH=1280\nHEIGHT=720\nBROKEN",
+        ] {
+            assert_eq!(parse_xdotool_geometry(malformed), None);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sway_target_and_geometry_walk_nested_and_floating_nodes() {
+        let tree = serde_json::json!({
+            "type": "root",
+            "nodes": [{
+                "type": "workspace",
+                "id": 7,
+                "rect": {"x": 10, "y": 20, "width": 1600, "height": 900},
+                "nodes": [{
+                    "type": "con",
+                    "id": 42,
+                    "focused": true,
+                    "rect": {"x": 110, "y": 220, "width": 900, "height": 600}
+                }],
+                "floating_nodes": [{
+                    "type": "floating_con",
+                    "id": 99,
+                    "rect": {"x": 300, "y": 400, "width": 300, "height": 200}
+                }]
+            }]
+        });
+
+        assert_eq!(focused_sway_container(&tree), Some(42));
+        assert_eq!(
+            sway_rect_for_container(&tree, 42),
+            Some((110.0, 220.0, 900.0, 600.0))
+        );
+        assert_eq!(
+            sway_rect_for_container(&tree, 99),
+            Some((300.0, 400.0, 300.0, 200.0))
+        );
+        assert_eq!(
+            sway_workspace_for_container(&tree, 42, None),
+            Some((10.0, 20.0, 1600.0, 900.0))
+        );
+        assert_eq!(sway_rect_for_container(&tree, 404), None);
+        assert_eq!(sway_workspace_for_container(&tree, 404, None), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sway_workspace_does_not_leak_across_sibling_workspaces() {
+        let tree = serde_json::json!({
+            "type": "root",
+            "nodes": [
+                {"type": "workspace", "id": 1,
+                 "rect": {"x": 0, "y": 0, "width": 800, "height": 600},
+                 "nodes": [{"id": 11, "rect": {"x": 0, "y": 0, "width": 800, "height": 600}}]},
+                {"type": "workspace", "id": 2,
+                 "rect": {"x": 800, "y": 0, "width": 800, "height": 600},
+                 "nodes": [{"id": 22, "rect": {"x": 800, "y": 0, "width": 800, "height": 600}}]}
+            ]
+        });
+
+        assert_eq!(
+            sway_workspace_for_container(&tree, 22, None),
+            Some((800.0, 0.0, 800.0, 600.0))
+        );
+        assert_eq!(sway_workspace_for_container(&tree, 33, None), None);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

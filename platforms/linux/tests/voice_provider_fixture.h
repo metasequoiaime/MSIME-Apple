@@ -1,10 +1,12 @@
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
 #include <cstring>
+#include <deque>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -37,26 +39,29 @@ public:
     unlink(path_.c_str());
   }
 private:
+  struct Pending {
+    int socket;
+    uint64_t generation;
+  };
   std::string path_;
   int listener_ = -1;
   std::atomic<bool> stopped_{false};
   std::thread worker_;
   void run() {
-    int pending = -1;
-    uint64_t generation = 0;
+    std::deque<Pending> pending;
     while (!stopped_) {
-      if (pending >= 0 && release_partial.exchange(false)) {
+      if (!pending.empty() && release_partial.exchange(false)) {
         const auto response = nlohmann::json{{"type", "partial"}, {"text", "测试😀"},
-                                              {"generation", generation}}.dump() + "\n";
-        send(pending, response.data(), response.size(), MSG_NOSIGNAL);
+                                              {"generation", pending.front().generation}}.dump() + "\n";
+        send(pending.front().socket, response.data(), response.size(), MSG_NOSIGNAL);
       }
 
-      if (pending >= 0 && release_final.exchange(false)) {
+      if (!pending.empty() && release_final.exchange(false)) {
         const auto response = nlohmann::json{{"type", "final"}, {"text", "synthetic voice"},
-                                              {"generation", generation}}.dump() + "\n";
-        send(pending, response.data(), response.size(), MSG_NOSIGNAL);
-        close(pending);
-        pending = -1;
+                                              {"generation", pending.front().generation}}.dump() + "\n";
+        send(pending.front().socket, response.data(), response.size(), MSG_NOSIGNAL);
+        close(pending.front().socket);
+        pending.pop_front();
         ++finished;
       }
       pollfd ready{listener_, POLLIN, 0};
@@ -70,20 +75,24 @@ private:
       while (request.size() < 16384 && recv(client, &byte, 1, 0) == 1 && byte != '\n')
         request += byte;
       const auto value = nlohmann::json::parse(request, nullptr, false);
-      if (value.is_object() && value.value("kind", "") == "voice" && pending < 0) {
-        pending = client;
-        generation = value.at("query").value("generation", uint64_t{0});
+      if (value.is_object() && value.value("kind", "") == "voice" && pending.size() < 4) {
+        pending.push_back({client, value.at("query").value("generation", uint64_t{0})});
         ++started;
       } else {
         if (value.is_object() && value.value("kind", "") == "voice_cancel" &&
-            value.at("query").value("generation", uint64_t{0}) == generation)
+            std::any_of(pending.begin(), pending.end(), [&](const auto &request) {
+              return request.generation == value.at("query").value("generation", uint64_t{0});
+            }))
           ++cancelled;
         if (value.is_object() && value.value("kind", "") == "voice_stop" &&
-            value.at("query").value("generation", uint64_t{0}) == generation)
+            std::any_of(pending.begin(), pending.end(), [&](const auto &request) {
+              return request.generation == value.at("query").value("generation", uint64_t{0});
+            }))
           ++stop_requests;
         close(client);
       }
     }
-    if (pending >= 0) close(pending);
+    for (const auto &request : pending)
+      close(request.socket);
   }
 };

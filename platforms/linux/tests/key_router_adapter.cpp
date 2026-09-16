@@ -23,6 +23,7 @@ int main() {
   assert(adapter.cancel(event.lease));
   assert(adapter.check(event) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
   assert(!adapter.cancel(event.lease));
+  assert(!adapter.cancel({}));
 
   msime_client_key_event without_session{
       {7, 8, msime::linux_host::KeyRouterAdapter::lease_token(7, 0)},
@@ -40,5 +41,9 @@ int main() {
   adapter.set_lease(with_session.lease);
   assert(adapter.check(without_session) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
   assert(adapter.check(with_session) == MSIME_CLIENT_KEY_SENT);
+  assert(!adapter.cancel({with_session.lease.client, with_session.lease.epoch, 0}));
+  assert(adapter.check(with_session) == MSIME_CLIENT_KEY_SENT);
+  assert(adapter.cancel(with_session.lease));
+  assert(!adapter.cancel({}));
   return 0;
 }

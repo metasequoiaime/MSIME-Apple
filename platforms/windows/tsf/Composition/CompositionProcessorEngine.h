@@ -114,6 +114,12 @@ class CCompositionProcessorEngine
     // keep ',' '.' ':' as ASCII instead of mapping to Chinese punctuation.
     static BOOL IsSmartAsciiPunctuationKey(WCHAR wch);
     std::wstring ResolvePunctuation(WCHAR wch, WCHAR precedingChar);
+    // Paired-punctuation auto-close emits both halves of a nest pair on the
+    // opening key, so the closing key never reaches GetPunctuation to decrement
+    // the depth. Undo the opening's increment here to keep the completed pair
+    // net-zero; otherwise every auto-closed 《》 leaves the depth at 1 and the
+    // next opening resolves to the inner 〈.
+    void BalanceNestPairAfterAutoClose(WCHAR openingCode);
 
     BOOL IsDoubleSingleByte(WCHAR wch);
     BOOL IsWildcard()

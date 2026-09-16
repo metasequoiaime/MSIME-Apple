@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 class CLangBarItemButton;
 class CCandidateListUIPresenter;
@@ -38,7 +39,7 @@ const DWORD WM_IpcSessionDirty = WM_USER + 17;
 const DWORD WM_DrainDeferredKeyDown = WM_USER + 18;
 const DWORD WM_InsertText = WM_USER + 19;
 const DWORD WM_RefreshLanguageBarTheme = WM_USER + 20;
-const DWORD WM_PairedPunctuationMoveLeft = WM_USER + 21;
+const DWORD WM_PairedPunctuationCaretMove = WM_USER + 21;
 const DWORD WM_ReplaceRepeatedSmartPunctuation = WM_USER + 22;
 const DWORD WM_MinttyShiftRelease = WM_USER + 23;
 const DWORD WM_UpdateVoiceComposition = WM_USER + 24;
@@ -47,6 +48,13 @@ const DWORD WM_CancelVoiceComposition = WM_USER + 26;
 const DWORD WM_ApplyPunctuationLock = WM_USER + 27;
 const DWORD WM_CancelKeyboardComposition = WM_USER + 28;
 constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
+// Marker for caret movement synthesized by paired punctuation. Key sinks and
+// the bare-Shift hook must pass these events through to the host.
+constexpr ULONG_PTR PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535051u;
+constexpr bool IsSelfGeneratedSendInputExtraInfo(ULONG_PTR extraInfo)
+{
+    return extraInfo == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO || extraInfo == PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO;
+}
 constexpr ULONGLONG SMART_PUNCTUATION_REPEAT_INTERVAL_MS = 2000;
 constexpr UINT_PTR TIMER_CONNECT_ALL_NAMEDPIPE = 1;
 constexpr UINT_PTR TIMER_CONNECT_TO_TSF_NAMEDPIPE = 2;
@@ -54,6 +62,11 @@ constexpr UINT_PTR TIMER_REFRESH_LANG_BAR_THEME = 3;
 constexpr UINT_PTR TIMER_DEFERRED_FOCUS_LOSS = 4;
 constexpr UINT_PTR TIMER_FOCUS_STATUS_RESEND = 5;
 constexpr UINT_PTR TIMER_REFRESH_HOST_PREFERENCES = 6;
+constexpr UINT_PTR TIMER_PAIRED_PUNCTUATION_CARET = 7;
+constexpr UINT PAIRED_PUNCTUATION_CARET_RETRY_MS = 15;
+constexpr ULONGLONG PAIRED_PUNCTUATION_CARET_TIMEOUT_MS = 2000;
+constexpr int PAIRED_PUNCTUATION_CARET_MAX_STEPS = 8;
+constexpr size_t PAIRED_PUNCTUATION_MAX_DEPTH = 16;
 constexpr UINT FOCUS_LOSS_DEFER_MS = 300;
 // Chromium hosts fire a burst of OnSetFocus per window switch; coalesce them
 // into one resend instead of one packet per callback.
@@ -182,8 +195,18 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                           uint64_t requestId, const std::wstring &prefetchedText);
     // Character immediately before the caret / composition start (0 if unavailable).
     WCHAR _GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
+    WCHAR _GetFollowingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
     // Shadow first, document read as the fallback. See _smartPunctuationShadowChar.
     WCHAR _GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In_ ITfContext *pContext);
+
+    static WCHAR _GetPairedPunctuationClosingFor(WCHAR opening);
+    void _PushPairedPunctuation(WCHAR opening, WCHAR closing);
+    void _ClearPairedPunctuationStack();
+    bool _TryStepOverPairedPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR closing);
+    void _NoteKeyForPairedPunctuation(UINT code);
+    void _QueuePairedPunctuationCaretMove(int delta);
+    void _RunPairedPunctuationCaretMove();
+    void _CancelPairedPunctuationCaretMove();
 
     // Smart punctuation: backspacing the ASCII punctuation we just committed
     // means that form was unwanted, so the spot stays on Chinese punctuation.
@@ -533,6 +556,18 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // document read is used only while this is invalid.
     WCHAR _smartPunctuationShadowChar = 0;
     bool _smartPunctuationShadowValid = false;
+
+    struct PairedPunctuationEntry
+    {
+        WCHAR opening = 0;
+        WCHAR closing = 0;
+        uint64_t focusToken = 0;
+    };
+    std::vector<PairedPunctuationEntry> _pairedPunctuationStack;
+    int _pendingPairedCaretDelta = 0;
+    uint64_t _pendingPairedCaretFocusToken = 0;
+    ULONGLONG _pendingPairedCaretDeadline = 0;
+    bool _pairedCaretRetryTimerActive = false;
 
     ITfDocumentMgr *_pDocMgrLastFocused;
 

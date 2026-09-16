@@ -66,6 +66,16 @@ int main() {
             EditKind::None);
     semicolon.modifiers_down = 2;
     require(edit_kind(semicolon, "none", true, true, "b", 1) == EditKind::None);
+    FanyImeNamedpipeData enter{};
+    enter.event_type = FanyImePipeEventType::KeyEvent;
+    enter.keycode = 0x0D;
+    enter.modifiers_down = FanyImePipeFlags::UiLess |
+                           PipeMetadata::CandidateActive;
+    require(translate_key(enter).kind == KeyKind::Command &&
+                translate_key(enter).value == MSIME_COMMIT_RAW &&
+                PipeMetadata::key_modifiers(enter.modifiers_down) == 0);
+    enter.modifiers_down |= 1u;
+    require(PipeMetadata::key_modifiers(enter.modifiers_down) == 1u);
     FanyImeNamedpipeData edge_packet{};
     edge_packet.event_type = FanyImePipeEventType::KeyEvent;
     edge_packet.keycode = 0xDB;
@@ -79,6 +89,9 @@ int main() {
     }
     edge_packet.modifiers_down = FanyImePipeFlags::UiLess;
     require(word_character_edge(edge_packet, WordCharacterBinding::Brackets) == MSIME_FIRST_HAN);
+    edge_packet.modifiers_down |= PipeMetadata::CandidateActive;
+    require(!word_character_edge(edge_packet, WordCharacterBinding::Brackets));
+    edge_packet.modifiers_down = FanyImePipeFlags::UiLess;
     edge_packet.wch = '{';
     require(!word_character_edge(edge_packet, WordCharacterBinding::Brackets));
     edge_packet.keycode = 0x6D;

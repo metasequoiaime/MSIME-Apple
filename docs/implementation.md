@@ -993,3 +993,70 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 对齐 Apple 输入设置的“试一下振动”，共享按键反馈分组新增预览按钮。iOS 通过移动插件调用 `UIImpactFeedbackGenerator`，Android 通过 `Vibrator`/`VibrationEffect` 按轻、中、强映射触觉振幅；预览不写入共享 Engine 设置或键盘输入状态，保存的偏好仍由各自键盘宿主读取。
 
 本地验证通过按键反馈定向 Vitest、Rust fmt、移动插件测试和桌面 TypeScript 检查；未执行签名设备触觉硬件效果、系统静音策略或 Android 厂商振动强度验收，CI 保持禁用。
+本地验证：`macos_panel_session` Rust 回归 5/5 通过，`InputController.mm` Objective-C++ syntax-only 编译通过；使用锁定 Engine 副本避开自动拉取。未执行 Tauri bundle、麦克风/语音 provider、安装输入源或真实编辑器端到端验收，CI 保持禁用。
+
+### Windows 全半角模式事件同步
+
+补齐 Windows Main 管道的 `DoubleSingleByteSwitch` 事件路由。会话泵现在像中英文和中英文标点通知一样，在活动焦点 lease 内验证并交给模式邮箱；输入队列只确认 TSF 展示状态，不把全半角误送进 Engine。这样浮动工具栏的全角/半角按钮在 TSF 回报后能更新模式面板，失效连接仍按既有焦点门禁拒绝。
+
+回归覆盖 SessionController 收到全半角通知后继续处理按键，并完成修改对象的 x64 MinGW 严格编译检查。全量交叉脚本仍在既有 `server_smoke.cpp` 缺失字段警告处停止；当前没有 Windows 主机，未执行真实 TSF、工具栏或安装后的系统验收。
+
+### Windows TSF 配置广播到所有 TIP
+
+Windows Server 现在从 PipeRegistry 快照所有已完成 Main/ToTsf/Worker 注册链，并由 SessionController 将 TSF-local 配置帧广播到每个 TIP，而不是只发送给当前焦点会话。设置发布会更新共享 `TsfLocalConfig` 并标记待发送；新 TIP 注册即使配置值未变化也会收到当前快照。广播失败保留 dirty 状态，下一轮继续重试；票据集合变化会触发重新发送，避免新连接停留在编译时默认值。
+
+新增 PipeRegistry/PipeMainTransport 票据枚举测试，验证完整注册、代次失效、回收和 shutdown 后均不泄漏旧票据。x64 MinGW 以 `-Wall -Wextra -Werror` 严格编译通过 `PipeRegistry.cpp`、`PipeMainTransport.cpp`、`SessionController.cpp`、`WindowsServer.cpp` 和 `tests/pipe_io.cpp`；全量 `check-cross.sh` 仍在既有 `tests/server_smoke.cpp:132` 的 `PresentationCandidate` 缺失字段警告处停止，未修改该无关基线问题。`main.cpp` 的交叉编译还受现有 mingw/libstdc++ 对宽路径 `ofstream` 及 `toolbar_palette` 命名冲突影响。没有 Windows 主机，因此未执行 TSF 注册、原生 Server、真实编辑器或安装后的系统验收；本切片不宣称 Windows 平台接入完成，CI 保持禁用。
+
+### Windows TSF 终止回退确认
+
+当 TSF Main 管道在 DLL 销毁期间写入 `ClientDeactivated` 失败时，DLL 通过 Aux 管道发送 `TerminalDeactivation|client_id|focus_token`，Server 仅在输入队列中精确匹配该 client 与 focus token、完成 lease 清理后回写 UTF-16 `OK`。Aux 字段严格按十进制 `uint64_t` 解析，拒绝空值、符号、非数字、溢出和零值；旧 token 不得停用同一 client 的新激活，已完成或已不存在的旧 lease 可幂等确认。清理同时撤销 Engine 组合、候选邮箱、模式邮箱和展示状态，保留 TSF DLL / Server 进程及协议边界。
+
+新增 FocusRouter、Aux parser 和 Aux listener 回归覆盖，包括 `UINT64_MAX`、溢出、挂起/已置换 lease、旧 token 防护及真实 `OK` 回写路径。x64/i686 MinGW 严格对象编译和 macOS 路由/解析测试通过；没有 Windows 原生 Aux/TSF 主机，因此未执行真实管道、DLL 销毁、编辑器或安装验收，不能据此声称 Windows TSF 系统接入完成，CI 保持禁用。
+
+### Windows 剪贴板历史跨进程变更通知
+
+Windows Server 的 `ClipboardMonitor` 在 `WM_CLIPBOARDUPDATE` 成功写入有界共享历史文件后，发出 session-local 命名事件 `Local\MSIME.Client.ClipboardHistoryChanged`。Tauri 桌面壳通过 `host-windows` 打开该事件并等待变更，再在自己的锁内重新读取历史文件；事件只表示存储已变化，不携带剪贴板文本。事件不存在、无法打开或等待超时时，原有 750ms 文件轮询仍作为兜底，因此其他工具写入和旧 Server 也能被发现。
+
+本地验证：x86_64/i686 MinGW 对 `ClipboardMonitor.cpp`、`ClipboardHistory.cpp` 的严格编译，以及 `msime-host-windows` 两架构 `cargo check` 通过。桌面 Windows GNU 检查在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题；未执行 Windows 原生命名事件、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri 原生剪贴板读写
+
+Tauri 的 Windows 剪贴板同步和复制路径改用 `host-windows` 中的 Win32 `OpenClipboard`、`CF_UNICODETEXT`、`GlobalLock` 与 `SetClipboardData` 包装，不再为普通剪贴板操作启动 PowerShell。读取严格要求有界、NUL 终止且合法的 UTF-16；写入在清空系统剪贴板前先完成内存分配和内容复制，拒绝内部 NUL 与超大 payload，失败路径释放句柄和内存。剪贴板历史仍由共享 `PreferencesStore`/`ClipboardHistoryStore` 负责归一化、加锁和持久化，文本不进入日志或跨进程事件。
+
+本地验证：`msime-host-windows` 的 x86_64/i686 Windows GNU `cargo check` 通过，桌面 Windows GNU 检查已编译通过新的 host crate 与 Tauri Rust 依赖，随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 处停止。未执行 Windows 原生剪贴板实机、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows 剪贴板粘贴到原应用
+
+共享 Emoji/剪贴板面板现在在 Windows 暴露粘贴动作：宿主先将所选历史文本写入 Unicode 系统剪贴板，再恢复面板打开前记忆的编辑器窗口并注入 Ctrl+V。目标句柄、剪贴板写入和按键注入均经过现有 host-windows 包装；文本继续受非空、NUL 和大小限制，失败不会伪造成功状态。Linux 路径保持原有选择监听与 Ctrl+V 实现，其他平台仍报告不支持。
+
+本地验证：x86_64 Windows GNU `msime-host-windows` 检查通过；桌面 Windows GNU 检查已编译通过更新后的 host crate，随后在既有 `MSIME_WINDOWS_DEPS` 环境要求处停止。未执行 Windows 原生编辑器、剪贴板、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows 手写候选提交
+
+手写面板在 Windows 现在复用现有目标窗口和 Unicode 输入注入路径提交识别候选；提交前沿用共享 `validate_candidate` 校验，非法候选不会进入宿主。Linux 的异步显示服务器路径和其他平台的明确不支持行为保持不变，识别算法与候选生成仍由 Engine/Host API 负责。
+
+本地验证：x86_64 Windows GNU 桌面检查已编译通过更新后的 `msime-host-windows` 与 Tauri Rust 代码，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生手写识别、编辑器上屏、TSF 或安装验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri Emoji 目录
+
+共享 Emoji、颜文字和符号面板在 Windows 现在读取已验证资源目录中的 `others.db`。此前 Tauri 只在 Unix 启用 Engine 目录 API，Windows 虽有资源路径却始终显示空目录；本切片将只读分页和符号分组接口开放到 Windows，保留 Engine 的分类、父级与顺序，目录不可用时仍返回明确的单类降级状态。
+
+本地验证：Windows x86_64 GNU 桌面检查已编译通过更新后的 Tauri/Host API 接口，随后在既有 `msime-engine-bridge` 的 `MSIME_WINDOWS_DEPS` 要求处停止。未执行 Windows 原生 `others.db` 加载、面板交互、TSF、安装或系统验收，不能据此声称 Windows Emoji 功能完整接入，CI 保持禁用。
+
+### Windows Tauri 系统字体目录
+
+候选字体设置在 Windows 现在通过 host-api 的 GDI `EnumFontFamiliesExW` 枚举已安装字体族，仅向 Tauri/UI 返回去重、排序后的族名称，不暴露字体文件路径。枚举使用默认字符集覆盖系统字体，名称和总量均有界；Win32 句柄在所有路径释放，回调异常、无效 UTF-16、获取 DC 失败或枚举失败都返回安全的字体目录错误。`supports_font_catalog` 与 `host_capabilities` 因此在 Windows 与 macOS/Linux 一样报告可用，保留手动输入和失败重试降级。
+
+本地验证：Windows x86_64 GNU 的隔离 `windows-sys` 字体模块检查通过；宿主 crate 交叉检查随后在既有 `msime-engine-bridge` 缺少 `MSIME_WINDOWS_DEPS` 环境处停止，未修改该基线问题。Linux host-api 检查同样受缺失 Engine 子模块阻塞；未执行 Windows 原生字体枚举、Tauri 设置、TSF、安装或系统验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows Tauri 输入模式快捷键能力
+
+Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切换快捷键，`HostCapabilities` 同步将 `mode_switch_shortcuts` 对 Windows 置为可用。Tauri 设置页因此显示并保存与 TIP 实际消费一致的快捷键选项；macOS 原生输入源快捷键和 Linux IBus 行为保持各自平台边界。
+
+本地验证：`msime-client-core` 的 host-surface 能力回归测试通过，覆盖 Windows 能力声明、序列化和各平台差异；GitNexus staged 变更检测已执行。未执行 Windows 原生 TSF、编辑器或安装验收，CI 保持禁用。
+
+### Windows Server 生产启动文案与模式说明
+
+修正 `msime-client-server.exe --help` 与当前生产装配不一致的问题：帮助信息现在明确区分 `--production`/`--watchdog-managed` 的安装态生产管道和 `--config` 的隔离预览，并说明 TSF 注册由安装器负责。同步更新 Windows 文档，避免把已接入生产管道的 Server 描述成只有预览能力；隔离预览仍明确不是可安装输入法，未改变协议、注册或启动行为。
+
+本地验证：`platforms/windows/tests/server_launch.cpp` 以 C++17、`-Wall -Wextra -Werror` 编译并通过；`git diff --check` 通过。没有 Windows 主机，因此未执行 Server、TSF 注册、真实编辑器或安装验收，CI 保持禁用。

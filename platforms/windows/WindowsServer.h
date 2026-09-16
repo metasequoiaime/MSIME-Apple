@@ -72,8 +72,11 @@ public:
   bool exit_dedicated_english(const FocusLease &lease) {
     return controller_->exit_dedicated_english(lease);
   }
-  bool send_tsf_config(const FocusLease &lease, const TsfLocalConfig &config) {
-    return controller_->send_tsf_config(lease, config);
+  std::vector<PipeTicket> current_tsf_tickets() {
+    return transport_->current_tickets();
+  }
+  bool send_tsf_config(const TsfLocalConfig &config) {
+    return controller_->send_tsf_config(config);
   }
   bool send_caps_lock(const FocusLease &lease, bool enabled) {
     return controller_->send_caps_lock(lease, enabled);

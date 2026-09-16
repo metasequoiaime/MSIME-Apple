@@ -29,6 +29,9 @@ private:
 std::string normalize_clipboard_text(std::string text);
 
 #ifdef _WIN32
+inline constexpr wchar_t clipboard_history_change_event_name[] =
+    L"Local\\MSIME.Client.ClipboardHistoryChanged";
+
 class ClipboardMonitor final {
 public:
   using Callback = std::function<void(std::string)>;
@@ -42,6 +45,7 @@ private:
   ClipboardHistory &history_;
   Callback callback_;
   void *window_ = nullptr;
+  HANDLE change_event_ = nullptr;
   unsigned long sequence_ = 0;
 };
 #endif

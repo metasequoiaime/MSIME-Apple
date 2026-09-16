@@ -230,12 +230,18 @@ bool InputState::synchronize_input_mode(const FocusLease &lease,
   if (!valid_main_frame(packet, lease.transport.client) ||
       (packet.event_type != FanyImePipeEventType::IMESwitch &&
        packet.event_type != FanyImePipeEventType::PuncSwitch &&
+       packet.event_type != FanyImePipeEventType::DoubleSingleByteSwitch &&
        packet.event_type != FanyImePipeEventType::StatusSnapshot &&
        packet.event_type != FanyImePipeEventType::FocusRestored))
     throw std::invalid_argument("Invalid input mode notification");
   auto *owner = session(lease.transport);
   if (!owner)
     return false;
+  // Full/half-width is a TSF presentation mode. The Engine does not own this
+  // compartment, but the event must still be accepted so ModeMailbox can
+  // publish the authoritative host notification to the toolbar.
+  if (packet.event_type == FanyImePipeEventType::DoubleSingleByteSwitch)
+    return true;
   if (packet.event_type == FanyImePipeEventType::PuncSwitch)
     return owner->set_chinese_punctuation(lease, packet.keycode != 0);
   if (!owner->set_input_enabled(lease, packet.keycode != 0))

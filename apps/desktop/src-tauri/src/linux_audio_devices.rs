@@ -37,6 +37,27 @@ fn add(devices: &mut Vec<CaptureDevice>, backend: &'static str, id: &str, label:
     });
 }
 
+fn sort_devices(devices: &mut [CaptureDevice]) {
+    // Keep the picker stable even when pactl/pw-dump/arecord enumerate in a
+    // different order. Backend order follows the explicit Linux capture
+    // choices in the settings UI; IDs are stable endpoint identities rather
+    // than display labels, so duplicate labels remain selectable.
+    fn backend_rank(backend: &str) -> u8 {
+        match backend {
+            "pulse" => 0,
+            "pipewire" => 1,
+            "alsa" => 2,
+            _ => 3,
+        }
+    }
+    devices.sort_by(|left, right| {
+        backend_rank(left.backend)
+            .cmp(&backend_rank(right.backend))
+            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| left.label.cmp(&right.label))
+    });
+}
+
 fn output(program: &str, args: &[&str]) -> Option<String> {
     crate::linux_process::read_text(program, args, 1024 * 1024, Duration::from_secs(2))
 }
@@ -125,12 +146,13 @@ pub fn list() -> Vec<CaptureDevice> {
             add(&mut devices, "alsa", line, label);
         }
     }
+    sort_devices(&mut devices);
     devices
 }
 
 #[cfg(test)]
 mod tests {
-    use super::pipewire_devices;
+    use super::{pipewire_devices, sort_devices, CaptureDevice};
     use serde_json::json;
 
     #[test]
@@ -176,5 +198,45 @@ mod tests {
     #[test]
     fn pipewire_devices_reject_non_arrays() {
         assert!(pipewire_devices(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn device_order_is_deterministic_and_backend_grouped() {
+        let mut devices = vec![
+            CaptureDevice {
+                backend: "alsa",
+                id: "hw:0".into(),
+                label: "ALSA".into(),
+            },
+            CaptureDevice {
+                backend: "pulse",
+                id: "z-source".into(),
+                label: "Z".into(),
+            },
+            CaptureDevice {
+                backend: "pulse",
+                id: "a-source".into(),
+                label: "A".into(),
+            },
+            CaptureDevice {
+                backend: "pipewire",
+                id: "node-2".into(),
+                label: "Node 2".into(),
+            },
+        ];
+        sort_devices(&mut devices);
+        let keys: Vec<_> = devices
+            .iter()
+            .map(|device| (device.backend, device.id.as_str()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("pulse", "a-source"),
+                ("pulse", "z-source"),
+                ("pipewire", "node-2"),
+                ("alsa", "hw:0"),
+            ]
+        );
     }
 }

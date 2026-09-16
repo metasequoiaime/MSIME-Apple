@@ -64,8 +64,16 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
     monitor->sequence_ = sequence;
     // The callback owns persistence through client-core. Writing the legacy
     // string-array archive here would discard Tauri's structured entries.
-    if (auto utf8 = wide_to_utf8(value); !utf8.empty() && monitor->callback_)
+    if (auto utf8 = wide_to_utf8(value); !utf8.empty() && monitor->callback_) {
       monitor->callback_(std::move(utf8));
+      // The Tauri shell owns the shared clipboard panel. Signal only that the
+      // bounded store changed, and only once the callback has written it, so
+      // the shell never re-reads ahead of the write. The shell re-reads the
+      // file under its own lock, so clipboard text never crosses this process
+      // boundary in an event.
+      if (monitor->change_event_)
+        SetEvent(monitor->change_event_);
+    }
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);
@@ -81,18 +89,29 @@ bool ClipboardMonitor::start() {
     return false;
   window_ = CreateWindowExW(0, name, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
   if (!window_) return false;
+  change_event_ = CreateEventW(nullptr, FALSE, FALSE,
+                               clipboard_history_change_event_name);
   sequence_ = GetClipboardSequenceNumber();
   if (AddClipboardFormatListener(static_cast<HWND>(window_)) != FALSE)
     return true;
   DestroyWindow(static_cast<HWND>(window_));
   window_ = nullptr;
+  if (change_event_) {
+    CloseHandle(change_event_);
+    change_event_ = nullptr;
+  }
   return false;
 }
 void ClipboardMonitor::stop() {
-  if (!window_) return;
-  KillTimer(static_cast<HWND>(window_), capture_timer_id);
-  RemoveClipboardFormatListener(static_cast<HWND>(window_));
-  DestroyWindow(static_cast<HWND>(window_)); window_ = nullptr;
+  if (window_) {
+    KillTimer(static_cast<HWND>(window_), capture_timer_id);
+    RemoveClipboardFormatListener(static_cast<HWND>(window_));
+    DestroyWindow(static_cast<HWND>(window_)); window_ = nullptr;
+  }
+  if (change_event_) {
+    CloseHandle(change_event_);
+    change_event_ = nullptr;
+  }
 }
 } // namespace msime::windows
 #endif
