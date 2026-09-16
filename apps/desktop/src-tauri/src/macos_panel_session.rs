@@ -28,6 +28,12 @@ impl PanelState {
             lifecycle: Arc::new(AtomicU8::new(0)),
         })
     }
+
+    pub(crate) fn can_open_voice_panel(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| !session.accepts_clipboard() && !session.is_used())
+    }
 }
 
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {

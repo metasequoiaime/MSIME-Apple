@@ -4205,6 +4205,17 @@ fn open_voice_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    #[cfg(target_os = "macos")]
+    if !app
+        .state::<macos_panel_session::PanelState>()
+        .can_open_voice_panel()
+    {
+        // A standalone Tauri keyboard has no authenticated IMK target. Do not
+        // open a panel which could recognize text but can never submit it.
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = &state;
     #[cfg(target_os = "linux")]
