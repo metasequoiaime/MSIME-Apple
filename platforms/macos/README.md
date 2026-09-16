@@ -57,7 +57,7 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 
 语音设置的原生备用窗口现提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页仍通过 `list_voice_capture_devices` 提供刷新列表；真实硬件和安装后的权限行为仍需单独验收。
 
-原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。
+原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。
 
 原生输入源主菜单和候选右键菜单共同消费共享 `menu_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，`system` 交给 AppKit；菜单每次创建时读取最近一次偏好快照，不改变候选动作或输入会话状态。
 
