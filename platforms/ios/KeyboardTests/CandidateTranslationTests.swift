@@ -92,6 +92,36 @@ final class CandidateTranslationTests: XCTestCase {
                                    attributes: [.font: UIFont.preferredFont(forTextStyle: .caption2)])
     XCTAssertGreaterThanOrEqual(chip?.bounds.width ?? 0, gloss.size().width)
   }
+
+  func testExpandedPanelChipsAnswerALongPress() throws {
+    // The panel builds its own chips and used to give them no menu, so the press that manages an
+    // entry on the strip did nothing once the list was expanded.
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥嚎"], preedit: "nihao",
+      display: { $0 },
+      menuElements: { _ in [UIAction(title: "优先显示") { _ in }] },
+      onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+
+    let chip = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    // The elements are built when the press opens the menu, so only the placeholder is visible
+    // here: the panel lays out the engine's whole answer, which can be several hundred chips.
+    XCTAssertTrue(chip.menu?.children.first is UIDeferredMenuElement, "格子要挂上长按菜单")
+    XCTAssertFalse(chip.showsMenuAsPrimaryAction, "轻点仍然是上屏，菜单走长按")
+  }
+
+  func testLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
+    // The table has grown before and will again. An index written by a newer build must not decide
+    // what an older one reads out of range.
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 0).code, "EN")
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 1).code, "JA")
+    XCTAssertEqual(CandidateTranslationPreference.language(at: -1).code, "EN")
+    XCTAssertEqual(
+      CandidateTranslationPreference.language(at: CandidateTranslationPreference.languages.count).code,
+      "EN")
+  }
 }
 
 private func descendants(_ view: UIView) -> [UIView] {

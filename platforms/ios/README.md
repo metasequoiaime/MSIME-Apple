@@ -2,7 +2,7 @@
 
 `MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。
 
-共享 Tauri/React 设置宿主生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 16 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
+共享 Tauri/React 设置宿主生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 17 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
 
 共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-core` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
 
@@ -30,13 +30,14 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 
 ## 开发构建
 
-先初始化固定的 Engine gitlink 与递归子模块，并准备一个提供 Boost 的依赖前缀：
+准备交叉编译目标，并准备一个提供 Boost 的依赖前缀：
 
 ```sh
-git submodule update --init --recursive
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 rustup component add llvm-tools
 ```
+
+Engine 不再是子模块，无需手动初始化：`engine-lock.json` 记录提交与源码归档的 SHA-256，`crates/engine-bridge` 的构建脚本会在构建时校验并准备 `vendor/MSIME-Engine`。离线构建一棵已准备好的树时设 `MSIME_SKIP_ENGINE_FETCH`。
 
 Xcode 27 的 SwiftPM 会把静态库中的 `@_cdecl` 导出内部化；当前 `swift-rs` 构建桥会使用 `llvm-tools` 中的 `llvm-objcopy` 恢复应用 package 的符号。仓库同时固定到上游 PR #79 的提交 `a83e2b2f196e3fa9605cb21c7d3b82652205c279`，使传递嵌入的 SwiftRs runtime 导出在优化构建中保持公开。缺少该组件或移除补丁时，Tauri iOS Rust 动态库会在链接阶段报告 Swift 桥符号未定义。
 

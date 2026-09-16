@@ -20,6 +20,12 @@ struct MetasequoiaImeApp: App {
       UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)?
         .removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     }
+    // The saved-skin library holds twelve. A UI test that saves one and fails before deleting it
+    // leaves it behind, and twelve such runs make every later save fail with no way back short of
+    // erasing the simulator -- the app group outlives uninstalling the app.
+    if arguments.contains("--reset-custom-skins-for-ui-tests") {
+      CustomSkinLibrary.removeAll()
+    }
     #endif
     _hasCompletedOnboarding = AppStorage(wrappedValue: false, "hasCompletedOnboarding")
   }

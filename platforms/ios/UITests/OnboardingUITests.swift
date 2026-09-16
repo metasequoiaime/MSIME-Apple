@@ -65,7 +65,9 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
     XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].exists)
+    // 我的设计 was withdrawn from this page: the skin editor keeps one entry, on the skin page,
+    // rather than the same destination under two tabs.
+    XCTAssertTrue(app.buttons["accountAppIcon"].exists)
   }
 
   @MainActor
@@ -249,6 +251,32 @@ final class OnboardingUITests: XCTestCase {
     for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
   }
 
+  /// Bring `identifier` within reach, opening the full 键盘设置 page if it is not on the home one.
+  ///
+  /// The home page carries a few shortcuts of its own, so checking whether *some* settings link
+  /// exists says nothing about the one being looked for: 语音设置 and the rest live only behind
+  /// 键盘设置, and a scroll on the home page will never find them.
+  private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
+    func scrollToLink() -> Bool {
+      let link = app.buttons[identifier]
+      for _ in 0..<5 {
+        if link.isHittable { return true }
+        guard link.exists else { return false }
+        app.swipeUp()
+      }
+      return link.isHittable
+    }
+    if scrollToLink() { return }
+    // 按键, not 系统设置: the latter leaves for the iOS Settings app. This is the page whose title
+    // is 键盘设置 and where the links that are not on the home page live.
+    let entry = app.buttons["keyboardLayoutLink"]
+    for _ in 0..<5 { if entry.isHittable { break }; app.swipeUp() }
+    guard entry.isHittable else { return }
+    entry.tap()
+    _ = app.navigationBars["键盘设置"].waitForExistence(timeout: 5)
+    _ = scrollToLink()
+  }
+
   @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
@@ -262,7 +290,7 @@ final class OnboardingUITests: XCTestCase {
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     app.tabBars.buttons["键盘"].tap()
     XCTAssertTrue(app.navigationBars["输入设置"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -486,7 +514,7 @@ final class OnboardingUITests: XCTestCase {
     let isolation = ["-voiceHandoffTestID", UUID().uuidString]
     app.launchArguments = isolation + ["-hasCompletedOnboarding", "YES", "-voiceResultFixture"]
     app.launch()
-    openKeyboardSettingsIfNeeded(app)
+    reachSettingsLink("voiceSettingsLink", in: app)
     app.buttons["voiceSettingsLink"].tap()
     XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
     for _ in 0..<8 {
@@ -573,7 +601,7 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-personalDictionaryTestID", UUID().uuidString]
     app.launch()
-    openKeyboardSettingsIfNeeded(app)
+    reachSettingsLink("dictionarySettingsLink", in: app)
     app.buttons["dictionarySettingsLink"].tap()
     app.buttons["personalDictionaryLink"].tap()
     app.buttons["importPersonalDictionary"].tap()
@@ -725,7 +753,10 @@ final class OnboardingUITests: XCTestCase {
   @MainActor
   func testCustomSkinTemplatesLibraryAndUndo() {
     let app = XCUIApplication()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    // This case saves a skin and deletes it at the end, so a run that fails in between leaves one
+    // behind. The library holds twelve and lives in the app group, which uninstalling the app does
+    // not clear, so without this the suite eventually wedges itself.
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-custom-skins-for-ui-tests"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
@@ -747,6 +778,9 @@ final class OnboardingUITests: XCTestCase {
     // time. What a design renders is covered by KeyboardSkinTests without a Simulator; the reload
     // below still reads the switch, which is the part this case is about.
     app.terminate()
+    // The relaunch is what checks the skin survived it, so it must not carry the reset argument --
+    // launchArguments persist across launch() on the same XCUIApplication.
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
@@ -771,9 +805,15 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "0")
     app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     app.buttons["管理" + name].tap()
-    app.buttons["删除"].tap()
-    app.buttons["删除"].tap()
-    XCTAssertFalse(app.buttons["savedSkin_" + name].exists)
+    // 删除 appears twice: once in the sheet 管理 opens and once to confirm. Tapping straight through
+    // races the sheet's presentation, which is what made this the one case that failed at random.
+    let remove = app.buttons["删除"]
+    XCTAssertTrue(remove.waitForExistence(timeout: 5))
+    remove.tap()
+    let confirm = app.buttons["删除"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+    XCTAssertFalse(app.buttons["savedSkin_" + name].waitForExistence(timeout: 2))
   }
 
   @MainActor
@@ -891,21 +931,21 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testStatisticsChartsAndPeriodSelection() {
+  func testStatisticsChartsAndDaySelection() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.tabBars.buttons["统计"].tap()
-    let period = app.segmentedControls["statisticsPeriod"]
-    XCTAssertTrue(period.waitForExistence(timeout: 5))
-    period.buttons["30 天"].tap()
-    period.buttons["累计"].tap()
-    period.buttons["7 天"].tap()
+    // The period switch is gone: each statistic now has its own tab, drawn as the shape its own
+    // question wants rather than four copies of one bar.
+    let tabs = app.segmentedControls["statisticsTab"]
+    XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+    for title in ["类型", "模式", "方案", "趋势"] { tabs.buttons[title].tap() }
     let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
     XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
     day.tap()
-    XCTAssertTrue(app.buttons["返回整个时间范围"].exists)
-    app.buttons["返回整个时间范围"].tap()
+    XCTAssertTrue(app.buttons["返回累计"].waitForExistence(timeout: 3))
+    app.buttons["返回累计"].tap()
     let top = XCTAttachment(screenshot: app.screenshot())
     top.name = "统计趋势与字符分布"
     top.lifetime = .deleteOnSuccess
@@ -1066,7 +1106,8 @@ final class OnboardingUITests: XCTestCase {
     for platform in ["macOS", "Windows", "Linux"] {
       app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
       XCTAssertTrue(app.staticTexts[platform + " 安装指南"].exists)
-      XCTAssertTrue(app.buttons["desktopReleaseLink"].exists)
+      // A SwiftUI Link surfaces as a link, not a button, so asking only for buttons never finds it.
+      XCTAssertTrue(app.descendants(matching: .any)["desktopReleaseLink"].exists)
     }
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Desktop download guide"
@@ -1182,12 +1223,8 @@ final class OnboardingUITests: XCTestCase {
       ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {
-      if !app.buttons[identifier].exists { openKeyboardSettingsIfNeeded(app) }
+      reachSettingsLink(identifier, in: app)
       let link = app.buttons[identifier]
-      for _ in 0..<5 {
-        if link.isHittable { break }
-        app.swipeUp()
-      }
       link.tap()
       XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
       if identifier == "skinSettingsLink" {
