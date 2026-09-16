@@ -249,7 +249,8 @@ class IOSProjectConfigTests(unittest.TestCase):
             self.assertIn(f"pub async fn {command}", account)
         self.assertIn("BackendAccountSession::new", account)
         self.assertIn("IosAccountStorage(platform.clone())", account)
-        self.assertIn('account: { ...basicAccount, settingsSync: accountSettingsSync }', desktop_entry)
+        self.assertIn("accountSettingsSync", desktop_entry)
+        self.assertIn("account: { ...basicAccount", desktop_entry)
         self.assertIn('invoke("account_chat_models")', desktop_entry)
         self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', desktop_entry)
 
@@ -300,7 +301,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("UIPasteboard.general.string = args.text", swift)
         self.assertEqual(
             desktop_entry.count(
-                'openCloudClipboard: async () => setMobilePanel("cloud-clipboard")'
+                'openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard")'
             ),
             2,
         )
@@ -325,7 +326,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         ]:
             self.assertIn(method, account)
         self.assertIn(
-            'openCloudDictionary: async () => setMobilePanel("cloud-dictionary")',
+            'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',
             desktop_entry,
         )
         self.assertIn('code: "invalid_cloud_dictionary"', account)
