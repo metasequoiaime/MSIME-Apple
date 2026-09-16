@@ -2210,6 +2210,14 @@ fn send_panel_key(
 }
 
 #[cfg(target_os = "linux")]
+fn panel_text_requires_clipboard(target: &PanelInputTarget, text: &str) -> bool {
+    text.chars()
+        .any(|character| matches!(character, '\n' | '\r' | '\t'))
+        || ((!text.is_ascii())
+            && matches!(target, PanelInputTarget::X11(_) | PanelInputTarget::Ydotool))
+}
+
+#[cfg(target_os = "linux")]
 fn send_panel_text_to_target(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
@@ -2217,10 +2225,7 @@ fn send_panel_text_to_target(
 ) -> Result<(), HostActionError> {
     // ydotool types an ASCII key map, while newlines and tabs must remain
     // literal text rather than becoming application shortcuts on any backend.
-    let literal_transfer = text
-        .chars()
-        .any(|character| matches!(character, '\n' | '\r' | '\t'))
-        || (matches!(target, PanelInputTarget::Ydotool) && !text.is_ascii());
+    let literal_transfer = panel_text_requires_clipboard(target, text);
     if literal_transfer {
         if !write_linux_clipboard(text) {
             return Err(HostActionError {
@@ -5987,6 +5992,27 @@ themes = ['light']
         assert!(!x11_window_is_owned_by_process("4243\n", 4242));
         assert!(!x11_window_is_owned_by_process("not-a-pid\n", 4242));
         assert!(!x11_window_is_owned_by_process("", 4242));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_panel_text_uses_clipboard_for_non_ascii_on_keymap_backends() {
+        assert!(panel_text_requires_clipboard(
+            &PanelInputTarget::X11("11".into()),
+            "你好😀"
+        ));
+        assert!(panel_text_requires_clipboard(
+            &PanelInputTarget::Ydotool,
+            "你好"
+        ));
+        assert!(!panel_text_requires_clipboard(
+            &PanelInputTarget::Wayland,
+            "你好😀"
+        ));
+        assert!(panel_text_requires_clipboard(
+            &PanelInputTarget::Wayland,
+            "line\nnext"
+        ));
     }
 
     #[cfg(target_os = "linux")]
