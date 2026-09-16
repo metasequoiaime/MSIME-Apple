@@ -39,24 +39,22 @@ class BuildNumberTests(unittest.TestCase):
                                     env=environment, text=True, capture_output=True)
             return result, output.read_text() if output.exists() else ""
 
-    def test_the_build_is_the_run_number_and_keeps_increasing(self):
+    def test_the_build_is_the_run_number(self):
+        """号就是运行序号,一个整数。跟着来的性质是它单调递增 —— 同一条线上后发的号必须比先发的大,否则 Sparkle 看不见更新、App Store Connect 收不进去。
+
+        这一条不拿它跟曾经发出去的最高号(1002.71.1)比:计数是被有意重置到那条线之下的。代价是 Sparkle 要重新爬过去,已装的 macOS 用户才会再收到更新。而在一次重置之内号还往回走,那就只是个 bug,上面那个等式会拦住。
+        """
         builds = []
         for run in (1, 2, 99, 100, 101):
             result, output = self.run_step("Allocate build number", GITHUB_RUN_NUMBER=str(run))
             self.assertEqual(result.returncode, 0, result.stderr)
             builds.append(int(output.strip().split("=")[1]))
         self.assertEqual(builds, [1, 2, 99, 100, 101])
-        # 真正要守住的是这一条:同一条线上,后发的号必须比先发的大。计数被有意重置到曾经发出去的最高
-        # 号(1002.71.1)之下,所以这里不比它 —— 代价是 Sparkle 要重新爬过那条线,已装的 macOS 用户
-        # 才会再收到更新。而在一次重置之内号还往回走,就只是个 bug。
-        self.assertEqual(builds, sorted(set(builds)))
 
     def test_a_retry_reuses_its_number(self):
         """重跑拿不到新号了 —— 第三段没有了。
 
-        这不是疏漏,是取舍:号就是运行序号。代价是重跑一个已上传成功的发布会在上传那一步撞上
-        App Store Connect 的唯一性检查,那时要走手动指定 tag 那条路。写成测试,免得下次有人
-        对着上传失败去查凭据。
+        这不是疏漏,是取舍:号就是运行序号。代价是重跑一个已上传成功的发布会在上传那一步撞上 App Store Connect 的唯一性检查,那时要走手动指定 tag 那条路。写成测试,免得下次有人对着上传失败去查凭据。
         """
         numbers = set()
         for attempt in (1, 2):
@@ -69,23 +67,33 @@ class BuildNumberTests(unittest.TestCase):
     def test_both_release_workflows_allocate_the_build_the_same_way(self):
         """两个 workflow 各有各的 GITHUB_RUN_NUMBER,算法却必须一起改。
 
-        一边改一边忘,两个产品的号会悄悄按不同规则走,而没有任何东西会报错 —— 直到某天要回答
-        「这两个号是不是同一批代码」的时候。上面那些用例只读 release-macos.yml,这一条是把结论
-        接到 iOS 那一半上的唯一一根线。
+        一边改一边忘,两个产品的号会悄悄按不同规则走,而没有任何东西会报错 —— 直到某天要回答「这两个号是不是同一批代码」的时候。这个类里其余用例只读 release-macos.yml,所以这一条是把它们的结论接到 iOS 那一半上的唯一一根线:逐字比,连注释里的取舍说明一起。
         """
         root = MACOS_ROOT.parents[1] / ".github/workflows"
-        bodies = {}
-        for name in ("release-macos.yml", "release-ios.yml"):
+
+        def allocation_step(name):
             workflow = (root / name).read_text()
             body = workflow.split("      - name: Allocate build number\n", 1)[1]
-            bodies[name] = body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
-        self.assertEqual(*bodies.values(), "两个 workflow 的 build 分配步骤必须逐字一致")
+            return body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
+
+        self.assertEqual(allocation_step("release-macos.yml"), allocation_step("release-ios.yml"))
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
                                      REQUESTED_TAG="v0.48.6-build.23")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, "value=23\n")
+
+    def test_a_draft_from_before_the_reset_can_still_be_rebuilt(self):
+        """重置之前发出去的 tag 是三段号,重发那些 draft 会把它喂回这一步。
+
+        tag 校验放宽就是为了这条路,但这一步还另有一道 build 号校验 —— 只放宽前者,重发会死在这里,而这条路平时根本不走,红不了。两道校验必须收一样的形状。
+        """
+        for tag in ("v0.48.6-build.1002.71.1", "macos-v0.48.6-build.1002.71.1"):
+            with self.subTest(tag=tag):
+                result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output, "value=1002.71.1\n")
 
     def test_push_creates_unique_draft_at_exact_source_commit(self):
         result, output = self.run_step(
@@ -959,8 +967,7 @@ fi
     def test_a_tag_from_before_the_reset_is_still_publishable(self):
         """重置之前发出去的三段号还挂在 releases 上,重发某个旧 draft 会把它喂回这里来。
 
-        新号是纯整数,但收得下旧形状要单独钉一条 —— 不然哪天有人顺手把正则收紧成 `[0-9]+`,
-        断的是一条只在重发旧版本时才走到的路,平时全绿。
+        新号是纯整数,但收得下旧形状要单独钉一条 —— 不然哪天有人顺手把正则收紧成 `[0-9]+`,断的是一条只在重发旧版本时才走到的路,平时全绿。
         """
         result, appcast, calls = self.run_generator(tag="v1.2.3-build.1002.71.1")
         self.assertEqual(result.returncode, 0, result.stderr)

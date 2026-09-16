@@ -64,20 +64,17 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          # 计数从头开始,这是有意的。之前的偏移量是为了越过 TestFlight 和 Sparkle 上已有的 1002.x 那一串。
+          # The build is the run number, and nothing else. It used to be three components on an offset that cleared the 1002.x line already on TestFlight and Sparkle; the counter is deliberately reset below that line, and the offset goes with it.
           #
-          # 代价写在这里,别让下一个人重新发现:Sparkle 比的就是这个号(见 generate-sparkle-appcast.sh 的
-          # --versions),所以已经装着 1002.71.1 的 macOS 用户,在这条线重新爬回 1002.71.1 之前收不到更新,
-          # 而且没有任何报错。iOS 那边 App Store Connect 按 (marketing version, build) 判唯一,所以重置后的
-          # 号只有在 marketing version 也往上走之后才收得进去。
-          # 一个整数,就是这个 workflow 跑到第几次。之前是三段,第三段留给重跑 —— 重跑因此能拿到一个新号。
-          # 现在没有那一段了:同一次运行重跑会算出同一个号,而 App Store Connect 不收重复的 build,所以
-          # 重跑一个已经上传成功的发布会在上传那一步失败,得改用手动指定 tag 那条路。
+          # What the reset costs, written here so the next person does not rediscover it: Sparkle compares this number -- generate-sparkle-appcast.sh passes it as --versions -- so a Mac already running 1002.71.1 is offered nothing by this line until it climbs back past 1002.71.1, and reports no error while doing it. App Store Connect judges uniqueness per marketing version and build, so a reset number only uploads once the marketing version moves up.
+          #
+          # The third component used to hand a rerun of the same run a distinct number. There is no third component now, so a rerun computes the number the run already used, and rerunning a release that uploaded successfully fails at the upload step against that uniqueness check. The way through is the manual tag input, not a credentials hunt.
           build="$GITHUB_RUN_NUMBER"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
-          if [[ ! "$build" =~ ^[1-9][0-9]{0,8}$ ]]; then
+          # A plain integer is what this workflow allocates. The three-component form is still accepted because tags from before the reset are still on releases, and rebuilding one of those drafts feeds its number back through here -- the same reason the tag validators still accept that shape.
+          if [[ ! "$build" =~ ^[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
             echo "Invalid build number: $build" >&2
             exit 1
           fi
