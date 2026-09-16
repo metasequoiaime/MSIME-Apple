@@ -934,7 +934,7 @@ Apple 关于页提供站内“使用帮助”和“反馈问题与建议”入�
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
 
-本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
+本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当时的 worktree 未准备 `vendor/MSIME-Engine` 源码树，因缺少 `CMakeLists.txt` 在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
 
 ### Android Tauri 语音面板原生插件接入
 

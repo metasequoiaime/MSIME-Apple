@@ -72,5 +72,5 @@ remain subsequent increments. Builds and synthetic
 tests do not establish live-cloud or installed input-method behavior.
 
 Windows default branch pin revalidated for this increment: `develop` at
-`cb534a97fd19bc9656645a7baa4ee019487279a8`; Engine gitlink remains
+`cb534a97fd19bc9656645a7baa4ee019487279a8`; Engine lock remains
 `f0d212c8a90dac2f70d48a5a149e4f71080b4e7b`.

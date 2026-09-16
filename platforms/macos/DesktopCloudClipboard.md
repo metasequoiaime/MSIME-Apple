@@ -58,5 +58,5 @@ synthetic transport tests do not establish installed
 IMK/live-editor integration or live cloud-account behavior.
 
 Reference baseline: MSIME-Windows default branch `develop` at
-`cb534a97fd19bc9656645a7baa4ee019487279a8`; Engine gitlink
+`cb534a97fd19bc9656645a7baa4ee019487279a8`; Engine lock
 `f0d212c8a90dac2f70d48a5a149e4f71080b4e7b`.

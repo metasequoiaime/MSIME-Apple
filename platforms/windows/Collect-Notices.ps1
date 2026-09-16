@@ -11,17 +11,25 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $RepoRoot 'target/windows-notices' }
 if (-not [IO.Path]::IsPathRooted($OutputDirectory)) { throw 'Notice output directory must be absolute' }
 $engine = Join-Path $RepoRoot 'vendor/MSIME-Engine'
-$pin = & git -C $RepoRoot rev-parse 'HEAD:vendor/MSIME-Engine'
-if ($LASTEXITCODE -ne 0 -or "$pin" -notmatch '^[a-f0-9]{40}$') { throw 'Cannot resolve pinned Engine commit' }
+$lockPath = Join-Path $RepoRoot 'engine-lock.json'
+$lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+$pin = "$($lock.commit)"
+if ($pin -notmatch '^[a-f0-9]{40}$') { throw 'Cannot resolve locked Engine commit' }
+$markerPath = Join-Path $engine '.msime-engine-lock'
+if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf) -or
+    (Get-Content -LiteralPath $markerPath -Raw).Trim() -ne $pin) {
+    throw 'Engine sources are not prepared from the locked archive; run scripts/fetch_engine.py'
+}
 $documents = [Collections.Generic.List[string]]::new()
-$documents.Add("MSIME Client third-party notice collection`nEngine commit: $pin`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested submodule, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
+$documents.Add("MSIME Client third-party notice collection`nEngine commit: $pin`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
 foreach ($relative in @('NOTICE.md', 'LICENSE', 'dictionary/NOTICE.md', 'dictionary/makecikudb/LICENSE',
     'helpcode/NOTICE.md', 'voice/LICENSE', 'handwriting/models/HandwritingModel-LICENSE.txt',
     'handwriting/third_party/zinnia/Zinnia-LICENSE.txt')) {
-    # Read committed blobs, never neighboring or modified working-tree files.
-    $content = & git -C $engine show "${pin}:$relative"
-    if ($LASTEXITCODE -ne 0 -or -not $content) { throw "Missing pinned Engine notice: $relative" }
-    $documents.Add("===== MSIME-Engine/$relative @ $pin =====`n" + ($content -join "`n") + "`n")
+    $noticePath = Join-Path $engine $relative
+    if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) { throw "Missing locked Engine notice: $relative" }
+    $content = Get-Content -LiteralPath $noticePath -Raw
+    if (-not $content) { throw "Empty locked Engine notice: $relative" }
+    $documents.Add("===== MSIME-Engine/$relative @ $pin =====`n$content`n")
 }
 $number = 0
 foreach ($prefix in $DependencyPrefixes) {

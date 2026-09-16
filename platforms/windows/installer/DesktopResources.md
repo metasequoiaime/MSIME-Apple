@@ -25,7 +25,7 @@ an ignored compatibility parameter. The legacy Japanese notice destination
 retains its historical name, while the shared resource directory keeps the
 manifest name. Pinyin and the application icon come from installer/assets;
 the unused old Server config.toml preflight is removed. HelpCodeDirectory now
-defaults to vendor/MSIME-Engine/helpcode in the pinned submodule.
+defaults to vendor/MSIME-Engine/helpcode in the locked Engine source tree.
 
 Third-party notice collection is not solved by this path migration: packaging
 still requires THIRD_PARTY_NOTICES.txt through NoticesDirectory. Do not bypass
