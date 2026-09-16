@@ -2503,6 +2503,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 fn remember_input_target(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
@@ -3473,6 +3474,7 @@ fn supports_clipboard_paste() -> bool {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 async fn paste_clipboard_text(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
