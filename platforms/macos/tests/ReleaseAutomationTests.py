@@ -286,8 +286,8 @@ fi
         result, calls, output = self.run_merge()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("workflow run ci.yml", calls)
-        self.assertLess(calls.index("workflow run ci.yml"), calls.index("run watch 9001"))
+        self.assertIn("workflow run ci-macos.yml", calls)
+        self.assertLess(calls.index("workflow run ci-macos.yml"), calls.index("run watch 9001"))
         self.assertLess(calls.index("run watch 9001"), calls.index("pr merge 42"))
         self.assertIn(f"--match-head-commit {HEAD_SHA}", calls)
         self.assertEqual(output, "merged=true\n")
@@ -406,9 +406,9 @@ case "$*" in
   "api repos/$GH_REPO/contents/CHANGELOG.md?ref=$FAKE_HEAD_SHA --jq .content")
     print -r -- "$FAKE_HEAD_CHANGELOG_MD"
     ;;
-  "workflow run ci.yml --repo $GH_REPO --ref $RELEASE_BRANCH --field mac_only=true")
+  "workflow run ci-macos.yml --repo $GH_REPO --ref $RELEASE_BRANCH")
     ;;
-  "run list --repo $GH_REPO --workflow ci.yml --branch $RELEASE_BRANCH --event workflow_dispatch --limit 20 --json databaseId,headSha --jq "*)
+  "run list --repo $GH_REPO --workflow ci-macos.yml --branch $RELEASE_BRANCH --event workflow_dispatch --limit 20 --json databaseId,headSha --jq "*)
     print -r -- "9001"
     ;;
   "run watch 9001 --repo $GH_REPO --exit-status --interval 10")
@@ -479,7 +479,7 @@ esac
         result, calls, output = self.run_promotion()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("workflow run ci.yml", calls)
+        self.assertIn("workflow run ci-macos.yml", calls)
         self.assertLess(calls.index("run watch 9001"), calls.index("git/refs/heads/main -f sha="))
         self.assertIn(f"git/refs/heads/main -f sha={HEAD_SHA} -F force=false", calls)
         self.assertEqual(output, f"promoted=true\ntarget_sha={HEAD_SHA}\ntag_name=v1.2.3\n")
@@ -497,7 +497,7 @@ esac
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("did not create a new commit", result.stderr.lower())
-        self.assertNotIn("workflow run ci.yml", calls)
+        self.assertNotIn("workflow run ci-macos.yml", calls)
         self.assertEqual(output, "")
 
     def test_cmake_may_only_change_the_project_version(self):
@@ -507,28 +507,28 @@ esac
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cmake", result.stderr.lower())
-        self.assertNotIn("workflow run ci.yml", calls)
+        self.assertNotIn("workflow run ci-macos.yml", calls)
         self.assertEqual(output, "")
 
     def test_non_release_commit_message_is_rejected(self):
         result, calls, output = self.run_promotion(commit_message="feat: unrelated")
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("workflow run ci.yml", calls)
+        self.assertNotIn("workflow run ci-macos.yml", calls)
         self.assertEqual(output, "")
 
     def test_merge_commit_is_rejected(self):
         result, calls, output = self.run_promotion(parent_shas=[BASE_SHA, "4" * 40])
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("workflow run ci.yml", calls)
+        self.assertNotIn("workflow run ci-macos.yml", calls)
         self.assertEqual(output, "")
 
     def test_diverged_release_branch_is_rejected(self):
         result, calls, output = self.run_promotion(compare_status="diverged")
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("workflow run ci.yml", calls)
+        self.assertNotIn("workflow run ci-macos.yml", calls)
         self.assertEqual(output, "")
 
     def test_failed_ci_prevents_promotion(self):
