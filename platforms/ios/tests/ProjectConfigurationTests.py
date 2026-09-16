@@ -782,12 +782,23 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertNotIn("scope_arguments", build_invocation)
 
     def test_ui_tests_are_main_actor_isolated_for_swift_6(self):
-        ui_tests = (IOS_ROOT / "UITests/OnboardingUITests.swift").read_text()
+        # Every interface case, across every class. They are split by surface so that a parallel run
+        # has classes to spread across simulator clones, and naming one file here would have made
+        # that split look like a regression.
+        sources = sorted((IOS_ROOT / "UITests").glob("*.swift"))
+        self.assertTrue(sources, "no interface test sources found")
 
-        self.assertIn(
-            "@MainActor\n  func testSettingsPersistAndExposeGuideAndTryout()",
-            ui_tests,
-        )
+        for source in sources:
+            text = source.read_text()
+            lines = text.split("\n")
+            for index, line in enumerate(lines):
+                if not line.startswith("  func test"):
+                    continue
+                self.assertEqual(
+                    lines[index - 1].strip(),
+                    "@MainActor",
+                    f"{source.name}:{index + 1} is not @MainActor isolated",
+                )
 
     def test_keyboard_action_row_adapts_to_narrow_screens(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()

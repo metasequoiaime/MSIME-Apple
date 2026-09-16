@@ -106,11 +106,11 @@ if [[ "${MSIME_TEST_SCOPE:-all}" == "pr" ]]; then
   scope_arguments=(
     -only-testing:MetasequoiaKeyboardTests
     -only-testing:MetasequoiaServiceTests
-    -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testBrandedLaunchScreenResource
-    -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testMainTabsKeepIndependentNavigation
-    -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testKeyboardHomePrioritizesTryoutAndQuickAdjustments
-    -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testInputSchemeVisibilityPersistsAndFallsBack
-    -only-testing:MetasequoiaImeIOSUITests/OnboardingUITests/testAccountEntryExplainsExplicitDataSharing
+    -only-testing:MetasequoiaImeIOSUITests/WelcomeUITests/testBrandedLaunchScreenResource
+    -only-testing:MetasequoiaImeIOSUITests/WelcomeUITests/testMainTabsKeepIndependentNavigation
+    -only-testing:MetasequoiaImeIOSUITests/KeyboardSurfaceUITests/testKeyboardHomePrioritizesTryoutAndQuickAdjustments
+    -only-testing:MetasequoiaImeIOSUITests/SettingsUITests/testInputSchemeVisibilityPersistsAndFallsBack
+    -only-testing:MetasequoiaImeIOSUITests/WelcomeUITests/testAccountEntryExplainsExplicitDataSharing
   )
 elif [[ "${MSIME_TEST_SCOPE:-all}" == "handwriting" ]]; then
   # The only cases that need ML Kit, and therefore the only ones that need an Intel runner. Nothing
