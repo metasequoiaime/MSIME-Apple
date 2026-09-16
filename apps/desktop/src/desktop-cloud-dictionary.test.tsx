@@ -48,3 +48,15 @@ test("desktop dictionary subpages reuse the session client and return without cl
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(close).toHaveBeenCalledTimes(1);
 });
+
+test("desktop dictionary file page reuses the authenticated client and returns to entries", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => action.operation === "export" ? { text: "ni\t你\n" } : { entries: [], has_more: false, offset: 0 });
+  render(<DesktopCloudDictionary client={{ close, request }} />);
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "list" })));
+  fireEvent.click(screen.getByRole("button", { name: "导入与导出" }));
+  expect(screen.getByText("导入与导出")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "导入与导出" })).toBeTruthy());
+  expect(close).not.toHaveBeenCalled();
+});

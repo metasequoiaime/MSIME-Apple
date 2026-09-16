@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
 
 afterEach(cleanup);
@@ -2194,7 +2194,6 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {
     if (action.operation === "list") return { entries: [{ id: "a".repeat(64), kind: "pinyin", code: "ni", word: "你", weight: 100, revision: 2 }], has_more: true, offset: action.offset ?? 0 };
-    if (action.operation === "export") return { text: "ni\t你\n" };
     return {};
   });
   const panel = render(<CloudDictionaryPanel client={{ close, request }} />);
@@ -2206,16 +2205,28 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   fireEvent.change(screen.getByRole("textbox", { name: "词条" }), { target: { value: "好" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", kind: "pinyin", code: "hao", word: "好", weight: 100000 }));
-  fireEvent.click(screen.getByRole("button", { name: "导出" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "standard" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "文件格式" }), { target: { value: "windows" } });
-  fireEvent.click(screen.getByRole("button", { name: "导出" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "windows" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "文件格式" }), { target: { value: "hans" } });
-  expect((screen.getByRole("button", { name: "导出" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
+});
+
+test("cloud dictionary files previews, confirms and preserves bounded import/export contracts", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const request = vi.fn().mockImplementation(async (action: { operation: string; kind?: string; format?: string }) => action.operation === "export" ? { text: "ni\t你\n", filename: "pinyin.tsv" } : {});
+  render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
+  const file = new File(["ni\t你\n"], "words.tsv", { type: "text/tab-separated-values" });
+  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [file] } });
+  expect(await screen.findByText("words.tsv")).toBeDefined();
+  expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "import" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "import", kind: "pinyin", format: "standard", text: "ni\t你\n" }));
+  fireEvent.click(screen.getByRole("button", { name: "导出当前类型" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "standard" }));
+  const oversized = new File(["x".repeat(65537)], "large.tsv", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [oversized] } });
+  expect(await screen.findByText("导入文件必须大于 0 且不超过 64 KiB")).toBeDefined();
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认按“标准 TSV”导入"));
+  confirm.mockRestore();
 });
 
 test("cloud dictionary entries open their editor from the row on touch layouts", async () => {
