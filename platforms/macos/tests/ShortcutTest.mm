@@ -581,11 +581,11 @@ static void TestSharedInputPreferences() {
     NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
     NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
     for (NSUInteger size = 12; size <= 32; ++size) {
-        for (NSUInteger count = 1; count <= 9; ++count) {
-            NSDictionary *candidate = @{@"candidate_layout": count % 2 ? @"vertical" : @"horizontal", @"candidate_font_size": @(size), @"candidate_page_size": @(count)};
+        for (NSNumber *count in @[@5, @7, @9]) {
+            NSDictionary *candidate = @{@"candidate_layout": count.integerValue == 7 ? @"horizontal" : @"vertical", @"candidate_font_size": @(size), @"candidate_page_size": count};
             [controller applySharedToolbarPreferences:candidate];
-            assert(prefs.vertical == (count % 2 == 1) && prefs.fontSize == size && prefs.pageSize == count);
-            assert(layout.indexOfSelectedItem == (NSInteger)(count % 2) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)count - 1);
+            assert(prefs.vertical == (count.integerValue != 7) && prefs.fontSize == size && prefs.pageSize == count.unsignedIntegerValue);
+            assert(layout.indexOfSelectedItem == (NSInteger)(count.integerValue == 7 ? 0 : 1) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)(count.integerValue == 5 ? 0 : count.integerValue == 7 ? 1 : 2));
             for (NSString *key in candidate) assert([[prefs sharedPreferencesByMerging:candidate][key] isEqual:candidate[key]]);
         }
     }
@@ -602,7 +602,7 @@ static void TestSharedInputPreferences() {
     [NSApp sendAction:page.action to:page.target from:page];
     assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 2 && saves == 6);
     NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
-    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@2]);
+    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@7]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -2479,6 +2479,7 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic, copy) NSDictionary *tencent;
 @property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
+@property(nonatomic, copy) NSArray *targetLanguages;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
@@ -2487,6 +2488,7 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
+        @"target_languages":self.targetLanguages ?: @[],
         @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
@@ -2995,6 +2997,45 @@ static void TestCustomTranslationController() {
     [prefs.window close];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
+static void TestSecondaryTranslationScheduling() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.targetLanguages = @[@"fr", @"ja"];
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://secondary.invalid/api", @"api_key":@""};
+    session.page = @[@{@"text":@"Hello", @"source":@4}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && controller.batches[0].items.count == 1 && controller.batches[1].items.count == 1);
+    assert([controller.batches[0].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"FR"]);
+    assert([controller.batches[1].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"JA"]);
+    controller.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"bonjour"}]);
+    controller.batches[1].reply(@[@{@"text":@"Hello", @"translation":@"こんにちは"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"bonjour\nこんにちは"}]]));
+    session.generation++;
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"bonjour\nこんにちは"]);
+    session.generation++;
+    session.targetLanguage = @"ja";
+    session.targetLanguages = @[@"ja", @"fr"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"こんにちは\nbonjour"]);
+    [[MSIMETranslationCache sharedCache] clear];
+    session.generation++;
+    session.targetLanguage = @"fr";
+    session.targetLanguages = @[@"fr", @"ja"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 4);
+    ControlledTranslationBatch *stale = controller.batches.lastObject;
+    session.generation++;
+    stale.reply(@[@{@"text":@"Hello", @"translation":@"stale"}]);
+    assert(![session.delivered[0][@"translation"] isEqual:@"stale"]);
+    [controller cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationCacheDelivery() {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
@@ -3290,6 +3331,7 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
             TestCustomTranslationController();
+            TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
             TestCustomTranslationIdleDelay(NO);
             TestCustomTranslationIdleDelay(YES);
@@ -3314,6 +3356,7 @@ int main(int argc, char **argv) {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestCustomTranslationController();
+        TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();
         TestCustomTranslationIdleDelay(NO);
         TestCustomTranslationIdleDelay(YES);
@@ -3367,13 +3410,14 @@ int main(int argc, char **argv) {
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }
         appearance.skinID = @"fluent";
-        assert(sizeControl.numberOfItems == 9);
-        for (NSInteger option = 0; option < 9; ++option) {
-            assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%ld 个", option + 1]]));
+        assert(sizeControl.numberOfItems == 3);
+        NSArray *pageSizes = @[@5, @7, @9];
+        for (NSInteger option = 0; option < 3; ++option) {
+            assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%@ 个", pageSizes[option]]]));
             [sizeControl selectItemAtIndex:option];
             [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];
             MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-            assert(loaded.pageSize == (NSUInteger)option + 1);
+            assert(loaded.pageSize == [pageSizes[option] unsignedIntegerValue]);
         }
         assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
         for (NSInteger option = 0; option < 3; ++option) {

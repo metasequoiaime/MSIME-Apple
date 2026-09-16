@@ -804,6 +804,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
+  const candidatePageSizes = macosPlatform ? [5, 7, 9] : Array.from({ length: 9 }, (_, index) => index + 1);
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -1077,7 +1078,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     if (!draft || !snapshot || !validCandidateFonts(draft)) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      const value = await client.save(snapshot.revision, draft);
+      const preferences = macosPlatform && !candidatePageSizes.includes(draft.candidate_page_size)
+        ? { ...draft, candidate_page_size: 9 }
+        : draft;
+      const value = await client.save(snapshot.revision, preferences);
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
@@ -1747,8 +1751,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select aria-label="每页候选数量" value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
-          {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
+        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select aria-label="每页候选数量" value={candidatePageSizes.includes(draft.candidate_page_size) ? draft.candidate_page_size : 9} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
+          {candidatePageSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
@@ -1949,7 +1953,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateGlossLanguagesEnabled} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{visibleTranslationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          {(androidPlatform || iosPlatform) && <>
+          {(androidPlatform || iosPlatform || macosPlatform) && <>
             <div className="input-option-divider" />
             <label className="section-header"><span className="section-title">第二种语言<small>候选词下方可同时显示第二种释义</small></span><select aria-label="候选翻译第二种语言" disabled={!candidateGlossLanguagesEnabled} value={translationSecondaryLanguage} onChange={event => setDraft({ ...draft, translation_secondary_language: event.target.value === "" ? null : event.target.value as Preferences["translation_target_language"] })}>{visibleSecondaryLanguages.map(([value, label]) => <option key={value || "none"} value={value}>{label}</option>)}</select></label>
           </>}
@@ -2178,9 +2182,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           <button type="button" className="about-link-row" onClick={() => selectPage("help")}><span className="about-link-title">使用帮助</span><span aria-hidden="true">›</span></button>
           <button type="button" className="about-link-row" onClick={() => selectPage("feedback")}><span className="about-link-title">反馈问题与建议</span><span aria-hidden="true">›</span></button>
         </div>}
-        {!androidPlatform && !macosPlatform && <div className="section" role="group" aria-label="诊断日志">
+        {(!client.host || linuxPlatform || windowsPlatform || macosPlatform) && <div className="section" role="group" aria-label="诊断日志">
           <label className="section-header"><span className="section-title">{linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}<small>{linuxPlatform ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。" : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}</small></span><input aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"} className="toggle" type="checkbox" checked={diagnosticLog.server} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, server: event.target.checked } })} /></label>
-          {!linuxPlatform && <><div className="input-option-divider" />
+          {(!client.host || windowsPlatform) && <><div className="input-option-divider" />
           <label className="section-header"><span className="section-title">TSF 端日志<small>排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。</small></span><input aria-label="TSF 端日志" className="toggle" type="checkbox" checked={diagnosticLog.tsf} onChange={event => setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, tsf: event.target.checked } })} /></label></>}
         </div>}
       </fieldset>

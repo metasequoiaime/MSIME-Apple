@@ -1,10 +1,17 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #include "CandidateSkin.h"
+#include "CandidatePageSize.h"
 
 static inline BOOL MSIMECloudAppearanceIntegerInRange(id value, NSInteger minimum, NSInteger maximum) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
            [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+}
+
+static inline BOOL MSIMECloudAppearanceCandidatePageSize(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           [value doubleValue] == [value integerValue] &&
+           ([(NSNumber *)value integerValue] == 5 || [(NSNumber *)value integerValue] == 7 || [(NSNumber *)value integerValue] == 9);
 }
 
 static inline NSArray<NSString *> *MSIMECloudHelpcodeSchemas() {
@@ -60,7 +67,7 @@ static inline NSDictionary *MSIMECloudAppearanceSnapshot(NSUserDefaults *default
     NSMutableDictionary *snapshot = [@{@"platform.macos.candidate_skin": @(msime::mac::NormalizeSkinId(skin.UTF8String ?: "").c_str()),
              @"platform.macos.candidate_panel_style": @([defaults integerForKey:@"MSIMEClientCandidatePanelStyle"] == 1 ? 1 : 0),
              @"platform.macos.candidate_font_size": MSIMECloudAppearanceIntegerInRange(font, 12, 32) ? font : @18,
-             @"platform.macos.candidate_page_size": MSIMECloudAppearanceIntegerInRange(page, 1, 9) ? page : @9} mutableCopy];
+             @"platform.macos.candidate_page_size": MSIMECloudAppearanceCandidatePageSize(page) ? page : @9} mutableCopy];
     NSInteger shortcut = [defaults integerForKey:@"MSIMEClientCandidatePageShortcut"];
     snapshot[@"platform.macos.candidate_page_shortcut"] = @(shortcut == 1 || shortcut == 2 ? shortcut : 0);
     NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
@@ -85,7 +92,7 @@ static inline BOOL MSIMEValidateCloudAppearance(NSDictionary *values) {
     NSString *normalized = @(msime::mac::NormalizeSkinId([skin UTF8String]).c_str());
     if (![skin isEqual:normalized]) return NO;
     if (!MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_font_size"], 12, 32) ||
-        !MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_page_size"], 1, 9)) return NO;
+        !MSIMECloudAppearanceCandidatePageSize(values[@"platform.macos.candidate_page_size"])) return NO;
     NSDictionary *options = @{@"platform.macos.quanpin_helpcode_schema": @[@0,@1,@2,@3,@4],
                               @"platform.macos.shuangpin_helpcode_schema": @[@0,@1,@2,@3,@4],
                               @"platform.macos.candidate_panel_style": @[@0,@1],

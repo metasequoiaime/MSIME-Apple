@@ -575,6 +575,25 @@ test("Android candidate translations persist an optional second language", async
   }));
 });
 
+test("macOS candidate translations expose the shared second language", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save,
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect(secondary.value).toBe("");
+  expect([...secondary.options].map(option => option.value)).toEqual(["", "en", "fr", "ja", "es", "ru", "de", "ko"]);
+  fireEvent.change(secondary, { target: { value: "ko" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    translation_secondary_language: "ko",
+  }));
+});
+
 test("mobile translation languages stay editable for offline English glosses", async () => {
   const snapshot: Snapshot = { ...initial, preferences: {
     ...initial.preferences, candidate_translations: false, candidate_english_gloss: true,
@@ -977,15 +996,14 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
-test("macOS does not expose Windows or Linux diagnostic switches", async () => {
+test("macOS exposes its native server logger without a Windows TSF switch", async () => {
   render(<SettingsPage client={{
     load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
     host: { platform: "macos" } as HostCapabilities,
   }} />);
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
-  expect(screen.queryByRole("group", { name: "诊断日志" })).toBeNull();
-  expect(screen.queryByLabelText("Server 端日志")).toBeNull();
+  expect(screen.getByLabelText("Server 端日志")).toBeDefined();
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
   expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
 });
@@ -2368,6 +2386,20 @@ test("saves edited preferences against the loaded revision", async () => {
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9 });
   expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("macOS candidate page sizes use the native 5/7/9 options and normalize legacy values", async () => {
+  const preferences = { ...initial.preferences, candidate_page_size: 6 };
+  const save = vi.fn().mockImplementation(async (_revision, next) => ({ ...initial, revision: 8, preferences: next }));
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences }), save, host: { platform: "macos" } as HostCapabilities };
+  render(<SettingsPage client={client} />);
+  const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;
+  expect(Array.from(size.options).map(option => option.value)).toEqual(["5", "7", "9"]);
+  expect(size.value).toBe("9");
+  fireEvent.change(size, { target: { value: "7" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 7 });
 });
 
 test("conflicts preserve edits and require an explicit reload", async () => {
