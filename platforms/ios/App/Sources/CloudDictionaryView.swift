@@ -17,56 +17,94 @@ struct CloudDictionaryView: View {
 
   var body: some View {
     List {
+      // 词库类型原来是一个下拉 Picker,而它只有两三个选项,并且决定了整页看到的是什么。分段控件把选项摊开,当前在哪一栏一眼可见。
       Section {
         Picker("词库", selection: $kind) {
           ForEach(BackendAccountClient.DictionaryKind.allCases) { Text($0.title).tag($0) }
         }
-        TextField("搜索云端词条或编码", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
-        Button("查询云端词库") { run { try await load(offset: 0) } }
-        Text("仅管理当前账号的云端个人词条。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。")
-          .font(.footnote).foregroundStyle(.secondary)
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
       }
-      if let userID {
-        Section {
-          NavigationLink("云端候选与排序", destination: CloudCandidatesView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }))
-          NavigationLink("查询与管理完整目录", destination: CloudDictionaryCatalogView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }))
-          NavigationLink("应用完整云词库到本机", destination: CloudDictionaryApplyView(accountID: userID,
-            authorize: { try await authorizedToken(matching: userID) }))
-          NavigationLink("导入与导出文件", destination: CloudDictionaryFilesView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) }))
-        }
-      }
-      if let page {
-        Section("云端个人词条") {
-          if page.entries.isEmpty { Text("没有匹配的云端词条。").foregroundStyle(.secondary) }
+
+      // 条目先于入口。原来这一页开头是搜索框、查询按钮和一段说明,真正的内容被四个二级入口挤到了第三屏。
+      Section {
+        if let page {
+          if page.entries.isEmpty {
+            Text(search.isEmpty ? "这个词库还没有云端词条" : "没有匹配「\(search)」的词条").foregroundStyle(.secondary)
+          }
           ForEach(page.entries) { entry in
-            VStack(alignment: .leading, spacing: 6) {
-              Text(entry.word)
-              Text("\(entry.code) · 权重 \(entry.weight)").font(.caption).foregroundStyle(.secondary)
-              HStack {
-                Button("编辑") { if let userID { editing = Edit(entry: entry, kind: kind, userID: userID) } }
-                Button("下载到本机") { downloading = entry }
-                Button("删除", role: .destructive) { deleting = entry }
-              }.buttonStyle(.borderless)
+            Button {
+              if let userID { editing = Edit(entry: entry, kind: kind, userID: userID) }
+            } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(entry.word).foregroundStyle(.primary)
+                Text("\(entry.code) · 权重 \(entry.weight)").font(.caption).foregroundStyle(.secondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing) {
+              Button("删除", role: .destructive) { deleting = entry }
+              Button("下载") { downloading = entry }.tint(.blue)
             }
           }
-          HStack {
-            Button("上一页") { run { try await load(offset: max(0, page.offset - 100)) } }.disabled(page.offset == 0)
-            Spacer()
-            Text("第 \(page.offset / 100 + 1) 页").font(.caption)
-            Spacer()
-            Button("下一页") { run { try await load(offset: page.offset + 100) } }.disabled(!page.has_more)
-          }.buttonStyle(.borderless)
+        } else if !busy {
+          Text("还没有读取云端词条").foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("云端个人词条")
+      } footer: {
+        if let page, !page.entries.isEmpty {
+          Text("点一条编辑，左滑下载到本机或删除。第 \(page.offset / 100 + 1) 页。")
+        } else {
+          Text("仅管理当前账号的云端个人词条。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。")
         }
       }
-      if busy { ProgressView("正在处理…") }
-      if let message { Section { Text(message).foregroundStyle(.secondary) } }
+
+      // 翻页原来是条目组最后一行里并排的三个小按钮,和条目自身的行内按钮挤在一起分不清哪个管哪个。
+      if let page, page.offset > 0 || page.has_more {
+        Section {
+          SettingsActionRow(title: "上一页", symbol: "chevron.left", enabled: page.offset > 0) {
+            run { try await load(offset: max(0, page.offset - 100)) }
+          }
+          SettingsActionRow(title: "下一页", symbol: "chevron.right", enabled: page.has_more) {
+            run { try await load(offset: page.offset + 100) }
+          }
+        }
+      }
+
+      if let userID {
+        Section("管理") {
+          NavigationLink(destination: CloudCandidatesView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) })) {
+            SettingsRowLabel(title: "云端候选与排序", detail: "调整这个词库里候选的先后", symbol: "list.number", color: .indigo)
+          }
+          NavigationLink(destination: CloudDictionaryCatalogView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) })) {
+            SettingsRowLabel(title: "完整目录", detail: "查询与批量管理全部词条", symbol: "square.stack.3d.up.fill", color: .teal)
+          }
+          NavigationLink(destination: CloudDictionaryApplyView(accountID: userID,
+            authorize: { try await authorizedToken(matching: userID) })) {
+            SettingsRowLabel(title: "应用到本机", detail: "把整份云词库交给本机键盘", symbol: "iphone.and.arrow.forward", color: .orange)
+          }
+          NavigationLink(destination: CloudDictionaryFilesView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) })) {
+            SettingsRowLabel(title: "导入与导出", detail: "用文件搬运词条", symbol: "doc.badge.arrow.up.fill", color: .brown)
+          }
+        }
+      }
+
       Section {
-        NavigationLink("查看本机词库与同步进度", destination: PersonalDictionaryView())
+        NavigationLink(destination: PersonalDictionaryView()) {
+          SettingsRowLabel(title: "本机词库", detail: "查看本机词条与同步进度", symbol: "iphone", color: .gray)
+        }
       }
     }
+    .searchable(text: $search, prompt: "搜索云端词条或编码")
+    .onSubmit(of: .search) { run { try await load(offset: 0) } }
+    .settingsStatus(busy: busy, message: message)
     .navigationTitle("云词库")
     .disabled(busy)
     .toolbar {

@@ -64,9 +64,8 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     let account = app.tabBars.buttons["我的"]
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
-    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["accountProfileCard"].exists)
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].exists)
+    XCTAssertTrue(app.buttons["accountProfileCard"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountAppIcon"].exists)
   }
 
   @MainActor
@@ -77,12 +76,12 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     XCTAssertTrue(app.tabBars.buttons["键盘"].isSelected)
     app.buttons["inputSettingsLink"].tap()
     app.tabBars.buttons["社区"].tap()
-    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["communityCategory-0"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.tabBars.buttons.count, 4)
     app.tabBars.buttons["统计"].tap()
-    XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.segmentedControls["statisticsTab"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     app.tabBars.buttons["键盘"].tap()
     XCTAssertTrue(app.navigationBars["输入设置"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -101,12 +100,12 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     XCTAssertTrue(login.waitForExistence(timeout: 8))
     login.tap()
     XCTAssertTrue(app.navigationBars["登录水杉"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.buttons["accountLocalDesigns"].exists)
+    XCTAssertFalse(app.buttons["accountAppIcon"].exists)
     XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
     app.navigationBars["登录水杉"].buttons["取消"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
   }
 
   @MainActor
@@ -114,7 +113,7 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     let app = XCUIApplication()
     app.launchArguments = ["-launchScreenPreview"]
     app.launch()
-    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["让输入，更像你"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["让输入更自然"].exists)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "System launch storyboard"

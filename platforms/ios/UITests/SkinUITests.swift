@@ -85,9 +85,9 @@ final class SkinUITests: KeyboardInterfaceTests {
       if app.buttons["aboutSettingsLink"].isHittable { break }
       app.swipeUp()
     }
-    XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
     app.buttons["aboutSettingsLink"].tap()
     XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
   }
 
   @MainActor
@@ -102,7 +102,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["skinSettingsLink"].tap()
     app.buttons["skinCommunityLink"].tap()
     XCTAssertTrue(app.tabBars.buttons["社区"].isSelected)
-    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["communityCategory-0"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.navigationBars["皮肤详情"].exists)
     app.buttons["communityCategory-2"].tap()
     app.tabBars.buttons["键盘"].tap()
@@ -111,14 +111,14 @@ final class SkinUITests: KeyboardInterfaceTests {
     XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
     app.tabBars.buttons["键盘"].tap()
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     app.tabBars.buttons["我的"].tap()
     let replay = app.buttons["replayOnboardingLink"]
     for _ in 0..<6 { if replay.isHittable { break }; app.swipeUp() }
     replay.tap()
     XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
-    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountProfileCard"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
   }
 
@@ -134,7 +134,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["publishCommunityWork"].tap()
     XCTAssertTrue(app.navigationBars["发布回复"].waitForExistence(timeout: 5))
     app.buttons["取消"].tap()
-    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["communityCategory-0"].waitForExistence(timeout: 5))
     XCTAssertEqual(search.value as? String, "reply")
     XCTAssertTrue(app.buttons["communityCategory-2"].isSelected)
   }
@@ -164,7 +164,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
-    app.buttons["skinEditorTemplates"].tap()
+    app.buttons["skinEditorTab_模板"].tap()
     let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
     // Three of the eight curated designs. Walking all of them cost four minutes and asserted the
     // same three things each time; what every design contains is checked in KeyboardSkinTests,
@@ -241,9 +241,14 @@ final class SkinUITests: KeyboardInterfaceTests {
     attachment.lifetime = .deleteOnSuccess
     add(attachment)
     XCTAssertTrue(app.buttons["applyCustomSkin"].label.contains("正在使用"))
-    // Reset lives in the editor tools menu, independent of the selected category.
-    app.buttons["skinEditorTools"].tap()
-    app.buttons["重置我的皮肤"].tap()
+    // Reset sits with the other ways to replace a whole design, on the 模板 tab, below the gallery.
+    app.buttons["skinEditorTab_模板"].tap()
+    let reset = app.buttons["resetCustomSkin"]
+    for _ in 0..<6 {
+      if reset.isHittable { break }
+      app.swipeUp()
+    }
+    reset.tap()
     app.buttons["重置"].tap()
     app.buttons["skinEditorTab_按键"].tap()
     revealRadius()
@@ -257,7 +262,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
-    app.buttons["skinEditorTemplates"].tap()
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
     XCTAssertTrue(app.buttons["undoSkinDesign"].isEnabled)
     app.buttons["saveCustomSkin"].tap()
@@ -268,7 +273,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     field.typeText(name)
     app.buttons["confirmSaveCustomSkin"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].waitForExistence(timeout: 5))
-    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["skinTemplate_水杉留白"].tap()
     app.buttons["undoSkinDesign"].tap()
     // The editor's own gradient state was asserted here by scrolling the control into view a second
@@ -278,17 +283,17 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
-    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
+    app.buttons["skinEditorTab_我的"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].exists)
-    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["skinTemplate_水杉留白"].tap()
-    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
+    app.buttons["skinEditorTab_我的"].tap()
     app.buttons["管理" + name].tap()
     app.buttons["用当前设计更新"].tap()
     app.buttons["更新已保存的皮肤"].tap()
-    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
-    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
+    app.buttons["skinEditorTab_我的"].tap()
     app.buttons["savedSkin_" + name].tap()
     app.buttons["skinEditorTab_背景"].tap()
     for _ in 0..<12 {
@@ -297,7 +302,7 @@ final class SkinUITests: KeyboardInterfaceTests {
       controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
     }
     XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "0")
-    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
+    app.buttons["skinEditorTab_我的"].tap()
     app.buttons["管理" + name].tap()
     app.buttons["删除"].tap()
     app.buttons["删除"].tap()
@@ -325,7 +330,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     attachment.name = "Reference skin editor with pinned keyboard"
     attachment.lifetime = .deleteOnSuccess
     add(attachment)
-    for tab in ["按键", "文本", "音效", "背景"] {
+    for tab in ["按键", "文本", "模板", "我的", "背景"] {
       app.buttons["skinEditorTab_" + tab].tap()
       XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1)
       XCTAssertTrue(preview.isHittable)

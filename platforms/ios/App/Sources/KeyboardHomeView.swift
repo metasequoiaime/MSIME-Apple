@@ -56,7 +56,7 @@ struct SettingsView: View {
           }.buttonStyle(CardPressStyle())
         }.padding(.horizontal, 16).padding(.bottom, 20)
       }.background(MetasequoiaTheme.canvas)
-        .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("").navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
         .onChange(of: scenePhase) { if $0 == .active { refresh() } }
       .tint(MetasequoiaTheme.accent)

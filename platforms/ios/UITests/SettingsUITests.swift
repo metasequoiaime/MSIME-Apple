@@ -189,9 +189,13 @@ final class SettingsUITests: KeyboardInterfaceTests {
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.tabBars.buttons["我的"].tap()
     for _ in 0..<6 {
-      if app.buttons["desktopDownloadLink"].isHittable { break }
+      if app.buttons["aboutSettingsLink"].isHittable { break }
       app.swipeUp()
     }
+    // 下载指南挂在「关于水杉」里。「我的」页上原本还有一个指向同一页的入口,重复的那个已经去掉。
+    app.buttons["aboutSettingsLink"].tap()
+    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
     app.buttons["desktopDownloadLink"].tap()
     for platform in ["macOS", "Windows", "Linux"] {
       app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
@@ -203,9 +207,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    app.buttons["aboutSettingsLink"].tap()
-    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
-    XCTAssertTrue(app.navigationBars["关于水杉"].exists)
+    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -286,9 +288,9 @@ final class SettingsUITests: KeyboardInterfaceTests {
     finish.tap()
     app.launchArguments = ["-service.ai.endpoint", "", "-service.ai.model", ""]
 
-    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["让输入，更像你"].waitForExistence(timeout: 10))
 
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
     XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
@@ -298,7 +300,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
     XCTAssertEqual(nineKey.value as? String, "已选择")
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 

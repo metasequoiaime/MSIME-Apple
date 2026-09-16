@@ -28,25 +28,22 @@ struct PersonalDictionaryView: View {
   }
   var body: some View {
     List {
+      // 这一组原来是五个平铺的列表行:一个标题、一段说明、试打框、同步时间、错误。说明和时间讲的都是同一件事 —— 同步走到哪儿了 —— 所以状态归状态,说明归 footer,中间只留下真正要人动手的那个试打框。
       Section {
-        Label(state.pendingCount > 0 ? "\(state.pendingCount) 项等待键盘同步" : "个人词库", systemImage: "character.book.closed")
-          .font(.headline)
-        Text("开启水杉键盘的“允许完全访问”，再打开键盘完成本机同步。已保存的学习记录和词条不会上传。")
-          .font(.footnote).foregroundStyle(.secondary)
+        SettingsFactRow(title: state.pendingCount > 0 ? "\(state.pendingCount) 项等待键盘同步" : "已全部同步",
+                        detail: state.snapshotDate.map { "最近同步 \($0.formatted(date: .abbreviated, time: .standard))" }
+                          ?? "尚未收到键盘确认，保存的操作暂不会标记为已生效",
+                        symbol: state.pendingCount > 0 ? "clock.arrow.circlepath" : "checkmark.circle.fill",
+                        color: state.pendingCount > 0 ? .orange : MetasequoiaTheme.accent)
         TextField("点此打开键盘并试打", text: $trial)
           .accessibilityIdentifier("personalDictionaryTrial")
-        if let date = state.snapshotDate {
-          Text("最近同步：\(date.formatted(date: .abbreviated, time: .standard))")
-            .font(.caption).foregroundStyle(.secondary)
-        } else {
-          Text("尚未收到键盘确认，保存的操作暂不会标记为已生效。")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        if let message = state.snapshotError { Text(message).font(.footnote).foregroundStyle(.red) }
-      }
-      Section {
-        Button { importing = true } label: { Label("从文件导入词条", systemImage: "square.and.arrow.down") }
+        SettingsActionRow(title: "从文件导入词条", detail: "支持词库 JSON 文件",
+                          symbol: "square.and.arrow.down.fill", color: .brown) { importing = true }
           .accessibilityIdentifier("importPersonalDictionary")
+      } header: {
+        Text("键盘同步")
+      } footer: {
+        Text("开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。已保存的学习记录和词条不会上传。")
       }
       let requests = state.requests.filter { $0.status != .applied }
       if !requests.isEmpty {
@@ -83,24 +80,26 @@ struct PersonalDictionaryView: View {
             Button("删除", role: .destructive) { deleting = word }
           }
         }
-        if state.pageOffset > 0 || state.hasMore {
-          HStack {
-            Button("上一页") { perform { try store.requestPage(offset: max(0, state.pageOffset - 100)) } }
-              .disabled(state.pageOffset == 0)
-            Spacer()
-            Text("第 \(state.pageOffset / 100 + 1) 页").font(.caption)
-            Spacer()
-            Button("下一页") { perform { try store.requestPage(offset: state.pageOffset + 100) } }
-              .disabled(!state.hasMore)
-          }.buttonStyle(.borderless)
-        }
-        if state.requestedPageOffset != state.pageOffset {
-          Text("等待键盘读取第 \(state.requestedPageOffset / 100 + 1) 页…").font(.caption).foregroundStyle(.secondary)
-        }
       } header: { Text("已生效词条") } footer: {
         Text("包括手动添加和引擎学习生成的词条。每页最多 100 条，搜索作用于当前页；滑动词条可删除。刷新或翻页后打开上方试打框，同步新的列表。")
       }
+      // 翻页原本是词条组最后一行里三个并排的小按钮,和词条自己的点按、侧滑挤在同一片区域。
+      if state.pageOffset > 0 || state.hasMore {
+        Section {
+          SettingsActionRow(title: "上一页", symbol: "chevron.left", enabled: state.pageOffset > 0) {
+            perform { try store.requestPage(offset: max(0, state.pageOffset - 100)) }
+          }
+          SettingsActionRow(title: "下一页", symbol: "chevron.right", enabled: state.hasMore) {
+            perform { try store.requestPage(offset: state.pageOffset + 100) }
+          }
+        } footer: {
+          Text(state.requestedPageOffset != state.pageOffset
+               ? "等待键盘读取第 \(state.requestedPageOffset / 100 + 1) 页…"
+               : "第 \(state.pageOffset / 100 + 1) 页")
+        }
+      }
     }
+    .settingsStatus(busy: false, message: state.snapshotError)
     .navigationTitle("个人词库")
     .searchable(text: $search, prompt: "搜索本页词条或编码")
     .toolbar {
