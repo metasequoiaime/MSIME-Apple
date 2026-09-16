@@ -1425,6 +1425,12 @@ impl Runtime<Session> {
             .apply_online_candidate(&query, candidate, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         if applied {
+            // An asynchronous provider replaces the visible Engine candidate
+            // set without going through dispatch(). Advance the host-owned
+            // identity just as an input action does, so stale candidate IDs
+            // cannot select the pre-provider page and Windows UI mailboxes can
+            // recognize the replacement as a new rendered generation.
+            self.advance()?;
             self.refresh()
                 .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         }
@@ -1473,6 +1479,7 @@ impl Runtime<Session> {
             .apply_online_candidates(&query, candidates, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         if applied {
+            self.advance()?;
             self.refresh()
                 .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         }

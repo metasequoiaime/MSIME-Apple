@@ -5681,10 +5681,9 @@ mod tests {
         assert_eq!(malformed["value"]["applied"], false);
         assert_eq!(malformed["value"]["view"], before);
         assert_eq!(apply(handle, &query, body)["value"]["applied"], true);
-        assert_eq!(
-            read(msime_client_view(handle))["value"]["editing_text"],
-            before["editing_text"]
-        );
+        let after_cloud = read(msime_client_view(handle))["value"].clone();
+        assert_ne!(after_cloud["generation"], before["generation"]);
+        assert_eq!(after_cloud["editing_text"], before["editing_text"]);
         let other_dir = tempfile::tempdir().unwrap();
         let other = test_host_preferences(other_dir.path(), preferences.clone());
         read(msime_client_focus(other, true));
@@ -5832,7 +5831,10 @@ mod tests {
             }
         }
         let current = read(msime_client_online_query(handle))["value"].clone();
+        let before_ai = read(msime_client_view(handle))["value"].clone();
         assert_eq!(apply(&current, true)["value"]["applied"], true);
+        let after_ai = read(msime_client_view(handle))["value"].clone();
+        assert_ne!(after_ai["generation"], before_ai["generation"]);
         read(msime_client_destroy(handle));
     }
     #[test]
