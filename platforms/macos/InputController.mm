@@ -1216,6 +1216,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             if (!controller) return;
             const bool again = controller->_preferenceSaveState.finish();
             if (saved && !saveError) [controller reloadPreferences];
+            else msime_macos_diagnostic_write("preferences_save_failed");
             if (again) [controller persistAppearancePreferences];
         });
     });
@@ -2317,7 +2318,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
-    if (!snapshot || error || !_activeClient || _activeClient != client || _session != session) return;
+    if (!snapshot || error) {
+        msime_macos_diagnostic_write("preferences_load_failed");
+        return;
+    }
+    if (!_activeClient || _activeClient != client || _session != session) return;
     NSDictionary *preferences = snapshot[@"preferences"];
     NSMutableDictionary *inputPreferences = [preferences isKindOfClass:NSDictionary.class] ? [preferences mutableCopy] : nil;
     id inlinePreedit = inputPreferences[@"tsf_preedit_style"];
@@ -2346,6 +2351,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self synchronizeCandidateGloss];
         [self synchronizeCustomTranslations];
         [self synchronizeAITranslations];
+    } else {
+        msime_macos_diagnostic_write("preferences_apply_failed");
     }
 }
 
