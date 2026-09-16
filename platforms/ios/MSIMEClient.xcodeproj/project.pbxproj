@@ -113,6 +113,9 @@
 		404EB38AC38206704422DBED /* DictionaryLearningPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB1E349697CEDA11FD086F06 /* DictionaryLearningPreference.swift */; };
 		412C40F22C4AA8679A52E2D2 /* CandidatePanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48D264E2617A188D92B8E29 /* CandidatePanelSnapshot.swift */; };
 		41A24F87C93BC463E7CD9A0C /* KeyboardEmojiPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543760D3DF7BC7A55C9A0766 /* KeyboardEmojiPickerView.swift */; };
+		5E9BC58B8DC3709C3F449476 /* KeyboardSymbolPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */; };
+		BF8C9C010ADBE1FCDEEA2CAF /* KeyboardSymbolPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */; };
+		F8E15CC102E7E8B700FA73E3 /* KeyboardSymbolPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */; };
 		420F4F3B0B5A010BA61ED2C4 /* SkinGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BE2BE59A037096C7B197DF /* SkinGenerationModel.swift */; };
 		429439E8E64F419D6C2520C5 /* KeyboardInputContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346B18127F916031CA9DD345 /* KeyboardInputContext.swift */; };
 		439BD00F474759CC6198F441 /* TypingStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B04E4A79002A8A56A936792C /* TypingStatistics.swift */; };
@@ -539,6 +542,7 @@
 		51C015C63FB27B713EF2CF17 /* dictionary-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dictionary-manifest.json"; sourceTree = "<group>"; };
 		5230C60A37C4DE2BEEE44488 /* CloudDictionaryEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryEditor.swift; sourceTree = "<group>"; };
 		543760D3DF7BC7A55C9A0766 /* KeyboardEmojiPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardEmojiPickerView.swift; sourceTree = "<group>"; };
+		0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSymbolPanelView.swift; sourceTree = "<group>"; };
 		5527AACE909C132E50C8B726 /* BackendCommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendCommunityResourcesView.swift; sourceTree = "<group>"; };
 		5A38FF01B17D1553BE46FCEE /* CustomSkinEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSkinEditorView.swift; sourceTree = "<group>"; };
 		5AFCE373F50C2668A9CAB71F /* CommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityResourcesView.swift; sourceTree = "<group>"; };
@@ -765,6 +769,7 @@
 				405231C669C8592559936223 /* KeyboardClipboardView.swift */,
 				D4728209F25E23DDF6070FDE /* KeyboardEmojiCatalog.swift */,
 				543760D3DF7BC7A55C9A0766 /* KeyboardEmojiPickerView.swift */,
+				0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */,
 				346B18127F916031CA9DD345 /* KeyboardInputContext.swift */,
 				0D051D288F9888171C74A55D /* KeyboardInputView.swift */,
 				6669EC962B2D668CD3F7F15A /* KeyboardKeyButton.swift */,
@@ -1376,6 +1381,7 @@
 				523C8E9234DF8292B2333496 /* KeyboardEmojiCatalog.swift in Sources */,
 				A1E16FD51580B40A15EB66B6 /* KeyboardEmojiCatalogTests.swift in Sources */,
 				4EAED5C5483859F60013F33F /* KeyboardEmojiPickerView.swift in Sources */,
+				5E9BC58B8DC3709C3F449476 /* KeyboardSymbolPanelView.swift in Sources */,
 				311B710B2B6559F0DB862199 /* KeyboardFeedbackPreference.swift in Sources */,
 				5B825CC3E7E0B7C4512BD17D /* KeyboardHostContext.swift in Sources */,
 				04C24EAF0C4EA09585F56CBE /* KeyboardInputContext.swift in Sources */,
@@ -1573,6 +1579,7 @@
 				68B99A87A0872CA7CD3189AB /* KeyboardClipboardView.swift in Sources */,
 				E2527DB7DCFE58AC4EBBCC2A /* KeyboardEmojiCatalog.swift in Sources */,
 				9B847130C903AFB78CB9AE86 /* KeyboardEmojiPickerView.swift in Sources */,
+				BF8C9C010ADBE1FCDEEA2CAF /* KeyboardSymbolPanelView.swift in Sources */,
 				2B302B25E33A75C4EDD5AF56 /* KeyboardFeedbackPreference.swift in Sources */,
 				5BD20B3946644C6A67D013F3 /* KeyboardHostContext.swift in Sources */,
 				611F9FCDFE1BADABDD38DEA4 /* KeyboardInputContext.swift in Sources */,
@@ -1664,6 +1671,7 @@
 				17AF51FD4113268DB2D7EF62 /* KeyboardClipboardView.swift in Sources */,
 				4BCDCA945B352FB8F7B02A46 /* KeyboardEmojiCatalog.swift in Sources */,
 				41A24F87C93BC463E7CD9A0C /* KeyboardEmojiPickerView.swift in Sources */,
+				F8E15CC102E7E8B700FA73E3 /* KeyboardSymbolPanelView.swift in Sources */,
 				A547F271912839FC29F2D79E /* KeyboardFeedbackPreference.swift in Sources */,
 				17D6FF590E4F97BD36BA67D0 /* KeyboardHostContext.swift in Sources */,
 				429439E8E64F419D6C2520C5 /* KeyboardInputContext.swift in Sources */,

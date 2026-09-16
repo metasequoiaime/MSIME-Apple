@@ -127,6 +127,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
+  private var symbolPanel: KeyboardSymbolPanelView?
   private let punctuationStack = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
@@ -1054,13 +1055,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "常用符号") {}
-    nineKeySymbolsButton.menu = UIMenu(children: [
-      "，", "。", "？", "！", "、", "；", "：", "……", "——", "（", "）", "“", "”", "《", "》", "@",
-    ].map { symbol in
-      UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
-    })
-    nineKeySymbolsButton.showsMenuAsPrimaryAction = true
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
+      self?.showSymbolPanel()
+    }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
     row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
@@ -2843,6 +2840,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: picker)
   }
 
+  /// Replace the keyboard with the categorized symbol surface, finishing any active composition
+  /// before direct local insertion can occur.
+  private func showSymbolPanel() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    playInputClick()
+    render(session.finishComposition())
+    let panel = KeyboardSymbolPanelView(onInsert: { [weak self] symbol in
+      self?.playInputClick()
+      self?.insertOwnText(symbol, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    panel.accessibilityViewIsModal = true
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel)
+    NSLayoutConstraint.activate([
+      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    symbolPanel = panel
+    UIAccessibility.post(notification: .screenChanged, argument: panel)
+  }
+
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2928,6 +2951,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       picker.removeFromSuperview()
       emojiPicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: emojiShortcut)
+    }
+    if let panel = symbolPanel {
+      panel.removeFromSuperview()
+      symbolPanel = nil
+      UIAccessibility.post(notification: .screenChanged, argument: nineKeySymbolsButton)
     }
     if let picker = skinPicker {
       picker.removeFromSuperview()
