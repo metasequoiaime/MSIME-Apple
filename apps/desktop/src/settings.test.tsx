@@ -2179,6 +2179,17 @@ test("cloud dictionary clears old account entries when refresh fails", async () 
   expect((screen.getByRole("button", { name: "下一页" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
+test("cloud dictionary exposes visible kind tabs for mobile layouts", async () => {
+  const request = vi.fn().mockResolvedValue({ entries: [], has_more: false, offset: 0 });
+  render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("暂无词条");
+  const tabs = screen.getByRole("tablist", { name: "云词库类型" });
+  expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("拼音");
+  fireEvent.click(screen.getByRole("tab", { name: "五笔" }));
+  await waitFor(() => expect(request).toHaveBeenLastCalledWith({ operation: "list", kind: "wubi", offset: 0, search: "" }));
+  expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("五笔");
+});
+
 test("cloud dictionary panel supports paging and CRUD actions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {
