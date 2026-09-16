@@ -4965,7 +4965,15 @@ pub fn run() {
                         .filter(|path| path.is_absolute())
                 })
                 .or_else(|| {
-                    app.path().app_data_dir().ok().map(|dir| dir.join("runtime-options.json"))
+                    let mut candidates = Vec::new();
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        candidates.push(dir.join("runtime-options.json"));
+                    }
+                    #[cfg(target_os = "windows")]
+                    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                        candidates.push(PathBuf::from(local).join("MSIME-Client/runtime-options.json"));
+                    }
+                    candidates.into_iter().find(|path| path.is_file())
                 })
                 .ok_or_else(|| {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
