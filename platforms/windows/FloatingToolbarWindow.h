@@ -123,6 +123,7 @@ private:
   // True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE, so a programmatic
   // placement is not mistaken for one the user made.
   bool moving_ = false;
+  bool user_dragging_ = false;
   bool shell_available_ = true;
   std::function<bool()> active_reader_;
   std::function<std::optional<bool>()> character_set_reader_;

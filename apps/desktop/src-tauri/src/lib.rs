@@ -2522,6 +2522,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 fn remember_input_target(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
@@ -3492,6 +3493,7 @@ fn supports_clipboard_paste() -> bool {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 async fn paste_clipboard_text(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
@@ -4059,7 +4061,7 @@ fn open_cloud_clipboard_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = remember_panel_input_target(&state, true);
+        let _ = remember_panel_input_target(&state);
         let position = windows_panel_position(560.0, 560.0);
         open_panel_window(
             &app,
@@ -4101,7 +4103,7 @@ fn open_cloud_dictionary_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = remember_panel_input_target(&state, true);
+        let _ = remember_panel_input_target(&state);
         let position = windows_panel_position(760.0, 700.0);
         open_panel_window(
             &app,
@@ -4982,6 +4984,17 @@ pub fn run() {
                     std::env::var_os("MSIME_IBUS_OPTIONS")
                         .map(PathBuf::from)
                         .filter(|path| path.is_absolute())
+                })
+                .or_else(|| {
+                    let mut candidates = Vec::new();
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        candidates.push(dir.join("runtime-options.json"));
+                    }
+                    #[cfg(target_os = "windows")]
+                    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                        candidates.push(PathBuf::from(local).join("MSIME-Client/runtime-options.json"));
+                    }
+                    candidates.into_iter().find(|path| path.is_file())
                 })
                 .ok_or_else(|| {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
