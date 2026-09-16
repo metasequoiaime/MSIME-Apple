@@ -65,7 +65,9 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
     XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].exists)
+    // 我的设计 was withdrawn from this page: the skin editor keeps one entry, on the skin page,
+    // rather than the same destination under two tabs.
+    XCTAssertTrue(app.buttons["accountAppIcon"].exists)
   }
 
   @MainActor
@@ -288,7 +290,7 @@ final class OnboardingUITests: XCTestCase {
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
-    XCTAssertTrue(app.buttons["accountLocalDesigns"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     app.tabBars.buttons["键盘"].tap()
     XCTAssertTrue(app.navigationBars["输入设置"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -923,21 +925,21 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testStatisticsChartsAndPeriodSelection() {
+  func testStatisticsChartsAndDaySelection() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.tabBars.buttons["统计"].tap()
-    let period = app.segmentedControls["statisticsPeriod"]
-    XCTAssertTrue(period.waitForExistence(timeout: 5))
-    period.buttons["30 天"].tap()
-    period.buttons["累计"].tap()
-    period.buttons["7 天"].tap()
+    // The period switch is gone: each statistic now has its own tab, drawn as the shape its own
+    // question wants rather than four copies of one bar.
+    let tabs = app.segmentedControls["statisticsTab"]
+    XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+    for title in ["类型", "模式", "方案", "趋势"] { tabs.buttons[title].tap() }
     let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
     XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
     day.tap()
-    XCTAssertTrue(app.buttons["返回整个时间范围"].exists)
-    app.buttons["返回整个时间范围"].tap()
+    XCTAssertTrue(app.buttons["返回累计"].waitForExistence(timeout: 3))
+    app.buttons["返回累计"].tap()
     let top = XCTAttachment(screenshot: app.screenshot())
     top.name = "统计趋势与字符分布"
     top.lifetime = .deleteOnSuccess
