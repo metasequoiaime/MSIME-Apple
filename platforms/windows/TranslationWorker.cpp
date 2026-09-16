@@ -18,6 +18,9 @@ namespace {
 constexpr auto kDebounce = std::chrono::milliseconds(500);
 constexpr size_t kMaximumQueryBytes = 65536;
 constexpr size_t kMaximumResponseBytes = 1024 * 1024;
+constexpr long kCustomTranslationTimeoutMs = 2500;
+constexpr long kTencentTranslationTimeoutMs = 2000;
+constexpr long kNiuTransTranslationTimeoutMs = 2500;
 
 struct HttpResponse {
   std::string body;
@@ -89,7 +92,7 @@ std::optional<nlohmann::json> query_document(const std::string &query) {
 
 std::optional<std::string> http_request(const nlohmann::json &descriptor,
                                         const std::function<bool()> &cancelled,
-                                        bool allow_http) {
+                                        bool allow_http, long timeout_ms) {
   try {
     if (!descriptor.is_object() || !descriptor.at("url").is_string())
       return std::nullopt;
@@ -128,7 +131,7 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
                      allow_http ? "http,https" : "https");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 3000L);
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "MSIME-Client/1.0");
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, request_headers.get());
@@ -180,7 +183,8 @@ custom_translation(const nlohmann::json &config, const nlohmann::json &item,
     return std::nullopt;
   // The source Windows client permits an explicitly configured HTTP custom
   // translator (useful for a local service).  Keep cloud providers HTTPS-only.
-  auto body = http_request(*descriptor, cancelled, true);
+  auto body =
+      http_request(*descriptor, cancelled, true, kCustomTranslationTimeoutMs);
   if (!body || cancelled())
     return std::nullopt;
   auto parsed = host_value(msime_client_parse_custom_translation_response(
@@ -210,7 +214,8 @@ void append_tencent_group(const nlohmann::json &config,
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null())
     return;
-  auto body = http_request(*descriptor, cancelled, false);
+  auto body =
+      http_request(*descriptor, cancelled, false, kTencentTranslationTimeoutMs);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_tencent_translation_response(
@@ -252,7 +257,8 @@ void append_niutrans_item(const nlohmann::json &config,
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null() || cancelled())
     return;
-  auto body = http_request(*descriptor, cancelled, false);
+  auto body = http_request(*descriptor, cancelled, false,
+                           kNiuTransTranslationTimeoutMs);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_niutrans_translation_response(
