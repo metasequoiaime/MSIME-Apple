@@ -33,6 +33,8 @@ struct Observation {
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
   std::string clipboard_clear_name;
+  bool desktop_help = false;
+  bool desktop_feedback = false;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -91,6 +93,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.clipboard_clear_name.clear();
       seen.clipboard_clear_sensitive = false;
     }
+    if (key == "DesktopTools/Help") seen.desktop_help = true;
+    if (key == "DesktopTools/Feedback") seen.desktop_feedback = true;
     if (seen.first_candidate_fix_name.empty() &&
         (key == "CandidateFix1" || key.rfind("CandidateFix1/", 0) == 0))
       seen.first_candidate_fix_name = key;
@@ -837,6 +841,8 @@ int main(int argc, char **argv) {
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive &&
                 seen.clipboard_toggle_sensitive,
             "Initial input and clipboard properties were not available");
+    require(seen.desktop_help && seen.desktop_feedback,
+            "Linux desktop tools did not publish help and feedback routes");
     {
       const auto panel_marker = root / "panel-launches.log";
       const auto panel_launcher = root / "panel-launcher";
@@ -893,6 +899,15 @@ int main(int argc, char **argv) {
              g_variant_new(
                  "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
                  g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "DesktopTools/Help", PROP_STATE_UNCHECKED));
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "DesktopTools/Feedback", PROP_STATE_UNCHECKED));
+      require(wait_panel([&] { return panel_routes().size() == 3; }),
+              "Desktop help and feedback actions did not launch settings routes");
+      const auto routes = panel_routes();
+      require(routes[1] == "settings:help" && routes[2] == "settings:feedback",
+              "Desktop help and feedback actions used incorrect settings routes");
       g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
     }
     auto relative_preferences = options;

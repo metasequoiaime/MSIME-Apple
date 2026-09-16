@@ -1011,14 +1011,22 @@ bool launch_desktop_panel(const char *panel) {
     command = "msime-client-settings";
   gchar *argv[] = {const_cast<gchar *>(command), nullptr};
   gchar **environment = g_get_environ();
-  const bool about = std::string(panel) == "about";
-  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", about ? "settings" : panel, TRUE);
+  const std::string requested = panel ? panel : "";
+  const bool settings_route = requested == "about" || requested == "help" ||
+                              requested == "feedback";
+  const char *settings_page = requested == "about" ? "about"
+                              : requested == "help" ? "help"
+                              : requested == "feedback" ? "feedback"
+                              : nullptr;
+  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL",
+                                 settings_route ? "settings" : panel, TRUE);
   // A settings section travels as "settings:<category>"; the bare section name
   // is not a route head and would be rejected by the shared parser.
-  environment = g_environ_setenv(
-      environment, "MSIME_CLIENT_ROUTE", about ? "settings:about" : panel, TRUE);
-  if (about)
-    environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", "about", TRUE);
+  const std::string route = settings_page ? std::string("settings:") + settings_page
+                                           : requested;
+  environment = g_environ_setenv(environment, "MSIME_CLIENT_ROUTE", route.c_str(), TRUE);
+  if (settings_page)
+    environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", settings_page, TRUE);
   GError *error = nullptr;
   const auto started = g_spawn_async(
       nullptr, argv, environment, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
@@ -1055,6 +1063,8 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板"},
     {"DesktopTools/Settings", "settings", "设置"},
     {"DesktopTools/About", "about", "关于"},
+    {"DesktopTools/Help", "help", "帮助"},
+    {"DesktopTools/Feedback", "feedback", "反馈"},
 };
 
 IBusProperty *desktop_tools_property(IBusEngine *engine) {
