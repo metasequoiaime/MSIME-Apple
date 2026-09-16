@@ -41,6 +41,9 @@ int main() {
         assert(msime::mac::CapturedScreenKeyboardTarget(100, 100) == 0);
         assert(msime::mac::CapturedScreenKeyboardTarget(0, 100) == 0);
         assert(msime::mac::CapturedScreenKeyboardTarget(-1, 100) == 0);
+        assert(msime::mac::LiveScreenKeyboardTarget(4321, 100) == 4321);
+        assert(msime::mac::LiveScreenKeyboardTarget(9876, 100) == 9876);
+        assert(msime::mac::LiveScreenKeyboardTarget(100, 100) == 0);
         [NSApplication sharedApplication];
         __block unsigned short lastCode = 65535;
         __block NSEventModifierFlags lastFlags = 0;
