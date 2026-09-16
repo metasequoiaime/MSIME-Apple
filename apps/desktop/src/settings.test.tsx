@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
 
 afterEach(cleanup);
@@ -504,6 +504,29 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   expect(saved.tokens).toEqual({
     [firstOrigin]: "first-origin-fixture",
     "https://other.invalid:443": "second-origin-fixture",
+  });
+});
+
+test("mobile AI settings expose the Apple provider catalog and preserve custom edits", async () => {
+  expect(AI_PROVIDER_OPTIONS.map(option => option.id)).toEqual([
+    "everyapi", "openai", "anthropic", "gemini", "deepseek", "qwen", "kimi", "zhipu",
+    "siliconflow", "groq", "openrouter", "custom",
+  ]);
+  const base: AiAssistantPreferences = {
+    enabled: true, provider: "deepseek", model: "deepseek-v4-flash",
+    endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3,
+    prompt: "保持原意", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "",
+  };
+  expect(aiProviderUpdate("anthropic", base)).toMatchObject({
+    provider: "anthropic", endpoint: "https://api.anthropic.com/v1/chat/completions",
+    model: "claude-sonnet-4-6",
+  });
+  expect(aiProviderUpdate("openai", {
+    ...base,
+    endpoint: "https://private.invalid/v1/chat/completions",
+    model: "private-model",
+  })).toMatchObject({
+    provider: "openai", endpoint: "https://private.invalid/v1/chat/completions", model: "private-model",
   });
 });
 

@@ -2,6 +2,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::preferences::AI_PROVIDERS;
+
 #[derive(Debug, Clone, Error, Eq, PartialEq)]
 pub enum AiError {
     #[error("segmented pinyin is empty or too large")]
@@ -46,7 +48,7 @@ pub fn chat_completion_body(
     prompt: &str,
 ) -> Result<serde_json::Value, AiError> {
     request.validate()?;
-    if !matches!(provider, "deepseek" | "openai" | "siliconflow" | "groq")
+    if !AI_PROVIDERS.contains(&provider)
         || model.is_empty()
         || model.len() > 256
         || model.chars().any(char::is_control)
@@ -298,7 +300,7 @@ mod tests {
             context: "合成上下文\n\"引用\"".into(),
             candidate_limit: 3,
         };
-        for provider in ["deepseek", "openai", "siliconflow", "groq"] {
+        for provider in AI_PROVIDERS {
             let body =
                 chat_completion_body(&request, provider, "synthetic-model", "synthetic\nprompt")
                     .unwrap();
