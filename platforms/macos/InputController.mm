@@ -217,6 +217,23 @@ static BOOL MSIMEASCIIAlphanumeric(unichar character) {
     return (character >= '0' && character <= '9') || (character >= 'A' && character <= 'Z') ||
            (character >= 'a' && character <= 'z');
 }
+// Match the Windows TSF classifier's CapsLock special case. CapsLock turns an
+// unshifted alphabetic key into an uppercase character, but an uppercase key
+// must remain a native application key when a new composition would otherwise
+// start. Once a composition or candidate list exists, the same key belongs to
+// Engine and must not be bypassed.
+static BOOL MSIMECapsLockFreshUppercaseBypass(NSEvent *event, NSDictionary *view) {
+    if (!event || event.type != NSEventTypeKeyDown) return NO;
+    const NSEventModifierFlags competing = NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                           NSEventModifierFlagOption | NSEventModifierFlagCommand;
+    if (!(event.modifierFlags & NSEventModifierFlagCapsLock) || (event.modifierFlags & competing)) return NO;
+    if (event.characters.length != 1) return NO;
+    const unichar character = [event.characters characterAtIndex:0];
+    if (character < 'A' || character > 'Z') return NO;
+    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
+    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
+    return editing.length == 0 && candidates.count == 0;
+}
 static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     switch (character) {
     case ',': return @"，";
@@ -2449,6 +2466,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         return YES;
     }
     if (_appearance.englishMode) return NO;
+    if (MSIMECapsLockFreshUppercaseBypass(event, _view)) return NO;
     if (!_session) [self prepareSession];
     if (!_session) return NO;
     if (_focusPending) [self prepareSession];

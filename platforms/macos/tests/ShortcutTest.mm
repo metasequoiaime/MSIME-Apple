@@ -3229,6 +3229,23 @@ int main(int argc, char **argv) {
         appearance.pageSize = 5;
         [controller appearanceChanged:nil];
         assert(session.requestedPageSize == 5);
+        // Windows leaves an unshifted uppercase letter produced by CapsLock to
+        // the host at the start of a composition, but routes the same key to
+        // Engine once input is already in progress.
+        [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+        session.asciiCalls = 0;
+        NSEvent *capsFresh = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                         modifierFlags:NSEventModifierFlagCapsLock timestamp:0 windowNumber:0
+                                                context:nil characters:@"A" charactersIgnoringModifiers:@"a"
+                                             isARepeat:NO keyCode:0];
+        assert(![controller handleEvent:capsFresh client:client]);
+        assert(session.asciiCalls == 0);
+        [controller setValue:@{ @"focused": @YES, @"editing_text": @"n", @"candidates": @[] } forKey:@"view"];
+        session.nextTransition = @{ @"handled": @YES, @"view": @{ @"focused": @YES, @"editing_text": @"nA", @"candidates": @[] } };
+        session.asciiCalls = 0;
+        assert([controller handleEvent:capsFresh client:client]);
+        assert(session.asciiCalls == 1 && session.lastASCII == 'A' && !session.lastShift);
+        session.nextTransition = nil;
         for (NSNumber *flags in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             session.lastCommand = UINT32_MAX;
             client.committed = nil;
