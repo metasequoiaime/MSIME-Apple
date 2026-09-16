@@ -1199,7 +1199,7 @@ static BOOL ValidToolbarFontSize(id value) {
 }
 - (NSDictionary *)wordCharacterOptions {
     NSDictionary *value = _sharedWordCharacter ?: [_defaults dictionaryForKey:WordCharacterKey];
-    return LocalModeBoolean(value[@"enabled"]) && [@[@"brackets", @"minus_equal"] containsObject:value[@"keys"]] ? value : @{@"enabled": @NO, @"keys": @"brackets"};
+    return LocalModeBoolean(value[@"enabled"]) && [@[@"brackets", @"minus_equal"] containsObject:value[@"keys"]] ? value : @{@"enabled": @YES, @"keys": @"brackets"};
 }
 - (void)setWordCharacterEnabled:(BOOL)enabled keys:(NSString *)keys {
     if (![@[@"brackets", @"minus_equal"] containsObject:keys]) return;
