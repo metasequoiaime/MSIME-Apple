@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
     };
     Observation seen;
     auto missing_emoji_options = options;
-    missing_emoji_options["preferences"]["mixed_input"].erase("emoji");
+    missing_emoji_options["preferences"].erase("mixed_input");
     missing_emoji_options["preferences"].erase("candidate_skin");
     msime_preview_configure(missing_emoji_options.dump());
     auto engine = create_engine();
@@ -327,6 +327,10 @@ int main(int argc, char **argv) {
             "Missing mixed Emoji preference did not default to disabled");
     require(seen.candidate_skin == "willow_green",
             "Missing candidate skin preference did not use Windows default");
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        IBUS_ENGINE(engine), "EmojiCandidates", PROP_STATE_CHECKED);
+    require(seen.emoji_candidates,
+            "Missing mixed input object could not activate Emoji candidates");
     invoke("FocusOut");
     // Host shortcuts must load and reload while English passthrough has no
     // Engine session. Keep this store separate from the remaining fixtures.
