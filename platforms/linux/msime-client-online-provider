@@ -33,6 +33,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 http_processes = set()
 http_process_lock = threading.Lock()
 http_stopping = threading.Event()
+MAX_AI_CACHE_ENTRIES = 4096
 
 
 def fetch_direct(url, timeout, body=None, token=None, extra_headers=None):
@@ -176,13 +177,48 @@ def select_ai_config(config, query):
     return config.get("profiles", {}).get(provider)
 
 
-def configured_ai(query, path):
+def ai_cache_key(query):
+    options = query.get("ai_assistant")
+    segments = query.get("pinyin_segments")
+    if (not isinstance(options, dict) or not options.get("enabled") or
+            not isinstance(segments, list) or not segments):
+        return None
+    identity = {}
+    for key in ("provider", "endpoint", "model"):
+        value = options.get(key)
+        if not isinstance(value, str):
+            return None
+        identity[key] = value
+    # Match Windows AiCandidateWorker: omit credentials, prompt, context,
+    # session and generation so a successful result survives view refreshes.
+    identity["pinyin_segments"] = segments
+    return json.dumps(identity, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"))
+
+
+def configured_ai(query, path, cache=None, cache_lock=None):
     # Do not touch the private file when this query cannot request AI.
     options = query.get("ai_assistant")
     if not path or not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
         return None
     config = load_ai_config(path)
-    return ai(query, select_ai_config(config, query))
+    selected = select_ai_config(config, query)
+    key = ai_cache_key(query)
+    if key is not None and cache is not None and cache_lock is not None:
+        with cache_lock:
+            cached = cache.get(key)
+        if cached is not None:
+            return [dict(row) for row in cached]
+    rows = ai(query, selected)
+    # Empty and failed responses remain retryable. Bound memory exactly like
+    # the Windows worker, clearing the cache before the next insertion.
+    if rows and key is not None and cache is not None and cache_lock is not None:
+        stored = [dict(row) for row in rows]
+        with cache_lock:
+            if len(cache) >= MAX_AI_CACHE_ENTRIES:
+                cache.clear()
+            cache[key] = stored
+    return rows
 
 
 def ai(query, config):
@@ -508,7 +544,10 @@ class Handler(socketserver.StreamRequestHandler):
             # Fetch independently so a failed AI response still preserves cloud.
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 jobs = [pool.submit(safely, cloud, query),
-                        pool.submit(safely, configured_ai, query, self.server.ai_config_path)]
+                        pool.submit(safely, configured_ai, query,
+                                    self.server.ai_config_path,
+                                    self.server.ai_candidate_cache,
+                                    self.server.ai_candidate_cache_lock)]
                 rows = []
                 seen = set()
                 for job in jobs:
@@ -674,6 +713,8 @@ def main():
     server.tencent_config_path = args.tencent_config.absolute() if args.tencent_config else None
     server.translation_cache = {}
     server.translation_lock = threading.Lock()
+    server.ai_candidate_cache = {}
+    server.ai_candidate_cache_lock = threading.Lock()
     identity = args.socket.stat()
     def stop(signum, frame):
         raise KeyboardInterrupt()
