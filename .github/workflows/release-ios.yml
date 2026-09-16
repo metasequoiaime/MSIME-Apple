@@ -367,6 +367,34 @@ jobs:
           export METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH="$IOS_KEYBOARD_PROFILE_PATH"
           export METASEQUOIA_IOS_RELEASE_DIR="$GITHUB_WORKSPACE/dist"
           exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
+      # 上传只是把文件交给 App Store Connect;build 会一直停在 READY_FOR_BETA_SUBMISSION,直到有人进网站点提交。
+      # 所以外部测试者拿到的一直是某个人上次手动提交的那一版,而不是刚发的这一版。
+      #
+      # 只有主动发起的发布走这一步。每次合并产生的自动构建是 prerelease 那个意义上的构建,值得上传,
+      # 但不值得一天十几次去占 Apple 的审核配额。
+      - name: Submit the build to the external testers
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.testflight_credentials.outputs.enabled == 'true' }}
+        env:
+          BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
+          IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
+          IOS_BETA_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IOS_APP_ID" || -z "$IOS_BETA_GROUP" ]]; then
+            echo "IOS_APP_STORE_CONNECT_APP_ID and IOS_TESTFLIGHT_EXTERNAL_GROUP are not configured; the build stays uploaded but unsubmitted." >&2
+            exit 1
+          fi
+          python3 -m pip install --quiet --disable-pip-version-check 'pyjwt[crypto]==2.10.1'
+          python3 platforms/ios/scripts/submit_testflight_review.py \
+            --app "$IOS_APP_ID" \
+            --build-version "$BUILD_NUMBER" \
+            --group "$IOS_BETA_GROUP" \
+            --key-id "$IOS_API_KEY_ID" \
+            --issuer-id "$IOS_API_KEY_ISSUER_ID" \
+            --key-path "$IOS_API_KEY_PATH"
       - name: Revalidate draft release target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -114,6 +114,8 @@ jobs:
         run: |
           python3 platforms/ios/tests/ProjectConfigurationTests.py
           python3 platforms/ios/tests/DictionaryPackagingTests.py
+          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
+          python3 platforms/ios/tests/TestFlightSubmissionTests.py
       - name: Package iOS dictionary
         run: python3 platforms/ios/scripts/prepare_dictionary.py
       - name: Generate Xcode project
