@@ -151,6 +151,33 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     let staged_options = make(&staged);
     let expected = super::version_without_access(&active_options).unwrap();
     let directory = tempfile::tempdir_in(root.path()).unwrap();
+    if !hold_session {
+        // The replacement generation can be syntactically well-formed while
+        // still being rejected by the Engine.  Probe that failure before any
+        // state root is moved and keep the old generation readable.
+        let translation_source = staged.join("user/custom_translations.txt");
+        let translation_target = staged.join(dictionaries).join("custom_translations.txt");
+        fs::write(&translation_source, b"fixture").unwrap();
+        fs::create_dir(&translation_target).unwrap();
+        let unusable_handle = super::NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        registry().lock().unwrap().insert(
+            unusable_handle,
+            Prepared {
+                directory: tempfile::tempdir_in(root.path()).unwrap(),
+                active_options: active_options.clone(),
+                options: staged_options.clone(),
+                source_version: expected.clone(),
+            },
+        );
+        assert!(activate(unusable_handle, &expected).is_err());
+        assert!(registry().lock().unwrap().contains_key(&unusable_handle));
+        for name in ["user", "cache", dictionaries] {
+            assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+        }
+        discard(unusable_handle).unwrap();
+        fs::remove_file(translation_source).unwrap();
+        fs::remove_dir(translation_target).unwrap();
+    }
     registry().lock().unwrap().insert(
         handle,
         Prepared {
@@ -192,7 +219,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     let backup_path = |path: &Path| {
         path.with_file_name(format!(
             "{}.msime-snapshot-old-{handle}",
-            path.file_name().unwrap().to_string_lossy()
+            path.file_name().unwrap().to_string_lossy(),
         ))
     };
     for path in [

@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 namespace msime::windows {
 class TranslationWorker final {
@@ -38,8 +39,8 @@ private:
 
   void run() noexcept;
   bool cancelled(uint64_t serial) const noexcept;
-  static std::optional<Result> translate(const Request &request,
-                                          const std::function<bool()> &cancelled);
+  std::optional<Result> translate(const Request &request,
+                                  const std::function<bool()> &cancelled);
 
   Completed completed_;
   mutable std::mutex mutex_;
@@ -49,6 +50,10 @@ private:
   std::atomic<uint64_t> latest_serial_{0};
   std::atomic<bool> stopping_{false};
   std::mutex join_mutex_;
+  // Positive results are reusable across generations. The key includes the
+  // provider scope, target language, and planned source/target items, but no
+  // credentials.
+  std::unordered_map<std::string, std::string> translation_cache_;
   std::thread worker_;
 };
 } // namespace msime::windows
