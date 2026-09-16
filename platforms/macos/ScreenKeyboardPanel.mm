@@ -59,8 +59,10 @@ bool CommitKey(const Key &key) {
 }
 BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     (void)targetPID;
-    // Permission prompts can change focus. Never send the pending key after prompting.
-    if (!CGPreflightPostEventAccess()) { CGRequestPostEventAccess(); return NO; }
+    // The panel is a non-activating utility surface. Never request permission
+    // from a key click: the prompt can change focus and the user must opt in
+    // through the host's normal Accessibility settings flow instead.
+    if (!CGPreflightPostEventAccess()) return NO;
     // Resolve the destination for every stroke. The panel is non-activating,
     // so the user may switch editors while it remains visible; a cached PID
     // from showKeyboard must never send a later key to the old editor.
