@@ -601,7 +601,7 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .native-panel-header { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-color); background: var(--surface-raised); color: var(--text-color); font-size: 13px; user-select: none; }
 .native-panel-header button { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 21px; line-height: 1; }
 .native-panel-header button:hover { background: var(--button-secondary-hover); color: var(--text-color); }
-.keyboard-panel { --kb-background: #17181d; --kb-text: #f1f1f3; --kb-heading: #d7d8dd; --kb-key: #2b2d34; --kb-action: var(--kb-key); --kb-action-text: var(--kb-text); --kb-hover: #41434d; --kb-active: #535866; --kb-pressed: #666a77; --kb-key-radius: 5px; --kb-border-width: 0px; --kb-border-color: transparent; --kb-shadow: none; --kb-font-family: inherit; background: var(--kb-background); color: var(--kb-text); font-family: var(--kb-font-family); }
+.keyboard-panel { --kb-background: #17181d; --kb-text: #f1f1f3; --kb-heading: #d7d8dd; --kb-key: #2b2d34; --kb-key-fill: var(--kb-key); --kb-action: var(--kb-key); --kb-action-fill: var(--kb-action); --kb-action-text: var(--kb-text); --kb-paper-line: rgba(0, 0, 0, .08); --kb-hover: #41434d; --kb-active: #535866; --kb-pressed: #666a77; --kb-key-radius: 5px; --kb-border-width: 0px; --kb-border-color: transparent; --kb-shadow: none; --kb-font-family: inherit; background: var(--kb-background); color: var(--kb-text); font-family: var(--kb-font-family); }
 .keyboard-panel[data-keyboard-theme="light"] { --kb-background: #eceef2; --kb-text: #202124; --kb-heading: #555861; --kb-key: #fff; --kb-hover: #e1e4ea; --kb-active: #d7d0e0; --kb-pressed: #c7c9d0; }
 .keyboard-panel { display: flex; flex-direction: column; height: 100vh; min-height: 0; border-radius: 8px; }
 .keyboard-panel .native-panel-header { flex: 0 0 28px; height: 28px; padding: 0 6px 0 10px; border-bottom: 0; background: var(--kb-background); color: var(--kb-heading); font-size: 12px; }
@@ -611,8 +611,12 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .keyboard-panel-notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kb-heading); font-size: 12px; }
 .keyboard-layout { display: flex; flex-direction: column; height: 100%; gap: var(--keyboard-row-gap, 4px); }
 .keyboard-row { display: flex; flex: 1; min-height: 0; gap: var(--keyboard-key-gap, 4px); }
-.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 0; padding: 0; border: var(--kb-border-width) solid var(--kb-border-color); border-radius: var(--kb-key-radius); background: var(--kb-key); color: var(--kb-text); box-shadow: var(--kb-shadow); font-family: inherit; font-size: 15px; }
-.keyboard-key.action { background: var(--kb-action); color: var(--kb-action-text); }
+.keyboard-key { --kb-current-fill: var(--kb-key-fill); flex: 1 1 0; min-width: 0; min-height: 0; padding: 0; border: var(--kb-border-width) solid var(--kb-border-color); border-radius: var(--kb-key-radius); background: var(--kb-current-fill); color: var(--kb-text); box-shadow: var(--kb-shadow); font-family: inherit; font-size: 15px; }
+.keyboard-key.action { --kb-current-fill: var(--kb-action-fill); color: var(--kb-action-text); }
+.keyboard-key.material-raised { transform: translateY(-1px); box-shadow: var(--kb-shadow), 0 2px 0 rgba(0, 0, 0, .18); }
+.keyboard-key.material-raised:active { transform: translateY(0); }
+.keyboard-key.material-glass { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.keyboard-key.material-paper { background-image: repeating-linear-gradient(0deg, transparent 0 7px, var(--kb-paper-line) 7px 8px); background-size: auto; }
 .keyboard-key:hover { background: var(--kb-hover); }
 .keyboard-key.action:hover { background: var(--kb-hover); color: var(--kb-text); }
 .keyboard-key.active { background: var(--kb-active); }

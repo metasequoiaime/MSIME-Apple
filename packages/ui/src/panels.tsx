@@ -231,6 +231,14 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
   const shadowOffset = custom ? 1 : option.shadowOffset;
   const shadowRadius = custom ? 2 : option.shadowRadius;
+  const keyOpacity = custom?.keyOpacity ?? 1;
+  const keyShape = custom?.keyShape ?? "rounded";
+  const keyMaterial = custom?.keyMaterial ?? "flat";
+  const keyRadius = keyShape === "capsule"
+    ? "999px"
+    : keyShape === "pebble"
+      ? "42% 58% 48% 52% / 52% 44% 56% 48%"
+      : keyShape === "ticket" ? `${Math.min(4, Math.max(0, radius))}px` : `${Math.max(0, Math.min(20, radius))}px`;
   const fontFamily = (custom?.monospaced ?? option.monospaced)
     ? "ui-monospace, SFMono-Regular, Consolas, monospace"
     : "inherit";
@@ -240,16 +248,20 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
     "--kb-text": palette.foreground,
     "--kb-heading": palette.accent,
     "--kb-key": palette.key,
+    "--kb-key-fill": keyboardRgba(palette.key, keyOpacity),
     "--kb-action": palette.action,
+    "--kb-action-fill": keyboardRgba(palette.action, 1),
     "--kb-action-text": readableKeyboardText(palette.action),
+    "--kb-paper-line": keyboardRgba(palette.accent, .08),
     "--kb-hover": mixKeyboardColor(palette.key, palette.accent, .18),
     "--kb-active": mixKeyboardColor(palette.key, palette.accent, .3),
     "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, .42),
-    "--kb-key-radius": `${Math.max(0, Math.min(20, radius))}px`,
+    "--kb-key-radius": keyRadius,
     "--kb-border-width": `${Math.max(0, Math.min(2, borderWidth))}px`,
     "--kb-border-color": palette.accent,
     "--kb-shadow": shadowOpacity > 0 ? `0 ${shadowOffset}px ${shadowRadius}px rgba(0, 0, 0, ${shadowOpacity})` : "none",
     "--kb-font-family": fontFamily,
+    "--kb-key-material": keyMaterial,
   } as CSSProperties;
 }
 
@@ -412,7 +424,8 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
   const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
   const renderedModifiers = modifiersRef.current;
-  return <main className="native-panel keyboard-panel" style={skinStyle} data-keyboard-theme={theme} data-keyboard-skin={skin} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
+  const keyMaterial = skin === "custom" ? customDesign?.keyMaterial ?? "flat" : "flat";
+  return <main className="native-panel keyboard-panel" style={skinStyle} data-keyboard-theme={theme} data-keyboard-skin={skin} data-keyboard-material={keyMaterial} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
     <div className="keyboard-panel-body">
@@ -422,7 +435,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
           const action = keyToRender.modifier || keyboardActionLabels.has(keyToRender.label);
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${action ? " action" : ""}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key material-${keyMaterial}${action ? " action" : ""}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
         })}</div>)}
       </div>
     </div>
