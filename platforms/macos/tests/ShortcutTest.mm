@@ -2549,6 +2549,7 @@ static void TestAiCandidateScheduling() {
     AIShortcutSession *session = [AIShortcutSession new];
     session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai",
         @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"最近提交的上下文",
         @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
         @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
     ShortcutClient *client = [ShortcutClient new];
@@ -2559,6 +2560,8 @@ static void TestAiCandidateScheduling() {
     assert(timer);
     [timer fire];
     assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
+    NSDictionary *requestBody = controller.aiBatches[0].items[0][@"request"][@"body"];
+    assert([requestBody[@"messages"][1][@"content"] containsString:@"最近提交的上下文"]);
     controller.aiBatches[0].reply(@[@{ @"translation": @"合成候选" }]);
     assert(session.applications == 1);
     NSDictionary *expectedAIQuery = @{ @"online": session.query, @"config": session.query[@"ai_assistant"] };
@@ -2574,6 +2577,7 @@ static void TestAiCandidateRetryAfterRejectedResponse() {
     AIShortcutSession *session = [AIShortcutSession new];
     session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-retry",
         @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"重试上下文",
         @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
         @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
     session.rejectNextAI = YES;

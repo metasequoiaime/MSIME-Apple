@@ -578,7 +578,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *query = @{ @"online": online, @"config": config };
     if ([_aiQuery isEqual:query]) return;
     [self cancelAITranslations]; _aiQuery = query;
-    NSDictionary *input = @{ @"segmented_pinyin": segments, @"context": online[@"context"] ?: @"",
+    NSDictionary *input = @{ @"segmented_pinyin": segments, @"context": online[@"ai_context"] ?: @"",
         @"candidate_limit": config[@"candidate_limit"] ?: @3 };
     NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{ @"config": config, @"input": input } error:nil];
     if (!descriptor) return;
