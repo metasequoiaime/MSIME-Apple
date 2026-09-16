@@ -264,8 +264,14 @@ CandidateActionRequestResult SessionController::request_candidate_action(
       if (!stopping_ && transport_.current(lease.transport))
         transition = state.candidate_action(lease, session, generation, index,
                                             action, position);
-      if (transition)
+      if (transition) {
         candidates_.action(lease, transition->at("view"));
+        // Candidate pin/remove/fix commands create a fresh Engine generation
+        // while keeping the composition visible. Re-submit the translation
+        // query for that replacement view just as a key transition does.
+        if (auto query = state.translation_query(lease))
+          (void)translations_.submit(lease, std::move(*query));
+      }
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
@@ -306,8 +312,14 @@ SessionController::request_page(const CandidatePage &page) {
         transition = state.page_candidate(page.lease, page.session,
                                           page.generation, page.previous,
                                           page.steps);
-      if (transition)
+      if (transition) {
         candidates_.action(page.lease, *transition);
+        // Paging advances the Engine generation and replaces the visible
+        // candidate set. Request translations for the new page immediately;
+        // waiting for another key event would leave the page unannotated.
+        if (auto query = state.translation_query(page.lease))
+          (void)translations_.submit(page.lease, std::move(*query));
+      }
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
