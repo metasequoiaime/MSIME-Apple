@@ -587,7 +587,9 @@ static NSHashTable *LiveDictionaryControllers()
         event.keyCode, [_candidatePanel isVisible],
         metasequoia::mac::NormalizeCandidatePageShortcut(
             static_cast<int>([MetasequoiaPreferencesWindowController storedCandidatePageShortcut])),
-        candidatePageShortcutCharacter, candidatePageShortcutModified))
+        candidatePageShortcutCharacter, candidatePageShortcutModified,
+        localModeForKey == metasequoia::LocalInputMode::TemporaryJapanese ||
+            _sessionSnapshot.scheme == SchemeType::JapaneseRomaji))
     {
     case metasequoia::mac::ControllerKeyAction::MoveCandidateLeft:
     case metasequoia::mac::ControllerKeyAction::MoveCandidateRight:
