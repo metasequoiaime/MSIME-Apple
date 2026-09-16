@@ -47,11 +47,33 @@ pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface>
         .panel()
 }
 
+fn startup_panel_for_session(
+    route: Option<SurfaceRoute>,
+    voice_session_available: bool,
+) -> Option<PanelSurface> {
+    let panel = startup_panel(route)?;
+    if route == Some(SurfaceRoute::Voice) && !voice_session_available {
+        return None;
+    }
+    Some(panel)
+}
+
+pub(crate) fn startup_panel_for_launch(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
+    let voice_session_available = if route == Some(SurfaceRoute::Voice) {
+        PanelState::from_environment()
+            .ok()
+            .is_some_and(|state| state.can_open_voice_panel())
+    } else {
+        true
+    };
+    startup_panel_for_session(route, voice_session_available)
+}
+
 pub(crate) fn prepare_windows(
     windows: &mut [tauri::utils::config::WindowConfig],
     route: Option<SurfaceRoute>,
 ) {
-    if startup_panel(route).is_some() {
+    if startup_panel_for_launch(route).is_some() {
         for window in windows.iter_mut().filter(|window| window.label == "main") {
             window.visible = false;
             window.focus = false;
@@ -278,6 +300,14 @@ mod tests {
         assert!(!windows[0].visible && !windows[0].focus);
         assert_eq!(startup_panel(route).unwrap().label, "voice-panel");
         assert!(super::super::macos_cloud_clipboard::startup_panel(route).is_none());
+    }
+
+    #[test]
+    fn voice_launch_requires_an_authenticated_session_but_other_panels_do_not() {
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Voice), true).is_some());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Voice), false).is_none());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Emoji), false).is_some());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Handwriting), false).is_some());
     }
     #[test]
     fn close_and_submit_have_an_exclusive_lifecycle() {

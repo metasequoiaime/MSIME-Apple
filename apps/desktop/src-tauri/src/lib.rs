@@ -5249,7 +5249,7 @@ pub fn run() {
             });
             #[cfg(target_os = "macos")]
             if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
-                .or_else(|| macos_panel_session::startup_panel(requested_surface_route()))
+                .or_else(|| macos_panel_session::startup_panel_for_launch(requested_surface_route()))
                 .or_else(|| macos_cloud_clipboard::startup_panel(requested_surface_route()))
                 .or_else(|| macos_cloud_dictionary::startup_panel(requested_surface_route())) {
                 open_panel_window(
@@ -5546,7 +5546,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. })
                 && (macos_keyboard::startup_panel(requested_surface_route()).is_some()
-                    || macos_panel_session::startup_panel(requested_surface_route()).is_some()
+                    || macos_panel_session::startup_panel_for_launch(requested_surface_route()).is_some()
                     || macos_cloud_clipboard::startup_panel(requested_surface_route()).is_some()
                     || macos_cloud_dictionary::startup_panel(requested_surface_route()).is_some())
                 && !_app.webview_windows().values().any(|window| window.is_visible().unwrap_or(true))
