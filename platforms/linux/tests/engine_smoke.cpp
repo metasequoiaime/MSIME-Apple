@@ -376,38 +376,37 @@ int main(int argc, char **argv) {
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
-      require(seen.mode_registered && !seen.input_enabled && !key('n') &&
+      require(seen.mode_registered && seen.input_enabled &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Missing default mode did not use Windows English passthrough");
+              "Missing default mode did not use Windows Chinese input");
       invoke("FocusOut");
       invoke("FocusIn");
-      require(seen.mode_sensitive && !seen.input_enabled && !seen.smart_punctuation_sensitive,
-              "Passthrough refocus did not restore the mode menu without a session");
+      require(seen.mode_sensitive && seen.input_enabled && seen.smart_punctuation_sensitive,
+              "Chinese refocus did not restore the mode menu with a session");
       require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
                   key(IBUS_Control_L, IBUS_RELEASE_MASK),
-              "Configured Ctrl shortcut did not leave initial passthrough");
+              "Configured Ctrl shortcut did not preserve the initial Chinese mode");
       phrase();
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
                   !seen.candidates.empty() && seen.candidates.front() == "你好",
-              "Switching from default English did not restore Chinese candidates");
+              "Chinese default did not restore Chinese candidates");
       invoke("Reset");
       invoke("FocusOut");
       invoke("FocusIn");
       require(seen.input_enabled && key('n') && !seen.english_mode,
-              "Refocus reapplied default English over the selected mode");
+              "Refocus failed to preserve the selected Chinese mode");
       invoke("Reset");
       invoke("PropertyActivate", g_variant_new("(su)", "ShuangpinProfile/ziranma", PROP_STATE_CHECKED));
       require(seen.input_enabled && key('n') && !seen.english_mode,
-              "Session recreation reapplied default English");
+              "Session recreation failed to preserve the selected Chinese mode");
       invoke("Reset");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
-      const bool global = std::string(scope) == "global";
-      require(seen.input_enabled == global && key('n') == global && !seen.english_mode,
-              "New host did not distinguish app defaults from global mode memory");
+      require(seen.input_enabled && key('n') && !seen.english_mode,
+              "New host did not apply the Chinese default after mode reset");
       invoke("Reset");
       // Switching input sources disables the engine; ordinary refocus above
       // must preserve mode, but reactivation starts from the configured default.
@@ -415,9 +414,9 @@ int main(int argc, char **argv) {
       invoke("Disable");
       invoke("FocusIn");
       invoke("Enable");
-      require(!key('n'), "Input source reactivation retained the previous CN/EN mode");
-      require(!seen.input_enabled && seen.mode_sensitive && !seen.preedit_visible,
-              "Input source reactivation retained the previous CN/EN presentation");
+      require(key('n'), "Input source reactivation did not restore the Chinese default");
+      require(seen.input_enabled && seen.mode_sensitive && seen.preedit_visible,
+              "Input source reactivation did not restore the Chinese presentation");
     }
     ibus_object_destroy(IBUS_OBJECT(engine));
     g_object_unref(engine);

@@ -432,7 +432,7 @@ struct State {
     if (mode_scope_global) {
       if (!global_input_enabled)
         global_input_enabled =
-            base_preferences.value("default_ime_mode", "english") != "english";
+            base_preferences.value("default_ime_mode", "chinese") != "english";
       if (!session)
         input_enabled = *global_input_enabled;
     }
@@ -610,7 +610,7 @@ struct State {
     if (mode_scope_global) {
       if (!global_input_enabled)
         global_input_enabled =
-            preferences.value("default_ime_mode", "english") != "english";
+            preferences.value("default_ime_mode", "chinese") != "english";
       if (!session)
         input_enabled = *global_input_enabled;
     }
@@ -6252,7 +6252,7 @@ static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   // Seed once per host instance; refocus or session recreation keeps user choice.
   if (configured.is_object())
     engine->state->input_enabled = configured.at("preferences").value(
-        "default_ime_mode", "english") != "english";
+        "default_ime_mode", "chinese") != "english";
   engine->state->preferences_timer =
       g_timeout_add(1000, reload_preferences, engine);
 }
@@ -6293,7 +6293,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
       // The daemon clears properties on disable; register them on reactivation.
       state(engine).properties_registered = false;
       state(engine).input_enabled = configured.at("preferences").value(
-          "default_ime_mode", "english") != "english";
+          "default_ime_mode", "chinese") != "english";
     });
   };
   engine->reset = reset;
