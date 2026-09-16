@@ -733,6 +733,7 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .cloud-dictionary-list { display: flex; min-height: 180px; flex-direction: column; gap: 8px; }
 .cloud-dictionary-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--divider-color); }
 .cloud-dictionary-item-main { display: block; min-width: 0; flex: 1 1 auto; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.cloud-dictionary-item-static { cursor: default; }
 .cloud-dictionary-item-main:hover:not(:disabled) strong, .cloud-dictionary-item-main:focus-visible strong { text-decoration: underline; }
 .cloud-dictionary-item strong { display: block; overflow-wrap: anywhere; font-weight: 500; }
 .cloud-dictionary-item small { margin-top: 3px; }

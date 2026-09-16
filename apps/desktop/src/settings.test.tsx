@@ -2358,6 +2358,25 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   confirm.mockRestore();
 });
 
+test("cloud candidate rows trigger ranking and keep secondary actions grouped", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const candidate = { code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 };
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "candidates") return { candidates: [candidate], context: "", revision: 42 };
+    if (action.operation === "rank") return { changed: true, selection_count: 0 };
+    return {};
+  });
+  render(<CloudCandidatesPanel client={{ close: vi.fn(), request }} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), { target: { value: "nihc" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
+  await screen.findByText("你好");
+  fireEvent.click(screen.getByRole("button", { name: "调频候选 你好" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" })));
+  expect(document.querySelector(".cloud-dictionary-item-actions")).not.toBeNull();
+  expect(confirm).toHaveBeenCalledWith("调整此云端候选的排序？");
+  confirm.mockRestore();
+});
+
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
