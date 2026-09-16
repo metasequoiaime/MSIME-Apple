@@ -3564,7 +3564,12 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
-        let Some(session) = sessions.active(&request_id) else {
+        // Keep the session alive for the provider's final transcription, but
+        // publish the stop state before sending the control message. This is
+        // the same ownership boundary as the Windows controller: a late
+        // result belongs to this generation, while a successor recording
+        // cannot be admitted until the worker finishes.
+        let Some(session) = sessions.stop(&request_id) else {
             return Ok(());
         };
         if UnixSocketProvider::new(session.path).voice_stop(session.generation) {
