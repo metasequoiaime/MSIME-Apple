@@ -2511,6 +2511,7 @@ static void TestCloudCandidatePreference() {
 @interface AIShortcutSession : ShortcutSession
 @property(nonatomic, copy) NSDictionary *query;
 @property(nonatomic) NSUInteger applications;
+@property(nonatomic) BOOL rejectNextAI;
 @end
 @implementation AIShortcutSession
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
@@ -2518,6 +2519,10 @@ static void TestCloudCandidatePreference() {
                                   query:(NSDictionary *)query error:(NSError **)error {
     (void)error;
     assert(source == 1 && [query isEqual:self.query] && candidates.count == 1);
+    if (self.rejectNextAI) {
+        self.rejectNextAI = NO;
+        return @{ @"applied": @NO, @"view": @{} };
+    }
     ++self.applications;
     NSMutableDictionary *updated = [self.query mutableCopy];
     updated[@"generation"] = @([updated[@"generation"] unsignedLongLongValue] + 1);
@@ -2556,9 +2561,37 @@ static void TestAiCandidateScheduling() {
     assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
     controller.aiBatches[0].reply(@[@{ @"translation": @"合成候选" }]);
     assert(session.applications == 1);
-    assert([[controller valueForKey:@"aiQuery"] isEqual:session.query]);
+    NSDictionary *expectedAIQuery = @{ @"online": session.query, @"config": session.query[@"ai_assistant"] };
+    assert([[controller valueForKey:@"aiQuery"] isEqual:expectedAIQuery]);
     [controller synchronizeAITranslations];
     assert(controller.aiBatches.count == 1);
+    [controller cancelAITranslations];
+}
+
+static void TestAiCandidateRetryAfterRejectedResponse() {
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-retry",
+        @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
+        @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
+    session.rejectNextAI = YES;
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    [timer fire];
+    assert(controller.aiBatches.count == 1);
+    controller.aiBatches[0].reply(@[@{ @"translation": @"被拒候选" }]);
+    assert(session.applications == 0 && [controller valueForKey:@"aiQuery"] == nil);
+    [controller synchronizeAITranslations];
+    timer = [controller valueForKey:@"aiTimer"];
+    assert(timer);
+    [timer fire];
+    assert(controller.aiBatches.count == 2);
+    controller.aiBatches[1].reply(@[@{ @"translation": @"重试候选" }]);
+    assert(session.applications == 1);
     [controller cancelAITranslations];
 }
 @interface CustomTranslationController : CloudShortcutController
@@ -3200,6 +3233,7 @@ int main(int argc, char **argv) {
         TestCloudCandidateRetryAfterRejectedResponse();
         TestCloudCandidateEngineDelivery();
         TestAiCandidateScheduling();
+        TestAiCandidateRetryAfterRejectedResponse();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();

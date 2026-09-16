@@ -570,7 +570,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (_appearance && !_appearance.candidateTranslations)) { [self cancelAITranslations]; return; }
     NSDictionary *online = [_session onlineQueryWithError:nil];
     NSDictionary *config = online[@"ai_assistant"];
-    NSArray *segments = online[@"segmented_pinyin"];
+    // OnlineQuery serializes Engine's segmentation as pinyin_segments. Keep the
+    // provider request field name (segmented_pinyin) at the HTTP boundary only.
+    NSArray *segments = online[@"pinyin_segments"];
     if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
         ![segments isKindOfClass:NSArray.class] || !segments.count) { [self cancelAITranslations]; return; }
     NSDictionary *query = @{ @"online": online, @"config": config };
@@ -598,8 +600,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 // apply_online_candidates advances the shared generation. Keep
                 // the post-apply identity before applying the view so the
                 // render pass does not enqueue the same AI request again.
-                current->_aiQuery = [[session onlineQueryWithError:nil] copy];
+                NSDictionary *postOnline = [session onlineQueryWithError:nil];
+                NSDictionary *postConfig = postOnline[@"ai_assistant"];
+                current->_aiQuery = [postOnline isKindOfClass:NSDictionary.class] &&
+                    [postConfig isKindOfClass:NSDictionary.class]
+                    ? @{ @"online": [postOnline copy], @"config": [postConfig copy] } : nil;
                 [current apply:transition];
+            } else {
+                // Empty or rejected provider results remain eligible for a later
+                // render after the local candidate generation is rebuilt.
+                current->_aiQuery = nil;
             }
         }];
         [owner->_aiBatch start];
