@@ -1,5 +1,11 @@
 #pragma once
 #import <Cocoa/Cocoa.h>
+
+/// Return a clamped origin that centers the overlay in a screen's visible
+/// work area while leaving a small bottom breathing room.  This is kept pure
+/// so the positioning contract can be tested without opening a real window.
+FOUNDATION_EXPORT NSPoint MSIMEVoiceWaveOverlayOriginForVisibleFrame(NSRect visibleFrame, NSSize panelSize);
+
 typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
     MSIMEVoiceFailureMicrophonePermission = 1,
     MSIMEVoiceFailureSpeechPermission,
@@ -12,6 +18,10 @@ typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
 @interface MSIMEVoiceWaveOverlay : NSPanel
 // Host presentation only; all calls are made on the main thread.
 @property(nonatomic, copy) void (^actionHandler)(BOOL cancel);
+/// The screen containing the active IMK caret.  A nil or detached screen
+/// falls back to the current main screen; AppKit points already account for
+/// that screen's scale factor.
+@property(nonatomic, weak) NSScreen *preferredScreen;
 - (void)applyThemePreferences:(NSDictionary *)preferences;
 - (BOOL)isLightTheme;
 - (void)dismissProcessing;

@@ -1,5 +1,6 @@
 #import "../VoiceWaveOverlay.h"
 #include <cassert>
+#include <cmath>
 
 @interface BriefFailureOverlay : MSIMEVoiceWaveOverlay
 @end
@@ -10,6 +11,13 @@
 int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
+        const NSRect syntheticScreen = NSMakeRect(-1440, 40, 1440, 860);
+        const NSPoint centered = MSIMEVoiceWaveOverlayOriginForVisibleFrame(syntheticScreen, NSMakeSize(220, 44));
+        assert(std::abs(centered.x - (-830.0)) < 0.01);
+        assert(std::abs(centered.y - 72.0) < 0.01);
+        const NSPoint oversized = MSIMEVoiceWaveOverlayOriginForVisibleFrame(syntheticScreen, NSMakeSize(1800, 1000));
+        assert(std::abs(oversized.x - NSMinX(syntheticScreen)) < 0.01);
+        assert(std::abs(oversized.y - NSMinY(syntheticScreen)) < 0.01);
         MSIMEVoiceWaveOverlay *panel = [MSIMEVoiceWaveOverlay new];
         assert(panel != nil);
         assert(panel.level == NSFloatingWindowLevel);
@@ -19,6 +27,8 @@ int main(int argc, char **argv) {
         assert(!panel.canBecomeMainWindow);
         assert(panel.contentView != nil);
         assert(!panel.isVisible);
+        panel.preferredScreen = NSScreen.mainScreen;
+        assert(panel.preferredScreen == NSScreen.mainScreen);
         [panel applyThemePreferences:@{@"theme": @"light", @"voice_theme": @"dark"}];
         assert(!panel.isLightTheme && panel.appearance != nil);
         [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"light"}];

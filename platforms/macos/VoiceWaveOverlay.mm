@@ -1,4 +1,21 @@
 #import "VoiceWaveOverlay.h"
+
+NSPoint MSIMEVoiceWaveOverlayOriginForVisibleFrame(NSRect visibleFrame, NSSize panelSize) {
+    const CGFloat width = MAX(0.0, panelSize.width);
+    const CGFloat height = MAX(0.0, panelSize.height);
+    CGFloat x = NSMidX(visibleFrame) - width / 2.0;
+    CGFloat y = NSMinY(visibleFrame) + 32.0;
+    if (width <= NSWidth(visibleFrame))
+        x = MIN(MAX(x, NSMinX(visibleFrame)), NSMaxX(visibleFrame) - width);
+    else
+        x = NSMinX(visibleFrame);
+    if (height <= NSHeight(visibleFrame))
+        y = MIN(MAX(y, NSMinY(visibleFrame)), NSMaxY(visibleFrame) - height);
+    else
+        y = NSMinY(visibleFrame);
+    return NSMakePoint(x, y);
+}
+
 static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
 {
     NSAppearance *resolved = appearance ?: NSApp.effectiveAppearance ?: NSAppearance.currentDrawingAppearance;
@@ -48,6 +65,7 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
     NSButton *_cancelButton;
     NSButton *_confirmButton;
     BOOL _followsSystemAppearance;
+    id _screenObserver;
 }
 - (instancetype)init {
     self = [super initWithContentRect:NSMakeRect(0,0,156,44)
@@ -78,8 +96,35 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
             button.contentTintColor = NSColor.whiteColor;
             [_view addSubview:button];
         }
+        __weak MSIMEVoiceWaveOverlay *weakSelf = self;
+        _screenObserver = [NSNotificationCenter.defaultCenter
+            addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification *notification) {
+                        (void)notification;
+                        MSIMEVoiceWaveOverlay *overlay = weakSelf;
+                        if (overlay && overlay.visible) [overlay repositionOnPreferredScreen];
+                    }];
     }
     return self;
+}
+- (void)dealloc {
+    if (_screenObserver) [NSNotificationCenter.defaultCenter removeObserver:_screenObserver];
+}
+- (void)setPreferredScreen:(NSScreen *)screen {
+    _preferredScreen = screen;
+    if (self.visible) [self repositionOnPreferredScreen];
+}
+- (NSScreen *)resolvedPreferredScreen {
+    NSScreen *screen = _preferredScreen;
+    if (screen && [NSScreen.screens containsObject:screen]) return screen;
+    return NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+}
+- (void)repositionOnPreferredScreen {
+    NSScreen *screen = [self resolvedPreferredScreen];
+    if (!screen) return;
+    [self setFrameOrigin:MSIMEVoiceWaveOverlayOriginForVisibleFrame(screen.visibleFrame, self.frame.size)];
 }
 - (BOOL)isLightTheme { return _view.lightTheme; }
 - (void)applyViewColors {
@@ -167,10 +212,7 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
     _view.accessibilityLabel = status; [_view setNeedsDisplay:YES];
     [self layoutPresentation];
     if (!status.length || _dismissed) { [self orderOut:nil]; return; }
-    if (!self.visible) {
-        NSRect screen = (NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
-        [self setFrameOrigin:NSMakePoint(NSMidX(screen) - self.frame.size.width / 2, NSMinY(screen) + 32)];
-    }
+    [self repositionOnPreferredScreen];
     [self orderFront:nil];
 }
 - (void)setListening:(BOOL)listening {

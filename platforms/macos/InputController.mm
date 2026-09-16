@@ -1500,6 +1500,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _voiceCueRecording = NO;
     if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, NO)) [_voiceCuePlayer playStopCue];
 }
+- (NSScreen *)voiceInputScreen {
+    if (!_activeClient) return nil;
+    NSRect caret = NSZeroRect;
+    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
+    if (!MSIMEValidCaret(caret)) return nil;
+    const NSPoint point = NSMakePoint(NSMidX(caret), NSMidY(caret));
+    for (NSScreen *screen in NSScreen.screens)
+        if (NSPointInRect(point, screen.frame)) return screen;
+    return nil;
+}
+- (void)refreshVoiceOverlayScreen {
+    if (_voiceOverlay) _voiceOverlay.preferredScreen = [self voiceInputScreen];
+}
 - (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
     _voicePermissionToken = nil; _voiceHoldShortcut.reset();
     [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
@@ -1510,6 +1523,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _voiceOverlay = [MSIMEVoiceWaveOverlay new];
         [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
     }
+    [self refreshVoiceOverlayScreen];
     [_voiceOverlay showFailure:failure];
 }
 - (void)cancelDoubaoVoiceInput {
@@ -1907,6 +1921,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _voiceOverlay = [[MSIMEVoiceWaveOverlay alloc] init];
         [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
     }
+    [self refreshVoiceOverlayScreen];
     if (_httpVoiceRequest) { [self finishHTTPVoiceInput]; return; }
     if (_doubaoVoiceRequest) { [self finishDoubaoVoiceInput]; return; }
     if (_liveVoiceToken) { [self finishLiveVoiceInput]; return; }
