@@ -273,6 +273,30 @@ void append_niutrans_item(const nlohmann::json &config,
   }
 }
 
+void persist_english_glosses(const nlohmann::json &query,
+                             const std::string &translations) noexcept {
+  try {
+    if (query.value("target_language", std::string{}) != "en")
+      return;
+    const auto user_data = query.value("user_data", std::string{});
+    if (user_data.empty())
+      return;
+    const auto values = nlohmann::json::parse(translations);
+    if (!values.is_array() || values.empty())
+      return;
+    const auto request = nlohmann::json{
+        {"target_language", "en"},
+        {"translations",
+         values}}.dump();
+    msime_client_string_free(msime_client_translation_gloss_save(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size(),
+        reinterpret_cast<const uint8_t *>(user_data.data()), user_data.size()));
+  } catch (...) {
+    // Persistence is an optional display-data side effect. A missing or
+    // temporarily unavailable user dictionary must not hide translations.
+  }
+}
+
 } // namespace
 
 TranslationWorker::TranslationWorker(Completed completed)
@@ -447,6 +471,7 @@ TranslationWorker::translate(const Request &request,
     }
     if (translations == "[]" || cancelled())
       return std::nullopt;
+    persist_english_glosses(query, translations);
     if (translation_cache_.size() >= 4096)
       translation_cache_.clear();
     translation_cache_.emplace(cache_id, translations);

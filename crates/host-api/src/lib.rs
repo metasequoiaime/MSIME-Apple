@@ -2468,6 +2468,11 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                         msime_client_core::preferences::TranslationTargetLanguage::En
                     )
                 });
+            let persist_english_translation = preferences.candidate_translations
+                && matches!(
+                    preferences.translation_target_language,
+                    msime_client_core::preferences::TranslationTargetLanguage::En
+                );
             if !preferences.candidate_translations && !english_gloss {
                 return Ok(Value::Null);
             }
@@ -2529,10 +2534,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "tencent_tmt": tencent_tmt,
                 "niutrans": niutrans,
                 "english_gloss": english_gloss,
-                // Only carried when the gloss will actually be looked up; the
-                // host has no other use for these paths.
+                // The packaged resource path is only needed for offline
+                // lookup. The user path is also needed by a background host
+                // worker to persist successful English-target translations.
                 "resources": english_gloss.then(|| session.options.resources.clone()),
-                "user_data": english_gloss.then(|| session.options.user_data.clone()),
+                "user_data": (english_gloss || persist_english_translation)
+                    .then(|| session.options.user_data.clone()),
             }))
         })
     })
@@ -4845,6 +4852,7 @@ mod tests {
         assert_eq!(query["value"]["generation"], view["generation"]);
         assert_eq!(query["value"]["target_language"], "fr");
         assert_eq!(query["value"]["target_languages"], json!(["fr", "ja"]));
+        assert!(query["value"]["user_data"].is_null());
         assert_eq!(
             query["value"]["custom_translation"]["endpoint"],
             "https://translation.example.invalid"
@@ -4920,7 +4928,9 @@ mod tests {
         );
         assert_eq!(secondary_gloss["value"]["english_gloss"], true);
 
-        // And with the gloss off, the paths are not handed out at all.
+        // With the gloss off, only the user path needed to persist successful
+        // English-target provider results is carried. Packaged resources stay
+        // private to offline lookup.
         preferences.candidate_english_gloss = false;
         preferences.translation_target_language =
             msime_client_core::preferences::TranslationTargetLanguage::En;
@@ -4930,7 +4940,7 @@ mod tests {
         let online = read(msime_client_translation_query(handle));
         assert_eq!(online["value"]["english_gloss"], false);
         assert!(online["value"]["resources"].is_null());
-        assert!(online["value"]["user_data"].is_null());
+        assert!(online["value"]["user_data"].is_string());
         read(msime_client_destroy(handle));
     }
 
