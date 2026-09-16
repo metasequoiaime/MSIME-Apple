@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import textwrap
 import subprocess
 import tempfile
@@ -77,6 +78,36 @@ class BuildNumberTests(unittest.TestCase):
             return body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
 
         self.assertEqual(allocation_step("release-macos.yml"), allocation_step("release-ios.yml"))
+
+    def test_every_tag_validator_carries_the_same_pattern(self):
+        """七处 tag 校验是同一条正则的七份拷贝,散在五个脚本和两个 workflow 里,没有共享的 shell 库可以放。
+
+        这条就是那个库的替代品。刚踩过一次同类:tag 校验放宽了,而分配步骤里另一道 build 号校验没跟上,断的是一条平时不走的路,全绿。这里按错误文案发现拷贝,不是写死名单 —— 再多出一份来也自动纳入。
+        """
+        root = MACOS_ROOT.parents[1]
+        pattern = re.compile(r"=~ '?(\^\(macos-\|ios-\)\?v[^\s']+\$)'?")
+        found = {}
+        for path in sorted(root.glob("platforms/**/*.sh")) + sorted(root.glob(".github/workflows/*.yml")):
+            text = path.read_text()
+            if "Tag must use vMAJOR.MINOR.PATCH" not in text:
+                continue
+            match = pattern.search(text)
+            self.assertIsNotNone(match, f"{path} 有 tag 校验的错误文案,却读不出正则")
+            found[str(path.relative_to(root))] = match.group(1)
+
+        self.assertEqual(len(found), 7, f"tag 校验的份数变了,确认每一份都还同步: {sorted(found)}")
+        self.assertEqual(len(set(found.values())), 1, found)
+
+        # 形状本身:整数收,重置之前的三段号也收 —— 那些 tag 还挂在 releases 上。
+        expression = next(iter(found.values()))
+        for tag, accepted in [("v0.48.6", True), ("v0.48.6-build.1", True),
+                              ("macos-v0.48.6-build.23", True), ("ios-v0.48.6-build.1002.71.1", True),
+                              ("v0.48.6-build.0", False), ("v0.48.6-build.1.2", False),
+                              ("v0.48.6-build.", False), ("0.48.6", False)]:
+            probe = subprocess.run(
+                ["bash", "-c", f'[[ "$1" =~ {expression} ]]', "probe", tag],
+                text=True, capture_output=True)
+            self.assertEqual(probe.returncode == 0, accepted, tag)
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
