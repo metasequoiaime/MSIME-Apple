@@ -1232,7 +1232,10 @@ def load_config(path):
                 raise ValueError()
         elif not isinstance(entry.get("model"), str) or not entry["model"].strip():
             raise ValueError()
-        token = entry["token"]
+        # Match the shared Windows/client credential policy for pasted tokens:
+        # normalize only surrounding whitespace before validation and transport.
+        token = entry["token"].strip(" \t\r\n")
+        entry["token"] = token
         if token.startswith(("<", "FAKESECRET_")) or any(ord(c) < 33 or ord(c) > 126 for c in token):
             raise ValueError()
         url = urllib.parse.urlsplit(entry["endpoint"])

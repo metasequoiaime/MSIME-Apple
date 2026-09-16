@@ -124,6 +124,45 @@ class VoiceCredentialTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         polish.assert_called_once_with(configuration["polish"])
 
+    def test_voice_private_tokens_normalize_pasted_whitespace(self):
+        configuration = {
+            "asr": {
+                "provider": "openai",
+                "endpoint": "https://fixture.invalid/asr",
+                "model": "whisper-1",
+                "token": " \tfixture-asr-token\r\n",
+            },
+            "polish": {
+                "provider": "deepseek",
+                "endpoint": "https://fixture.invalid/chat",
+                "model": "fixture-model",
+                "token": " fixture-polish-token\n",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-voice-") as directory:
+            path = Path(directory) / "voice.json"
+            path.write_text(json.dumps(configuration), encoding="utf-8")
+            path.chmod(0o600)
+            loaded = voice.load_config(path)
+        self.assertEqual(loaded["asr"]["token"], "fixture-asr-token")
+        self.assertEqual(loaded["polish"]["token"], "fixture-polish-token")
+
+    def test_voice_private_tokens_still_reject_control_characters(self):
+        configuration = {
+            "asr": {
+                "provider": "openai",
+                "endpoint": "https://fixture.invalid/asr",
+                "model": "whisper-1",
+                "token": "fixture-\x01-token",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-voice-") as directory:
+            path = Path(directory) / "voice.json"
+            path.write_text(json.dumps(configuration), encoding="utf-8")
+            path.chmod(0o600)
+            with self.assertRaises(ValueError):
+                voice.load_config(path)
+
     def test_invalid_or_failed_requests_do_not_expose_details(self):
         result = voice.credential_test({"service": "voice.asr", "config": {"bad": 1}}, self.server)
         self.assertEqual(result, {"ok": False, "message": "当前语音选项无效。"})
