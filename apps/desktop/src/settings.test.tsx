@@ -575,6 +575,25 @@ test("Android candidate translations persist an optional second language", async
   }));
 });
 
+test("macOS candidate translations expose the shared second language", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save,
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  expect(secondary.value).toBe("");
+  expect([...secondary.options].map(option => option.value)).toEqual(["", "en", "fr", "ja", "es", "ru", "de", "ko"]);
+  fireEvent.change(secondary, { target: { value: "ko" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    translation_secondary_language: "ko",
+  }));
+});
+
 test("mobile translation languages stay editable for offline English glosses", async () => {
   const snapshot: Snapshot = { ...initial, preferences: {
     ...initial.preferences, candidate_translations: false, candidate_english_gloss: true,
