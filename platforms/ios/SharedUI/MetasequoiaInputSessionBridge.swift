@@ -474,17 +474,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           let globalIndex = identity["index"] as? NSNumber else {
       return diagnostic("候选已失效")
     }
-    let generationValue = generation.uint64Value
-    let indexValue = globalIndex.uintValue
+    return editCandidate(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value,
+                         action: action)
+  }
+
+  /// Edit a candidate the caller already holds an engine identity for.
+  ///
+  /// The expanded panel lists every candidate the engine returned, not the nine on the strip, so
+  /// its positions are not the visible indexes the overload above resolves. It carries the
+  /// generation and global index the snapshot gave it, which is what the engine wanted all along.
+  func editCandidate(generation: UInt64, globalIndex: UInt64,
+                     action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
+    guard let indexValue = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     switch action {
     case .promote:
-      return dispatch { msimeClientPinCandidate(handle, generationValue, indexValue) }
+      return dispatch { msimeClientPinCandidate(handle, generation, indexValue) }
     case .remove:
-      return dispatch { msimeClientRemoveCandidate(handle, generationValue, indexValue) }
+      return dispatch { msimeClientRemoveCandidate(handle, generation, indexValue) }
     case .fixFirst:
-      return dispatch { msimeClientFixCandidatePosition(handle, generationValue, indexValue, 1) }
+      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, 1) }
     case .clearPosition:
-      return dispatch { msimeClientClearCandidatePosition(handle, generationValue, indexValue) }
+      return dispatch { msimeClientClearCandidatePosition(handle, generation, indexValue) }
     }
   }
 

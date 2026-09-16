@@ -88,6 +88,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePanel: KeyboardCandidatePanelView?
   private var candidatePanelGeneration: UInt64?
   private var emojiPicker: KeyboardEmojiPickerView?
+  private var symbolPanel: KeyboardSymbolPanelView?
   private enum MoreToolsPage { case root, localInput, keyboardSettings }
   private var moreTools: [KeyboardToolSection] = []
   private var moreToolsPage: MoreToolsPage = .root
@@ -1060,13 +1061,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "常用符号") {}
-    nineKeySymbolsButton.menu = UIMenu(children: [
-      "，", "。", "？", "！", "、", "；", "：", "……", "——", "（", "）", "“", "”", "《", "》", "@",
-    ].map { symbol in
-      UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
-    })
-    nineKeySymbolsButton.showsMenuAsPrimaryAction = true
+    // This key used to open a menu of sixteen marks: it covered the keyboard, had to be aimed at
+    // and dragged through, and gave one mark per press. It turns the keyboard into a symbol panel
+    // now, the way every other IME does.
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
+      self?.showSymbolPanel()
+    }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
     row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
@@ -1848,6 +1848,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                    typed: snapshot.preedit)
         },
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+        menuElements: { [weak self] index in
+          guard let self, indexes.indices.contains(index) else { return [] }
+          return candidateMenuElements(generation: generation, globalIndex: indexes[index])
+        },
         onSelect: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return }
           closeKeyboardPicker()
@@ -2088,10 +2092,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     layoutToggleButton?.accessibilityLabel =
       showsSymbols ? "切换到字母" : "切换到数字和符号"
+    // The kana layout keeps this key on its own Japanese punctuation menu rather than the symbol
+    // panel, which carries no kana marks. Everywhere else the key opens the panel, so the menu has
+    // to be taken back off or a stale one would keep answering the tap.
     if kana {
       nineKeySymbolsButton?.menu = UIMenu(children: quickPunctuationSymbols.map { symbol in
         UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
       })
+      nineKeySymbolsButton?.showsMenuAsPrimaryAction = true
+    } else {
+      nineKeySymbolsButton?.menu = nil
+      nineKeySymbolsButton?.showsMenuAsPrimaryAction = false
     }
     updatePreferredKeyboardHeight()
   }
@@ -2560,34 +2571,65 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : "候选词 \(number)：\(display)，\(annotation.accessibilityDescription)"
     if !glosses.isEmpty { button.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，") }
     button.accessibilityIdentifier = "candidate-\(number)"
-    if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
-      let revision = candidateRevision
-      func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
-                  destructive: Bool = false) -> UIAction {
-        UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
-          guard let self, candidateRevision == revision,
-                visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
-          let result = session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
-          render(result)
-          if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
-          else if result.diagnosticText == nil {
-            playInputClick()
-            UIAccessibility.post(notification: .announcement, argument: "已\(title)")
-          }
-        }
-      }
-      button.menu = UIMenu(title: display, children: [
-        action("优先显示", "arrow.up", .promote),
-        action("固定到首位", "pin", .fixFirst),
-        action("取消固定", "pin.slash", .clearPosition),
-        UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
-          action("确认删除此词条", "trash", .remove, destructive: true),
-        ]),
-      ])
+    let elements = candidateMenuElements(at: index)
+    if !elements.isEmpty {
+      button.menu = UIMenu(title: display, children: elements)
       button.accessibilityHint = "轻点输入，长按管理词条"
     }
     decorateKey(button)
     return button
+  }
+
+  /// What a long press on a strip candidate offers.
+  ///
+  /// The expanded panel shares this menu through the overload below. It built its own chips and
+  /// gave them none, so the press that managed an entry on the strip did nothing once the list was
+  /// expanded -- and the expanded list is exactly where a rarely used entry is reached.
+  func candidateMenuElements(at index: Int) -> [UIMenuElement] {
+    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode,
+          visibleCandidates.indices.contains(index) else { return [] }
+    let candidate = visibleCandidates[index]
+    let revision = candidateRevision
+    return candidateMenuElements { [weak self] operation in
+      guard let self, candidateRevision == revision,
+            visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
+      return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
+    }
+  }
+
+  /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
+  /// index the engine's whole answer, not the nine on the strip, so they cannot go through the
+  /// visible-index overload.
+  func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
+    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
+    return candidateMenuElements { [weak self] operation in
+      self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
+    }
+  }
+
+  private func candidateMenuElements(
+    edit: @escaping (MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot?
+  ) -> [UIMenuElement] {
+    func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
+                destructive: Bool = false) -> UIAction {
+      UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
+        guard let self, let result = edit(operation) else { return }
+        render(result)
+        if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
+        else if result.diagnosticText == nil {
+          playInputClick()
+          UIAccessibility.post(notification: .announcement, argument: "已\(title)")
+        }
+      }
+    }
+    return [
+      action("优先显示", "arrow.up", .promote),
+      action("固定到首位", "pin", .fixFirst),
+      action("取消固定", "pin.slash", .clearPosition),
+      UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
+        action("确认删除此词条", "trash", .remove, destructive: true),
+      ]),
+    ]
   }
 
   private func makeSymbolKey(
@@ -2838,6 +2880,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: picker)
   }
 
+  /// Covers the keyboard the way the Emoji browser does, rather than floating a menu over it.
+  private func showSymbolPanel() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    playInputClick()
+    // A symbol is not a candidate for the pinyin in flight. Finish it first or the two reach the
+    // host in the wrong order — the same reason the Emoji browser does this.
+    render(session.finishComposition())
+    let panel = KeyboardSymbolPanelView(
+      onInsert: { [weak self] symbol in
+        self?.playInputClick()
+        self?.insertOwnText(symbol, source: .local)
+      },
+      onDelete: { [weak self] in self?.deleteOwnBackward() },
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
+    panel.accessibilityViewIsModal = true
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel)
+    NSLayoutConstraint.activate([
+      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    symbolPanel = panel
+    UIAccessibility.post(notification: .screenChanged, argument: panel)
+  }
+
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2923,6 +2993,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       picker.removeFromSuperview()
       emojiPicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: emojiShortcut)
+    }
+    if let panel = symbolPanel {
+      panel.removeFromSuperview()
+      symbolPanel = nil
+      UIAccessibility.post(notification: .screenChanged, argument: nineKeySymbolsButton)
     }
     if let picker = skinPicker {
       picker.removeFromSuperview()
