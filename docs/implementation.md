@@ -1072,3 +1072,9 @@ macOS 设置页的“安装 / 更新”现在通过 Tauri 专用命令安装随�
 macOS/Windows 桌面 Tauri 设置页现在通过受限的原生 HTTPS transport 读取当前服务的模型目录，并发送一次确认式 Chat Completions 润色测试；endpoint、token、模型、提示词和输入均在 Rust 边界校验，连接与总请求时限有界，错误不会回传响应原文。Android 继续使用已有 `android_account` provider；桌面 `ai_models` / `ai_test` commands 只在 macOS/Windows 注册，避免跨平台构建时与 Android 同名 command 冲突。输入算法、候选状态和 token 持久化仍不进入 Tauri command。
 
 本地验证：AI Rust 校验/URL 回归 3 项通过，macOS 桌面 `cargo check` 通过；Android 交叉检查使用本机 NDK 编译器进入 Engine CMake 阶段，因隔离 `MSIME_ANDROID_DEPS` 未准备而停止；clippy 仍只报告既有 dead-code 与既有 lint。未执行真实服务请求、Android 设备请求或安装后输入源验收，CI 保持禁用。
+
+### macOS 浮动工具栏英文模式组件
+
+macOS 原生 `FloatingToolbarPanel` 现在消费共享 `floating_toolbar.english_mode`。关闭该组件时隐藏中英文模式按钮并按实际可见组件重算工具栏宽度；开启时保留原有中英文状态更新和点击行为。其余可选按钮继续使用同一共享字段，手写与语音入口仍是平台固定能力。这样 Tauri 设置页保存的英文模式按钮开关不再只停留在配置层。
+
+本地验证：`floating-toolbar-panel-test` 直接以 macOS AppKit 严格编译并运行通过，覆盖英文模式及其他 6 个可选组件的 128 种可见性组合、宽度重算和控件不溢出；未执行签名安装后的真实工具栏视觉验收，CI 保持禁用。
