@@ -1395,7 +1395,14 @@ impl Runtime<Session> {
         candidate: &str,
         source: u8,
     ) -> Result<bool, RuntimeError> {
-        if source > 1
+        // Provider callbacks are asynchronous and can be malformed even when
+        // their query identity is still current. Keep the single-item path
+        // subject to the same bounds as the batch path before handing text to
+        // Engine; the Windows source rejects empty callback results as well.
+        if candidate.is_empty()
+            || candidate.len() > 4096
+            || candidate.chars().any(char::is_control)
+            || source > 1
             || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
             || (source == 1 && !query.ai_eligible)
         {

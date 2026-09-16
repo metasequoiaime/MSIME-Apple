@@ -5663,6 +5663,20 @@ mod tests {
             })
         };
         let before = read(msime_client_view(handle))["value"].clone();
+        for candidate in ["", "bad\nvalue"] {
+            let result = read(unsafe {
+                msime_client_apply_online_candidate(
+                    handle,
+                    query.as_ptr(),
+                    query.len(),
+                    candidate.as_ptr(),
+                    candidate.len(),
+                    0,
+                )
+            });
+            assert_eq!(result["value"]["applied"], false);
+            assert_eq!(result["value"]["view"], before);
+        }
         let malformed = apply(handle, &query, b"not json");
         assert_eq!(malformed["value"]["applied"], false);
         assert_eq!(malformed["value"]["view"], before);
