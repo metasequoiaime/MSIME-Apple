@@ -330,6 +330,12 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .account-profile-card { width: 100%; border: 0; text-align: left; cursor: pointer; }
 .account-profile-card:disabled { cursor: default; opacity: 1; }
 .account-profile-card-chevron { margin-left: auto; color: var(--text-muted); font-size: 24px; line-height: 1; }
+.account-profile-page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.account-profile-page-header h2 { flex: 1; margin: 0; text-align: center; font-size: 18px; }
+.account-profile-page-header .secondary { flex: 0 0 auto; }
+.account-profile-page > .account-profile-preview { flex-direction: column; justify-content: center; padding: 22px; text-align: center; }
+.account-profile-page > .account-profile-preview .account-avatar { width: 84px; height: 84px; flex-basis: 84px; font-size: 32px; }
+.account-profile-page > .account-profile-preview h2 { margin: 0; }
 .account-modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 42%); }
 .account-modal { width: min(520px, 100%); max-height: min(720px, 90vh); overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 22px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--dropdown-bg); color: var(--text-color); box-shadow: 0 18px 60px rgb(0 0 0 / 25%); }
 .account-modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

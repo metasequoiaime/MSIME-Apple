@@ -93,6 +93,104 @@ function accountMessage(error: unknown): string {
   return "账号服务暂不可用，请稍后再试。";
 }
 
+function MobileAccountProfilePage({ client, user, profile, onBack, onSignedOut, onProfileUpdated }: {
+  client: AccountClient;
+  user: AccountUser;
+  profile: AccountProfile | null;
+  onBack: () => void;
+  onSignedOut: () => void;
+  onProfileUpdated: (profile: AccountProfile) => void;
+}) {
+  const [name, setName] = useState(user.displayName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [confirmation, setConfirmation] = useState<"logout" | "logout-all" | "relogin" | "delete" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const normalizedName = name.trim();
+  const validName = Boolean(normalizedName) && [...normalizedName].length <= 64 && !/[\u0000-\u001f\u007f]/.test(normalizedName);
+
+  const perform = async (operation: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try { await operation(); } catch (cause) { setError(accountMessage(cause)); } finally { setBusy(false); }
+  };
+  const rename = () => void perform(async () => {
+    if (!validName) throw { code: "account_invalid" };
+    const updated = await client.rename(normalizedName);
+    onProfileUpdated(updated);
+    setName(updated.user.displayName);
+    setNotice("昵称已更新。");
+  });
+  const signOut = (all: boolean) => void perform(async () => {
+    await client.logout(all);
+    onSignedOut();
+  });
+  const clearExpired = () => void perform(async () => {
+    await client.clearExpired();
+    onSignedOut();
+  });
+  const deleteAccount = () => void perform(async () => {
+    await client.deleteAccount();
+    onSignedOut();
+  });
+  const confirmAction = () => {
+    const action = confirmation; setConfirmation(null);
+    if (action === "logout") signOut(false);
+    else if (action === "logout-all") signOut(true);
+    else if (action === "relogin") clearExpired();
+    else if (action === "delete") deleteAccount();
+  };
+  const copyId = () => {
+    if (!navigator.clipboard?.writeText) return;
+    void navigator.clipboard.writeText(user.id).then(() => {
+      setCopied(true); window.setTimeout(() => setCopied(false), 1800);
+    }).catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+  };
+
+  return <div className="account-page account-profile-page">
+    <div className="account-profile-page-header">
+      <button type="button" className="secondary" disabled={busy} onClick={onBack}>‹ 返回</button>
+      <h2>编辑资料</h2>
+    </div>
+    {error && <p role="alert" className="error">{error}</p>}
+    {notice && <p role="status" className="notice">{notice}</p>}
+    <section className="section account-profile-preview">
+      <div className="account-avatar" aria-hidden="true">{(normalizedName || "水杉用户").slice(0, 1)}</div>
+      <h2>{normalizedName || "你的昵称"}</h2>
+      <p className="account-muted">在水杉，留下你的名字</p>
+    </section>
+    <section className="section account-profile">
+      <h2>社区昵称</h2>
+      <label>社区昵称<input aria-label="编辑社区昵称" maxLength={64} value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>
+      <p className={`account-muted${!validName && normalizedName ? " error" : ""}`}>{normalizedName ? (validName ? "昵称会显示在社区作品中，已发布的作品也会同步更新。" : "昵称最多 64 个字符，请勿使用换行或控制字符。") : "取一个喜欢的名字，让大家记住你。"}</p>
+      <p className="account-muted">{[...normalizedName].length}/64</p>
+      <div className="account-inline-actions"><button type="button" className="account-primary" disabled={busy || !validName || normalizedName === user.displayName} onClick={rename}>保存昵称</button></div>
+    </section>
+    <section className="section account-profile">
+      <h2>账号信息</h2>
+      <dl className="account-details">
+        <div><dt>账号 ID</dt><dd><button type="button" className="account-copy-id" onClick={copyId}>{copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}</button></dd></div>
+        <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
+        <div><dt>加入水杉</dt><dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd></div>
+      </dl>
+    </section>
+    <section className="section account-actions">
+      <h2>账号操作</h2>
+      <div className="account-inline-actions">
+        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout")}>退出登录</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("relogin")}>重新登录</button>
+        <button type="button" className="danger-text" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
+      </div>
+    </section>
+    {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "delete" ? "确认注销账号" : confirmation === "logout-all" ? "确认退出所有设备" : confirmation === "relogin" ? "确认重新登录" : "确认退出登录"}>
+      <p>{confirmation === "delete" ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。" : confirmation === "logout-all" ? "退出所有设备后，所有设备都需要重新登录。" : confirmation === "relogin" ? "清除本机登录状态后需要重新登录。" : "退出登录后，社区功能需要重新登录才能使用。"}</p>
+      <div><button type="button" className={confirmation === "delete" ? "danger-text" : "account-primary"} disabled={busy} onClick={confirmAction}>确认</button><button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button></div>
+    </div>}
+  </div>;
+}
+
 function preferredName(user: AccountUser): string {
   const name = user.displayName.trim();
   return name || `水杉小鹿·${user.id.slice(0, 6).toUpperCase()}`;
@@ -329,7 +427,18 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [mobileProfilePage, setMobileProfilePage] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
+
+  useEffect(() => {
+    if (!mobile || typeof window === "undefined") return;
+    const onPopState = (event: PopStateEvent) => {
+      setMobileProfilePage(event.state?.msimeSettings === true && event.state.accountSubpage === "profile");
+    };
+    setMobileProfilePage(window.history.state?.accountSubpage === "profile");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobile]);
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);
@@ -473,6 +582,15 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
 
   if (loading) return <div className="account-page"><p role="status">正在读取账号状态…</p></div>;
 
+  if (mobileProfilePage && user) return <MobileAccountProfilePage
+    client={client}
+    user={user}
+    profile={profile}
+    onBack={() => { if (typeof window !== "undefined") window.history.back(); else setMobileProfilePage(false); }}
+    onSignedOut={() => { setMobileProfilePage(false); setUser(null); setProfile(null); setName(""); if (typeof window !== "undefined") window.history.back(); }}
+    onProfileUpdated={applyProfile}
+  />;
+
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expired = Boolean(challenge) && expiresAt <= now;
   const enabledProviders = Number(providers.email) + Number(providers.phone) + Number(providers.apple === true);
@@ -490,7 +608,14 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     <button type="button" className="section account-hero account-profile-card" disabled={!user || busy}
-      aria-label={user ? "编辑个人资料" : undefined} onClick={() => user && setEditingProfile(true)}>
+      aria-label={user ? "编辑个人资料" : undefined} onClick={() => {
+        if (!user) return;
+        if (mobile && typeof window !== "undefined") {
+          const current = window.history.state;
+          window.history.pushState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: "account", accountSubpage: "profile" }, "");
+          setMobileProfilePage(true);
+        } else setEditingProfile(true);
+      }}>
       <div className="account-avatar" aria-hidden="true">{user ? preferredName(user).slice(0, 1) : "杉"}</div>
       <div>
         <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
