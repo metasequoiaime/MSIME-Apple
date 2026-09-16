@@ -1222,6 +1222,10 @@ def load_config(path):
             entry["model"] = DEFAULT_MODELS[name][entry["provider"]]
         else:
             entry["model"] = model
+        if any(any(ord(character) < 32 or 127 <= ord(character) <= 159
+                   for character in value)
+               for value in (entry["endpoint"], entry["model"])):
+            raise ValueError()
         doubao = name == "asr" and entry["provider"] == "doubao"
         if doubao:
             entry.setdefault("model", "")

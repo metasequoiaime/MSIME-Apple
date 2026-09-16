@@ -87,6 +87,16 @@ class OnlineCredentialTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 online.load_ai_config(path)
 
+        for key in ("endpoint", "model"):
+            configuration[key] = configuration[key] + "\x01"
+            with tempfile.TemporaryDirectory(prefix="msime-ai-") as directory:
+                path = Path(directory) / "ai.json"
+                path.write_text(json.dumps(configuration), encoding="utf-8")
+                path.chmod(0o600)
+                with self.assertRaises(ValueError):
+                    online.load_ai_config(path)
+            configuration[key] = configuration[key][:-1]
+
     def test_ai_private_config_rejects_symlinks(self):
         configuration = {
             "provider": "deepseek",
@@ -185,6 +195,16 @@ class VoiceCredentialTest(unittest.TestCase):
             path.chmod(0o600)
             with self.assertRaises(ValueError):
                 voice.load_config(path)
+
+        for key in ("endpoint", "model"):
+            configuration["asr"][key] = configuration["asr"][key] + "\x01"
+            with tempfile.TemporaryDirectory(prefix="msime-voice-") as directory:
+                path = Path(directory) / "voice.json"
+                path.write_text(json.dumps(configuration), encoding="utf-8")
+                path.chmod(0o600)
+                with self.assertRaises(ValueError):
+                    voice.load_config(path)
+            configuration["asr"][key] = configuration["asr"][key][:-1]
 
     def test_voice_private_config_rejects_symlinks(self):
         configuration = {

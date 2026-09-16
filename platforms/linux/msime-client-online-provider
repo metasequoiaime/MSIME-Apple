@@ -610,6 +610,9 @@ def load_ai_config(path):
             raise ValueError("invalid AI configuration")
         for key in ("provider", "endpoint", "model"):
             entry[key] = entry[key].strip(" \t\r\n")
+        if any(any(ord(character) < 32 or 127 <= ord(character) <= 159
+                   for character in entry[key]) for key in ("provider", "endpoint", "model")):
+            raise ValueError("invalid AI configuration")
         # Match the shared Windows/client credential policy for pasted tokens:
         # discard surrounding whitespace before validation and every request.
         # Keep interior whitespace untouched so the provider receives exactly
