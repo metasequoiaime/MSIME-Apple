@@ -8,7 +8,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSDictionary *_snapshot;
     void (^_saved)(NSDictionary *);
     NSButton *_enabled, *_reveal, *_save, *_reload;
-    NSPopUpButton *_target, *_provider;
+    NSPopUpButton *_target, *_secondary, *_provider;
     NSGridView *_grid;
     NSTextField *_endpoint, *_plainKey, *_status;
     NSSecureTextField *_key;
@@ -24,12 +24,14 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     return self;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 760)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 800)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选翻译设置"; window.delegate = self; self.window = window;
     _enabled = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(updateControls:)];
     _target = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_target addItemsWithTitles:@[@"英语", @"法语", @"日语", @"西班牙语", @"俄语", @"德语", @"韩语"]];
+    _secondary = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_secondary addItemsWithTitles:@[@"不显示", @"英语", @"法语", @"日语", @"西班牙语", @"俄语", @"德语", @"韩语"]];
     _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_provider addItemsWithTitles:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]];
     _provider.target = self; _provider.action = @selector(providerChanged:);
@@ -59,6 +61,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选释义"], _enabled],
         @[[NSTextField labelWithString:@"中文候选目标语言"], _target],
+        @[[NSTextField labelWithString:@"第二种候选语言"], _secondary],
         @[[NSTextField labelWithString:@"在线翻译服务"], _provider],
         @[[NSTextField labelWithString:@"完整 POST 接口地址"], _endpoint],
         @[[NSTextField labelWithString:@"Bearer API Key（可选）"], keys],
@@ -71,7 +74,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _grid.rowSpacing = 14;
     for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region, _appId, _niuTransKey, _plainNiuTransKey])
         [field.widthAnchor constraintEqualToConstant:310].active = YES;
-    NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；也可选择腾讯云或小牛翻译。腾讯云须填写 SecretId 和 SecretKey，小牛翻译须填写 App ID 和 API Key。凭据仅保存在本机配置文件，不参与云端设置同步。关闭在线服务仍保留离线释义。"];
+    NSTextField *notice = [NSTextField wrappingLabelWithString:@"可同时显示两种候选释义；相同语言会自动去重。英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；也可选择腾讯云或小牛翻译。腾讯云须填写 SecretId 和 SecretKey，小牛翻译须填写 App ID 和 API Key。凭据仅保存在本机配置文件，不参与云端设置同步。关闭在线服务仍保留离线释义。"];
     _status = [NSTextField wrappingLabelWithString:@""];
     _save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
     _reload = [NSButton buttonWithTitle:@"重新加载（放弃编辑）" target:self action:@selector(reload:)];
@@ -93,12 +96,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     BOOL ready = !_busy && _snapshot != nil;
     _enabled.enabled = ready; _provider.enabled = ready;
     _target.enabled = ready && _enabled.state == NSControlStateValueOn;
+    _secondary.enabled = _target.enabled;
     BOOL selectedTencent = _provider.indexOfSelectedItem == 0;
     BOOL selectedNiuTrans = _provider.indexOfSelectedItem == 1;
     BOOL selectedCustom = _provider.indexOfSelectedItem == 2;
-    for (NSInteger row = 3; row <= 4; ++row) [_grid rowAtIndex:row].hidden = !selectedCustom;
-    for (NSInteger row = 5; row <= 8; ++row) [_grid rowAtIndex:row].hidden = selectedCustom || selectedNiuTrans;
-    for (NSInteger row = 9; row <= 10; ++row) [_grid rowAtIndex:row].hidden = !selectedNiuTrans;
+    for (NSInteger row = 4; row <= 5; ++row) [_grid rowAtIndex:row].hidden = !selectedCustom;
+    for (NSInteger row = 6; row <= 9; ++row) [_grid rowAtIndex:row].hidden = selectedCustom || selectedNiuTrans;
+    for (NSInteger row = 10; row <= 11; ++row) [_grid rowAtIndex:row].hidden = !selectedNiuTrans;
     BOOL custom = ready && selectedCustom;
     BOOL niuTrans = ready && selectedNiuTrans;
     _endpoint.enabled = custom; _key.enabled = custom; _plainKey.enabled = custom; _reveal.enabled = custom;
@@ -153,6 +157,8 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
                 current->_enabled.state = [preferences[@"candidate_translations"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
                 NSUInteger index = [TranslationLanguages() indexOfObject:preferences[@"translation_target_language"] ?: @"en"];
                 [current->_target selectItemAtIndex:index == NSNotFound ? 0 : index];
+                NSUInteger secondary = [TranslationLanguages() indexOfObject:preferences[@"translation_secondary_language"] ?: @""];
+                [current->_secondary selectItemAtIndex:secondary == NSNotFound ? 0 : secondary + 1];
                 NSUInteger provider = [niutrans[@"enabled"] boolValue] ? 1 : ([custom[@"enabled"] boolValue] ? 2 : 0);
                 [current->_provider selectItemAtIndex:provider];
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
@@ -211,6 +217,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     preferences[@"niutrans"] = niutrans;
     preferences[@"candidate_translations"] = @(_enabled.state == NSControlStateValueOn);
     preferences[@"translation_target_language"] = TranslationLanguages()[_target.indexOfSelectedItem];
+    if (_secondary.indexOfSelectedItem > 0)
+        preferences[@"translation_secondary_language"] = TranslationLanguages()[_secondary.indexOfSelectedItem - 1];
+    else [preferences removeObjectForKey:@"translation_secondary_language"];
     NSMutableDictionary *snapshot = [_snapshot mutableCopy]; snapshot[@"preferences"] = preferences;
     uint64_t revision = [_snapshot[@"revision"] unsignedLongLongValue];
     _busy = YES; _saving = YES; _status.stringValue = @"正在保存…"; [self updateControls:nil];
