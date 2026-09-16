@@ -2171,12 +2171,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const bool japanese_scheme = s.scheme_override
                                    ? *s.scheme_override == "japanese"
                                    : configured.at("preferences").value("scheme", "") == "japanese";
+  const auto mixed_input = configured.at("preferences").value(
+      "mixed_input", Json::object());
+  const auto mixed_input_value = [&](const char *key, bool fallback) {
+    if (!mixed_input.is_object()) return fallback;
+    const auto value = mixed_input.find(key);
+    return value != mixed_input.end() && value->is_boolean()
+               ? value->get<bool>()
+               : fallback;
+  };
   const bool english_candidates = s.english_override.value_or(
-      configured.at("preferences").at("mixed_input").value("english", true));
+      mixed_input_value("english", true));
   const bool emoji_candidates = s.emoji_override.value_or(
-      configured.at("preferences").at("mixed_input").value("emoji", false));
+      mixed_input_value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
-      configured.at("preferences").at("mixed_input").value("kaomoji", false));
+      mixed_input_value("kaomoji", false));
   const auto quanpin_preferences = configured.at("preferences").value(
       "quanpin", Json::object());
   const bool autocorrect_transposition = s.autocorrect_transposition_override.value_or(
@@ -3978,6 +3987,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
+    const auto mixed_input = configured.at("preferences").value(
+        "mixed_input", Json::object());
+    const auto mixed_input_value = [&](const char *key, bool fallback) {
+      if (!mixed_input.is_object()) return fallback;
+      const auto setting = mixed_input.find(key);
+      return setting != mixed_input.end() && setting->is_boolean()
+                 ? setting->get<bool>()
+                 : fallback;
+    };
     if (property_name == "ClipboardHistory/Enabled") {
       if (menu_save_pending || !s.focused || s.blocked) return;
       save_menu_preference(engine, MenuPreference::ClipboardHistoryEnabled, value == PROP_STATE_CHECKED);
@@ -4596,7 +4614,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &setting_override = std::string(name) == "EmojiCandidates"
                            ? s.emoji_override : s.kaomoji_override;
       const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
-      if (setting_override.value_or(configured.at("preferences").at("mixed_input").value(key, false)) == enabled)
+      if (setting_override.value_or(mixed_input_value(key.c_str(), false)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
@@ -4616,8 +4634,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "EnglishCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.english_override.value_or(
-              configured.at("preferences").at("mixed_input").value("english", true)) == enabled)
+      if (s.english_override.value_or(mixed_input_value("english", true)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
