@@ -28,12 +28,15 @@
 
 @interface MetasequoiaCandidateButton : NSButton
 @property(nonatomic) BOOL candidateHighlighted;
+@property(nonatomic) BOOL candidateHovered;
 @property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic, copy) NSColor *fillColor;
+@property(nonatomic, copy) NSColor *hoverColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
+@property(nonatomic) CGFloat cornerRadius;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -49,14 +52,43 @@
 {
     [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
 }
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    for (NSTrackingArea *area in [self.trackingAreas copy])
+        [self removeTrackingArea:area];
+    [self addTrackingArea:[[NSTrackingArea alloc]
+                              initWithRect:NSZeroRect
+                                   options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
+                                           NSTrackingInVisibleRect
+                                     owner:self
+                                  userInfo:nil]];
+}
+- (void)mouseEntered:(NSEvent *)event
+{
+    (void)event;
+    self.candidateHovered = YES;
+    self.needsDisplay = YES;
+}
+- (void)mouseExited:(NSEvent *)event
+{
+    (void)event;
+    self.candidateHovered = NO;
+    self.needsDisplay = YES;
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
     NSRectClip(self.bounds);
-    if (self.candidateHighlighted && self.fillColor.alphaComponent > 0.01)
+    NSColor *rowFill = self.candidateHighlighted ? self.fillColor : (self.candidateHovered ? self.hoverColor : nil);
+    if (rowFill != nil && rowFill.alphaComponent > 0.01)
     {
-        [self.fillColor setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:6 yRadius:6] fill];
+        [rowFill setFill];
+        const CGFloat radius = MAX(0.0, self.cornerRadius);
+        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1)
+                                         xRadius:radius
+                                         yRadius:radius]
+            fill];
     }
     if (self.candidateHighlighted && self.showSelectedBar)
     {
@@ -348,10 +380,12 @@
         button.action = @selector(selectFromMouse:);
         button.candidateHighlighted = (NSInteger)index == _selected;
         button.fillColor = selectedFill;
+        button.hoverColor = MetasequoiaColorFromRgba(_skin.tokens.hover);
         button.titleColor = button.candidateHighlighted ? selectedText : textColor;
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
+        button.cornerRadius = button.candidateHighlighted ? _skin.tokens.selectedRadius : _skin.tokens.candidateRadius;
         button.accessibilityLabel = titles[index];
         button.toolTip = _data[index].string;
         [_chrome addSubview:button];
@@ -458,6 +492,7 @@
         {
             MetasequoiaCandidateButton *button = (MetasequoiaCandidateButton *)view;
             button.candidateHighlighted = view.tag == identifier;
+            button.cornerRadius = button.candidateHighlighted ? _skin.tokens.selectedRadius : _skin.tokens.candidateRadius;
             button.titleColor = button.candidateHighlighted ? MetasequoiaColorFromRgba(_skin.tokens.selectedText)
                                                             : MetasequoiaColorFromRgba(_skin.tokens.text);
             button.numberColor = button.candidateHighlighted ? MetasequoiaColorFromRgba(_skin.tokens.selectedText)

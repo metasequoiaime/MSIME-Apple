@@ -94,6 +94,16 @@ width_dip = 0
         Require([panel selectCandidateWithIdentifier:3] && panel.selectedCandidate == 3 &&
                     [panel.selectedCandidateString isEqual:candidates[3]],
                 "Selection and displayed highlight disagree.");
+        NSButton *hoverButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+                hoverButton = (NSButton *)view;
+        Require(hoverButton != nil && [[hoverButton valueForKey:@"hoverColor"] alphaComponent] > 0.01,
+                "Candidate rows did not receive the skin hover color.");
+        [(id)hoverButton performSelector:@selector(mouseEntered:) withObject:[NSObject new]];
+        Require([[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not activate.");
+        [(id)hoverButton performSelector:@selector(mouseExited:) withObject:[NSObject new]];
+        Require(![[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not clear.");
         Require(![panel selectCandidateWithIdentifier:8], "A nonvisible candidate could be selected.");
         NSButton *candidateButton = nil;
         for (NSView *view in panel.window.contentView.subviews)
