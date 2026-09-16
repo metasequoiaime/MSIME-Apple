@@ -2,7 +2,7 @@
 
 Run `Build-Client.ps1` in a Windows MSVC environment with CMake, Cargo, pnpm,
 the x86_64-pc-windows-msvc and i686-pc-windows-msvc Rust targets, and the
-repository's pinned Engine submodule initialized. Supply separate absolute
+locked Engine sources prepared with `python3 scripts/fetch_engine.py`. Supply separate absolute
 native dependency prefixes with the packages listed in `vcpkg.json`:
 
 ```powershell

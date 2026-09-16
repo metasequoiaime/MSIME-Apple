@@ -212,12 +212,12 @@ fn main() {
                 .include(engine.join("voice/include/msime/voice"))
                 .include(engine.join("voice/third_party/miniaudio"));
         } else {
-            // A checkout without the miniaudio submodule cannot capture audio.
+            // A prepared Engine archive without miniaudio cannot capture audio.
             // Say so at build time rather than failing to link a symbol whose
             // name explains nothing.
             panic!(
                 "voice/third_party/miniaudio is required for audio capture; \
-                 initialize the Engine's submodules"
+                 run scripts/fetch_engine.py to prepare the locked sources"
             );
         }
     }

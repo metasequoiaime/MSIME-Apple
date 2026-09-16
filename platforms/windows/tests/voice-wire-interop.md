@@ -1,8 +1,9 @@
 # Portable voice controller interoperability
 
-Run from the repository root after initializing the fixed Engine submodule:
+Run from the repository root after preparing the locked Engine sources:
 
 ```sh
+python3 scripts/fetch_engine.py
 bash platforms/windows/tests/voice-wire-interop.sh
 rustfmt --check --edition 2021 platforms/windows/tests/voice_wire_interop.rs
 clippy-driver --edition=2021 --test -D warnings platforms/windows/tests/voice_wire_interop.rs -o target/voice-wire-interop/clippy-tests

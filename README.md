@@ -53,7 +53,7 @@ cargo test -p msime-engine-bridge --locked
 CMAKE_PREFIX_PATH="$(brew --prefix)" cargo test -p msime-engine-bridge --locked
 ```
 
-Engine 由 `engine-lock.json` 固定：锁文件同时记录 commit 和源码归档的 SHA-256,`scripts/fetch_engine.py` 校验归档后再按该 commit 递归克隆,`crates/engine-bridge` 的 build.rs 在编译前调用它。gitlink 只钉住 commit 而不描述其内容,且忘记 `--recursive` 时留下的是一个空目录和一百行牛头不对马嘴的编译错误;锁文件让这一步的失败是一句关于 Engine 的话。离线构建可用 `MSIME_SKIP_ENGINE_FETCH=1` 跳过。CXX 生成互操作代码，CMake 构建原有 C++ 引擎，Cargo 链接静态引擎与系统 SQLite。会话不实现 Send/Sync，C++ 异常在桥接边界转成 Result。路径由宿主明确提供，字符输入目前为 Engine 支持的 ASCII 动作。测试中的 Unicode 模式使用真实 Engine，但不代表完整拼音词库、移动交叉编译或安装验证通过。
+Engine 由 `engine-lock.json` 固定：锁文件同时记录 Engine 及其第三方源码归档的 commit 和 SHA-256，`scripts/fetch_engine.py` 校验并展开这些归档，不使用 gitlink、`.gitmodules` 或递归 Git checkout；`crates/engine-bridge` 的 build.rs 在编译前调用它。离线构建可用 `MSIME_SKIP_ENGINE_FETCH=1` 跳过。CXX 生成互操作代码，CMake 构建原有 C++ 引擎，Cargo 链接静态引擎与系统 SQLite。会话不实现 Send/Sync，C++ 异常在桥接边界转成 Result。路径由宿主明确提供，字符输入目前为 Engine 支持的 ASCII 动作。测试中的 Unicode 模式使用真实 Engine，但不代表完整拼音词库、移动交叉编译或安装验证通过。
 
 ## 原生宿主接口
 

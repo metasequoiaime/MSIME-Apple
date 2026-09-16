@@ -2,5 +2,35 @@
   "repository": "metasequoiaime/MSIME-Engine",
   "commit": "a122e56b632b4c826464fa1bc199f3cdc68b61aa",
   "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/a122e56b632b4c826464fa1bc199f3cdc68b61aa.tar.gz",
-  "sha256": "bc7f310512053ec5ce9a85ad0835e135536d85ce51871317fe400607ead4b567"
+  "sha256": "bc7f310512053ec5ce9a85ad0835e135536d85ce51871317fe400607ead4b567",
+  "dependencies": [
+    {
+      "path": "googlepinyinime-rev",
+      "repository": "metasequoiaime/Google-PinyinIME-Rev",
+      "commit": "12db5237adfcecb79b8ac602d80f3576639ea219",
+      "archive": "https://github.com/metasequoiaime/Google-PinyinIME-Rev/archive/12db5237adfcecb79b8ac602d80f3576639ea219.tar.gz",
+      "sha256": "a2e259f63dcc3469bb1f6f364b0573800f93a2e816aba9dd8ac73e061c1a5dcb"
+    },
+    {
+      "path": "utfcpp",
+      "repository": "nemtrif/utfcpp",
+      "commit": "2d8e20b22dcb3e9b3c4f52103182ebda949c6089",
+      "archive": "https://github.com/nemtrif/utfcpp/archive/2d8e20b22dcb3e9b3c4f52103182ebda949c6089.tar.gz",
+      "sha256": "406eaa9369a9050027763a7a0e0683d8e5fa28105738ae4622f2e7387c2a2684"
+    },
+    {
+      "path": "voice/third_party/miniaudio",
+      "repository": "mackron/miniaudio",
+      "commit": "9634bedb5b5a2ca38c1ee7108a9358a4e233f14d",
+      "archive": "https://github.com/mackron/miniaudio/archive/9634bedb5b5a2ca38c1ee7108a9358a4e233f14d.tar.gz",
+      "sha256": "1a3a79b80fc6f0b0cc155e28b954a598e0ddfa2db64e2afa8466be88c476fa55"
+    },
+    {
+      "path": "voice/third_party/whisper.cpp",
+      "repository": "ggml-org/whisper.cpp",
+      "commit": "371b5a7561823ab2bb32142d2751e35e7534727b",
+      "archive": "https://github.com/ggml-org/whisper.cpp/archive/371b5a7561823ab2bb32142d2751e35e7534727b.tar.gz",
+      "sha256": "89051d8fca516a3ad1f5c2f8f9d2fccb089afbaec338fca3f8731999babc6f81"
+    }
+  ]
 }
