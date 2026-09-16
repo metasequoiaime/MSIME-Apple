@@ -744,6 +744,41 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         self.assertIn("textDocumentProxy.autocapitalizationType ?? .sentences", controller)
 
+    def test_only_the_cases_that_need_ml_kit_go_to_the_intel_runner(self):
+        """手写这一类按用例分,不按类分 —— 名单必须和「谁真的碰识别」对得上。
+
+        整类跳过的时候,类里四个纯 UIKit 用例(hitTest、面板高度、笔画增删)也只在合并后的 Intel job 里跑,PR 上一点覆盖没有。现在 arm64 只跳需要 ML Kit 的那几个。
+        真正要守的是这条:以后有人往这个类里加一条识别用例却忘了登记,它会在 arm64 上静默失败 —— 那台机器根本没有可链接的 SDK。所以这里不核对写死的名字,而是从用例体里判断谁引用了 HandwritingRecognizer,再跟脚本里的名单比。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        source = (IOS_ROOT / "KeyboardTests/HandwritingTests.swift").read_text()
+
+        declared = re.search(r"recognition_cases=\(\n(.*?)\n\)", runner, re.S)
+        self.assertIsNotNone(declared, "run_ui_tests.sh 应当把识别用例列成一个数组")
+        listed = [line.strip().rsplit("/", 1)[-1] for line in declared.group(1).splitlines() if line.strip()]
+
+        spans = [(m.group(1), m.start()) for m in re.finditer(r"func (test\w+)\s*\(", source)]
+        self.assertGreater(len(spans), len(listed), "HandwritingTests 里应当还有不需要 ML Kit 的用例")
+        needs_ml_kit = []
+        for index, (name, start) in enumerate(spans):
+            end = spans[index + 1][1] if index + 1 < len(spans) else len(source)
+            if "HandwritingRecognizer" in source[start:end]:
+                needs_ml_kit.append(name)
+        self.assertEqual(sorted(listed), sorted(needs_ml_kit))
+
+        # 两边都从那一个数组推导,不要谁再写死一份。
+        self.assertIn('for recognition_case in "${recognition_cases[@]}"', runner)
+        self.assertIn('skip_arguments+=(-skip-testing:"${recognition_case}")', runner)
+        self.assertIn('scope_arguments+=(-only-testing:"${recognition_case}")', runner)
+        self.assertNotIn("-skip-testing:MetasequoiaKeyboardTests/HandwritingTests)", runner)
+        self.assertNotIn("-only-testing:MetasequoiaKeyboardTests/HandwritingTests)", runner)
+
+        # Intel 那个 job 降到合 main 那道门上 —— 在 develop 的 push 上它是关键路径,却什么都不拦。
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
+        handwriting = workflow.split("  ios-handwriting:", 1)[1].split("\n    steps:", 1)[0]
+        self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
+        self.assertNotIn("github.event_name != 'pull_request'", handwriting)
+
     def test_project_and_ci_run_native_onboarding_ui_tests(self):
         project = (IOS_ROOT / "project.yml").read_text()
         workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()

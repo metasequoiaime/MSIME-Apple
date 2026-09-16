@@ -156,12 +156,12 @@ jobs:
   ios-handwriting:
     needs: changes
     name: iOS Handwriting
-    # The three cases that need MLKitDigitalInkRecognition, which has no arm64 Simulator slice, and
-    # therefore the only ones that still need an Intel runner. They are here rather than in the job
-    # above so that the interface suite does not wait behind an Intel build for a dependency it does
-    # not use. Deferred to merge for the same reason the whole suite used to be: the build in front
-    # of three cases costs more than the cases do, and a review signal is not worth that.
-    if: ${{ needs.changes.outputs.build == 'true' && github.event_name != 'pull_request' }}
+    # The three cases that need MLKitDigitalInkRecognition, which has no arm64 Simulator slice, and therefore the only ones that still need an Intel runner. They are here rather than in the job above so that the interface suite does not wait behind an Intel build for a dependency it does not use.
+    #
+    # It used to say three and run seven: the runner skipped the whole HandwritingTests class on arm64, so the four cases in it that never touch recognition -- hit testing, panel height, stroke undo -- only ever ran here, behind a twenty-five minute Intel build, and never on a pull request at all. They run on arm64 now, in two and a half seconds, and this job is the three that are left.
+    #
+    # Deferred to the gate rather than to merge, which is where the interface suite already sits for the same reason. On a develop push this was the critical path by a wide margin -- 25 to 31 minutes against 19 for the next longest job -- and it gated nothing: the pull request run is the gate, and this job was skipped there. A regression in the ML Kit integration now surfaces on the promotion to main rather than on the merge that caused it.
+    if: ${{ needs.changes.outputs.build == 'true' && (github.base_ref == 'main' || github.ref_name == 'main') }}
     runs-on: macos-15-intel
     timeout-minutes: 75
     env:
