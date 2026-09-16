@@ -4779,6 +4779,11 @@ fn ios_custom_skin_library_root(state_root: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|| state_root.to_path_buf())
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_community_resource_library_path(state_root: &std::path::Path) -> PathBuf {
+    ios_custom_skin_library_root(state_root).join("CommunityLibrary.json")
+}
+
 #[cfg(target_os = "ios")]
 #[tauri::command]
 async fn open_system_keyboard_settings(
@@ -4938,9 +4943,20 @@ pub fn run() {
             #[cfg(not(target_os = "ios"))]
             let custom_skin_directory = directory.clone();
             app.manage(CustomSkinLibraryStore::new(custom_skin_directory));
+            #[cfg(target_os = "android")]
+            let community_resource_library_path = app
+                .path()
+                .app_data_dir()?
+                .join("files/CommunityLibrary.json");
+            // The iOS reply keyboard reads downloads directly from the App
+            // Group root. Keep the Tauri community page on that exact file;
+            // the Rust preferences and statistics remain below App Group/MSIME.
+            #[cfg(target_os = "ios")]
+            let community_resource_library_path =
+                ios_community_resource_library_path(&directory);
             #[cfg(any(target_os = "android", target_os = "ios"))]
             app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
-                app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
+                community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);
             let typing_statistics = TypingStatisticsStore::new(&directory);
@@ -5492,6 +5508,16 @@ mod tests {
         assert_eq!(
             msime_client_core::custom_skin_library::CustomSkinLibraryStore::new(root).path(),
             std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
+        );
+    }
+
+    #[test]
+    fn ios_community_reply_library_shares_the_keyboard_app_group_file() {
+        assert_eq!(
+            super::ios_community_resource_library_path(std::path::Path::new(
+                "/fixture/app-group/MSIME"
+            )),
+            std::path::Path::new("/fixture/app-group/CommunityLibrary.json")
         );
     }
 
