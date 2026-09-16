@@ -92,6 +92,22 @@ final class CandidateTranslationTests: XCTestCase {
                                    attributes: [.font: UIFont.preferredFont(forTextStyle: .caption2)])
     XCTAssertGreaterThanOrEqual(chip?.bounds.width ?? 0, gloss.size().width)
   }
+
+  func testExpandedPanelChipsAnswerALongPress() throws {
+    // The expanded panel owns its chips; they must retain the same management menu as the strip.
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥嚎"], preedit: "nihao",
+      display: { $0 },
+      menuElements: { _ in [UIAction(title: "优先显示") { _ in }] },
+      onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+
+    let chip = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    XCTAssertTrue(chip.menu?.children.first is UIDeferredMenuElement)
+    XCTAssertFalse(chip.showsMenuAsPrimaryAction)
+  }
 }
 
 private func descendants(_ view: UIView) -> [UIView] {
