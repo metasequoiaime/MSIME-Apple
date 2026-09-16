@@ -42,6 +42,12 @@ targets:
       - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift
       - path: ../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift
       - path: ../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift
+      # Tauri cloud-dictionary snapshots use the same validated wire format
+      # and App Group queue as the native iOS keyboard worker.
+      - path: ../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift
+      - path: ../../../../../shared/backend/BackendAccountClient.swift
+      - path: ../../../../../shared/backend/BackendSnapshotClient.swift
+      - path: ../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift
       - path: Assets.xcassets
       - path: Externals
         excludes:

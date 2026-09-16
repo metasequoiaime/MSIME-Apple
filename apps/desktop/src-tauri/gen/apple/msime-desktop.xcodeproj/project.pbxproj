@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0AA000000000000000000001 /* BackendAccountClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE645274F887741A26A00A72 /* BackendAccountClient.swift */; };
+		0AA000000000000000000002 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A540873FB4510097842833 /* BackendSnapshotClient.swift */; };
+		0AA000000000000000000003 /* DictionarySnapshotQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7966E54D2FB7550DEF30E3ED /* DictionarySnapshotQueue.swift */; };
+		0AA000000000000000000004 /* TauriDictionarySnapshotBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA000000000000000000005 /* TauriDictionarySnapshotBridge.swift */; };
 		005B2877A17C50DE09252453 /* ReplyKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D3E85C4E9152AB7985C998 /* ReplyKeyboardView.swift */; };
 		069644672EE7E0CDAAEC31A1 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 858F6BE4C9016BC0CB5937A6 /* AVFoundation.framework */; };
 		0929A08013F4D219B1FC47B1 /* KeyboardSkinBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A4CA69ED904934C45CCC02 /* KeyboardSkinBackgroundView.swift */; };
@@ -139,6 +143,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0AA000000000000000000005 /* TauriDictionarySnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TauriDictionarySnapshotBridge.swift; sourceTree = "<group>"; };
 		0345FD5B4F9B9C2C9CA53FFB /* ScrollEdgeEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollEdgeEffects.swift; sourceTree = "<group>"; };
 		04B4E5752844818BE9736BD8 /* KeyboardCandidatePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCandidatePanelView.swift; sourceTree = "<group>"; };
 		05EC999E0B54D2DC14C86ADF /* KeyboardSchemePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSchemePickerView.swift; sourceTree = "<group>"; };
@@ -421,6 +426,7 @@
 		74A2800A34C5689E46E8923F /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				0AA000000000000000000005 /* TauriDictionarySnapshotBridge.swift */,
 				F2E3CE70AA390634A5CE26B4 /* TauriPersonalDictionaryBridge.swift */,
 			);
 			name = Sources;
@@ -793,11 +799,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0AA000000000000000000001 /* BackendAccountClient.swift in Sources */,
+				0AA000000000000000000002 /* BackendSnapshotClient.swift in Sources */,
+				0AA000000000000000000003 /* DictionarySnapshotQueue.swift in Sources */,
 				3B361C8FA699FDB5D254EEFF /* PersonalDictionaryBridge.swift in Sources */,
 				66BED2FD3B347090B3AABCE9 /* PersonalDictionaryImport.swift in Sources */,
 				B3A9A2429ABF7BBE34C5572F /* PersonalDictionaryStore.swift in Sources */,
 				A5A4E2B26CAB3D3793B6E0E4 /* PersonalWordBridge.swift in Sources */,
 				76D2B0D5DD74C2DC4AD39B6A /* TauriPersonalDictionaryBridge.swift in Sources */,
+				0AA000000000000000000004 /* TauriDictionarySnapshotBridge.swift in Sources */,
 				4FAC40E211ED99DF301D8073 /* main.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
