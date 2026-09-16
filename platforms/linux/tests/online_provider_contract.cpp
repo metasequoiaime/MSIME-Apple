@@ -4,6 +4,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -27,10 +28,23 @@ Json response(char *raw) {
 } // namespace
 
 int main() {
-  const auto path = std::filesystem::temp_directory_path() /
-                    ("msime-provider-contract-" + std::to_string(getpid()));
-  const auto socket_path = path.string();
-  const int server = socket(AF_UNIX, SOCK_STREAM, 0);
+  // Keep the fixture below the test working directory so CTest and direct
+  // invocations use the same private parent regardless of TMPDIR.
+  const auto directory = std::filesystem::current_path() /
+                         ("msime-provider-contract-" + std::to_string(getpid()) + "-" +
+                          std::to_string(std::chrono::steady_clock::now()
+                                             .time_since_epoch()
+                                             .count()));
+  std::error_code directory_error;
+  std::filesystem::create_directory(directory, directory_error);
+  require(!directory_error, "private provider directory creation failed");
+  std::filesystem::permissions(
+      directory, std::filesystem::perms::owner_all,
+      std::filesystem::perm_options::replace, directory_error);
+  require(!directory_error, "private provider directory permissions failed");
+  const auto socket_file = directory / "provider.sock";
+  const auto socket_path = socket_file.string();
+  const int server = ::socket(AF_UNIX, SOCK_STREAM, 0);
   require(server >= 0, "socket failed");
   sockaddr_un address{};
   address.sun_family = AF_UNIX;
@@ -68,6 +82,8 @@ int main() {
           "provider candidate mismatch");
   provider.join();
   unlink(socket_path.c_str());
+  std::filesystem::remove(directory, directory_error);
+  require(!directory_error, "private provider directory cleanup failed");
   auto invalid = response(msime_client_online_provider_request(
       reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
       reinterpret_cast<const uint8_t *>("relative.sock"), 13));
