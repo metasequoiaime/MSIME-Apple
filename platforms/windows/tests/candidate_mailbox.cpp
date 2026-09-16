@@ -1,5 +1,5 @@
-#include "CandidateMailbox.h"
 #include "CandidateClickWorker.h"
+#include "CandidateMailbox.h"
 #include "ModeMailbox.h"
 #include <future>
 
@@ -9,8 +9,9 @@ class ModeTransport final : public MainTransport {
 public:
   bool current(const PipeTicket &) override { return open; }
   bool try_current(const PipeTicket &) override { return open; }
-  std::optional<FanyImeNamedpipeData>
-  read(const PipeTicket &) override { return std::nullopt; }
+  std::optional<FanyImeNamedpipeData> read(const PipeTicket &) override {
+    return std::nullopt;
+  }
   KeyEventSendResult send(const PipeTicket &, uint32_t,
                           const std::vector<uint8_t> &) override {
     return open ? KeyEventSendResult::Sent
@@ -115,7 +116,8 @@ void candidate_mailbox_tests() {
     modes.disconnected(a); // Late old-stream cleanup cannot erase replacement.
     value = modes.snapshot(gate, transport);
     require(value && same_ticket(value->lease.transport, replacement) &&
-            !value->chinese && !value->chinese_punctuation && !value->fullwidth);
+            !value->chinese && !value->chinese_punctuation &&
+            !value->fullwidth);
     transport.open = false;
     require(!modes.snapshot(gate, transport));
     transport.open = true;
@@ -181,8 +183,14 @@ void candidate_mailbox_tests() {
     packet.point[1] = 300;
     return gate.with_active(lease, [&] { mailbox.event(lease, packet); });
   };
+  auto settled_hide = [&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    return mailbox.snapshot(gate);
+  };
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
-  const auto suppressed = mailbox.snapshot(gate);
+  const auto grace = mailbox.snapshot(gate);
+  require(grace && grace->visible && !grace->preedit.empty());
+  const auto suppressed = settled_hide();
   require(suppressed && !suppressed->visible && suppressed->preedit.empty() &&
           suppressed->candidates.empty());
   require(visual_event(first, FanyImePipeEventType::MoveCandidateWnd));
@@ -204,11 +212,12 @@ void candidate_mailbox_tests() {
   require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
   require(mailbox.snapshot(gate)->visible &&
           mailbox.snapshot(gate)->generation == 2);
-  require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd, FanyImePipeFlags::UiLess));
+  require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd,
+                       FanyImePipeFlags::UiLess));
   require(!mailbox.snapshot(gate)->visible);
-  for (auto mode_event : {FanyImePipeEventType::IMESwitch,
-                          FanyImePipeEventType::StatusSnapshot,
-                          FanyImePipeEventType::FocusRestored}) {
+  for (auto mode_event :
+       {FanyImePipeEventType::IMESwitch, FanyImePipeEventType::StatusSnapshot,
+        FanyImePipeEventType::FocusRestored}) {
     require(publish(first, 2));
     require(visual_event(first, mode_event, 0, 1));
     require(mailbox.snapshot(gate)->visible);
@@ -219,8 +228,11 @@ void candidate_mailbox_tests() {
     require(!visual_event(stale, mode_event));
     require(mailbox.snapshot(gate)->visible);
     require(visual_event(first, mode_event));
-    require(!mailbox.snapshot(gate)->visible &&
-            mailbox.snapshot(gate)->candidates.empty());
+    const auto pending_hide = mailbox.snapshot(gate);
+    require(pending_hide && pending_hide->visible);
+    const auto hidden_after_grace = settled_hide();
+    require(hidden_after_grace && !hidden_after_grace->visible &&
+            hidden_after_grace->candidates.empty());
     require(visual_event(first, mode_event, 0, 1));
     require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
     require(!mailbox.snapshot(gate)->visible);

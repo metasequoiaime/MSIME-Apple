@@ -1,8 +1,8 @@
 #pragma once
 #include "CandidatePresentation.h"
-#include <functional>
-#include <condition_variable>
 #include <chrono>
+#include <condition_variable>
+#include <functional>
 
 namespace msime::windows {
 // Single latest value, not an unbounded per-key UI event queue. Publish only
@@ -39,6 +39,7 @@ public:
       value.render_serial = ++render_serial_;
       latest_ = std::move(value);
       suppressed_ = false;
+      pending_hide_.reset();
     }
   }
   // Replace Engine-owned candidate data after an asynchronous cloud result.
@@ -61,6 +62,7 @@ private:
   void refresh_view(const FocusLease &lease, const nlohmann::json &view,
                     bool require_new_generation) {
     std::lock_guard lock(mutex_);
+    apply_pending_hide_locked();
     try {
       if (stopped_ || !latest_ || latest_->lease.epoch != lease.epoch ||
           latest_->lease.token != lease.token ||
@@ -75,12 +77,13 @@ private:
           latest_->preedit.compare(latest_->preedit.size() - text.size(),
                                    text.size(), text) != 0)
         return;
-      const auto prefix = latest_->preedit.substr(
-          0, latest_->preedit.size() - text.size());
-      latest_ = candidate_presentation_from_view(lease, view, latest_->x,
-                                                 latest_->y, prefix,
-                                                 latest_->traditional_output);
+      const auto prefix =
+          latest_->preedit.substr(0, latest_->preedit.size() - text.size());
+      latest_ =
+          candidate_presentation_from_view(lease, view, latest_->x, latest_->y,
+                                           prefix, latest_->traditional_output);
       latest_->render_serial = ++render_serial_;
+      pending_hide_.reset();
     } catch (...) {
       // Provider data is optional; malformed/stale projections are ignored.
     }
@@ -91,6 +94,7 @@ public:
   // successful Engine cancellation; show/move never manufacture composition.
   void event(const FocusLease &lease, const FanyImeNamedpipeData &packet) {
     std::lock_guard lock(mutex_);
+    apply_pending_hide_locked();
     if (stopped_ || !latest_ || packet.client_id != lease.transport.client ||
         latest_->lease.epoch != lease.epoch ||
         latest_->lease.token != lease.token ||
@@ -111,15 +115,19 @@ public:
         break;
       [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
-      suppressed_ = true;
-      latest_->visible = false;
-      latest_->preedit.clear();
-      latest_->candidates.clear();
+      // A hide can be delivered behind the next confirmed key when the host
+      // worker is congested. Keep the current frame briefly so that a queued
+      // show or delivery can cancel this stale hide instead of flashing an
+      // empty candidate window between words.
+      if (!pending_hide_)
+        pending_hide_ = std::chrono::steady_clock::now() + hide_grace;
       break;
     case FanyImePipeEventType::ShowCandidateWnd:
+      pending_hide_.reset();
       suppressed_ = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
       [[fallthrough]];
     case FanyImePipeEventType::MoveCandidateWnd:
+      pending_hide_.reset();
       // The host may take over candidate rendering without another key or
       // Show event. A move can suppress display, never revive hidden content.
       if ((packet.modifiers_down & FanyImePipeFlags::UiLess) != 0)
@@ -133,6 +141,7 @@ public:
     std::lock_guard lock(mutex_);
     if (latest_ && same_ticket(latest_->lease.transport, ticket)) {
       latest_.reset();
+      pending_hide_.reset();
       rendered_lease_.reset();
       rendered_generation_ = 0;
     }
@@ -141,6 +150,7 @@ public:
     std::lock_guard lock(mutex_);
     stopped_ = true;
     latest_.reset();
+    pending_hide_.reset();
     rendered_lease_.reset();
     rendered_generation_ = 0;
     rendered_ready_.notify_all();
@@ -160,6 +170,7 @@ public:
         lock.lock();
       else if (!lock.try_lock())
         return std::nullopt;
+      apply_pending_hide_locked();
       if (latest_)
         lease = latest_->lease;
     }
@@ -173,6 +184,7 @@ public:
           lock.lock();
         else if (!lock.try_lock())
           return;
+        apply_pending_hide_locked();
         if (latest_ && latest_->lease.epoch == lease->epoch &&
             latest_->lease.token == lease->token &&
             same_ticket(latest_->lease.transport, lease->transport))
@@ -197,9 +209,24 @@ public:
   }
 
 private:
+  static constexpr auto hide_grace = std::chrono::milliseconds(24);
+
+  void apply_pending_hide_locked() {
+    if (!pending_hide_ || std::chrono::steady_clock::now() < *pending_hide_)
+      return;
+    pending_hide_.reset();
+    if (!latest_)
+      return;
+    suppressed_ = true;
+    latest_->visible = false;
+    latest_->preedit.clear();
+    latest_->candidates.clear();
+  }
+
   std::mutex mutex_;
   bool stopped_ = false;
   bool suppressed_ = false;
+  std::optional<std::chrono::steady_clock::time_point> pending_hide_;
   std::optional<CandidatePresentation> latest_;
   std::optional<FocusLease> rendered_lease_;
   uint64_t rendered_generation_ = 0;
