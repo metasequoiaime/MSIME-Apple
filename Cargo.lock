@@ -2359,6 +2359,7 @@ dependencies = [
  "msime-host-windows",
  "msime-input-runtime",
  "msime-tauri-mobile-platform",
+ "reqwest 0.12.28",
  "rustix",
  "serde",
  "serde_json",
