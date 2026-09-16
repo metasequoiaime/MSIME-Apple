@@ -200,7 +200,8 @@ final class SettingsUITests: KeyboardInterfaceTests {
     for platform in ["macOS", "Windows", "Linux"] {
       app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
       XCTAssertTrue(app.staticTexts[platform + " 安装指南"].exists)
-      XCTAssertTrue(app.buttons["desktopReleaseLink"].exists)
+      // 这是一个 SwiftUI Link,当前系统把它暴露成 link 而不是 button。断言的是「这条下载链接在这一页上」,不该连它算哪一类控件一起钉死。
+      XCTAssertTrue(app.descendants(matching: .any)["desktopReleaseLink"].firstMatch.exists)
     }
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Desktop download guide"

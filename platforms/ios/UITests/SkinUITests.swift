@@ -8,6 +8,8 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
+    // 抽卡和设计模板一起搬到了「模板」栏 —— 它们换的是整套设计,而编辑器默认停在只改背景的那一栏。
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.navigationBars["AI 皮肤抽卡"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.textViews["aiSkinPrompt"].exists)
@@ -146,6 +148,8 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
+    // 抽卡和设计模板一起搬到了「模板」栏 —— 它们换的是整套设计,而编辑器默认停在只改背景的那一栏。
+    app.buttons["skinEditorTab_模板"].tap()
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.buttons["generateAISkins"].waitForExistence(timeout: 5))
     app.buttons["generateAISkins"].tap()

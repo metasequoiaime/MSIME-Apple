@@ -2,14 +2,16 @@ import SwiftUI
 
 /// 二级设置页共用的行与状态条。
 ///
-/// 放在 shared/backend-ui 而不是 platforms/ios/App/Sources:这个目录里的云词库、词包等页面和应用内其余二级页是同一批,读者不会知道它们的源码分属两处,却看得出它们长得不一样。目前只有 iOS 目标编译这个目录。
+/// 放在 shared/backend-ui 而不是 platforms/ios/App/Sources:这个目录里的云词库、词包等页面和应用内其余二级页是同一批,读者不会知道它们的源码分属两处,却看得出它们长得不一样。
+///
+/// 这个目录两端都编:iOS 走 project.yml,macOS 的账号窗口走 cmake/BackendAccount.cmake 里那张显式文件表 —— 往这里加文件必须同时加进那张表,否则 macOS 侧会在编译期报找不到符号。所以这里不碰任何只有一端才有的东西。
 ///
 /// 这些页面原先各写各的:动作是一排裸文字按钮,说明文字挤在动作同一组里当成一个列表行,加载和报错也当列表行插在条目中间。于是同一个标签页点进去,每一页都是另一套写法,而加载一结束列表还会跳一下。
 struct SettingsRowLabel: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = MetasequoiaTheme.accent
+  var color: Color = .accentColor
   var destructive = false
 
   var body: some View {
@@ -37,7 +39,7 @@ struct SettingsActionRow: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = MetasequoiaTheme.accent
+  var color: Color = .accentColor
   var destructive = false
   var enabled = true
   let action: () -> Void
@@ -57,7 +59,7 @@ struct SettingsFactRow: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = MetasequoiaTheme.accent
+  var color: Color = .accentColor
 
   var body: some View {
     SettingsRowLabel(title: title, detail: detail, symbol: symbol, color: color)
@@ -100,5 +102,16 @@ extension View {
         .animation(.easeInOut(duration: 0.18), value: busy)
         .animation(.easeInOut(duration: 0.18), value: message)
     }
+  }
+}
+
+extension View {
+  /// macOS 没有导航栏标题显示模式这回事,这一条只对 iOS 有意义。
+  func inlineNavigationTitle() -> some View {
+    #if os(iOS)
+    return navigationBarTitleDisplayMode(.inline)
+    #else
+    return self
+    #endif
   }
 }

@@ -65,9 +65,9 @@ struct BackendCommunityResourcesView: View {
     .onSubmit(of: .search) { load() }
     .settingsStatus(busy: busy, message: message)
     .navigationTitle("词包与回复模板")
-    .navigationBarTitleDisplayMode(.inline)
+    .inlineNavigationTitle()
     .toolbar {
-      ToolbarItem(placement: .navigationBarTrailing) {
+      ToolbarItem(placement: .primaryAction) {
         Menu {
           Picker("范围", selection: $scope) {
             Text("全部").tag(BackendAccountClient.ResourceScope.all)
@@ -81,7 +81,7 @@ struct BackendCommunityResourcesView: View {
         .accessibilityLabel("筛选范围")
         .accessibilityIdentifier("filterCommunityResourceScope")
       }
-      ToolbarItem(placement: .navigationBarTrailing) {
+      ToolbarItem(placement: .primaryAction) {
         Button { creating = true } label: { Label("分享\(kind.title)", systemImage: "plus") }
           .disabled(busy)
           .accessibilityLabel("分享\(kind.title)")
