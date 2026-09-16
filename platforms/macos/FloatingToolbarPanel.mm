@@ -417,10 +417,10 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     id fontValue = toolbar[@"font_size"] ?: @24;
     const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
     const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
-    NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
-    NSArray<NSButton *> *optionalButtons = @[_punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
+    NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+    NSArray<NSButton *> *optionalButtons = @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
     NSUInteger mask = 0;
-    NSUInteger count = 3; // Language switching, handwriting and voice are always present.
+    NSUInteger count = 2; // Handwriting and voice are always present.
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
         const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
