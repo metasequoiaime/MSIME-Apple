@@ -28,9 +28,9 @@ Json response(char *raw) {
 } // namespace
 
 int main() {
-  // Keep the fixture below the test working directory so CTest and direct
-  // invocations use the same private parent regardless of TMPDIR.
-  const auto directory = std::filesystem::current_path() /
+  // Use a unique private subdirectory so CTest and direct invocations work
+  // even when the source tree is mounted read-only.
+  const auto directory = std::filesystem::temp_directory_path() /
                          ("msime-provider-contract-" + std::to_string(getpid()) + "-" +
                           std::to_string(std::chrono::steady_clock::now()
                                              .time_since_epoch()
