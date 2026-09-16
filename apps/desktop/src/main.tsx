@@ -384,6 +384,10 @@ function DesktopSettings() {
           } : {}),
           ...(host.platform === "windows" || host.platform === "macos" ? {
             testApiCredential: testDesktopApiCredential,
+            aiAssistant: {
+              fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
+              test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
+            },
           } : {}),
           ...(host.platform === "ios" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
