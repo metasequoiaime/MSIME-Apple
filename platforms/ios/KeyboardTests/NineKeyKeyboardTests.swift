@@ -489,14 +489,12 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 292)
         for gap in [3.0, 6.0] {
-          try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-          let slider = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keySpacingSlider" } as? UISlider)
-          slider.value = Float(gap)
-          slider.sendActions(for: .valueChanged)
-          let row = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "rowSpacingSlider" } as? UISlider)
-          row.value = gap == 3 ? 4 : 10
-          row.sendActions(for: .valueChanged)
-          try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+          // The spacing used to come from sliders inside the keyboard and now comes from a drag on
+          // the keys. A pan cannot be synthesised here, and what this checks is that the keys follow
+          // the spacing, so it writes the preference and lets the keyboard lay out again.
+          KeyboardLayoutPreference.keySpacing = gap
+          KeyboardLayoutPreference.rowSpacing = gap == 3 ? 4 : 10
+          controller.viewWillAppear(false)
           controller.view.layoutIfNeeded()
           XCTAssertEqual(KeyboardLayoutPreference.geometry.keySpacing, gap)
           let enter = try button("returnKey", in: controller)
@@ -526,11 +524,14 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
     let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
-    let height = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" } as? UISlider)
+    // Height is a drag on the grip now. A pan cannot be synthesised here, so this goes through the
+    // accessibility increment the grip exposes for exactly the same reason -- it is a real path,
+    // not a test-only one, and it moves in the same steps.
+    let grip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
+    XCTAssertTrue(grip.accessibilityTraits.contains(.adjustable))
     controller.view.layoutIfNeeded()
     let initialHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    height.value = 24
-    height.sendActions(for: .valueChanged)
+    for _ in 0..<12 { grip.accessibilityIncrement() }
     controller.view.layoutIfNeeded()
     let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
@@ -567,7 +568,7 @@ final class NineKeyKeyboardTests: XCTestCase {
                 KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
       XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
     }
-    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" })
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
   }
 
   func testTouchGeometryWritesAndResetsCanonicalPreferences() throws {

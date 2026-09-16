@@ -2762,10 +2762,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
-    // The settings screen occupies the whole keyboard surface. Keeping the shortcut bar visible
-    // underneath makes the screen look like a translucent sheet and leaves a second toolbar at
-    // the bottom of the settings controls.
-    shortcutBar.isHidden = true
+    // The keyboard has to stay visible while it is being adjusted, so the shortcut bar stays too --
+    // it sits under the toolbar and is out of the way. Hiding it was for the opaque slider panel.
     let picker = KeyboardLayoutPickerView(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
