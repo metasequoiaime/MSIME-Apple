@@ -181,7 +181,12 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   }, [layout]);
   const sourceRows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const rows = platform === "macos" ? sourceRows.map(row => row
-    .filter(item => ![0x2c, 0x91, 0x13, 0x2d].includes(item.virtualKey))
+    // macOS has no PC application/Menu key. The native panel omits it and
+    // host-macos deliberately rejects the Windows VK_MENU (0x5d) contract
+    // value rather than guessing at a Command/Option equivalent. Keep the
+    // shared layout's other keypad/navigation keys because CoreGraphics has
+    // stable ANSI mappings for those values.
+    .filter(item => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
     .map(item => ({ ...item, label: item.label === "Win" ? "Command" : item.label === "Alt" ? "Option" : item.label === "Num Lock" ? "Clear" : item.label }))) : sourceRows;
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
