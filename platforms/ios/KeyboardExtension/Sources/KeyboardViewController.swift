@@ -724,7 +724,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    brand.brandImageView.image = Self.brandTemplate() ?? UIImage(systemName: "leaf.fill")
+    brand.brandImageView.image = Self.brandTemplate()
+      ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate)
     brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
