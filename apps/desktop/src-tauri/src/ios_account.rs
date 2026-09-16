@@ -45,7 +45,7 @@ use msime_client_core::keyboard_skin_trial::{
 #[cfg(target_os = "ios")]
 use msime_client_core::preferences::PreferencesStore;
 #[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::MobilePlatform;
+use msime_tauri_mobile_platform::{IosKeyboardPreferences, MobilePlatform};
 #[cfg(target_os = "ios")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "ios")]
@@ -81,12 +81,14 @@ impl From<AccountUser> for UserResponse {
 pub struct ProvidersResponse {
     email: bool,
     phone: bool,
+    apple: bool,
 }
 
 fn providers_response(providers: std::collections::HashMap<String, bool>) -> ProvidersResponse {
     ProvidersResponse {
         email: providers.get("email") == Some(&true),
         phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+        apple: providers.get("apple") == Some(&true),
     }
 }
 
@@ -324,6 +326,38 @@ pub async fn account_login(
     call(state, move |session| {
         session
             .sign_in(&challenge_id, &code)
+            .map(|user| StatusResponse {
+                user: Some(user.into()),
+            })
+    })
+    .await
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn account_apple_login(
+    state: State<'_, AccountState>,
+) -> Result<StatusResponse, super::CommandError> {
+    let session = Arc::clone(&state.session);
+    let challenge = tauri::async_runtime::spawn_blocking(move || session.request_code("apple", ""))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "account_unavailable",
+        })?
+        .map_err(|error| super::CommandError { code: error.code() })?;
+    let nonce = challenge.nonce.ok_or(super::CommandError {
+        code: "apple_sign_in",
+    })?;
+    let credential = state
+        .platform
+        .sign_in_with_apple(&challenge.challenge_id, &nonce)
+        .await
+        .map_err(|_| super::CommandError {
+            code: "apple_sign_in",
+        })?;
+    call(state, move |session| {
+        session
+            .sign_in_apple(&challenge.challenge_id, &credential)
             .map(|user| StatusResponse {
                 user: Some(user.into()),
             })
@@ -1290,6 +1324,113 @@ pub async fn account_preferences_apply(
         code: "account_unavailable",
     })?
     .map_err(|error| super::CommandError { code: error.code() })
+}
+
+#[cfg(target_os = "ios")]
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MobileKeyboardFeedback {
+    pub sound_enabled: bool,
+    pub haptics_enabled: bool,
+    pub haptic_strength: String,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(serde::Deserialize)]
+pub struct MobileKeyboardFeedbackRequest {
+    pub settings: MobileKeyboardFeedback,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(serde::Deserialize)]
+pub struct MobileKeyboardFeedbackPreviewRequest {
+    pub strength: String,
+}
+
+#[cfg(target_os = "ios")]
+fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback {
+    MobileKeyboardFeedback {
+        sound_enabled: native.sound_enabled,
+        haptics_enabled: native.haptics_enabled,
+        haptic_strength: native.haptic_strength.clone(),
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_load(
+    state: State<'_, AccountState>,
+) -> Result<MobileKeyboardFeedback, super::CommandError> {
+    let platform = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let native = platform
+            .load_keyboard_preferences()
+            .map_err(|_| super::CommandError {
+                code: "feedback_storage",
+            })?;
+        Ok(keyboard_feedback(&native))
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_storage",
+    })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_save(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackRequest,
+) -> Result<MobileKeyboardFeedback, super::CommandError> {
+    if !matches!(
+        request.settings.haptic_strength.as_str(),
+        "light" | "medium" | "strong"
+    ) {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    let platform = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut native = platform
+            .load_keyboard_preferences()
+            .map_err(|_| super::CommandError {
+                code: "feedback_storage",
+            })?;
+        native.sound_enabled = request.settings.sound_enabled;
+        native.haptics_enabled = request.settings.haptics_enabled;
+        native.haptic_strength = request.settings.haptic_strength.clone();
+        let saved =
+            platform
+                .save_keyboard_preferences(&native)
+                .map_err(|_| super::CommandError {
+                    code: "feedback_storage",
+                })?;
+        Ok(keyboard_feedback(&saved))
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_storage",
+    })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_preview(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackPreviewRequest,
+) -> Result<(), super::CommandError> {
+    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    state
+        .platform
+        .preview_keyboard_haptics(&request.strength)
+        .map_err(|_| super::CommandError {
+            code: "feedback_preview",
+        })
 }
 
 #[cfg(test)]

@@ -96,6 +96,11 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + "button.textContent?.trim() === '社区')");
             awaitJs("!!(" + PUNCTUATION_CHECKBOX + ")");
             boolean before = "true".equals(js("(" + PUNCTUATION_CHECKBOX + ").checked"));
+            stage = "Android system back restores settings page";
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '输入').click(); true");
+            awaitJs("document.querySelector('#page-title')?.textContent === '输入'");
+            shell("input keyevent 4");
+            awaitJs("document.querySelector('#page-title')?.textContent === '首页'");
             stage = "React touch scheme settings";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '输入').click(); true");
             awaitJs("!!(" + NINE_KEY_TOGGLE + ")");

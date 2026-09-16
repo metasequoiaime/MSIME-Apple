@@ -53,12 +53,23 @@ struct SaveRequest<'a> {
     value: &'a str,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FeedbackSettings {
     sound_enabled: bool,
     haptics_enabled: bool,
     haptic_strength: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MobileKeyboardFeedbackRequest {
+    settings: FeedbackSettings,
+}
+
+#[derive(Deserialize)]
+struct MobileKeyboardFeedbackPreviewRequest {
+    strength: String,
 }
 
 #[derive(Serialize)]
@@ -2794,4 +2805,84 @@ pub async fn account_preferences_apply(
         code: "account_unavailable",
     })?
     .map_err(|error| super::CommandError { code: error.code() })
+}
+
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_load(
+    state: State<'_, AccountState>,
+) -> Result<FeedbackSettings, super::CommandError> {
+    let feedback = state.feedback.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        feedback
+            .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
+            .map_err(|_| super::CommandError {
+                code: "feedback_storage",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_storage",
+    })?
+}
+
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_save(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackRequest,
+) -> Result<FeedbackSettings, super::CommandError> {
+    if !matches!(
+        request.settings.haptic_strength.as_str(),
+        "light" | "medium" | "strong"
+    ) {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    let feedback = state.feedback.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let payload = serde_json::json!({
+            "soundEnabled": request.settings.sound_enabled,
+            "hapticsEnabled": request.settings.haptics_enabled,
+            "hapticStrength": request.settings.haptic_strength,
+        });
+        feedback
+            .run_mobile_plugin::<()>("saveFeedback", payload)
+            .map_err(|_| super::CommandError {
+                code: "feedback_storage",
+            })?;
+        Ok(request.settings)
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_storage",
+    })?
+}
+
+#[tauri::command]
+pub async fn mobile_keyboard_feedback_preview(
+    state: State<'_, AccountState>,
+    request: MobileKeyboardFeedbackPreviewRequest,
+) -> Result<(), super::CommandError> {
+    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+        return Err(super::CommandError {
+            code: "invalid_feedback",
+        });
+    }
+    let feedback = state.feedback.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        feedback
+            .run_mobile_plugin::<()>(
+                "previewFeedback",
+                serde_json::json!({
+                    "hapticStrength": request.strength,
+                }),
+            )
+            .map_err(|_| super::CommandError {
+                code: "feedback_preview",
+            })
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "feedback_preview",
+    })?
 }

@@ -42,6 +42,28 @@ test("routes home shortcuts to the shared settings pages", () => {
   expect(onOpenPage.mock.calls).toEqual([["skin"], ["input"], ["screen-keyboard"], ["appearance"], ["input"]]);
 });
 
+test("exposes Apple home shortcuts for dictionary, AI and system settings", () => {
+  const onOpenPage = vi.fn();
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  render(<HomePage preferences={initial.preferences} actions={{ openSystemKeyboardSettings }} onOpenPage={onOpenPage} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "词库个人词与同步" }));
+  fireEvent.click(screen.getByRole("button", { name: "AI回复与润色" }));
+  fireEvent.click(screen.getByRole("button", { name: "系统设置启用与完全访问" }));
+
+  expect(onOpenPage.mock.calls).toEqual([["dictionary"], ["ai"]]);
+  expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
+});
+
+test("routes the keyboard card to shared settings when a mobile host cannot open a window", () => {
+  const onOpenPage = vi.fn();
+  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
+
+  expect(onOpenPage).toHaveBeenCalledWith("screen-keyboard");
+});
+
 test("selects thoughtful reply from the home feature entry", () => {
   const onOpenPage = vi.fn();
   const onSelectScheme = vi.fn();

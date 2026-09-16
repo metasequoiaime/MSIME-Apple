@@ -16,6 +16,30 @@
 
 ## 当前证据
 
+### 移动端统计趋势折线图（2026-09-16）
+
+移动端统计“趋势”从柱形图调整为 Apple 风格折线+渐变面积图；记录超过 120 天时，折线显示七日均线以避免年度视图过度锯齿，原始每日数据仍由热力图和按日统计保留。桌面端继续使用原柱形趋势。新增移动端趋势图无障碍标识回归；统计定向测试 8 项、类型检查和生产构建通过。未执行 iOS/Android 真机渲染验证。
+
+### 移动端统计图形对齐 Apple（2026-09-16）
+
+共享移动端统计页按 Apple 的问题类型使用不同图形：字符类型改为饼图、语言模式改为环形图并在中心显示累计字符、输入方案改为按数量排序的横向排行；桌面端继续保留原分布条。图形使用 CSS/无障碍标签实现，不改变统计数据或每日明细，空数据仍显示明确提示。新增移动端图形回归；定向统计测试 8 项、类型检查和生产构建通过。未执行 iOS/Android 真机渲染和系统级可访问性验证。
+
+### 移动端统计生命周期刷新（2026-09-16）
+
+移动端统计页现在监听窗口重新获得焦点和 `visibilitychange`，从后台回到前台时重新读取共享统计文件；隐藏状态不会重复读取，桌面端原有行为不变。这样键盘扩展在后台写入统计后，用户返回设置页即可看到最新数据。新增 iOS 移动端回归覆盖前台刷新；定向测试 7 项、类型检查和生产构建通过。未执行真机后台挂起/恢复及系统级生命周期验证。
+
+### 移动端重放新手引导（2026-09-16）
+
+账号页新增“重新查看新手引导”，由共享 Tauri 状态切换重新挂载 onboarding；完成后沿用现有偏好保存和方案选择逻辑，不清除账号或本地数据。引导动作按平台注入：Android 保留资源准备、系统设置和输入法选择器，iOS 使用系统键盘设置入口并隐藏不适用的输入法选择器，同时调整步骤文案。账号页与 onboarding 定向测试 23 项、TypeScript 检查和 Vite 生产构建通过；未执行 iOS/Android 真机导航、生命周期或签名验证。
+
+### 移动端账号页关于入口（2026-09-16）
+
+Android/iOS 共享账号页补齐 Apple 账号页的“关于”分组：未登录状态也可进入“关于水杉”，并提供“电脑版下载”直达官网指南；关于页继续复用共享设置的版本、许可证、隐私和更新入口，下载动作通过宿主注入的外链能力执行。新增账号页回归覆盖未登录状态下两个入口。账号页定向测试 16 项、类型检查和生产构建通过；尚未执行 iOS/Android 真机导航、外链策略和签名验证。
+
+### 移动端统计年度热力图（2026-09-16）
+
+Android/iOS 共享统计页的“趋势”分段新增年度日历热力图：按自然周排列最近 53 周，未记录日期显示最浅级别，未来日期留空，支持横向滚动、强度图例和点选日期后联动分类/模式/方案统计。热力图复用现有每日明细和 366 天保留策略，不保存输入内容；新增组件回归覆盖移动端渲染与点选范围切换。移动端 UI 定向测试 6 项、TypeScript 类型检查和 Vite 生产构建通过；构建仍只有既有 chunk size warning。未执行 iOS/Android 真机、签名或系统宿主验证，不能据此声称原生平台接入完成。
+
 ### macOS Emoji 面板主题覆盖（next42）
 
 共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `MSIMEClientInputMethod.app` 编译验证桥接仍可加载该 Swift backend。
@@ -866,16 +890,109 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建，以及 `desktop-settings-launcher`、`candidate-skin`、`external-skin`、`shortcut`、`skin-preview`、`skin-settings`、`input-menu` 七项相关 CTest 通过。未执行安装输入源、真实外部皮肤目录权限、Tauri bundle 启动和系统级视觉验收，CI 保持禁用。
 
+### iOS Tauri 原生 Apple 登录
+
+账号页现在在 iOS 收到 Apple 登录提供商时显示原生登录入口。Tauri command 先向共享账号服务申请一次性 challenge，再把 challenge 与 nonce 交给 `AuthenticationServices`；身份 token 由原生 Swift delegate 直接交回 Rust `BackendAccountSession` 完成登录，不经过 WebView，也不写日志。状态、资料、设置同步、社区和 AI 页面继续只接收无凭据的用户 DTO；Android 保持邮箱/手机号验证码路径。
+
+本地验证通过 iOS arm64 target 的 `cargo check --locked`、Swift package 编译、Swift 语法解析、共享账号 237 项 Rust 测试、移动插件测试和账号 UI 14 项 Vitest。Apple 登录依赖系统 Apple ID 授权界面，未在签名设备执行交互验收，CI 保持禁用。
+
+### 移动端 Tauri 设置一级导航
+
+依据 Apple 远端 `origin/develop` 固定提交 `60d2531` 的 `AppNavigation` 四个一级入口，Android 与 iOS 的共享 Tauri 设置页在窄屏改用“键盘 / 社区 / 统计 / 账号”主导航；外观、输入、词库、皮肤、帮助、反馈等详细页面通过“更多设置”继续可达。桌面宿主保留原有侧栏，移动端只改变导航组织和显示，不复制 SwiftUI 页面，也不改变设置快照、账号会话或 Engine 组合状态。
+
+本地验证通过移动导航定向 Vitest、完整 `settings.test.tsx`（133 项）和桌面 TypeScript 类型检查。CSS 响应式规则未作为原生设备视觉验收；iOS/Android 真机窗口尺寸、系统返回手势和旋转行为仍需产品环境验证，CI 保持禁用。
+
+移动端“更多设置”进一步按 Apple/Android 能力收敛：快捷键、辅助码和桌面悬浮工具栏仍保留在桌面侧栏，但不再出现在移动端选择器，避免进入没有对应宿主表面的空白或误导页面；输入、外观、词库、皮肤、屏幕键盘、手写、语音、AI、实用功能、帮助、关于和反馈继续可达。
+
+移动端输入设置补齐 Apple 的按键反馈分组：共享 Tauri UI 显示按键音、按键振动和轻/中/强振动强度，iOS 通过 `MobilePlatform` 读写键盘扩展共享偏好，Android 通过 `AccountPlugin` 读写输入法服务偏好；保存操作不进入共享 Engine 设置快照，仍由各平台原生键盘消费。已补充移动 UI 回归与 Tauri command 边界，未声称设备触觉硬件效果验收，CI 保持禁用。
+
+### 移动端账号操作菜单（2026-09-16）
+
+依据 Apple `AccountSettingsView` 的账号分组，Android/iOS 共享账号页将退出登录、退出所有设备、重新登录和注销账号收进“账号操作”菜单；重新登录复用现有失效登录清理边界，不复制账号会话或凭据。桌面端继续保留可见的底部操作区。新增移动账号菜单回归覆盖菜单展开、重新登录调用和状态提示；账号页测试 18 项、TypeScript 检查通过。未执行 iOS/Android 真机菜单、系统确认对话框和原生账号服务验收，CI 保持禁用。
+
+### 移动端首页 Apple 快捷入口（2026-09-16）
+
+共享 Tauri 移动首页补齐 Apple 首页的六个快捷入口：皮肤、输入方案、按键、词库、AI 和系统设置。词库与 AI 进入共享设置页；系统设置通过平台注入的系统键盘设置动作打开，缺少宿主能力时保留受控页面回退；Android 的输入法选择器入口继续单独保留。现有高情商回复、聊天和键盘试用入口不变。首页定向测试 9 项、TypeScript 检查通过；未执行 iOS/Android 真机视觉、系统设置跳转和旋转验收，CI 保持禁用。
+
+### 移动端关于页帮助与反馈入口（2026-09-16）
+
+Apple 关于页提供站内“使用帮助”和“反馈问题与建议”入口；共享 Tauri 的 Android/iOS 关于页现增加同样的页内导航，复用已有平台化帮助文案、诊断报告和反馈提交流程。桌面端仍通过侧栏访问帮助与反馈，不改变页面组织。Android 关于页导航回归和 TypeScript 检查通过；未执行 iOS/Android 真机导航与外链系统验收，CI 保持禁用。
+
+### 移动端 Tauri 统计页分段展示
+
+依据 Apple 远端 `origin/develop` 固定提交 `60d2531` 及其统计页行为，移动端统计页改为“趋势 / 类型 / 模式 / 方案”四个分段标签；趋势按共享统计中最早记录至今展示，最多 366 天，其他分类不会在窄屏同时堆叠。桌面端继续保留 7 天、30 天和累计范围切换。两端仍读取同一聚合统计接口，启停、刷新、清空和隐私边界不变。
+
+本地验证通过移动统计标签、桌面统计范围回归、TypeScript 检查和 Vite 构建。未执行 iOS/Android 真机触控、旋转或系统返回手势验证，CI 保持禁用。
+
+### 移动端账号页云功能入口
+
+依据 Apple `AccountSettingsView` 的“云端”分组，Tauri 共享账号页在已登录状态下提供云词库和云剪贴板直达按钮。按钮只调用宿主注入的面板路由：Android 与 iOS 分别打开各自的移动面板状态，不把云端凭据或输入内容交给 React，也不改变匿名账号和未登录页面。
+
+本地验证通过账号页 15 项测试、TypeScript 检查和 Vite 构建。云服务、系统返回和真实设备面板展示仍需产品环境验证，CI 保持禁用。
+
 ### macOS/Windows Tauri 凭据测试入口
 
 桌面设置页现在把已有的 Tauri `test_api_credential` 命令注入 macOS 和 Windows host capability；ASR、豆包、翻译和 AI 凭据测试继续由 Rust 按平台分支执行，公共 UI 不接触凭据持久化或输入内容。新增轻量客户端适配器只传递服务标识和当前编辑值，未改变 Linux provider socket 或 iOS 命令路径。
 
 本地验证：桌面 TypeScript 类型检查、凭据适配器与 Windows/macOS 设置凭据 UI 三项 Vitest 通过。`cargo check -p msime-desktop --locked` 已运行但当前 worktree 的 `vendor/MSIME-Engine` gitlink 缺少 `CMakeLists.txt`，因此在 Engine bridge 配置阶段失败；未将该环境缺口写成平台接入完成，CI 保持禁用。
 
-### macOS Tauri 语音面板目标回传
+### Android Tauri 语音面板原生插件接入
 
-macOS 浮动工具栏的语音入口现在优先启动共享 Tauri `voice` 面板，并通过一次性、带 peer PID/目标启动时间校验的 IMK 输入会话把最终文本回传到原编辑器；Tauri 侧将 `send_voice_text` 接到同一会话，关闭、失焦、超时或启动失败都会拒绝迟到结果。原生语音服务仍作为 Tauri 启动失败时的 macOS fallback，录音、识别和 Engine 组合状态没有移入 Tauri。
+Android 现在注册共享 `msime-mobile-platform` 的 `VoicePlugin`，让 React/Tauri 语音面板通过 Android 系统 `RecognizerIntent` 使用设备语音识别服务；录音仍由系统服务持有，识别文本经有界的应用私有 handoff 文件交给隔离的 `:ime` 进程。`recognize_voice`、`stop_voice`、`cancel_voice` 和 `send_voice_text` 均已接入 Android 专用路径，避免误走 Unix socket，并保留请求代号、取消、过期、NUL 和长度校验。已通过 Rust 格式检查、移动插件单元测试、桌面 TypeScript 类型检查和 Android host smoke；Android 原生 Gradle/设备识别器及真实编辑器插入仍需设备产品验证。
 
+### 移动端九键 Engine 同步
+
+依据 Apple 远端默认分支 `origin/develop` 的固定提交 `abda282`，同步其依赖的九键拼写长度排序修复。Client 采用默认分支引入的校验归档机制，并把 `engine-lock.json` 固定到 Engine 实际远端默认分支 `main` 的提交 `a122e56b632b4c826464fa1bc199f3cdc68b61aa`；归档 SHA-256 已从固定 URL 重新计算。该提交同时包含按数字长度排列九键拼写、九键英文候选及状态修复，并保留 Client 已接入的日语长音输入修复；输入算法和组合状态继续完全归 C++ Engine，Android 与 iOS 只消费共享 Host API 快照。
+
+本地 Release CMake 构建及 Engine CTest 28/28 通过，覆盖 `nine_key_session`、英文输入、日语、全拼/双拼与本地模式；共享 `client-core` 237 项、`host-api` 91 项及其集成测试、fmt、clippy、Android 宿主静态检查、iOS Swift 解析和 10 项工程配置测试通过。未执行 Android/iOS 真机输入、安装包或产品级九键触控验收，CI 保持禁用。
+
+### 移动端账号资料卡与编辑器
+
+依据 Apple 远端 `develop` 的账号资料交互提交 `2660020`、`ae3d646`、`07d8f45` 和 `d5144e7`，共享 Tauri 账号页将已登录用户的资料卡变为可操作入口，并提供独立的资料编辑对话框。编辑器复用平台注入的账号接口，校验昵称长度和控制字符，显示登录方式、加入时间及短 ID；复制动作只在用户明确点击时写入系统剪贴板，完整 ID 不进入日志或持久化设置。Android 与 iOS 继续由各自原生账号会话持有凭据，WebView 只接收脱敏 DTO。
+
+本地账号 UI 定向测试 13 项通过，桌面 UI 共 615 项测试、TypeScript 类型检查和 Vite 构建通过。该切片未声称完成 Apple 登录/系统剪贴板或真实设备验收；平台权限、签名和账号服务仍按宿主边界验证，CI 保持禁用。
+
+### 移动端设置返回与前后台恢复
+
+Android 与 iOS 的共享 Tauri 设置页现在把页面和云面板层级写入 WebView history：系统返回或导航手势从云剪贴板、云词库目录/候选页回到上一层，页内“返回”使用 replace 保持栈深度稳定，关闭按钮回退到打开面板前的设置页。桌面侧栏和独立原生面板不使用这套移动 history。移动设置 WebView 从后台恢复到前台时会重新读取共享偏好；若当前编辑器有未保存改动，则保留草稿并提示重新读取，避免覆盖用户输入。
+
+本地验证通过桌面 TypeScript 检查、设置 UI 全量 630 项 Vitest（含移动 history 与前后台恢复回归）和 Vite 构建。Android Activity/IME 与 iOS App/Keyboard Extension 的真实系统返回、进程回收、旋转和跨进程恢复仍需在签名设备验证，CI 保持禁用。
+
+### Android Tauri 设置系统返回
+
+Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设置 WebView 存在 history 时调用 `goBack()`，由 React 的 `popstate` 恢复设置页或云面板层级；没有应用内 history 时暂时关闭回调并交给 Android 默认 Activity 返回，避免递归拦截。WebView 销毁时清除引用，键盘输入法服务和 Engine 会话不随设置页返回重启。设备 smoke 新增从输入页按系统返回回到首页的检查。
+
+本地已通过 Java 设备测试源码的 `git diff --check` 与共享 UI 回归；生成的 Tauri Android Gradle 工程当前缺少本地 `tauri.settings.gradle`，因此 Gradle 编译入口未能运行，不能据此声称 Android 原生构建或真机系统返回验收完成。CI 保持禁用。
+
+### 移动端深层设置导航返回
+
+补齐共享设置页中绕过 history 的深层入口：首页快捷卡片、聊天登录、账号关于、社区资源/皮肤和本地皮肤编辑器现在统一通过移动导航函数进入页面。这样从账号进入关于或从首页进入输入/皮肤后，Android 系统返回和 iOS 导航手势都能回到来源页；桌面端仍使用原有侧栏状态。社区目的地在导航后再写入，保留“我的/已保存”等深链筛选条件。
+
+本地验证通过设置页 TypeScript 检查、设置 UI 136 项全量测试及新增移动深链返回回归。真实 iOS 手势、Android Activity 返回动画和旋转后的 history 恢复仍需设备验证，CI 保持禁用。
+
+### 移动端帮助页完整文档入口（2026-09-16）
+
+依据 Apple `HelpView` 的“完整文档（网页）”入口，共享 Tauri 帮助页新增同名外链按钮。按钮只通过宿主注入的 `openExternalUrl` 打开 `https://msime.app/docs/`，不把网页内容嵌入 WebView，也不改变输入、账号或 Engine 状态；宿主未提供外链能力时不显示按钮。桌面与 Android/iOS 共享同一入口，保持平台帮助文案差异。
+
+本地验证通过桌面帮助页定向 Vitest（桌面与 Android 场景）和 TypeScript 类型检查；未执行 iOS/Android 真机浏览器跳转或系统外链策略验收，CI 保持禁用。
+
+### iOS 输入设置手写隐私说明（2026-09-16）
+
+依据 Apple `OnboardingView` 的“手写输入”分组，共享输入设置在 iOS 增加中文模型首次下载、离线识别、笔迹隐私和 Google ML Kit 性能统计说明，并提供“手写 SDK 隐私说明”外链。链接通过宿主注入的 `openExternalUrl` 打开；Android、桌面和 Engine 输入路径不受影响。
+
+本地验证通过 iOS 输入设置定向 Vitest 和 TypeScript 类型检查；未执行键盘扩展首次下载、完全访问权限、网络统计或真机外链验收，CI 保持禁用。
+
+### 移动端输入设置高情商回复入口（2026-09-16）
+
+依据 Apple `InputSettingsView` 的“高情商回复”分组，Android/iOS 共享输入设置增加使用说明和“配置键盘 AI”入口。按钮通过共享页内导航进入 AI 配置，不复制平台键盘会话或凭据；高情商回复仍由移动键盘宿主消费，桌面输入设置保持原有布局。
+
+本地验证通过 Android 移动输入设置定向 Vitest 和 TypeScript 类型检查；未执行 Android/iOS 真机键盘切换、粘贴权限、AI 请求和候选插入验收，CI 保持禁用。
+
+### 移动端按键振动预览（2026-09-16）
+
+对齐 Apple 输入设置的“试一下振动”，共享按键反馈分组新增预览按钮。iOS 通过移动插件调用 `UIImpactFeedbackGenerator`，Android 通过 `Vibrator`/`VibrationEffect` 按轻、中、强映射触觉振幅；预览不写入共享 Engine 设置或键盘输入状态，保存的偏好仍由各自键盘宿主读取。
+
+本地验证通过按键反馈定向 Vitest、Rust fmt、移动插件测试和桌面 TypeScript 检查；未执行签名设备触觉硬件效果、系统静音策略或 Android 厂商振动强度验收，CI 保持禁用。
 本地验证：`macos_panel_session` Rust 回归 5/5 通过，`InputController.mm` Objective-C++ syntax-only 编译通过；使用锁定 Engine 副本避开自动拉取。未执行 Tauri bundle、麦克风/语音 provider、安装输入源或真实编辑器端到端验收，CI 保持禁用。
 
 ### Windows 全半角模式事件同步

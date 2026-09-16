@@ -2455,11 +2455,19 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             // The offline English gloss rides this same query, so it has to be
             // reachable with online translation off: it is a packaged
             // dictionary lookup and never leaves the machine.
+            let mut target_languages = vec![preferences.translation_target_language];
+            if let Some(secondary) = preferences.translation_secondary_language {
+                if !target_languages.contains(&secondary) {
+                    target_languages.push(secondary);
+                }
+            }
             let english_gloss = preferences.candidate_english_gloss
-                && matches!(
-                    preferences.translation_target_language,
-                    msime_client_core::preferences::TranslationTargetLanguage::En
-                );
+                && target_languages.iter().any(|language| {
+                    matches!(
+                        language,
+                        msime_client_core::preferences::TranslationTargetLanguage::En
+                    )
+                });
             if !preferences.candidate_translations && !english_gloss {
                 return Ok(Value::Null);
             }
@@ -2512,6 +2520,10 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "generation": view.generation,
                 "target_language": serde_json::to_value(preferences.translation_target_language)
                     .map_err(|e| e.to_string())?,
+                "target_languages": target_languages
+                    .iter()
+                    .map(|language| serde_json::to_value(language).map_err(|e| e.to_string()))
+                    .collect::<Result<Vec<_>, _>>()?,
                 "candidates": candidates,
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
@@ -4820,6 +4832,8 @@ mod tests {
         preferences.candidate_translations = true;
         preferences.translation_target_language =
             msime_client_core::preferences::TranslationTargetLanguage::Fr;
+        preferences.translation_secondary_language =
+            Some(msime_client_core::preferences::TranslationTargetLanguage::Ja);
         preferences.custom_translation.enabled = true;
         preferences.custom_translation.endpoint = "https://translation.example.invalid".into();
         preferences.tencent_tmt.secret_id = "AKIDsynthetic".into();
@@ -4830,6 +4844,7 @@ mod tests {
         let query = read(msime_client_translation_query(handle));
         assert_eq!(query["value"]["generation"], view["generation"]);
         assert_eq!(query["value"]["target_language"], "fr");
+        assert_eq!(query["value"]["target_languages"], json!(["fr", "ja"]));
         assert_eq!(
             query["value"]["custom_translation"]["endpoint"],
             "https://translation.example.invalid"
@@ -4892,13 +4907,26 @@ mod tests {
             Value::Null
         );
 
+        // An English secondary language still enables the packaged offline
+        // dictionary while preserving the user's primary target.
+        preferences.translation_secondary_language =
+            Some(msime_client_core::preferences::TranslationTargetLanguage::En);
+        preferences.candidate_english_gloss = true;
+        update(handle, 8, &preferences);
+        let secondary_gloss = read(msime_client_translation_query(handle));
+        assert_eq!(
+            secondary_gloss["value"]["target_languages"],
+            json!(["ja", "en"])
+        );
+        assert_eq!(secondary_gloss["value"]["english_gloss"], true);
+
         // And with the gloss off, the paths are not handed out at all.
         preferences.candidate_english_gloss = false;
         preferences.translation_target_language =
             msime_client_core::preferences::TranslationTargetLanguage::En;
         preferences.candidate_translations = true;
         preferences.tencent_tmt.secret_key = "synthetic".into();
-        update(handle, 8, &preferences);
+        update(handle, 9, &preferences);
         let online = read(msime_client_translation_query(handle));
         assert_eq!(online["value"]["english_gloss"], false);
         assert!(online["value"]["resources"].is_null());

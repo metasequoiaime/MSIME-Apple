@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000001 /* BackendAnonymousAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* BackendAnonymousAccount.swift */; };
+		A10000000000000000000002 /* BackendLocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* BackendLocalStore.swift */; };
+		A10000000000000000000003 /* CandidateTranslationPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* CandidateTranslationPreference.swift */; };
+		A10000000000000000000004 /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* CandidateTranslationStore.swift */; };
+		A10000000000000000000005 /* CandidateTranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* CandidateTranslationTests.swift */; };
+		A10000000000000000000006 /* BackendAnonymousAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* BackendAnonymousAccount.swift */; };
+		A10000000000000000000007 /* BackendLocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* BackendLocalStore.swift */; };
+		A10000000000000000000008 /* CandidateTranslationPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* CandidateTranslationPreference.swift */; };
+		A10000000000000000000009 /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* CandidateTranslationStore.swift */; };
+		A1000000000000000000000A /* CandidateTranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* CandidateTranslationTests.swift */; };
 		005C5B60008F71719DF24012 /* BackendSkinArtworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D77EE27007A152567FFE43 /* BackendSkinArtworkClient.swift */; };
 		01211E996FAA51B70B35CF65 /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4461681D50E31DE69E324E /* WubiCodeHintPreference.swift */; };
 		017408FAD6E3103260CCC68E /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75CDB4AA80F047BC3CB495BC /* SpaceCursorMovement.swift */; };
@@ -465,6 +475,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000001 /* BackendAnonymousAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendAnonymousAccount.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* BackendLocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendLocalStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* CandidateTranslationPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateTranslationPreference.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* CandidateTranslationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateTranslationStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* CandidateTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateTranslationTests.swift; sourceTree = "<group>"; };
 		00C4267C10F60EDB3BD9EA75 /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
 		00F9599DDC8DD4AD27C0C416 /* InputSchemePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSchemePreference.swift; sourceTree = "<group>"; };
 		01142FD117EAF928510DFB29 /* BackendAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendAccountSession.swift; sourceTree = "<group>"; };
@@ -740,6 +755,7 @@
 			isa = PBXGroup;
 			children = (
 				AC5641A1B985DE60D823E4FF /* DictionarySnapshotWorker.swift */,
+				A20000000000000000000004 /* CandidateTranslationStore.swift */,
 				4AF74B012212B64E96278F3A /* EnglishCapitalizationPolicy.swift */,
 				FDA38ECD0DFF5AFF9B796ECC /* HandwritingDownloadSession.h */,
 				4BC0252681EA7E2DEB8AB638 /* HandwritingDownloadSession.m */,
@@ -908,6 +924,7 @@
 			isa = PBXGroup;
 			children = (
 				197361DEE845463DCC8EFEA3 /* AppServicesBridge.swift */,
+				A20000000000000000000003 /* CandidateTranslationPreference.swift */,
 				9A0A30BB79ECFCCFA8C122B5 /* CandidateGlossModel.swift */,
 				CF8882B684654A0CC2A7A278 /* CandidateGlossPreference.swift */,
 				C48D264E2617A188D92B8E29 /* CandidatePanelSnapshot.swift */,
@@ -955,11 +972,13 @@
 		F50024DCEA20CDFDD6D6D5A6 /* backend */ = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000001 /* BackendAnonymousAccount.swift */,
 				D2A281E086234075D5B1C375 /* BackendAccountClient.swift */,
 				01142FD117EAF928510DFB29 /* BackendAccountSession.swift */,
 				7607137DD400F6FCA5D8C145 /* BackendAiClient.swift */,
 				60AE63020062AFDBCEFD8A0E /* BackendCandidateClient.swift */,
 				3AC236C696A74A748FE84248 /* BackendChatClient.swift */,
+				A20000000000000000000002 /* BackendLocalStore.swift */,
 				7CBF9A6EAD1B08A9E5C46C62 /* BackendClipboardClient.swift */,
 				E18C6A9D38AB05BE346E44D8 /* BackendCommunityResourceClient.swift */,
 				B8804EF8C9975C8DC752A567 /* BackendDictionaryClient.swift */,
@@ -974,6 +993,7 @@
 		F9EA923EEA8552CA5B40C156 /* KeyboardTests */ = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000005 /* CandidateTranslationTests.swift */,
 				4ACA781F17854C60203B97D8 /* AISkinGenerationTests.swift */,
 				BD5EF6484CC9B92F10A11CE2 /* AISkinServiceTests.swift */,
 				DA35FCCE6B60FBC7C547E73F /* ClipboardHistoryTests.swift */,
@@ -1291,6 +1311,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000006 /* BackendAnonymousAccount.swift in Sources */,
+				A10000000000000000000007 /* BackendLocalStore.swift in Sources */,
+				A10000000000000000000008 /* CandidateTranslationPreference.swift in Sources */,
+				A10000000000000000000009 /* CandidateTranslationStore.swift in Sources */,
+				A1000000000000000000000A /* CandidateTranslationTests.swift in Sources */,
 				F96BFE30A0461E5921808E59 /* AISkinGenerationTests.swift in Sources */,
 				16D6387B28BDB5C859433940 /* AISkinService.swift in Sources */,
 				36E10800C0B83E15FABA172D /* AISkinServiceTests.swift in Sources */,
@@ -1410,6 +1435,7 @@
 				6F45DB507376A0A11C24A6D1 /* AppIconSettingsView.swift in Sources */,
 				C3D17B38735316FB625266C7 /* AppNavigation.swift in Sources */,
 				AD6244C7421F109134AC406A /* AppServicesBridge.swift in Sources */,
+				A10000000000000000000003 /* CandidateTranslationPreference.swift in Sources */,
 				65CCAF388B813B0FBA5749D0 /* BackendAccountClient.swift in Sources */,
 				F3A4451E3340385686B5EF60 /* BackendAccountSession.swift in Sources */,
 				02AC5A255816F95B5FE4598F /* BackendAiClient.swift in Sources */,
@@ -1511,6 +1537,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				C9A0C000D35BF6763BEED1D8 /* AppServicesBridge.swift in Sources */,
+				A10000000000000000000001 /* BackendAnonymousAccount.swift in Sources */,
+				A10000000000000000000002 /* BackendLocalStore.swift in Sources */,
+				A10000000000000000000003 /* CandidateTranslationPreference.swift in Sources */,
+				A10000000000000000000004 /* CandidateTranslationStore.swift in Sources */,
+				216B8FF52954568E9162CD64 /* BackendAccountSession.swift in Sources */,
+				37ED7754ECB8D6D4B4CAF7C3 /* BackendChatClient.swift in Sources */,
 				4FFF8664D5E32DE21A890868 /* BackendAccountClient.swift in Sources */,
 				599207E2FDF397DC91772F0F /* BackendSnapshotClient.swift in Sources */,
 				692EFEC96E19688DEFE93440 /* CandidateGlossModel.swift in Sources */,

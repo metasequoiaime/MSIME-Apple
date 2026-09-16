@@ -48,6 +48,13 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
     typewriter: "纸上时光", candy: "奶油桃桃", midnight: "霓虹夜航", blueprint: "工程蓝图",
   }[skin] ?? "水杉绿";
   const invokeAction = (action?: () => Promise<void>) => { if (action) void action(); };
+  const openKeyboard = () => {
+    if (!actions?.openKeyboard) {
+      onOpenPage("screen-keyboard");
+      return;
+    }
+    void actions.openKeyboard().catch(() => onOpenPage("screen-keyboard"));
+  };
 
   return <section className="home-page" aria-label="首页">
     <header className="home-intro">
@@ -57,7 +64,7 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
       </div>
       <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
     </header>
-    <button type="button" className="home-keyboard-card" onClick={() => invokeAction(actions?.openKeyboard)}>
+    <button type="button" className="home-keyboard-card" onClick={openKeyboard}>
       <div className="home-card-heading"><span><strong>我的键盘</strong><small>{skinTitle} · {schemeTitle(preferences)}</small></span><em>当前外观</em></div>
       <ScreenKeyboardPreview theme={theme} skin={skin as TouchKeyboardSkin} customDesign={customDesign} />
       <span className="home-card-action">⌨ 试用键盘 <span aria-hidden="true">→</span></span>
@@ -66,6 +73,9 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
       <button type="button" onClick={() => onOpenPage("skin")}><span aria-hidden="true">◈</span><strong>皮肤</strong><small>{skinTitle}</small></button>
       <button type="button" onClick={() => onOpenPage("input")}><span aria-hidden="true">⌨</span><strong>输入方案</strong><small>{schemeTitle(preferences)}</small></button>
       <button type="button" onClick={() => onOpenPage("screen-keyboard")}><span aria-hidden="true">⌗</span><strong>按键</strong><small>间距与语音</small></button>
+      <button type="button" onClick={() => onOpenPage("dictionary")}><span aria-hidden="true">▤</span><strong>词库</strong><small>个人词与同步</small></button>
+      <button type="button" onClick={() => onOpenPage("ai")}><span aria-hidden="true">✦</span><strong>AI</strong><small>回复与润色</small></button>
+      <button type="button" onClick={() => actions?.openSystemKeyboardSettings ? invokeAction(actions.openSystemKeyboardSettings) : onOpenPage("screen-keyboard")}><span aria-hidden="true">⚙</span><strong>系统设置</strong><small>启用与完全访问</small></button>
     </div>
     <button type="button" className="home-feature-card" onClick={() => { onSelectScheme?.("thoughtful_reply"); onOpenPage("input"); }}>
       <span className="home-feature-icon" aria-hidden="true">✦</span>

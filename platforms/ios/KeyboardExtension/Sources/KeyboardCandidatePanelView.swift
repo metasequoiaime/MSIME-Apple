@@ -116,7 +116,8 @@ final class KeyboardCandidatePanelView: UIView {
     var used: CGFloat = 0
     for (offset, candidate) in candidates.enumerated() {
       let chip = makeChip(candidate: candidate, number: offset + 1)
-      let width = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+      let width = min(naturalWidth(of: chip), available)
+      chip.widthAnchor.constraint(equalToConstant: width).isActive = true
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
         row = makeRow(spacing: spacing)
@@ -126,6 +127,20 @@ final class KeyboardCandidatePanelView: UIView {
       used += (used > 0 ? spacing : 0) + width
     }
     if !row.arrangedSubviews.isEmpty { rows.addArrangedSubview(row) }
+  }
+
+  private func naturalWidth(of chip: UIButton) -> CGFloat {
+    guard let title = chip.configuration?.attributedTitle.map({ NSAttributedString($0) }) else {
+      return chip.intrinsicContentSize.width
+    }
+    let text = title.string as NSString
+    var widest: CGFloat = 0
+    text.enumerateSubstrings(in: NSRange(location: 0, length: text.length),
+                             options: [.byLines, .substringNotRequired]) { _, range, _, _ in
+      widest = max(widest, title.attributedSubstring(from: range).size().width)
+    }
+    let insets = chip.configuration?.contentInsets ?? .zero
+    return ceil(widest + insets.leading + insets.trailing)
   }
 
   private func makeRow(spacing: CGFloat) -> UIStackView {
@@ -140,17 +155,21 @@ final class KeyboardCandidatePanelView: UIView {
     let text = display(candidate)
     let annotation = annotations.indices.contains(number - 1) ? annotations[number - 1] : .none
     var configuration = UIButton.Configuration.plain()
-    configuration.title = text
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineBreakMode = .byTruncatingTail
+    var title = AttributedString(text, attributes: AttributeContainer([
+      .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+    ]))
     if !annotation.text.isEmpty {
-      configuration.attributedTitle = AttributedString(
-        text, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .body),
-        ])) + AttributedString(
-          "  " + annotation.text, attributes: AttributeContainer([
-            .font: UIFont.preferredFont(forTextStyle: .caption1),
-            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-          ]))
+      let lines = annotation.text.split(separator: "\n", omittingEmptySubsequences: false)
+      for line in lines {
+        title += AttributedString("\n" + String(line), attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
     }
+    configuration.attributedTitle = title
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
@@ -162,6 +181,7 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
+    chip.titleLabel?.numberOfLines = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

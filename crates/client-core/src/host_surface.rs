@@ -183,8 +183,7 @@ impl HostCapabilities {
             // HarmonyOS panel hides the button and narrows itself, and its
             // emoji and screen-keyboard buttons open the same surfaces its
             // phone keyboard reaches from a key face.
-            floating_toolbar_components: platform.is_desktop()
-                || platform == HostPlatform::Harmony,
+            floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
             // The IBus host consumes these directly. The Windows Server now
             // mirrors them into the shared config.toml the TIP reads at
             // activation, so the toggles take effect there too. The HarmonyOS

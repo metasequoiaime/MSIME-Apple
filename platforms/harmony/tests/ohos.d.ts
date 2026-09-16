@@ -11,3 +11,21 @@ declare module '@ohos.hilog' {
   };
   export default hilog;
 }
+
+declare module '@ohos.deviceInfo' {
+  const deviceInfo: {
+    deviceType: string;
+    DeviceTypes: {
+      TYPE_2IN1: string;
+    };
+  };
+  export default deviceInfo;
+}
+
+declare module 'libmsimeclient.so' {
+  const client: {
+    loadPreferences(directory: string): string;
+    savePreferences(directory: string, expectedRevision: number, snapshot: string): string;
+  };
+  export default client;
+}

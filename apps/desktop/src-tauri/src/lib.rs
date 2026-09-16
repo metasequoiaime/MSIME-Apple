@@ -38,12 +38,14 @@ use msime_client_core::preferences::{
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+#[cfg(target_os = "android")]
+use msime_tauri_mobile_platform::AndroidVoicePlatform;
 #[cfg(any(target_os = "ios", test))]
 use msime_tauri_mobile_platform::IosVoiceRequestHeader;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
 // The packaged recognizer runs on every host; only the socket provider is unix.
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
@@ -52,7 +54,7 @@ use std::collections::HashMap;
 use std::fs;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::io::Write;
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::path::Path;
@@ -68,7 +70,10 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 mod skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 mod voice_output;
-#[cfg(any(all(unix, not(target_os = "ios")), target_os = "windows"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "ios", target_os = "android"))),
+    target_os = "windows"
+))]
 mod voice_sessions;
 #[cfg(windows)]
 mod windows_voice;
@@ -2635,7 +2640,7 @@ async fn recognize_handwriting(
     // A user-managed socket owns recognizer and model policy where one is
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     let socket = match std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET") {
         Some(value) => {
             let path = PathBuf::from(value);
@@ -2648,7 +2653,7 @@ async fn recognize_handwriting(
         }
         None => discover_session_provider("handwriting.sock"),
     };
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     if let Some(path) = socket {
         let candidates = tauri::async_runtime::spawn_blocking(move || {
             UnixSocketProvider::new(path).handwriting(query)
@@ -2964,7 +2969,7 @@ struct VoiceRecognitionUpdate {
     level: Option<f32>,
 }
 
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     let mut end = value.len().min(max_bytes);
     while !value.is_char_boundary(end) {
@@ -2973,7 +2978,7 @@ fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     &value[..end]
 }
 
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
@@ -3053,7 +3058,7 @@ fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
 }
 
 // Resolve on each request so services started after the panel remain discoverable.
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 fn discover_session_provider(filename: &str) -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
@@ -3066,7 +3071,7 @@ fn discover_session_provider(filename: &str) -> Option<PathBuf> {
         })
 }
 
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
     document
         .get("voice_provider_socket")
@@ -3092,6 +3097,8 @@ async fn recognize_voice(
     let _ = (&runtime, &store);
     #[cfg(target_os = "ios")]
     let _ = &runtime;
+    #[cfg(target_os = "android")]
+    let _ = (&runtime, &store);
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store);
     if request.request_id.is_empty()
@@ -3112,7 +3119,21 @@ async fn recognize_voice(
     {
         windows_voice::recognize(app, request).await
     }
-    #[cfg(all(unix, not(target_os = "ios")))]
+    #[cfg(target_os = "android")]
+    {
+        let platform = app
+            .state::<AndroidVoicePlatform<tauri::Wry>>()
+            .inner()
+            .clone();
+        let text = platform
+            .recognize_voice(&request.request_id, &request.language)
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(VoiceRecognitionResult { text });
+    }
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {
         let runtime = runtime.inner().clone();
         let store = store.inner().clone();
@@ -3296,7 +3317,15 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
         );
         Ok(())
     }
-    #[cfg(all(unix, not(target_os = "ios")))]
+    #[cfg(target_os = "android")]
+    {
+        app.state::<AndroidVoicePlatform<tauri::Wry>>()
+            .stop_voice(&request_id)
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    }
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let Some(session) = sessions.active(&request_id) else {
@@ -3327,7 +3356,15 @@ fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(),
                 code: "unavailable",
             })
     }
-    #[cfg(all(unix, not(target_os = "ios")))]
+    #[cfg(target_os = "android")]
+    {
+        app.state::<AndroidVoicePlatform<tauri::Wry>>()
+            .cancel_voice(request_id.as_deref())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    }
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let Some(session) = sessions.cancel(request_id.as_deref()) else {
@@ -3618,7 +3655,24 @@ async fn send_voice_text(
             let _ = (window, state, typing_statistics, store);
             Ok(())
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(target_os = "android")]
+        {
+            let platform = app
+                .try_state::<AndroidVoicePlatform<tauri::Wry>>()
+                .ok_or(HostActionError {
+                    code: "unavailable",
+                })?
+                .inner()
+                .clone();
+            platform
+                .save_voice_text(&text)
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+            let _ = (state, typing_statistics, store);
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let _ = (app, window, state, typing_statistics, store, text);
             Err(HostActionError {
@@ -5116,6 +5170,12 @@ pub fn run() {
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
             android_account::app_icon_set,
+            #[cfg(target_os = "android")]
+            android_account::mobile_keyboard_feedback_load,
+            #[cfg(target_os = "android")]
+            android_account::mobile_keyboard_feedback_save,
+            #[cfg(target_os = "android")]
+            android_account::mobile_keyboard_feedback_preview,
             #[cfg(target_os = "ios")]
             open_system_keyboard_settings,
             #[cfg(target_os = "ios")]
@@ -5130,6 +5190,8 @@ pub fn run() {
             ios_account::account_request_code,
             #[cfg(target_os = "ios")]
             ios_account::account_login,
+            #[cfg(target_os = "ios")]
+            ios_account::account_apple_login,
             #[cfg(target_os = "ios")]
             ios_account::account_profile,
             #[cfg(target_os = "ios")]
@@ -5152,6 +5214,12 @@ pub fn run() {
             ios_account::account_preferences_upload,
             #[cfg(target_os = "ios")]
             ios_account::account_preferences_apply,
+            #[cfg(target_os = "ios")]
+            ios_account::mobile_keyboard_feedback_load,
+            #[cfg(target_os = "ios")]
+            ios_account::mobile_keyboard_feedback_save,
+            #[cfg(target_os = "ios")]
+            ios_account::mobile_keyboard_feedback_preview,
             #[cfg(target_os = "ios")]
             ios_account::community_skin_list,
             #[cfg(target_os = "ios")]

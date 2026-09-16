@@ -237,6 +237,91 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
+  /// Persist touch keyboard geometry in the canonical PreferencesStore snapshot.
+  /// Native App Group keys remain a compatibility layer for older hosts, but the
+  /// shared snapshot is the source that is reloaded when the extension appears.
+  @discardableResult
+  func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
+                                heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
+    guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return false }
+    let keySpacingTenths = Int((min(6, max(3, keySpacing)) * 10).rounded())
+    let rowSpacingTenths = Int((min(10, max(4, rowSpacing)) * 10).rounded())
+    let clampedHeight = Int(min(48, max(-12, heightAdjustment)).rounded())
+    return updatePreferences { preferences in
+      preferences["touch_key_spacing_tenths"] = keySpacingTenths
+      preferences["touch_row_spacing_tenths"] = rowSpacingTenths
+      preferences["touch_keyboard_height_adjustment"] = clampedHeight
+      preferences["touch_voice_shortcut"] = voiceEnabled
+    }
+  }
+
+  /// Remove touch geometry overrides so canonical defaults are used again.
+  @discardableResult
+  func resetTouchKeyboardGeometry() -> Bool {
+    updatePreferences { preferences in
+      preferences.removeValue(forKey: "touch_key_spacing_tenths")
+      preferences.removeValue(forKey: "touch_row_spacing_tenths")
+      preferences.removeValue(forKey: "touch_keyboard_height_adjustment")
+      preferences.removeValue(forKey: "touch_voice_shortcut")
+    }
+  }
+
+  /// Persist the selected touch scheme and its presentation mapping in one
+  /// canonical snapshot. The App Group preference remains a compatibility
+  /// mirror for the legacy SwiftUI settings host.
+  @discardableResult
+  func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
+                              enabledSchemes: [ChineseInputScheme]) -> Bool {
+    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
+    guard !enabled.isEmpty else { return false }
+    let selected = enabled.contains(scheme) ? scheme : enabled[0]
+    let engineScheme: String
+    switch selected {
+    case .wubi: engineScheme = "wubi"
+    case .japanese, .japaneseNineKey: engineScheme = "japanese"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
+    case .quanpin, .nineKey, .handwriting, .thoughtfulReply: engineScheme = "quanpin"
+    }
+    let layout: String
+    switch selected {
+    case .nineKey, .japaneseNineKey: layout = "nine_key"
+    case .handwriting: layout = "handwriting"
+    default: layout = "twenty_six_key"
+    }
+    let selectedID = selected == .shuangpin ? "xiaohe" : selected.rawValue
+    return updatePreferences { preferences in
+      preferences["scheme"] = engineScheme
+      if engineScheme != "japanese" {
+        preferences["last_chinese_scheme"] = engineScheme
+      }
+      if let profile = selected.shuangpinProfile {
+        preferences["shuangpin_profile"] = profile
+      }
+      preferences["touch_keyboard_layout"] = layout
+      preferences["touch_keyboard_schemes"] = [
+        "enabled": enabled.map { $0 == .shuangpin ? "xiaohe" : $0.rawValue },
+        "selected": selectedID,
+      ]
+    }
+  }
+
+  /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
+  /// The native App Group value remains a compatibility mirror for old hosts.
+  @discardableResult
+  func setTouchKeyboardSkin(_ skin: KeyboardSkin) -> Bool {
+    updatePreferences { preferences in
+      preferences["touch_keyboard_skin"] = skin.rawValue
+    }
+  }
+
+  /// Persist the touch host's Chinese output mode in the canonical snapshot.
+  @discardableResult
+  func setTraditionalChineseOutput(_ enabled: Bool) -> Bool {
+    updatePreferences { preferences in
+      preferences["traditional_chinese_output"] = enabled
+    }
+  }
+
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
   }
