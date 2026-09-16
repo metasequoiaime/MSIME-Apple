@@ -102,7 +102,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["skinSettingsLink"].tap()
     app.buttons["skinCommunityLink"].tap()
     XCTAssertTrue(app.tabBars.buttons["社区"].isSelected)
-    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["communityCategory-0"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.navigationBars["皮肤详情"].exists)
     app.buttons["communityCategory-2"].tap()
     app.tabBars.buttons["键盘"].tap()
@@ -111,14 +111,14 @@ final class SkinUITests: KeyboardInterfaceTests {
     XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
     app.tabBars.buttons["键盘"].tap()
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     app.tabBars.buttons["我的"].tap()
     let replay = app.buttons["replayOnboardingLink"]
     for _ in 0..<6 { if replay.isHittable { break }; app.swipeUp() }
     replay.tap()
     XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
-    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountProfileCard"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
   }
 
@@ -134,7 +134,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["publishCommunityWork"].tap()
     XCTAssertTrue(app.navigationBars["发布回复"].waitForExistence(timeout: 5))
     app.buttons["取消"].tap()
-    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["communityCategory-0"].waitForExistence(timeout: 5))
     XCTAssertEqual(search.value as? String, "reply")
     XCTAssertTrue(app.buttons["communityCategory-2"].isSelected)
   }

@@ -76,7 +76,7 @@ struct AccountSettingsView: View {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
       }
     }
-    .navigationTitle("我的")
+    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
     .background(MetasequoiaTheme.canvas)
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)

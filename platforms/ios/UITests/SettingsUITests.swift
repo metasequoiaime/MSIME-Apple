@@ -288,9 +288,9 @@ final class SettingsUITests: KeyboardInterfaceTests {
     finish.tap()
     app.launchArguments = ["-service.ai.endpoint", "", "-service.ai.model", ""]
 
-    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["让输入，更像你"].waitForExistence(timeout: 10))
 
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
     XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
@@ -300,7 +300,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
     XCTAssertEqual(nineKey.value as? String, "已选择")
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 
