@@ -356,7 +356,33 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
+export const AI_PROVIDER_OPTIONS: readonly { id: string; title: string; endpoint: string; model: string }[] = [
+  { id: "everyapi", title: "EveryAPI", endpoint: "https://api.everyapi.ai/v1/chat/completions", model: "deepseek-v4-flash" },
+  { id: "openai", title: "OpenAI", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4.1-mini" },
+  { id: "anthropic", title: "Anthropic · Claude", endpoint: "https://api.anthropic.com/v1/chat/completions", model: "claude-sonnet-4-6" },
+  { id: "gemini", title: "Google · Gemini", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: "gemini-3.8-flash" },
+  { id: "deepseek", title: "DeepSeek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-v4-flash" },
+  { id: "qwen", title: "通义千问 · 阿里云百炼", endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", model: "qwen-plus" },
+  { id: "kimi", title: "Kimi · 月之暗面", endpoint: "https://api.moonshot.cn/v1/chat/completions", model: "kimi-k2.6" },
+  { id: "zhipu", title: "智谱 · GLM", endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions", model: "glm-4.7" },
+  { id: "siliconflow", title: "硅基流动", endpoint: "https://api.siliconflow.cn/v1/chat/completions", model: "Qwen/Qwen3.6-27B" },
+  { id: "groq", title: "Groq", endpoint: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile" },
+  { id: "openrouter", title: "OpenRouter", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/auto" },
+  { id: "custom", title: "自定义", endpoint: "", model: "" },
+];
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+
+/** Switch providers like the Apple settings page: preset values follow the
+ * provider, while a deliberately edited custom endpoint/model are preserved. */
+export function aiProviderUpdate(provider: string, current: AiAssistantPreferences): Partial<AiAssistantPreferences> {
+  const next = AI_PROVIDER_OPTIONS.find(option => option.id === provider) ?? AI_PROVIDER_OPTIONS[AI_PROVIDER_OPTIONS.length - 1];
+  const previous = AI_PROVIDER_OPTIONS.find(option => option.id === current.provider);
+  return {
+    provider: next.id,
+    endpoint: !current.endpoint.trim() || current.endpoint === previous?.endpoint ? next.endpoint : current.endpoint,
+    model: !current.model.trim() || current.model === previous?.model ? next.model : current.model,
+  };
+}
 // asr_provider mirrors client-core's default; the two disagreeing meant a host
 // wrote a provider no backend implements.
 const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "doubao", doubao_auth_mode: "api_key", asr_resource_id: "volc.seedasr.sauc.duration" };
@@ -2310,7 +2336,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
         <div className="section"><label className="section-header"><span className="section-title">启用 AI 辅助<small>{iosPlatform ? "为键盘 AI 联想、回复与润色提供共享配置" : androidPlatform ? "为拼音联想和 Android 选中文字润色提供共享配置" : "为拼音联想提供共享配置"}</small></span><input aria-label="启用 AI 辅助" className="toggle" type="checkbox" checked={ai.enabled} onChange={event => updateAi({ enabled: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">服务提供商</span><select aria-label="AI 服务提供商" value={ai.provider} onChange={event => updateAi({ provider: event.target.value })}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">SiliconFlow</option><option value="groq">Groq</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">服务提供商</span><select aria-label="AI 服务提供商" value={ai.provider} onChange={event => updateAi(aiProviderUpdate(event.target.value, ai))}>{AI_PROVIDER_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
         {linuxPlatform ? <div className="section"><div className="section-title">Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small></div><p className="input-setting-description">凭据不保存在共享设置中；请在用户配置目录的 <code>ai-provider.json</code> 中配置，并使其中的 provider、接口地址和模型与上方设置一致。</p>{credentialTestControl("ai.assistant", "测试 AI 辅助配置", { provider: ai.provider, endpoint: ai.endpoint, model: ai.model }, !ai.enabled || !aiOrigin || !ai.model.trim())}</div> : <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>}

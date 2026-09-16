@@ -1005,3 +1005,11 @@ Android Tauri `MainActivity` 现在注册 `OnBackPressedCallback`：当共享设
 共享设置页的 iOS 语音入口现在在同一个移动 WebView 内打开 `VoicePanel`，复用已有 Tauri → Rust → Swift 录音/识别链路；面板不再尝试创建桌面独立窗口，也不记录不存在的前台输入目标。识别结果提交由 iOS 原生插件写入 App Group 的短期语音交接文件，提示用户返回目标 App 后从键盘“更多 → 语音结果”确认插入。通用语音面板支持宿主注入平台说明和交接提示，Linux/Windows/macOS 现有面板默认行为不变。
 
 本地新增 iOS 入口与跨表面提交文案回归，语音设置定向测试 10 项、语音面板定向测试通过，并完成 TypeScript 检查和 Vite 构建；未执行 iOS 真机录音权限、后台取消、App Group 交接和键盘扩展插入验收，CI 保持禁用。
+
+### 移动端 AI provider 目录与 iOS 键盘配置同步（2026-09-16）
+
+共享 Tauri AI 设置现在对齐 Apple 的 provider 目录：EveryAPI、OpenAI、Anthropic、Gemini、DeepSeek、通义千问、Kimi、智谱、硅基流动、Groq、OpenRouter 和自定义。切换预设会更新对应的 HTTPS 端点和模型；用户手动改过的端点或模型不会被覆盖。client-core 的请求构造与 PreferencesStore 使用同一 allowlist，所有 provider 继续走有界的 OpenAI-compatible Chat Completions 请求，DeepSeek/硅基流动的专用请求字段保持原行为。
+
+iOS Tauri 保存偏好后会把 AI 配置镜像到 App Group：非凭据配置写入 `keyboard.ai.configuration`，Token 只按规范化 `https://host:port` 写入共享钥匙串。未填写完整凭据的草稿仍可保存，但不会激活键盘扩展中的 AI；关闭 AI 会清理原生镜像。这样键盘 AI 联想、AI 润色和高情商回复读取到的配置与共享设置页保持一致，不把 Rust 偏好文档或 Token 交给 WebView。
+
+本地验证通过 client-core 237 项测试、移动插件 12 项测试、iOS arm64 Rust 检查、Swift 语法解析、桌面 TypeScript 检查和设置/AI UI 142 项 Vitest；未执行签名设备上的 App Group、钥匙串可用性、键盘扩展完整生命周期或真实 provider 请求验收，CI 保持禁用。
