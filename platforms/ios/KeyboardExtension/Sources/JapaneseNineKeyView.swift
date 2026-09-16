@@ -59,9 +59,11 @@ final class JapaneseNineKeyView: UIStackView {
       let modes = UIStackView()
       modes.axis = .vertical; modes.distribution = .fillEqually; modes.spacing = 7
       modes.accessibilityIdentifier = "japaneseModeColumn"
-      modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
       for key in modeKeys { modes.addArrangedSubview(key) }
       addArrangedSubview(modes)
+      // The width constraint relates two views, so it can only be activated once both share an
+      // ancestor. Activating it before the column joins the stack aborts the whole extension.
+      modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
     }
     let grid = UIStackView()
     grid.axis = .vertical; grid.distribution = .fillEqually; grid.spacing = 7
