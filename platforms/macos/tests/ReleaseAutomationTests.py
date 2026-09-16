@@ -25,9 +25,10 @@ SIGNING_SECRETS = (
 )
 
 
-# 已经发到 TestFlight 与 Sparkle 上的最高 build。任何新分配的 build 都必须高于它 —— 两次事故都是
-# 因为这条线只存在于注释里,而断言钉的是一个比它低的数。
-SHIPPED_BUILD_CEILING = (1002, 71, 1)
+# 曾经发到 TestFlight 与 Sparkle 上的最高 build。计数是被有意重置到它之下的,所以这里不再要求新号
+# 高于它 —— 留着这个常量是为了让下一个读到的人知道那条线在哪:Sparkle 要重新爬过它,已装的 macOS
+# 用户才会再收到更新。
+FORMER_BUILD_CEILING = (1002, 71, 1)
 
 
 class BuildNumberTests(unittest.TestCase):
@@ -53,23 +54,23 @@ class BuildNumberTests(unittest.TestCase):
                                          GITHUB_RUN_ATTEMPT=str(attempt))
             self.assertEqual(result.returncode, 0, result.stderr)
             builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
+        # 真正要守住的是这一条:同一条线上,后发的号必须比先发的大。跨越 FORMER_BUILD_CEILING 是一次
+        # 有意的重置,而在一次重置之内号还往回走,就只是个 bug。
         self.assertEqual(builds, sorted(set(builds)))
-        # 门槛钉在「已经发出去的最高 build」上,而不是一个比它低的整数。这条断言此前写的是 1000,
-        # 于是 1000.1.1 满足它 —— 而真实世界里 TestFlight 和 Sparkle 上已经是 1002.71.1,倒退了。
-        # 这个错犯过两次:#405 从陈旧检出里丢掉偏移量发了 3.64.1,把 release.yml 拆成两个 workflow
-        # 又让 GITHUB_RUN_NUMBER(按 workflow 计数)从 1 重来,发了 1000.1.1。号一旦回退,Sparkle 看不见
-        # 更新,App Store Connect 直接拒收。
-        self.assertGreater(builds[0], SHIPPED_BUILD_CEILING)
 
-    def test_every_release_workflow_allocates_above_what_shipped(self):
-        """两个发布 workflow 各有各的 GITHUB_RUN_NUMBER,所以偏移量要各自够高。"""
+    def test_both_release_workflows_share_one_offset(self):
+        """两个 workflow 各有各的 GITHUB_RUN_NUMBER,偏移量却必须一起改。
+
+        一边改一边忘,两个产品的号会悄悄错开几百,而没有任何东西会报错 —— 直到某天要回答
+        「这两个号是不是同一批代码」的时候。
+        """
         root = MACOS_ROOT.parents[1] / ".github/workflows"
+        offsets = {}
         for name in ("release-macos.yml", "release-ios.yml"):
-            body = (root / name).read_text()
-            offset = re.search(r"build=\"\$\(\((\d+) \+ GITHUB_RUN_NUMBER", body)
-            with self.subTest(workflow=name):
-                self.assertIsNotNone(offset, f"{name} 应当从一个显式偏移量算 build")
-                self.assertGreater((int(offset.group(1)), 0, 0), SHIPPED_BUILD_CEILING, name)
+            match = re.search(r"build=\"\$\(\((\d+) \+ GITHUB_RUN_NUMBER", (root / name).read_text())
+            self.assertIsNotNone(match, f"{name} 应当从一个显式偏移量算 build")
+            offsets[name] = int(match.group(1))
+        self.assertEqual(len(set(offsets.values())), 1, offsets)
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",

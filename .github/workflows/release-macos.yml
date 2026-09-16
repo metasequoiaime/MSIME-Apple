@@ -64,13 +64,15 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          # Start above every build already on TestFlight and Sparkle. The offset has been raised twice for the
-          # same reason: a build number that goes backwards is invisible to Sparkle and rejected by App Store
-          # Connect. #405 dropped it from a stale checkout and shipped 3.64.1; splitting release.yml into two
-          # workflows reset GITHUB_RUN_NUMBER, which counts per workflow, and shipped 1000.1.1 after 1002.71.1.
+          # 计数从头开始,这是有意的。之前的偏移量是为了越过 TestFlight 和 Sparkle 上已有的 1002.x 那一串。
+          #
+          # 代价写在这里,别让下一个人重新发现:Sparkle 比的就是这个号(见 generate-sparkle-appcast.sh 的
+          # --versions),所以已经装着 1002.71.1 的 macOS 用户,在这条线重新爬回 1002.71.1 之前收不到更新,
+          # 而且没有任何报错。iOS 那边 App Store Connect 按 (marketing version, build) 判唯一,所以重置后的
+          # 号只有在 marketing version 也往上走之后才收得进去。
           # Three numeric components; retries receive a distinct build, up to 99 attempts.
           test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1003 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          build="$((1 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
