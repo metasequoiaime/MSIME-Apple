@@ -797,9 +797,15 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "0")
     app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     app.buttons["管理" + name].tap()
-    app.buttons["删除"].tap()
-    app.buttons["删除"].tap()
-    XCTAssertFalse(app.buttons["savedSkin_" + name].exists)
+    // 删除 appears twice: once in the sheet 管理 opens and once to confirm. Tapping straight through
+    // races the sheet's presentation, which is what made this the one case that failed at random.
+    let remove = app.buttons["删除"]
+    XCTAssertTrue(remove.waitForExistence(timeout: 5))
+    remove.tap()
+    let confirm = app.buttons["删除"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+    XCTAssertFalse(app.buttons["savedSkin_" + name].waitForExistence(timeout: 2))
   }
 
   @MainActor
