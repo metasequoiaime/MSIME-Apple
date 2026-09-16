@@ -46,8 +46,15 @@
     NSData *data = [NSJSONSerialization dataWithJSONObject:items options:0 error:nil];
     if (!data.length || data.length > 65536) return self;
     _items = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    for (NSDictionary *item in _items) if (![item[@"text"] isKindOfClass:NSString.class] || ![item[@"text"] length] ||
-        ![item[@"request"] isKindOfClass:NSDictionary.class]) { _items = nil; break; }
+    for (NSDictionary *item in _items) {
+        if (![item[@"text"] isKindOfClass:NSString.class] || ![item[@"text"] length] ||
+            ![item[@"request"] isKindOfClass:NSDictionary.class]) { _items = nil; break; }
+        NSNumber *limit = item[@"candidate_limit"];
+        if (limit && (![limit isKindOfClass:NSNumber.class] ||
+            CFGetTypeID((__bridge CFTypeRef)limit) == CFBooleanGetTypeID() ||
+            CFNumberIsFloatType((__bridge CFNumberRef)limit) ||
+            limit.integerValue < 1 || limit.integerValue > 10)) { _items = nil; break; }
+    }
     return self;
 }
 - (instancetype)initWithItems:(NSArray<NSDictionary *> *)items
@@ -155,7 +162,9 @@
                 expectedCount:[item[@"originals"] count] error:nil] : nil;
         } else if (strongSelf->_ai) {
             translations = nil;
-            NSArray *values = body ? [MSIMEClientSession parseAIResponse:body limit:10 error:nil] : nil;
+            NSUInteger limit = [item[@"candidate_limit"] isKindOfClass:NSNumber.class]
+                ? [item[@"candidate_limit"] unsignedIntegerValue] : 10;
+            NSArray *values = body ? [MSIMEClientSession parseAIResponse:body limit:limit error:nil] : nil;
             for (NSString *value in values) if ([value isKindOfClass:NSString.class] && value.length)
                 [strongSelf->_results addObject:@{@"text":item[@"text"], @"translation":value}];
         } else {

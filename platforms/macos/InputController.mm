@@ -619,7 +619,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         _aiQuery = nil;
         return;
     }
-    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor } ];
+    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor,
+        @"candidate_limit": config[@"candidate_limit"] ?: @3 } ];
     uint64_t epoch = _aiEpoch; MSIMEClientSession *session = _session; id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
     _aiTimer = [NSTimer scheduledTimerWithTimeInterval:0.65 repeats:NO block:^(NSTimer *timer) {
