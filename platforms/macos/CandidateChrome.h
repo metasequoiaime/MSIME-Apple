@@ -115,23 +115,29 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
     NSString *word = [title substringFromIndex:NSMaxRange(split)];
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
+    const CGFloat wordX = textLeft + numberSize.width + MSIMECandidateNumberGap;
     NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:self.font.pointSize * 0.78];
     NSDictionary *glossAttributes = @{NSFontAttributeName:glossFont,
         NSForegroundColorAttributeName:self.translationColor ?: [(self.titleColor ?: NSColor.labelColor) colorWithAlphaComponent:MSIMECandidateTranslationOpacity],
         NSParagraphStyleAttributeName:paragraph};
-    NSSize glossSize = [self.translation ?: @"" sizeWithAttributes:glossAttributes];
+    CGFloat glossX = self.translationBelow ? wordX : wordX + wordSize.width + self.font.pointSize * 0.65;
+    const CGFloat availableGlossWidth = MAX(0.0, self.bounds.size.width - glossX - 8.0);
+    NSRect glossBounds = [self.translation ?: @"" boundingRectWithSize:NSMakeSize(availableGlossWidth, CGFLOAT_MAX)
+        options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine
+        attributes:glossAttributes];
+    NSSize glossSize = NSMakeSize(ceil(glossBounds.size.width), ceil(glossBounds.size.height));
     CGFloat extraHeight = self.translationBelow ? self.translationRowHeight : 0;
     const CGFloat contentHeight = self.bounds.size.height - extraHeight;
     const CGFloat numberY = extraHeight + (contentHeight - numberSize.height) / 2;
     const CGFloat wordY = extraHeight + (contentHeight - wordSize.height) / 2;
     [number drawAtPoint:NSMakePoint(textLeft, numberY) withAttributes:numberAttributes];
-    const CGFloat wordX = textLeft + numberSize.width + MSIMECandidateNumberGap;
     const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
     [word drawInRect:NSMakeRect(wordX, wordY, maxWidth, wordSize.height) withAttributes:titleAttributes];
     if (self.translation.length) {
-        CGFloat glossX = self.translationBelow ? wordX : wordX + wordSize.width + self.font.pointSize * 0.65;
         CGFloat glossY = self.translationBelow ? (extraHeight - glossSize.height) / 2 : (self.bounds.size.height - glossSize.height) / 2;
-        [self.translation drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), glossSize.height) withAttributes:glossAttributes];
+        CGFloat drawHeight = self.translationBelow ? MAX(0, extraHeight - 4) : glossSize.height;
+        [self.translation drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), drawHeight)
+            withAttributes:glossAttributes];
     }
 }
 @end
