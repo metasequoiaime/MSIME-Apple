@@ -4,10 +4,10 @@
 
 目标是迁移 MSIME-Windows 的完整功能，而不是只移植语音、设置页或能在当前机器运行的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；Windows 保留 TSF DLL / Server 进程及协议边界。已合并的其他平台成果不回退。每部分本地验证后提交合并，不要求用户逐项确认，不恢复私有仓库 CI。
 
-2026-09-14 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
+2026-09-17 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，固定提交 `30a22e6f3d47adf783e8f038b1dafbd71edbb4f1`。
-- 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `ca663cbf6b7d9a0f95e7a50687489a479ffed04d`。
+- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref origin HEAD` 确认默认分支 `develop`，固定提交 `0765bfb88de553ade41901d853d3f6d697accde7`。
+- 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `d14ecb7282f191e38ab000aa01bcd1153faecc7f`。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标仍使用独立 `vendor/MSIME-Engine` gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
 来源功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，后续仍须逐字段、逐动作下钻；本表不是穷尽行为的完成证明。

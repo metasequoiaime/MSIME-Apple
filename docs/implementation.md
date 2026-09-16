@@ -1066,3 +1066,9 @@ Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切�
 macOS 设置页的“安装 / 更新”现在通过 Tauri 专用命令安装随设置应用打包的 `MSIMEClientInputMethod.app`。安装器先校验固定 bundle identifier、Info.plist、可执行文件和所有目录项，复制到用户输入法目录的带进程号 staging 目录，完整复制成功后才原子替换旧 bundle；源 bundle、目标 bundle 或内部资源为符号链接时拒绝处理。替换完成后直接启动已安装 bundle 的 `--register-input-source`，只注册并启用自身，不静默切换当前输入源；重新注册按钮仍保留为独立操作。Tauri macOS 资源映射现在把 IMK bundle 随设置应用一起打包，其他平台没有该入口。
 
 本地验证：macOS Tauri Rust 安装器合成 bundle 回归 3/3（原子替换、可执行权限、错误 bundle/符号链接拒绝）；桌面设置 UI 定向测试 139 项、TypeScript 检查和 Vite 构建通过；InputSourceRegistration Objective-C++ 严格编译与测试通过。完整桌面 Rust 测试仍有两个与本切片无关的既有断言失败，未修改其行为；未在真实用户 `~/Library/Input Methods`、LaunchServices、系统输入源切换或编辑器上执行安装验收，也未声称签名/公证完成，CI 保持禁用。
+
+### 桌面 Tauri AI 模型目录与 Android command 边界
+
+macOS/Windows 桌面 Tauri 设置页现在通过受限的原生 HTTPS transport 读取当前服务的模型目录，并发送一次确认式 Chat Completions 润色测试；endpoint、token、模型、提示词和输入均在 Rust 边界校验，连接与总请求时限有界，错误不会回传响应原文。Android 继续使用已有 `android_account` provider；桌面 `ai_models` / `ai_test` commands 只在 macOS/Windows 注册，避免跨平台构建时与 Android 同名 command 冲突。输入算法、候选状态和 token 持久化仍不进入 Tauri command。
+
+本地验证：AI Rust 校验/URL 回归 3 项通过，macOS 桌面 `cargo check` 通过；Android 交叉检查使用本机 NDK 编译器进入 Engine CMake 阶段，因隔离 `MSIME_ANDROID_DEPS` 未准备而停止；clippy 仍只报告既有 dead-code 与既有 lint。未执行真实服务请求、Android 设备请求或安装后输入源验收，CI 保持禁用。
