@@ -9,8 +9,8 @@ tag_name=${1:-}
 archive_path=${2:-}
 output_path=${3:-}
 
-if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
-    printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
+if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$ ]]; then
+    printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix." >&2
     exit 1
 fi
 if [[ -z "$archive_path" || ! -f "$archive_path" ]]; then

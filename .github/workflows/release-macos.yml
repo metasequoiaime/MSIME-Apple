@@ -70,13 +70,14 @@ jobs:
           # --versions),所以已经装着 1002.71.1 的 macOS 用户,在这条线重新爬回 1002.71.1 之前收不到更新,
           # 而且没有任何报错。iOS 那边 App Store Connect 按 (marketing version, build) 判唯一,所以重置后的
           # 号只有在 marketing version 也往上走之后才收得进去。
-          # Three numeric components; retries receive a distinct build, up to 99 attempts.
-          test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          # 一个整数,就是这个 workflow 跑到第几次。之前是三段,第三段留给重跑 —— 重跑因此能拿到一个新号。
+          # 现在没有那一段了:同一次运行重跑会算出同一个号,而 App Store Connect 不收重复的 build,所以
+          # 重跑一个已经上传成功的发布会在上传那一步失败,得改用手动指定 tag 那条路。
+          build="$GITHUB_RUN_NUMBER"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
-          if [[ ! "$build" =~ ^[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+          if [[ ! "$build" =~ ^[1-9][0-9]{0,8}$ ]]; then
             echo "Invalid build number: $build" >&2
             exit 1
           fi
@@ -171,8 +172,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
-            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
+          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix." >&2
             exit 1
           fi
           release_json=$(gh release view "$TAG_NAME" --json isDraft,targetCommitish)

@@ -27,8 +27,8 @@ tag_name=${1:-}
 source_bundle=${2:-$project_root/build/MetasequoiaIME.app}
 output_dir=${3:-$project_root/dist}
 
-if [[ ! "$tag_name" =~ '^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$' ]]; then
-    print -u2 "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix."
+if [[ ! "$tag_name" =~ '^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$' ]]; then
+    print -u2 "Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix."
     exit 1
 fi
 

@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import textwrap
-import re
 import subprocess
 import tempfile
 import unittest
@@ -25,12 +24,6 @@ SIGNING_SECRETS = (
 )
 
 
-# 曾经发到 TestFlight 与 Sparkle 上的最高 build。计数是被有意重置到它之下的,所以这里不再要求新号
-# 高于它 —— 留着这个常量是为了让下一个读到的人知道那条线在哪:Sparkle 要重新爬过它,已装的 macOS
-# 用户才会再收到更新。
-FORMER_BUILD_CEILING = (1002, 71, 1)
-
-
 class BuildNumberTests(unittest.TestCase):
     def run_step(self, step, prefix="", **values):
         workflow = (MACOS_ROOT.parents[1] / ".github/workflows/release-macos.yml").read_text()
@@ -46,47 +39,63 @@ class BuildNumberTests(unittest.TestCase):
                                     env=environment, text=True, capture_output=True)
             return result, output.read_text() if output.exists() else ""
 
-    def test_build_increases_across_runs_rollover_and_retries(self):
+    def test_the_build_is_the_run_number_and_keeps_increasing(self):
         builds = []
-        for run, attempt in [(99, 1), (99, 2), (100, 1), (101, 1)]:
-            result, output = self.run_step("Allocate build number",
-                                         GITHUB_RUN_NUMBER=str(run),
-                                         GITHUB_RUN_ATTEMPT=str(attempt))
+        for run in (1, 2, 99, 100, 101):
+            result, output = self.run_step("Allocate build number", GITHUB_RUN_NUMBER=str(run))
             self.assertEqual(result.returncode, 0, result.stderr)
-            builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
-        # 真正要守住的是这一条:同一条线上,后发的号必须比先发的大。跨越 FORMER_BUILD_CEILING 是一次
-        # 有意的重置,而在一次重置之内号还往回走,就只是个 bug。
+            builds.append(int(output.strip().split("=")[1]))
+        self.assertEqual(builds, [1, 2, 99, 100, 101])
+        # 真正要守住的是这一条:同一条线上,后发的号必须比先发的大。计数被有意重置到曾经发出去的最高
+        # 号(1002.71.1)之下,所以这里不比它 —— 代价是 Sparkle 要重新爬过那条线,已装的 macOS 用户
+        # 才会再收到更新。而在一次重置之内号还往回走,就只是个 bug。
         self.assertEqual(builds, sorted(set(builds)))
 
-    def test_both_release_workflows_share_one_offset(self):
-        """两个 workflow 各有各的 GITHUB_RUN_NUMBER,偏移量却必须一起改。
+    def test_a_retry_reuses_its_number(self):
+        """重跑拿不到新号了 —— 第三段没有了。
 
-        一边改一边忘,两个产品的号会悄悄错开几百,而没有任何东西会报错 —— 直到某天要回答
-        「这两个号是不是同一批代码」的时候。
+        这不是疏漏,是取舍:号就是运行序号。代价是重跑一个已上传成功的发布会在上传那一步撞上
+        App Store Connect 的唯一性检查,那时要走手动指定 tag 那条路。写成测试,免得下次有人
+        对着上传失败去查凭据。
+        """
+        numbers = set()
+        for attempt in (1, 2):
+            result, output = self.run_step("Allocate build number",
+                                           GITHUB_RUN_NUMBER="7", GITHUB_RUN_ATTEMPT=str(attempt))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            numbers.add(output.strip())
+        self.assertEqual(numbers, {"value=7"})
+
+    def test_both_release_workflows_allocate_the_build_the_same_way(self):
+        """两个 workflow 各有各的 GITHUB_RUN_NUMBER,算法却必须一起改。
+
+        一边改一边忘,两个产品的号会悄悄按不同规则走,而没有任何东西会报错 —— 直到某天要回答
+        「这两个号是不是同一批代码」的时候。上面那些用例只读 release-macos.yml,这一条是把结论
+        接到 iOS 那一半上的唯一一根线。
         """
         root = MACOS_ROOT.parents[1] / ".github/workflows"
-        offsets = {}
+        bodies = {}
         for name in ("release-macos.yml", "release-ios.yml"):
-            match = re.search(r"build=\"\$\(\((\d+) \+ GITHUB_RUN_NUMBER", (root / name).read_text())
-            self.assertIsNotNone(match, f"{name} 应当从一个显式偏移量算 build")
-            offsets[name] = int(match.group(1))
-        self.assertEqual(len(set(offsets.values())), 1, offsets)
+            workflow = (root / name).read_text()
+            body = workflow.split("      - name: Allocate build number\n", 1)[1]
+            bodies[name] = body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
+        self.assertEqual(*bodies.values(), "两个 workflow 的 build 分配步骤必须逐字一致")
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
-                                     REQUESTED_TAG="v0.48.6-build.2.23.1")
+                                     REQUESTED_TAG="v0.48.6-build.23")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "value=2.23.1\n")
+        self.assertEqual(output, "value=23\n")
 
     def test_push_creates_unique_draft_at_exact_source_commit(self):
         result, output = self.run_step(
             "Create the build draft",
             prefix='cat() { printf "0.48.6\\n"; }; gh() { printf "%s\\n" "$*"; }',
-            BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA)
+            BUILD_NUMBER="23", GITHUB_SHA=HEAD_SHA)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("release create v0.48.6-build.2.23.1 --target " + HEAD_SHA, result.stdout)
+        self.assertIn("release create v0.48.6-build.23 --target " + HEAD_SHA, result.stdout)
         self.assertIn("--draft --prerelease", result.stdout)
-        self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.2.23.1\ntarget_sha=" + HEAD_SHA + "\n")
+        self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.23\ntarget_sha=" + HEAD_SHA + "\n")
 
     def test_manual_version_bump_and_draft_selection_are_exclusive(self):
         # Leaving both empty is the third mode: it creates its own draft rather than promoting a
@@ -942,15 +951,25 @@ fi
         self.assertIn("sign:test-private-key:", calls)
 
     def test_build_tag_selects_internal_build_for_appcast(self):
-        result, appcast, calls = self.run_generator(tag="v1.2.3-build.2.23.1")
+        result, appcast, calls = self.run_generator(tag="v1.2.3-build.23")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--versions 2.23.1", calls)
-        self.assertIn("releases/download/v1.2.3-build.2.23.1/", appcast)
+        self.assertIn("--versions 23", calls)
+        self.assertIn("releases/download/v1.2.3-build.23/", appcast)
+
+    def test_a_tag_from_before_the_reset_is_still_publishable(self):
+        """重置之前发出去的三段号还挂在 releases 上,重发某个旧 draft 会把它喂回这里来。
+
+        新号是纯整数,但收得下旧形状要单独钉一条 —— 不然哪天有人顺手把正则收紧成 `[0-9]+`,
+        断的是一条只在重发旧版本时才走到的路,平时全绿。
+        """
+        result, appcast, calls = self.run_generator(tag="v1.2.3-build.1002.71.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--versions 1002.71.1", calls)
 
     def test_formal_release_uses_independent_build(self):
-        result, appcast, calls = self.run_generator(build="2.24.1")
+        result, appcast, calls = self.run_generator(build="24")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--versions 2.24.1", calls)
+        self.assertIn("--versions 24", calls)
 
     def test_rejects_archive_that_does_not_match_release_tag(self):
         result, appcast, calls = self.run_generator(
