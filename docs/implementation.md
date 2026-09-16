@@ -1078,3 +1078,9 @@ macOS/Windows 桌面 Tauri 设置页现在通过受限的原生 HTTPS transport 
 macOS 原生 `FloatingToolbarPanel` 现在消费共享 `floating_toolbar.english_mode`。关闭该组件时隐藏中英文模式按钮并按实际可见组件重算工具栏宽度；开启时保留原有中英文状态更新和点击行为。其余可选按钮继续使用同一共享字段，手写与语音入口仍是平台固定能力。这样 Tauri 设置页保存的英文模式按钮开关不再只停留在配置层。
 
 本地验证：`floating-toolbar-panel-test` 直接以 macOS AppKit 严格编译并运行通过，覆盖英文模式及其他 6 个可选组件的 128 种可见性组合、宽度重算和控件不溢出；未执行签名安装后的真实工具栏视觉验收，CI 保持禁用。
+
+### macOS 浮动工具栏英文模式共享偏好桥接
+
+macOS 原生 `AppearancePreferences` 的浮动工具栏共享组件白名单现在包含 `english_mode`，并在共享快照合并时保留 Tauri 设置的布尔值；没有共享值时输出默认开启。这样原生偏好回写不会丢失英文模式按钮的显示开关。
+
+本地验证：`ToolbarVisibilityPreferencesTest` 覆盖默认输出、共享关闭值的缓存与回写；未执行签名安装后的真实设置窗口到输入源链路验收，CI 保持禁用。
