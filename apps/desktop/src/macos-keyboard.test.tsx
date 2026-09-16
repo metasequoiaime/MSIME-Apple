@@ -26,7 +26,7 @@ test("macOS uses Command and Option while retaining the shared modifier contract
     load: vi.fn().mockRejectedValue(new Error("synthetic missing settings")),
   }} />);
   expect(screen.queryByRole("button", { name: "Win" })).toBeNull();
-  for (const name of ["PrtSc", "Scroll", "Pause", "Ins", "Num Lock"]) {
+  for (const name of ["PrtSc", "Scroll", "Pause", "Ins", "Menu", "Num Lock"]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
   expect(screen.getByRole("button", { name: "Clear" })).toBeTruthy();
