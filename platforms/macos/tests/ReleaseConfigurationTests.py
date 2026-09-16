@@ -103,17 +103,16 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("零声母", readme)
 
     def test_ci_cancels_duplicate_runs_for_the_same_source_branch(self):
-        workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
-
-        self.assertIn(
-            "group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}",
-            workflow,
-        )
-        self.assertIn("cancel-in-progress: true", workflow)
-        # merge-release-pr.sh dispatches ci.yml and waits on that run with --exit-status, so a pull_request run on the same branch must land in a different concurrency group or it cancels the release.
-        self.assertIn("${{ github.event_name }}", workflow.split("concurrency:", 1)[1].split("permissions:", 1)[0])
-        self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n", workflow)
-        self.assertIn("\n  pull_request:\n", workflow)
+        # 三个 workflow 都要按事件分组。被发布脚本派去等的那一轮是 ci-macos.yml,一个同分支的
+        # pull_request run 绝不能把它顶掉 —— merge-release-pr.sh 用 --exit-status 等的就是那一轮。
+        for name in ("ci.yml", "ci-ios.yml", "ci-macos.yml"):
+            workflow = (PROJECT_ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("cancel-in-progress: true", workflow, name)
+            grouping = workflow.split("concurrency:", 1)[1].split("permissions:", 1)[0]
+            self.assertIn("${{ github.event_name }}", grouping, name)
+            self.assertIn("github.event.pull_request.head.ref || github.ref_name", grouping, name)
+            self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n", workflow, name)
+            self.assertIn("\n  pull_request:\n", workflow, name)
 
     def test_documentation_paths_are_skipped_by_a_workflow_that_reports_the_same_checks(self):
         # 三个 workflow 各自带着同一份忽略名单:平台拆开之后,文档改动要让三个都不触发,而占位那份要替它们全部上报。

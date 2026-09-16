@@ -33,7 +33,8 @@ on:
   merge_group:
 
 concurrency:
-  group: ci-macos-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  # Keyed by event as well as branch: promote-release-branch.sh and merge-release-pr.sh dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:

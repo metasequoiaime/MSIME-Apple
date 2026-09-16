@@ -7,7 +7,7 @@ on:
     branches:
       - develop
       - main
-    # Prose that no build step compiles. A change confined to these paths held a macOS 15 x86_64 runner for the full iOS interface suite to prove nothing, and the release build on main queued behind it. ci-docs.yml answers for the required checks on exactly this list, so those pull requests stay mergeable, and it calls contracts.yml as well -- README.md, PRIVACY.md and the architecture document are asserted on by ReleaseConfigurationTests, and that suite runs on Linux, so ignoring them here keeps the assertions and drops only the matrix.
+    # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls contracts.yml as well: README.md, PRIVACY.md and the architecture document are asserted on by ReleaseConfigurationTests, which runs on Linux, so ignoring them here keeps the assertions and drops only the builds.
     #
     # LICENSE and THIRD_PARTY_NOTICES.txt stay off the list on purpose: CMake installs them into the bundle, so they are build inputs rather than prose. A new documentation file is not ignored until someone adds it here, which fails toward running CI.
     paths-ignore:
@@ -34,7 +34,7 @@ on:
   merge_group:
 
 concurrency:
-  # Keyed by event as well as branch: the release scripts dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
+  # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
