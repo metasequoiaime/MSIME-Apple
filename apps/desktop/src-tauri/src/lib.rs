@@ -4964,6 +4964,9 @@ pub fn run() {
                         .map(PathBuf::from)
                         .filter(|path| path.is_absolute())
                 })
+                .or_else(|| {
+                    app.path().app_data_dir().ok().map(|dir| dir.join("runtime-options.json"))
+                })
                 .ok_or_else(|| {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
                         .to_string()

@@ -1290,7 +1290,7 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             pending = *tsf_config;
           }
-          if (server.send_tsf_config(view->lease, pending))
+          if (server.send_tsf_config(pending))
             tsf_config_dirty->store(false, std::memory_order_release);
         }
       }

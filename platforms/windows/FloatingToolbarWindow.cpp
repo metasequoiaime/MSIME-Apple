@@ -41,7 +41,7 @@ bool same(const FocusLease &a, const FocusLease &b) {
          same_ticket(a.transport, b.transport);
 }
 // The preference array is ordered as character_set, punctuation, fullwidth,
-// emoji, screen_keyboard, settings. Language and hide are always present; the
+// emoji, screen_keyboard, settings. Language is always present; the
 // other buttons follow the shared shell order. Handwriting, voice and about
 // are not offered here - the shipped toolbar has no voice button at all, and
 // all three stay one click away in the tray menu.
@@ -54,7 +54,6 @@ std::vector<int> slots(const std::array<bool, 6> &items) {
   if (items[3]) result.push_back(4); // emoji
   if (items[4]) result.push_back(5); // screen keyboard
   if (items[5]) result.push_back(6); // settings
-  result.push_back(10); // hide
   return result;
 }
 // Buttons that do nothing on their own: they ask the shared desktop shell to
