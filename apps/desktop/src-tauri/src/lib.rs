@@ -1674,6 +1674,11 @@ fn panel_position(
 }
 
 #[cfg(target_os = "linux")]
+fn x11_window_is_owned_by_process(pid_output: &str, process_id: u32) -> bool {
+    pid_output.trim().parse::<u32>().ok() == Some(process_id)
+}
+
+#[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
     let read = |program: &str, arguments: &[&str], limit: usize| {
         linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
@@ -1701,7 +1706,18 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
     if let Some(output) = read("xdotool", &["getactivewindow"], 64) {
         let id = output.trim();
         if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Ok(PanelInputTarget::X11(id.to_owned()));
+            // Opening an editable panel from the settings window can leave
+            // our own Tauri surface focused. Do not capture that window as an
+            // editor target: a later paste or virtual key would feed the
+            // settings UI instead of the user's application. If the PID
+            // probe is unavailable, retain the legacy target so restricted
+            // X11 helpers do not make panels unusable.
+            let owned = read("xdotool", &["getwindowpid", id], 64)
+                .map(|pid| x11_window_is_owned_by_process(&pid, std::process::id()))
+                .unwrap_or(false);
+            if !owned {
+                return Ok(PanelInputTarget::X11(id.to_owned()));
+            }
         }
     }
     // Do not repeat a failed Sway query in the same Wayland probe sequence.
@@ -5939,6 +5955,15 @@ themes = ['light']
         ] {
             assert_eq!(parse_xdotool_geometry(malformed), None);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_x11_panel_target_pid_matching_rejects_our_own_window() {
+        assert!(x11_window_is_owned_by_process("4242\n", 4242));
+        assert!(!x11_window_is_owned_by_process("4243\n", 4242));
+        assert!(!x11_window_is_owned_by_process("not-a-pid\n", 4242));
+        assert!(!x11_window_is_owned_by_process("", 4242));
     }
 
     #[cfg(target_os = "linux")]
