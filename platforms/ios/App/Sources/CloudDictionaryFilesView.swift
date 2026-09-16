@@ -21,58 +21,81 @@ struct CloudDictionaryFilesView: View {
   private let client = BackendAccountClient()
   private struct Export: Identifiable { let id = UUID(); let url: URL }
   private var lines: [String] { (text ?? "").components(separatedBy: .newlines).filter { !$0.isEmpty } }
+  /// 每一行长什么样,取决于格式和词库类型 —— 这是选文件之前唯一需要知道的事,所以跟着那个动作走。
+  private var rowFormatHint: String {
+    if format == .hans { return "每行一个汉字词条，由服务器注音" }
+    return format == .windows && (kind == .english || kind == .quick)
+      ? "每行：编码、词条、权重，制表符分隔"
+      : "每行：词条、编码、权重，制表符分隔"
+  }
 
   var body: some View {
     List {
-      Section(kind.title) {
+      // 格式、动作、行格式说明、上传规则原来是四个平铺的行。后两段都是在解释「要选什么样的文件」,所以并进 footer;能点的只剩一行。
+      Section {
         Picker("文件格式", selection: $format) {
           ForEach(BackendAccountClient.DictionaryFileFormat.allCases.filter { kind == .pinyin || $0 != .hans }) {
             Text($0.title).tag($0)
           }
         }
-        Button("选择 UTF-8 文本文件") { choosingSnapshot = false; choosing = true }
-        if format == .hans {
-          Text("每行一个汉字词条，由服务器调用输入引擎注音。请导入后检查多音字读音；默认权重为 100000。")
-        } else {
-          Text(format == .windows && (kind == .english || kind == .quick)
-            ? "每行：编码、词条、权重，三列以制表符分隔。"
-            : "每行：词条、编码、权重，三列以制表符分隔。")
-        }
-        Text("每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。")
-          .font(.footnote).foregroundStyle(.secondary)
+        SettingsActionRow(title: "选择 UTF-8 文本文件", detail: rowFormatHint,
+                          symbol: "doc.text.fill", color: .brown) { choosingSnapshot = false; choosing = true }
+      } header: {
+        Text("导入到 \(kind.title)")
+      } footer: {
+        Text(format == .hans
+             ? "汉字格式由服务器调用输入引擎注音，请导入后检查多音字读音；默认权重为 100000。每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。"
+             : "每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。")
       }
       if let text {
-        Section("导入预览") {
-          Text(fileName).font(.headline)
-          Text("\(lines.count) 行 · \(text.utf8.count) 字节")
+        Section {
+          SettingsFactRow(title: fileName, detail: "\(lines.count) 行 · \(text.utf8.count) 字节",
+                          symbol: "doc.fill", color: .teal)
           ForEach(Array(lines.prefix(12).enumerated()), id: \.offset) { _, line in Text(line).font(.caption).lineLimit(3) }
+          SettingsActionRow(title: "确认上传到云端", symbol: "icloud.and.arrow.up.fill", color: .blue) { confirming = true }
+        } header: {
+          Text("导入预览")
+        } footer: {
           if lines.count > 12 { Text("仅显示前 12 行。") }
-          Button("确认上传到云端") { confirming = true }
         }
       }
-      Section("导出云端个人词条") {
+      Section {
+        SettingsActionRow(title: "导出文件", detail: "按上面选的格式导出这一类",
+                          symbol: "square.and.arrow.up.fill", color: .orange,
+                          enabled: format != .hans) { run { try await export() } }
+      } header: {
+        Text("导出云端个人词条")
+      } footer: {
         Text(format == .windows
           ? "按 Windows 规则导出：拼音仅多字词，其他类型仅用户添加的词条。文件通过系统分享面板保存到你选择的位置。"
           : "导出所选类型的全部云端个人词条，包括搜索结果之外的词条；文件通过系统分享面板保存到你选择的位置。")
-          .font(.footnote).foregroundStyle(.secondary)
-        Button("导出文件") { run { try await export() } }.disabled(format == .hans)
       }
-      Section("完整云词库备份") {
-        Text("包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。")
-          .font(.footnote).foregroundStyle(.secondary)
-        Button("导出完整云词库快照") { run { try await exportSnapshot() } }
-        Button("选择快照恢复到云端") { choosingSnapshot = true; choosing = true }
-        if let snapshot = preparedSnapshot, restoreRevision != nil {
-          Text("已校验：\(snapshot.envelope.entries) 个个人词条、\(snapshot.envelope.overlays) 条覆盖、\(snapshot.envelope.positions) 个固定位置。")
-          Text("恢复会替换全部四类云词库及排序记录，本机词库需另行下载更新。")
-            .font(.footnote).foregroundStyle(.secondary)
-          Button("恢复此快照到云端", role: .destructive) { confirmingRestore = true }
-          Button("取消恢复") { preparedSnapshot = nil; restoreRevision = nil }
+      Section {
+        SettingsActionRow(title: "导出完整快照", detail: "四类词库加排序记录，打包成一个文件",
+                          symbol: "archivebox.fill", color: .brown) { run { try await exportSnapshot() } }
+        SettingsActionRow(title: "选择快照恢复到云端", detail: "先校验再确认，不会直接写",
+                          symbol: "arrow.uturn.backward.circle.fill", color: .indigo) {
+          choosingSnapshot = true; choosing = true
         }
+        if let snapshot = preparedSnapshot, restoreRevision != nil {
+          SettingsFactRow(title: "已校验这份快照",
+                          detail: "\(snapshot.envelope.entries) 个词条 · \(snapshot.envelope.overlays) 条覆盖 · \(snapshot.envelope.positions) 个固定位置",
+                          symbol: "checkmark.seal.fill", color: MetasequoiaTheme.accent)
+          SettingsActionRow(title: "恢复此快照到云端", detail: "替换全部四类云词库及排序记录",
+                            symbol: "arrow.left.arrow.right", destructive: true) { confirmingRestore = true }
+          SettingsActionRow(title: "取消恢复", symbol: "xmark.circle.fill", color: .gray) {
+            preparedSnapshot = nil; restoreRevision = nil
+          }
+        }
+      } header: {
+        Text("完整云词库备份")
+      } footer: {
+        Text(preparedSnapshot == nil
+             ? "包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。"
+             : "恢复只写云端，本机词库需另行下载更新。")
       }
-      if busy { ProgressView("正在传输…") }
-      if let message { Text(message).foregroundStyle(.secondary) }
     }
+    .settingsStatus(busy: busy, busyTitle: "正在传输…", message: message)
     .disabled(busy)
     .navigationTitle("词库文件")
     .onDisappear { pending?.cancel(); text = nil; preparedSnapshot = nil; restoreRevision = nil }

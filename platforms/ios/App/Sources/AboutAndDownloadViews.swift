@@ -86,28 +86,45 @@ struct AboutView: View {
           Text("版本 " + version).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("aboutAppVersion")
         }.frame(maxWidth: .infinity).padding(.vertical, 20)
       }
-      Section("关于水杉") {
-        Text("水杉是一款开源输入法，支持多种输入方案和个性化皮肤。手机与电脑共用输入引擎，各平台提供原生输入体验。")
+      // 介绍那段原来是这一组的第一个列表行,和下面能点的入口并排,读起来像一条点不动的条目。它是在描述这一组,所以落到 footer。
+      Section {
         NavigationLink(destination: DesktopDownloadView()) {
-          Label("电脑版下载", systemImage: "desktopcomputer")
+          SettingsRowLabel(title: "电脑版下载", detail: "macOS、Windows、Linux 的安装包与指南",
+                           symbol: "desktopcomputer", color: .gray)
         }.accessibilityIdentifier("desktopDownloadLink")
+      } header: {
+        Text("关于水杉")
+      } footer: {
+        Text("水杉是一款开源输入法，支持多种输入方案和个性化皮肤。手机与电脑共用输入引擎，各平台提供原生输入体验。")
       }
       // 帮助和反馈原来是两条指向网页的链接。键盘出问题时把人送去浏览器,恰好是最不该发生的时候;
       // 而空白的 issue 表单等于让用户自己猜要附什么,我们拿到的报告也就无从复现。现在都是站内页面,
       // 完整文档和源码仍然留在外部链接里。
       Section("帮助与开源") {
         NavigationLink(destination: HelpView()) {
-          Label("使用帮助", systemImage: "questionmark.circle")
+          SettingsRowLabel(title: "使用帮助", detail: "启用键盘、输入方案、常见问题",
+                           symbol: "questionmark.circle.fill", color: MetasequoiaTheme.accent)
         }.accessibilityIdentifier("helpLink")
         NavigationLink(destination: FeedbackView()) {
-          Label("反馈问题与建议", systemImage: "bubble.left.and.bubble.right")
+          SettingsRowLabel(title: "反馈问题与建议", detail: "在应用内写，附带版本与设备信息",
+                           symbol: "bubble.left.and.bubble.right.fill", color: .orange)
         }.accessibilityIdentifier("feedbackLink")
-        Link(destination: URL(string: "https://msime.app/")!) { Label("官方网站", systemImage: "globe") }
-        Link(destination: URL(string: "https://github.com/metasequoiaime/MSIME-Apple")!) { Label("开源代码与许可证", systemImage: "curlybraces") }
+        // 外部链接保留箭头以外的样子,好跟站内页面区分:点下去会离开应用。
+        Link(destination: URL(string: "https://msime.app/")!) {
+          SettingsRowLabel(title: "官方网站", detail: "msime.app", symbol: "globe", color: .teal)
+        }
+        Link(destination: URL(string: "https://github.com/metasequoiaime/MSIME-Apple")!) {
+          SettingsRowLabel(title: "开源代码与许可证", detail: "GitHub", symbol: "curlybraces", color: .indigo)
+        }
       }
-      Section("隐私") {
-        Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。").font(.footnote).foregroundStyle(.secondary)
-        Link("隐私说明", destination: URL(string: "https://msime.app/privacy/")!)
+      Section {
+        Link(destination: URL(string: "https://msime.app/privacy/")!) {
+          SettingsRowLabel(title: "隐私说明", detail: "msime.app", symbol: "hand.raised.fill", color: .purple)
+        }
+      } header: {
+        Text("隐私")
+      } footer: {
+        Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。")
       }
     }.navigationTitle("关于水杉").navigationBarTitleDisplayMode(.inline)
   }
