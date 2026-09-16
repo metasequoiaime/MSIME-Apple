@@ -3,6 +3,7 @@
 #include "msime_client.h"
 #include <cassert>
 #import "TestPreferenceSuite.h"
+#import "PreferenceViewLookup.h"
 
 int main() {
     @autoreleasepool {
@@ -25,22 +26,15 @@ int main() {
                prefs.frequencyTriggerCount == 3 && prefs.frequencyLinearStep == 4);
         [prefs applySharedLocalModes:@{@"unicode": @1}];
         assert(![prefs localModeEnabled:@"unicode"]);
-        NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
-        NSGridView *grid = (id)scroll.documentView;
+        NSView *prefsRoot = prefs.window.contentView;
         NSMutableDictionary<NSString *, NSButton *> *buttons = [NSMutableDictionary dictionary];
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control isKindOfClass:NSControl.class] && control.action == NSSelectorFromString(@"localModeChanged:")) buttons[control.identifier] = (id)control;
-        }
+        for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, NSSelectorFromString(@"localModeChanged:")))
+            buttons[control.identifier] = (id)control;
         assert(buttons.count == 8);
-        NSButton *fuzzy = nil;
+        NSButton *fuzzy = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(fuzzyPinyinChanged:));
         NSMutableDictionary<NSString *, NSButton *> *fuzzyRules = [NSMutableDictionary dictionary];
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if (![control isKindOfClass:NSControl.class]) continue;
-            if (control.action == @selector(fuzzyPinyinChanged:)) fuzzy = (id)control;
-            if (control.action == @selector(fuzzyPinyinRuleChanged:)) fuzzyRules[control.identifier] = (id)control;
-        }
+        for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, @selector(fuzzyPinyinRuleChanged:)))
+            fuzzyRules[control.identifier] = (id)control;
         assert(fuzzy != nil && fuzzyRules.count == 11 && !fuzzyRules[@"z-zh"].enabled);
         fuzzy.state = NSControlStateValueOn;
         [NSApp sendAction:fuzzy.action to:fuzzy.target from:fuzzy];
@@ -50,18 +44,10 @@ int main() {
         assert(![prefs fuzzyPinyinRuleEnabled:@"z-zh"] && [prefs fuzzyPinyinRuleEnabled:@"an-ang"]);
         assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"enabled"] isEqual:@YES]);
         assert([[prefs sharedPreferencesByMerging:base][@"fuzzy_pinyin"][@"rules"] isEqual:@[@"an-ang"]]);
-        NSButton *learning = nil;
-        NSPopUpButton *frequencyMode = nil;
-        NSPopUpButton *frequencyTrigger = nil;
-        NSPopUpButton *frequencyStep = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if (![control isKindOfClass:NSControl.class]) continue;
-            if (control.action == @selector(candidateLearningChanged:)) learning = (id)control;
-            if (control.action == @selector(frequencyModeChanged:)) frequencyMode = (id)control;
-            if (control.action == @selector(frequencyTriggerChanged:)) frequencyTrigger = (id)control;
-            if (control.action == @selector(frequencyStepChanged:)) frequencyStep = (id)control;
-        }
+        NSButton *learning = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(candidateLearningChanged:));
+        NSPopUpButton *frequencyMode = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(frequencyModeChanged:));
+        NSPopUpButton *frequencyTrigger = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(frequencyTriggerChanged:));
+        NSPopUpButton *frequencyStep = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(frequencyStepChanged:));
         assert(learning != nil && learning.state == NSControlStateValueOff);
         assert(frequencyMode != nil && frequencyTrigger != nil && frequencyStep != nil);
         learning.state = NSControlStateValueOn;

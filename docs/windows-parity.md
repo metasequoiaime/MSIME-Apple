@@ -4,11 +4,11 @@
 
 目标是迁移 MSIME-Windows 的完整功能，而不是只移植语音、设置页或能在当前机器运行的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；Windows 保留 TSF DLL / Server 进程及协议边界。已合并的其他平台成果不回退。每部分本地验证后提交合并，不要求用户逐项确认，不恢复私有仓库 CI。
 
-2026-09-14 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
+2026-09-17 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref … HEAD` 确认默认分支 `develop`，固定提交 `30a22e6f3d47adf783e8f038b1dafbd71edbb4f1`。
-- 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `ca663cbf6b7d9a0f95e7a50687489a479ffed04d`。
-- 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标使用 `engine-lock.json` 固定的独立 `vendor/MSIME-Engine` 源码树。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
+- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref origin HEAD` 确认默认分支 `develop`，固定提交 `0765bfb88de553ade41901d853d3f6d697accde7`。
+- 目标：`metasequoiaime/MSIME-Client` 的 `develop`，固定提交 `d14ecb7282f191e38ab000aa01bcd1153faecc7f`。
+- 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标仍使用独立 `vendor/MSIME-Engine` gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
 来源功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，后续仍须逐字段、逐动作下钻；本表不是穷尽行为的完成证明。
 
@@ -28,9 +28,9 @@
 | --- | --- | --- | --- |
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
 | 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；仍待固定词库逐项核对各输入方案。 |
-| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp` | Linux 已通过 IBus 当前页快照绑定分页/点击/属性动作，并按会话、代次和全局索引拒绝旧请求；候选删除先完整校验 UTF-8，中文词库保留 Windows 的单码点保护，英文词典允许单码点删除；独立策略回归覆盖非法字节、来源和键位映射。仍需逐项核对调频持久化、鼠标行为和真实桌面 panel。 |
+| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp` | 有调用链；检查分页键、鼠标与键盘行为、调频持久化和旧候选请求拒绝。 |
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新。 |
-| K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/ServerSession.cpp` 及 `platforms/windows/tests/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。Linux IBus smoke 已覆盖 U `4e00` Unicode、T `rq` 日期关键词、K `yyds` 快捷短语、E `xiaolian` Emoji、M `kiss` 颜文字、J `nh` 简拼候选、Y 临时英文 raw 的输入到提交路径，并保留 R 临时日文候选/raw 回归；混输回归验证中文会话中的 Emoji 与英文候选插入及提交。样例均来自固定词库资源，不含用户输入。快捷短语维护不能替代 K 模式运行验证。 |
+| K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/ServerSession.cpp` 及 `platforms/windows/tests/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调；macOS 云端桌面快照覆盖 Apple 20 项基线字段并保留客户端新增双拼预编辑字段 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。macOS 云端快照现补齐两套辅助码方案、候选学习和本地扩展模式；本地扩展的兼容布尔值应用为八个本地模式的全开/全关。不能因配置字段存在就标记功能接通。 |
@@ -38,8 +38,8 @@
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary_access.rs` / `dictionary_import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
 | 语音热键、流式/批量 ASR、润色、声音/静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `main.cpp` → `VoiceHotkeyController` / `VoiceInputSession` → Engine 语音模块与 TSF；`VoiceSessionEpoch.h` | Windows Tauri 语音面板与 `recognize_voice` 已接入；全提供方、取消及焦点行为仍需 Windows 原生验证。macOS 原生备用窗口已将有效非云快照字段回写共享 `voice_input`，但真实系统链路仍需验证。 |
 | 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` 与共享 `capture_device/capture_backend`；Windows `VoiceInputConfig` / `VoiceInputSession`、macOS 原生备用设置通过 `MSIMEListVoiceCaptureDevices` 枚举输入流 | Windows 已按稳定设备 ID 完成枚举、偏好保存和 `AudioCapture::start(..., device_id)` 透传，并有 `voice_capture_selection` 覆盖 backend/device 选择；macOS 的目标内部断链已补齐，并只接受空值、`auto`、`macos` 进入 CoreAudio，拒绝把其他平台后端静默重解释为 CoreAudio。真实硬件权限、安装后切换及来源设备标识范围仍待产品级验证。 |
-| 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | Tauri 面板已按 Windows 基线将含 CJK 的结果优先、去重并限制为 12 项，保留笔画缩放、撤销/重做/清空及复制/原编辑器上屏入口；仍需真实 Linux 桌面核对模型打包、焦点目标和识别质量。 |
-| 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支 | Linux/Tauri 键盘队列现在在每个按键发送前重新捕获外部目标，并将捕获与该按键串行绑定，避免非激活面板打开期间焦点切换导致误投递；布局、修饰键按下/释放和提交键粘滞修饰键规则已有共享回归。仍待自动重复、多显示器/DPI 和真实桌面输入验证。 |
+| 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
+| 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支 | 有调用链；核对布局、修饰键按下/释放、自动重复、焦点恢复及 DPI。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | 有入口；核对历史存储格式、去重/清理、开关同步及点击后目标窗口，不能以普通 SendInput 冒充 TSF 定向提交。 |
 | 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。来源和目标菜单项、禁用条件需逐项比对。 |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | 共享 `packages/ui/src/upstream/`、`skin_catalog.rs`、`CandidateSkin.h`、`CandidateWindow.cpp` | Windows 已消费候选字体/回退字体、主题颜色、横竖排布局和阴影字段；`candidate_font_reload`、`candidate_palette` 与 shadow 回归覆盖非法值回退。仍需逐主题运行时截图、外部资源和字体回退逐项比较。 |
@@ -64,7 +64,7 @@
 - hello 中的 `client_id` 不是认证；控制器进程不能复用 TSF 目标进程 ID。必须由 OS 对端信息验证控制器，再单独绑定目标焦点租约。
 - `PipeRegistry` 注册代际不等于激活 epoch。排队前检查还不够，执行时仍需检查焦点、会话及代际。
 - 不能把未握手的 Aux 通道当成可接收凭据、识别文本的认证语音通道。
-- `VoiceControlMessage` codec、来源仓库的派发包装、端点常量或 Engine lock 更新都不是目标监听器、Tauri 客户端与流式结果已经接通的证据。
+- `VoiceControlMessage` codec、来源仓库的派发包装、端点常量或 Engine gitlink 更新都不是目标监听器、Tauri 客户端与流式结果已经接通的证据。
 - #2228 / #2230 修复的是已有原生语音失败提示与旧完成回调隔离，不证明 Tauri 语音功能完成，也不证明 SendInput 回退焦点安全。
 
 ## 验证入口与本次限制

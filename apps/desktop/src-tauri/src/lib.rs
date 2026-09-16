@@ -50,6 +50,11 @@ use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 use reqwest::Url;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -184,6 +189,11 @@ async fn resolve_font_families(names: Vec<String>) -> Result<Vec<String>, Comman
         .map_err(|code| CommandError { code })
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
     if value.len() > 2048 || value.chars().any(char::is_control) {
         return Err(CommandError { code: "ai_invalid" });
@@ -200,6 +210,11 @@ fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
     Ok(url)
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn validate_ai_token(token: &str) -> Result<(), CommandError> {
     if token.is_empty() || token.len() > 16 * 1024 || token.chars().any(char::is_control) {
         return Err(CommandError { code: "ai_invalid" });
@@ -207,6 +222,11 @@ fn validate_ai_token(token: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
     (allow_empty || !value.is_empty())
         && value.len() <= 16 * 1024
@@ -216,6 +236,11 @@ fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
         })
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn ai_models_url(endpoint: &Url) -> Url {
     let mut url = endpoint.clone();
     let path = endpoint.path();
@@ -225,6 +250,11 @@ fn ai_models_url(endpoint: &Url) -> Url {
     url
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
@@ -269,6 +299,11 @@ fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, Command
     Ok(models)
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 fn ai_test_request(
     endpoint: &str,
     model: &str,
@@ -329,6 +364,11 @@ fn ai_test_request(
 }
 
 #[tauri::command]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 async fn ai_models(endpoint: String, token: String) -> Result<Vec<String>, CommandError> {
     tauri::async_runtime::spawn_blocking(move || ai_models_request(&endpoint, &token))
         .await
@@ -338,6 +378,11 @@ async fn ai_models(endpoint: String, token: String) -> Result<Vec<String>, Comma
 }
 
 #[tauri::command]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
 async fn ai_test(
     endpoint: String,
     model: String,
@@ -3562,7 +3607,12 @@ fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActio
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
-        let Some(session) = sessions.active(&request_id) else {
+        // Keep the session alive for the provider's final transcription, but
+        // publish the stop state before sending the control message. This is
+        // the same ownership boundary as the Windows controller: a late
+        // result belongs to this generation, while a successor recording
+        // cannot be admitted until the worker finishes.
+        let Some(session) = sessions.stop(&request_id) else {
             return Ok(());
         };
         if UnixSocketProvider::new(session.path).voice_stop(session.generation) {
@@ -5333,7 +5383,17 @@ pub fn run() {
             initial_settings_page,
             list_font_families,
             resolve_font_families,
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(test, not(target_os = "android"))
+            ))]
             ai_models,
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "windows",
+                all(test, not(target_os = "android"))
+            ))]
             ai_test,
             load_preferences,
             load_custom_skin_library,
@@ -5580,6 +5640,7 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "android"))]
     #[test]
     fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
         for endpoint in [
@@ -5598,6 +5659,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "android"))]
     #[test]
     fn ai_models_url_reuses_the_api_prefix() {
         let endpoint = super::validate_ai_endpoint(
@@ -5617,6 +5679,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "android"))]
     #[test]
     fn ai_credentials_and_text_reject_empty_or_unsafe_values() {
         assert!(super::validate_ai_token("fixture-token").is_ok());
