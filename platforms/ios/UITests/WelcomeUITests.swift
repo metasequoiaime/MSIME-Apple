@@ -64,8 +64,9 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     let account = app.tabBars.buttons["我的"]
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
-    XCTAssertTrue(app.buttons["accountProfileCard"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["accountAppIcon"].exists)
+    // 未登录时资料卡不是按钮:只有登录后它才是通往资料页的链接,所以按类型查会落空。
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.descendants(matching: .any)["accountProfileCard"].firstMatch.exists)
   }
 
   @MainActor

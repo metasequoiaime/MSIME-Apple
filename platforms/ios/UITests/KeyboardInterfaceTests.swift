@@ -8,7 +8,7 @@ import XCTest
 /// have something to divide.
 class KeyboardInterfaceTests: XCTestCase {
   @MainActor
-  fileprivate func wait(_ element: XCUIElement, until predicate: String, timeout: TimeInterval = 5) -> Bool {
+  func wait(_ element: XCUIElement, until predicate: String, timeout: TimeInterval = 5) -> Bool {
     let expectation = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: predicate), object: element)
     return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
@@ -19,7 +19,7 @@ class KeyboardInterfaceTests: XCTestCase {
   // and an absent set means every scheme is visible.
 
   @MainActor
-  fileprivate func restoreSchemeVisibility(in app: XCUIApplication) {
+  func restoreSchemeVisibility(in app: XCUIApplication) {
     app.terminate()
     app.launchArguments = ["--reset-input-schemes-for-ui-tests"]
     app.launch()
@@ -29,7 +29,7 @@ class KeyboardInterfaceTests: XCTestCase {
   /// 设置项都在首页上了,这里只负责把它滚到看得见 —— 原来还要先点开「键盘设置」那一页。
 
   @MainActor
-  fileprivate func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
+  func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
     let entry = app.buttons["aiSettingsLink"]
     guard entry.exists else { return }
     for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
@@ -40,7 +40,7 @@ class KeyboardInterfaceTests: XCTestCase {
   }
 
   @MainActor
-  fileprivate func selectProvider(_ name: String, picker: String, app: XCUIApplication) {
+  func selectProvider(_ name: String, picker: String, app: XCUIApplication) {
     for _ in 0..<4 {
       if app.buttons[picker].isHittable { break }
       app.swipeDown()
