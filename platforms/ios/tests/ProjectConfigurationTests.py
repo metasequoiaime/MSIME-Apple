@@ -950,7 +950,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             derivation = "\n".join(reversed(collected))
             archived = subprocess.run(
                 ["bash", "-eu", "-c", derivation + f'\nprintf "%s" "${setting.group(1)}"'],
-                env=dict(os.environ, tag_name=f"v{product_version}-build.1002.57.1"),
+                env=dict(os.environ, tag_name=f"v{product_version}-build.57"),
                 text=True, capture_output=True,
             )
             self.assertEqual(archived.returncode, 0, archived.stderr)
@@ -967,12 +967,14 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertEqual(*fragments.values(), "both release paths must derive the build number alike")
 
         fragment = next(iter(fragments.values()))
+        # 号现在是纯整数。最后那行留着三段的形状:重置之前发出去的 tag 还挂在 releases 上,重发某个旧 draft 会把它喂回这里,而这条路平时不走。
         for tag, supplied, expected in [
             (f"v{product_version}", None, product_version),
+            (f"v{product_version}-build.57", None, "57"),
+            (f"ios-v{product_version}-build.57", None, "57"),
+            (f"v{product_version}-build.57", "57", "57"),
+            (f"v{product_version}-build.57", "58", None),
             (f"v{product_version}-build.1002.57.1", None, "1002.57.1"),
-            (f"ios-v{product_version}-build.1002.57.1", None, "1002.57.1"),
-            (f"v{product_version}-build.1002.57.1", "1002.57.1", "1002.57.1"),
-            (f"v{product_version}-build.1002.57.1", "1002.58.1", None),
         ]:
             environment = dict(os.environ, tag_name=tag, version=product_version)
             environment.pop("METASEQUOIA_BUILD_NUMBER", None)
