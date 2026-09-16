@@ -50,6 +50,7 @@ use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
+use reqwest::Url;
 use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(not(target_os = "macos"))]
@@ -181,6 +182,176 @@ async fn resolve_font_families(names: Vec<String>) -> Result<Vec<String>, Comman
             code: "font_family",
         })?
         .map_err(|code| CommandError { code })
+}
+
+fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
+    if value.len() > 2048 || value.chars().any(char::is_control) {
+        return Err(CommandError { code: "ai_invalid" });
+    }
+    let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(CommandError { code: "ai_invalid" });
+    }
+    Ok(url)
+}
+
+fn validate_ai_token(token: &str) -> Result<(), CommandError> {
+    if token.is_empty() || token.len() > 16 * 1024 || token.chars().any(char::is_control) {
+        return Err(CommandError { code: "ai_invalid" });
+    }
+    Ok(())
+}
+
+fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
+    (allow_empty || !value.is_empty())
+        && value.len() <= 16 * 1024
+        && !value.chars().any(|character| {
+            character == '\0'
+                || (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        })
+}
+
+fn ai_models_url(endpoint: &Url) -> Url {
+    let mut url = endpoint.clone();
+    let path = endpoint.path();
+    let base = path.find("/v1/").map(|index| &path[..index]).unwrap_or("");
+    url.set_path(&format!("{base}/v1/models"));
+    url.set_query(None);
+    url
+}
+
+fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
+    let endpoint = validate_ai_endpoint(endpoint)?;
+    validate_ai_token(token)?;
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| CommandError {
+            code: "ai_models_unavailable",
+        })?;
+    let response = client
+        .get(ai_models_url(&endpoint))
+        .bearer_auth(token)
+        .send()
+        .map_err(|_| CommandError {
+            code: "ai_models_unavailable",
+        })?
+        .error_for_status()
+        .map_err(|_| CommandError {
+            code: "ai_models_unavailable",
+        })?;
+    let document: Value = response.json().map_err(|_| CommandError {
+        code: "ai_models_invalid",
+    })?;
+    let models = document
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or(CommandError {
+            code: "ai_models_invalid",
+        })?
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .take(128)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if models.is_empty() {
+        return Err(CommandError {
+            code: "ai_models_invalid",
+        });
+    }
+    Ok(models)
+}
+
+fn ai_test_request(
+    endpoint: &str,
+    model: &str,
+    prompt: &str,
+    token: &str,
+    text: &str,
+) -> Result<String, CommandError> {
+    let endpoint = validate_ai_endpoint(endpoint)?;
+    validate_ai_token(token)?;
+    if model.is_empty()
+        || model.len() > 256
+        || model.chars().any(char::is_control)
+        || !ai_text_is_valid(prompt, true)
+        || !ai_text_is_valid(text, false)
+    {
+        return Err(CommandError { code: "ai_invalid" });
+    }
+    let body = serde_json::json!({
+        "model": model,
+        "stream": false,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": text}
+        ]
+    });
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| CommandError {
+            code: "ai_test_unavailable",
+        })?;
+    let response = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .map_err(|_| CommandError {
+            code: "ai_test_unavailable",
+        })?
+        .error_for_status()
+        .map_err(|_| CommandError {
+            code: "ai_test_unavailable",
+        })?;
+    let document: Value = response.json().map_err(|_| CommandError {
+        code: "ai_test_invalid",
+    })?;
+    let output = document
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
+        .ok_or(CommandError {
+            code: "ai_test_invalid",
+        })?;
+    Ok(output.to_owned())
+}
+
+#[tauri::command]
+async fn ai_models(endpoint: String, token: String) -> Result<Vec<String>, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || ai_models_request(&endpoint, &token))
+        .await
+        .map_err(|_| CommandError {
+            code: "ai_models_unavailable",
+        })?
+}
+
+#[tauri::command]
+async fn ai_test(
+    endpoint: String,
+    model: String,
+    prompt: String,
+    token: String,
+    text: String,
+) -> Result<String, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ai_test_request(&endpoint, &model, &prompt, &token, &text)
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "ai_test_unavailable",
+    })?
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -5119,6 +5290,8 @@ pub fn run() {
             initial_settings_page,
             list_font_families,
             resolve_font_families,
+            ai_models,
+            ai_test,
             load_preferences,
             load_custom_skin_library,
             mutate_custom_skin_library,
@@ -5364,6 +5537,54 @@ mod credential_command_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
+        for endpoint in [
+            "https://api.example.test/v1/chat/completions",
+            "http://127.0.0.1:8080/v1/chat/completions?tenant=fixture",
+        ] {
+            assert!(super::validate_ai_endpoint(endpoint).is_ok());
+        }
+        for endpoint in [
+            "file:///tmp/models",
+            "https://user:password@example.test/v1/chat/completions",
+            "https://example.test/v1/chat/completions#fragment",
+            "https://example.test/v1/chat/\ncompletions",
+        ] {
+            assert!(super::validate_ai_endpoint(endpoint).is_err());
+        }
+    }
+
+    #[test]
+    fn ai_models_url_reuses_the_api_prefix() {
+        let endpoint = super::validate_ai_endpoint(
+            "https://api.example.test/openai/v1/chat/completions?tenant=fixture",
+        )
+        .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
+        assert_eq!(
+            super::ai_models_url(&endpoint).as_str(),
+            "https://api.example.test/openai/v1/models"
+        );
+
+        let endpoint = super::validate_ai_endpoint("https://api.example.test/chat/completions")
+            .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
+        assert_eq!(
+            super::ai_models_url(&endpoint).as_str(),
+            "https://api.example.test/v1/models"
+        );
+    }
+
+    #[test]
+    fn ai_credentials_and_text_reject_empty_or_unsafe_values() {
+        assert!(super::validate_ai_token("fixture-token").is_ok());
+        assert!(super::validate_ai_token("").is_err());
+        assert!(super::validate_ai_token("fixture\n-token").is_err());
+        assert!(super::ai_text_is_valid("多行\nfixture text\t", false));
+        assert!(super::ai_text_is_valid("", true));
+        assert!(!super::ai_text_is_valid("", false));
+        assert!(!super::ai_text_is_valid("fixture\0text", false));
+    }
+
     #[test]
     fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
         assert!(!super::clipboard_text_is_valid(""));
