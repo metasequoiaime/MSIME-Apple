@@ -35,6 +35,26 @@ class KeyboardInterfaceTests: XCTestCase {
     for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
   }
 
+  /// 把元素滚进可见范围再用它。
+  ///
+  /// 列表是惰性渲染的:屏幕外的行不在无障碍层级里,`exists` 同样查不到,所以「找不到」既可能是它不存在,也可能是它还没被滚出来。CI 跑的是 iPhone 17 Pro,比开发机上常用的机型矮一截 —— 本地过、CI 红的差别往往只是这一屏的高度。
+  ///
+  /// 滚的是页面自己的滚动容器而不是整块屏幕:有些页面下半屏是钉住的预览,对着它滑动什么都不会发生。
+  @MainActor
+  @discardableResult
+  func scrollTo(_ element: XCUIElement, in app: XCUIApplication, attempts: Int = 8) -> Bool {
+    // 两个方向都试:要找的行既可能在下面,也可能在上面 —— 点过某一行之后列表往往已经不在顶上了,只往一个方向滚会越滚越远。
+    for direction in [true, false] {
+      for _ in 0..<attempts {
+        if element.exists && element.isHittable { return true }
+        let scrollers = [app.collectionViews.firstMatch, app.tables.firstMatch, app.scrollViews.firstMatch]
+        let scroller = scrollers.first(where: { $0.exists }) ?? app
+        if direction { scroller.swipeUp() } else { scroller.swipeDown() }
+      }
+    }
+    return element.exists && element.isHittable
+  }
+
   override func setUpWithError() throws {
     continueAfterFailure = false
   }

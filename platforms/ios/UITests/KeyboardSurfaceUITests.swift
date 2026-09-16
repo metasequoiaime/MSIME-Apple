@@ -10,6 +10,8 @@ final class KeyboardSurfaceUITests: KeyboardInterfaceTests {
     let keys = app.sliders["appKeySpacingSlider"]
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
+    // 这一页顶上钉着一块实时预览,矮一点的屏幕上下面的滑块会落到折线以下。
+    XCTAssertTrue(scrollTo(rows, in: app), "行间距滑块应当能滚到")
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)
@@ -249,26 +251,38 @@ final class KeyboardSurfaceUITests: KeyboardInterfaceTests {
     let keys = app.sliders["appKeySpacingSlider"]
     let height = app.sliders["appKeyboardHeightSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
+    // 这一页顶上钉着一块实时预览,矮一点的屏幕上高度滑块就落到了折线以下。
+    XCTAssertTrue(scrollTo(height, in: app), "高度滑块应当能滚到")
 
     // These settings outlive the app, and other cases here move them, so the defaults are taken by
     // resetting first rather than by assuming the values on arrival are untouched.
+    XCTAssertTrue(scrollTo(app.buttons["appResetKeyboardSettings"], in: app), "复位按钮应当能滚到")
     app.buttons["appResetKeyboardSettings"].tap()
+    XCTAssertTrue(scrollTo(keys, in: app), "间距滑块应当能滚到")
     let defaultKeys = try XCTUnwrap(keys.value as? String)
+    XCTAssertTrue(scrollTo(height, in: app), "高度滑块应当能滚到")
     let defaultHeight = try XCTUnwrap(height.value as? String)
 
+    XCTAssertTrue(scrollTo(keys, in: app), "间距滑块应当能滚到")
     keys.adjust(toNormalizedSliderPosition: 0)
+    XCTAssertTrue(scrollTo(height, in: app), "高度滑块应当能滚到")
     height.adjust(toNormalizedSliderPosition: 1)
     XCTAssertNotEqual(keys.value as? String, defaultKeys, "滑块应先被改动,否则复位无从验证")
 
+    XCTAssertTrue(scrollTo(app.buttons["appResetKeyboardSettings"], in: app), "复位按钮应当能滚到")
     app.buttons["appResetKeyboardSettings"].tap()
+    XCTAssertTrue(scrollTo(keys, in: app), "间距滑块应当能滚到")
     XCTAssertTrue(wait(keys, until: "value == '\(defaultKeys)'"))
+    XCTAssertTrue(scrollTo(height, in: app), "高度滑块应当能滚到")
     XCTAssertEqual(height.value as? String, defaultHeight, "复位后高度应回到默认")
 
     // The values survive leaving and coming back, so the reset reached storage rather than only
     // the controls on screen.
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.buttons["keyboardLayoutLink"].tap()
+    XCTAssertTrue(scrollTo(keys, in: app), "间距滑块应当能滚到")
     XCTAssertEqual(keys.value as? String, defaultKeys)
+    XCTAssertTrue(scrollTo(height, in: app), "高度滑块应当能滚到")
     XCTAssertEqual(height.value as? String, defaultHeight)
   }
 

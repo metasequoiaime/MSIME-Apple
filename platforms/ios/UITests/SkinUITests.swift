@@ -248,10 +248,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     // Reset sits with the other ways to replace a whole design, on the 模板 tab, below the gallery.
     app.buttons["skinEditorTab_模板"].tap()
     let reset = app.buttons["resetCustomSkin"]
-    for _ in 0..<6 {
-      if reset.isHittable { break }
-      app.swipeUp()
-    }
+    XCTAssertTrue(scrollTo(reset, in: app), "重置应当能滚到")
     reset.tap()
     app.buttons["重置"].tap()
     app.buttons["skinEditorTab_按键"].tap()

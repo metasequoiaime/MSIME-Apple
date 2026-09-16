@@ -63,6 +63,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
     trend.lifetime = .keepAlways
     add(trend)
 
+    XCTAssertTrue(scrollTo(tabs, in: app), "标签栏应当还在")
     tabs.buttons["类型"].tap()
     XCTAssertFalse(day.exists, "切到类型之后趋势那一块就不在了")
     let kind = XCTAttachment(screenshot: app.screenshot())
@@ -328,6 +329,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
       link.tap()
       XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
       if identifier == "skinSettingsLink" {
+        XCTAssertTrue(scrollTo(app.buttons["skin_ocean"], in: app), "皮肤选项应当能滚到")
         app.buttons["skin_ocean"].tap()
         XCTAssertEqual(app.buttons["skin_ocean"].value as? String, "已选择")
       }
@@ -341,8 +343,16 @@ final class SettingsUITests: KeyboardInterfaceTests {
           app.textFields["serviceModel"].tap()
           app.textFields["serviceModel"].typeText("fixture")
           app.buttons["serviceDismissKeyboard"].tap()
-          app.secureTextFields["serviceToken"].tap()
-          app.secureTextFields["serviceToken"].typeText("msime-ui-fixture")
+          // 点一下不一定拿得到焦点:软键盘弹出会把表单顶上去,这一下可能落在刚刚移开的位置上。滚到、点、确认焦点,不行就再来一次。
+          let token = app.secureTextFields["serviceToken"]
+          var focused = false
+          for _ in 0..<3 {
+            XCTAssertTrue(scrollTo(token, in: app), "密钥输入框应当能滚到")
+            token.tap()
+            if wait(token, until: "hasKeyboardFocus == true", timeout: 3) { focused = true; break }
+          }
+          XCTAssertTrue(focused, "密钥输入框应当拿到焦点")
+          token.typeText("msime-ui-fixture")
           app.buttons["serviceDismissKeyboard"].tap()
           app.buttons["saveServiceConfiguration"].tap()
           for _ in 0..<3 {
