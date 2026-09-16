@@ -87,6 +87,23 @@ class OnlineCredentialTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 online.load_ai_config(path)
 
+    def test_ai_private_config_rejects_symlinks(self):
+        configuration = {
+            "provider": "deepseek",
+            "endpoint": "https://fixture.invalid/chat",
+            "model": "fixture-model",
+            "token": "fixture-token",
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-ai-") as directory:
+            root = Path(directory)
+            target = root / "target.json"
+            link = root / "ai.json"
+            target.write_text(json.dumps(configuration), encoding="utf-8")
+            target.chmod(0o600)
+            link.symlink_to(target.name)
+            with self.assertRaises(OSError):
+                online.load_ai_config(link)
+
     def test_translation_services_return_only_bounded_status(self):
         with mock.patch.object(online, "load_tencent_config", return_value={
                 "secret_id": "fixture", "secret_key": "fixture", "region": "fixture"}), \
@@ -168,6 +185,25 @@ class VoiceCredentialTest(unittest.TestCase):
             path.chmod(0o600)
             with self.assertRaises(ValueError):
                 voice.load_config(path)
+
+    def test_voice_private_config_rejects_symlinks(self):
+        configuration = {
+            "asr": {
+                "provider": "openai",
+                "endpoint": "https://fixture.invalid/asr",
+                "model": "whisper-1",
+                "token": "fixture-token",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-voice-") as directory:
+            root = Path(directory)
+            target = root / "target.json"
+            link = root / "voice.json"
+            target.write_text(json.dumps(configuration), encoding="utf-8")
+            target.chmod(0o600)
+            link.symlink_to(target.name)
+            with self.assertRaises(OSError):
+                voice.load_config(link)
 
     def test_invalid_or_failed_requests_do_not_expose_details(self):
         result = voice.credential_test({"service": "voice.asr", "config": {"bad": 1}}, self.server)

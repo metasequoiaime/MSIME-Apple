@@ -1164,7 +1164,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 def load_config(path):
     # Nonblocking open prevents a replaced FIFO from holding a request slot.
     # Validate the opened file itself so atomic replacement remains supported.
-    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as source:
         info = os.fstat(source.fileno())
         if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
