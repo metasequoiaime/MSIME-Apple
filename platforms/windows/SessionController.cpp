@@ -49,8 +49,15 @@ SessionController::SessionController(
                   candidates.push_back(std::move(text));
                 auto view = state.apply_ai_candidates(
                     result.lease, result.query, candidates.dump());
-                if (view)
+                if (view) {
                   candidates_.online(result.lease, *view);
+                  // AI insertion changes the visible candidate generation just
+                  // like cloud insertion. Re-query translations for the new
+                  // page immediately so the AI row and its neighbors do not
+                  // remain unannotated until the next key event.
+                  if (auto query = state.translation_query(result.lease))
+                    (void)translations_.submit(result.lease, std::move(*query));
+                }
               });
         } catch (...) {
           // Optional provider delivery must never stop the input queue.
