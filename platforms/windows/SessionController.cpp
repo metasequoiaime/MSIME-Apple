@@ -115,7 +115,25 @@ SessionController::SessionController(
   if (!preferences_directory.empty())
     preferences_ = std::make_unique<PreferenceMonitor>(
         input_, std::move(preferences_directory), std::chrono::milliseconds(250),
-        std::move(published));
+        [this, published = std::move(published)](
+            const PreferenceSnapshot &snapshot) mutable {
+          if (published)
+            published(snapshot);
+          if (stopping_)
+            return;
+          // A settings publication may change translation enablement, target,
+          // or provider credentials while a candidate page is already shown.
+          // Re-read the now-applied query on the input thread so the worker
+          // requests the new signature immediately instead of waiting for the
+          // next key event.
+          (void)input_.submit([this](InputState &state) {
+            if (stopping_)
+              return;
+            if (auto request = state.current_translation_request())
+              (void)translations_.submit(request->first,
+                                          std::move(request->second));
+          });
+        });
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }

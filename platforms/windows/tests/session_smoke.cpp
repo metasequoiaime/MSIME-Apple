@@ -561,6 +561,7 @@ int main(int argc, char **argv) {
               "Preference fence failed");
       auto first_preferences = preferences;
       first_preferences["candidate_page_size"] = 3;
+      first_preferences["candidate_translations"] = true;
       auto latest_preferences = preferences;
       latest_preferences["candidate_page_size"] = 4;
       const auto first = Json{{"format_version", 1},
@@ -594,13 +595,31 @@ int main(int argc, char **argv) {
       rejected([&] { load_snapshot(invalid.dump()); });
       run([&](InputState &state) {
         require(state.confirmed(lease), "Preference focus receipt failed");
+        state.publish_preferences(first_snapshot);
         packet.event_type = FanyImePipeEventType::KeyEvent;
         packet.request_id = 2;
-        packet.keycode = 'U';
-        packet.wch = 'U';
-        packet.modifiers_down = 1;
+        packet.keycode = 'N';
+        packet.wch = 'n';
+        packet.modifiers_down = 0;
+        auto first_pending = state.key(lease, packet, ReplyPath::Composition);
+        require(first_pending.has_value(), "Preference pending key missing");
+        require(state.delivered(lease, packet.request_id),
+                "First preference key receipt failed");
+        packet.request_id = 3;
+        packet.keycode = 'I';
+        packet.wch = 'i';
+        packet.modifiers_down = 0;
         auto pending = state.key(lease, packet, ReplyPath::Composition);
-        require(pending.has_value(), "Preference pending key missing");
+        require(pending.has_value(), "Second preference pending key missing");
+        const auto translation_request = state.current_translation_request();
+        require(translation_request.has_value(),
+                "Active candidate translation was not re-dispatched");
+        const auto translation_document =
+            Json::parse(translation_request->second);
+        require(translation_document.at("generation").is_number_unsigned() &&
+                    translation_document.at("candidates").is_array() &&
+                    !translation_document.at("candidates").empty(),
+                "Re-dispatched translation query was incomplete");
         state.publish_preferences(first_snapshot);
         state.publish_preferences(latest_snapshot);
         state.publish_preferences(latest_snapshot);
@@ -625,7 +644,7 @@ int main(int argc, char **argv) {
         const auto deferred = state.update_preferences(lease, latest);
         require(deferred && deferred->at("deferred") == true,
                 "Queued preferences were not handed to shared deferral");
-        packet.request_id = 3;
+        packet.request_id = 4;
         packet.keycode = 0x1B;
         packet.wch = 0;
         auto cancelled = state.key(lease, packet, ReplyPath::LocalCancel);
@@ -634,7 +653,7 @@ int main(int argc, char **argv) {
         const auto applied = state.update_preferences(lease, latest);
         require(applied && applied->at("deferred") == false,
                 "Latest preferences did not apply after reset");
-        packet.request_id = 4;
+        packet.request_id = 5;
         packet.keycode = 'U';
         packet.wch = 'U';
         require(state.key(lease, packet, ReplyPath::Composition).has_value(),
@@ -645,7 +664,7 @@ int main(int argc, char **argv) {
         require(state.queue_preferences(lease, abandoned.dump()),
                 "Abandoned snapshot not queued");
         state.failed(lease);
-        require(!state.delivered(lease, 4), "Cancelled reply was confirmed");
+        require(!state.delivered(lease, 5), "Cancelled reply was confirmed");
         packet.event_type = FanyImePipeEventType::ClientActivated;
         packet.request_id = 88;
         lease = *state.dispatch(ticket, packet).route;

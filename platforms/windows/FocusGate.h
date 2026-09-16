@@ -112,6 +112,13 @@ public:
     ready_ = false;
     return true;
   }
+  // Snapshot the currently acknowledged focus lease for host work that must
+  // be re-dispatched after a settings publication. Pending activations are
+  // deliberately excluded: their Engine session is not yet authoritative.
+  std::optional<FocusLease> active() const {
+    std::lock_guard lock(mutex_);
+    return ready_ ? current_ : std::nullopt;
+  }
 
 private:
   bool matches(const FocusLease &lease) const {
@@ -119,7 +126,7 @@ private:
            current_->token == lease.token &&
            same_ticket(current_->transport, lease.transport);
   }
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   uint64_t next_epoch_ = 0;
   std::optional<FocusLease> current_;
   bool ready_ = false;

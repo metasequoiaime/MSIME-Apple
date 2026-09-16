@@ -56,6 +56,8 @@ public:
   apply_ai_response(const FocusLease &lease, const std::string &query,
                     const std::string &body);
   std::optional<std::string> translation_query(const FocusLease &lease);
+  std::optional<std::pair<FocusLease, std::string>>
+  current_translation_request();
   std::optional<nlohmann::json>
   apply_translations(const FocusLease &lease, uint64_t generation,
                      const std::string &translations);

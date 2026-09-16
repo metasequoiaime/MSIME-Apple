@@ -291,6 +291,17 @@ InputState::translation_query(const FocusLease &lease) {
   auto *owner = session(lease.transport);
   return owner ? owner->translation_query(lease) : std::nullopt;
 }
+std::optional<std::pair<FocusLease, std::string>>
+InputState::current_translation_request() {
+  check_thread();
+  const auto lease = gate_.active();
+  if (!lease)
+    return std::nullopt;
+  auto query = translation_query(*lease);
+  return query ? std::optional<std::pair<FocusLease, std::string>>(
+                     std::in_place, *lease, std::move(*query))
+               : std::nullopt;
+}
 std::optional<nlohmann::json>
 InputState::apply_translations(const FocusLease &lease, uint64_t generation,
                                const std::string &translations) {
