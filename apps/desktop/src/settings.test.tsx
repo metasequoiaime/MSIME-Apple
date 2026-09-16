@@ -761,6 +761,22 @@ test("macOS maintenance shortcuts use the current input context and Option", asy
   expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
 });
 
+test("macOS service page exposes installation separately from re-registration", async () => {
+  const installInputSource = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    restartInputMethod: vi.fn().mockResolvedValue(undefined),
+    installInputSource,
+    host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
+  await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
+  expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);

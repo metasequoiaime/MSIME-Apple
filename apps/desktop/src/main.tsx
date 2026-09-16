@@ -81,6 +81,7 @@ const client: SettingsClient = {
   openCloudClipboard: () => invoke("open_cloud_clipboard_panel"),
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
+  installInputSource: () => invoke("install_input_source"),
   windowControl: async action => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();

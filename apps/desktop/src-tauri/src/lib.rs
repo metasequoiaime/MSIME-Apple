@@ -17,6 +17,8 @@ mod macos_cloud_dictionary;
 #[cfg(any(target_os = "macos", test))]
 mod macos_handwriting;
 #[cfg(any(target_os = "macos", test))]
+mod macos_input_source;
+#[cfg(any(target_os = "macos", test))]
 mod macos_keyboard;
 #[cfg(any(target_os = "macos", test))]
 mod macos_launch;
@@ -1493,6 +1495,23 @@ fn restart_input_method() -> Result<(), HostActionError> {
                 code: "unavailable",
             })
     }
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        macos_input_source::install(Some(&resource_directory)).map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
 }
 
 fn windows_restart_payload() -> Vec<u8> {
@@ -5132,6 +5151,8 @@ pub fn run() {
             cloud_dictionary_request,
             load_emoji_catalog,
             restart_input_method,
+            #[cfg(target_os = "macos")]
+            install_input_source,
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "android")]
