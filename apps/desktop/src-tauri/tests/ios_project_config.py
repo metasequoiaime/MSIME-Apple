@@ -131,6 +131,27 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
+    def test_tauri_keyboard_extension_registers_all_shipping_swift_dependencies(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+
+        # The checked-in XcodeGen output is the shipping project used by Tauri. Keep the
+        # generated target in lockstep with project.yml so a newly added keyboard dependency
+        # cannot silently compile only in the legacy native project.
+        self.assertIn("../../../../../platforms/ios/KeyboardExtension/Sources", project)
+        self.assertIn("../../../../../platforms/ios/SharedUI", project)
+        sources = [
+            "KeyboardSymbolPanelView.swift",
+            "CandidateTranslationStore.swift",
+            "CandidateTranslationPreference.swift",
+            "BackendChatClient.swift",
+            "BackendAccountSession.swift",
+            "BackendAnonymousAccount.swift",
+            "BackendLocalStore.swift",
+        ]
+        for source in sources:
+            self.assertIn(f"{source} in Sources", generated)
+
     def test_tauri_app_packages_and_registers_ios_alternate_icons(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         generated_project = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
