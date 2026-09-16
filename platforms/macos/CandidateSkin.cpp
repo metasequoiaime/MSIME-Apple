@@ -64,6 +64,8 @@ SkinTokens FluentTokens(bool dark)
     tokens.selectedText = tokens.text;
     tokens.accent = Rgb(0x6B69D6);
     tokens.radius = 6.0f;
+    tokens.candidateRadius = 4.0f;
+    tokens.selectedRadius = 4.0f;
     tokens.borderWidth = 1.5f;
     tokens.pad = 5.0f;
     tokens.showSelectedBar = true;
@@ -82,6 +84,8 @@ SkinTokens WeChatTokens(bool dark)
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.hover = Rgb(0x07C160, dark ? 0.32f : 0.14f);
     tokens.radius = 5.0f;
+    tokens.candidateRadius = 4.0f;
+    tokens.selectedRadius = 5.0f;
     tokens.borderWidth = 1.0f;
     tokens.pad = 2.0f;
     tokens.showSelectedBar = false;
@@ -114,6 +118,8 @@ SkinTokens GraphiteTokens(bool dark)
         tokens.accent = Rgb(0x5F6B7A);
     }
     tokens.radius = 3.0f;
+    tokens.candidateRadius = 2.0f;
+    tokens.selectedRadius = 2.0f;
     tokens.borderWidth = 1.0f;
     tokens.pad = 5.0f;
     tokens.showSelectedBar = false;
@@ -144,6 +150,8 @@ SkinTokens WillowGreenTokens(bool dark)
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
     tokens.radius = 9.0f;
+    tokens.candidateRadius = 0.0f;
+    tokens.selectedRadius = 0.0f;
     tokens.borderWidth = 0.0f;
     tokens.pad = 0.0f;
     tokens.showSelectedBar = false;

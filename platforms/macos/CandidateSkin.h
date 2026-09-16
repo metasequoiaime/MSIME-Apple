@@ -28,6 +28,8 @@ struct SkinTokens
     Rgba hover;
     Rgba accent;
     float radius = 6.0f;
+    float candidateRadius = 4.0f;
+    float selectedRadius = 4.0f;
     float borderWidth = 1.5f;
     float pad = 5.0f;
     bool showSelectedBar = true;

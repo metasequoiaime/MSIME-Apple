@@ -223,7 +223,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         if (selected)
         {
             [PreviewColor(tokens.selected) setFill];
-            [[NSBezierPath bezierPathWithRoundedRect:row xRadius:4.0 yRadius:4.0] fill];
+            [[NSBezierPath bezierPathWithRoundedRect:row
+                                             xRadius:tokens.selectedRadius
+                                             yRadius:tokens.selectedRadius]
+                fill];
             DrawSelectedBar(row, tokens, fontSize);
         }
         const CGFloat textX = NSMinX(row) + textInset;
