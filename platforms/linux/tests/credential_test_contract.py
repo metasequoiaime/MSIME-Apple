@@ -2,9 +2,11 @@
 """Synthetic credential-test dispatch; no real credentials or network calls."""
 import importlib.machinery
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -46,6 +48,42 @@ class OnlineCredentialTest(unittest.TestCase):
             result = online.credential_test(query, self.server)
         self.assertFalse(result["ok"])
         fetch.assert_not_called()
+
+    def test_ai_private_tokens_normalize_pasted_whitespace(self):
+        configuration = {
+            "provider": "deepseek",
+            "endpoint": "https://fixture.invalid/chat",
+            "model": "fixture-model",
+            "token": " \tfixture-private-token\r\n",
+            "profiles": {
+                "openai": {
+                    "endpoint": "https://fixture.invalid/chat",
+                    "model": "fixture-model",
+                    "token": " fixture-profile-token\n",
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-ai-") as directory:
+            path = Path(directory) / "ai.json"
+            path.write_text(json.dumps(configuration), encoding="utf-8")
+            path.chmod(0o600)
+            loaded = online.load_ai_config(path)
+        self.assertEqual(loaded["token"], "fixture-private-token")
+        self.assertEqual(loaded["profiles"]["openai"]["token"], "fixture-profile-token")
+
+    def test_ai_private_tokens_still_reject_control_characters(self):
+        configuration = {
+            "provider": "deepseek",
+            "endpoint": "https://fixture.invalid/chat",
+            "model": "fixture-model",
+            "token": "fixture-\x01-token",
+        }
+        with tempfile.TemporaryDirectory(prefix="msime-ai-") as directory:
+            path = Path(directory) / "ai.json"
+            path.write_text(json.dumps(configuration), encoding="utf-8")
+            path.chmod(0o600)
+            with self.assertRaises(ValueError):
+                online.load_ai_config(path)
 
     def test_translation_services_return_only_bounded_status(self):
         with mock.patch.object(online, "load_tencent_config", return_value={

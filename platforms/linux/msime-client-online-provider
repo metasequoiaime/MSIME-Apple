@@ -608,7 +608,12 @@ def load_ai_config(path):
         if any(not isinstance(entry.get(key), str) or not entry[key].strip()
                for key in ("provider", "endpoint", "model", "token")):
             raise ValueError("invalid AI configuration")
-        token = entry["token"]
+        # Match the shared Windows/client credential policy for pasted tokens:
+        # discard surrounding whitespace before validation and every request.
+        # Keep interior whitespace untouched so the provider receives exactly
+        # the configured secret after normalization.
+        token = entry["token"].strip(" \t\r\n")
+        entry["token"] = token
         if token.startswith(("<", "FAKESECRET_")) or any(ord(c) < 33 or ord(c) > 126 for c in token):
             raise ValueError("invalid AI credential")
         url = urllib.parse.urlsplit(entry["endpoint"])
