@@ -4,6 +4,7 @@
 #include <cassert>
 #include <fstream>
 #import "TestPreferenceSuite.h"
+#import "PreferenceViewLookup.h"
 
 static void WritePackage(const std::filesystem::path &root) {
     std::filesystem::create_directories(root / "synthetic");
@@ -123,14 +124,9 @@ int main(int argc, const char **argv) {
             [cards cacheDisplayInRect:cards.bounds toBitmapImageRep:bitmap];
             assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);
         }
-        NSScrollView *settingsScroll = (id)preferences.window.contentView.subviews[0];
-        NSGridView *grid = (id)settingsScroll.documentView;
-        NSButton *browse = nil;
-        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
-            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-            if ([control isKindOfClass:NSControl.class] && control.action == NSSelectorFromString(@"showSkinCatalog:")) browse = (id)control;
-        }
-        assert([browse.title isEqual:@"浏览所有皮肤…"] && [preferences respondsToSelector:browse.action]);
+        NSButton *browse = (id)MSIMEFindPreferenceControl(preferences.window.contentView,
+                                                          NSSelectorFromString(@"showSkinCatalog:"));
+        assert(browse && [browse.title isEqual:@"浏览所有皮肤…"] && [preferences respondsToSelector:browse.action]);
         NSWindowController *catalogWindow = [preferences skinCatalogController];
         MetasequoiaSkinSettingsView *catalogView = (id)catalogWindow.window.contentView.subviews.firstObject;
         assert([catalogView isKindOfClass:MetasequoiaSkinSettingsView.class]);
