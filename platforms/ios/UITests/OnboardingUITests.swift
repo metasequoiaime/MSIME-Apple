@@ -753,7 +753,10 @@ final class OnboardingUITests: XCTestCase {
   @MainActor
   func testCustomSkinTemplatesLibraryAndUndo() {
     let app = XCUIApplication()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    // This case saves a skin and deletes it at the end, so a run that fails in between leaves one
+    // behind. The library holds twelve and lives in the app group, which uninstalling the app does
+    // not clear, so without this the suite eventually wedges itself.
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-custom-skins-for-ui-tests"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
@@ -775,6 +778,9 @@ final class OnboardingUITests: XCTestCase {
     // time. What a design renders is covered by KeyboardSkinTests without a Simulator; the reload
     // below still reads the switch, which is the part this case is about.
     app.terminate()
+    // The relaunch is what checks the skin survived it, so it must not carry the reset argument --
+    // launchArguments persist across launch() on the same XCUIApplication.
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()

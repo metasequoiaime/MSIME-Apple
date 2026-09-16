@@ -144,6 +144,12 @@ enum CustomSkinLibrary {
       return item
     }
   }
+  #if DEBUG
+  /// Empties the library. Only the UI suite's reset argument calls this: the library lives in the
+  /// app group, which survives uninstalling the app, so a test that leaks a skin has no other way
+  /// of getting back to a known state.
+  static func removeAll() { try? FileManager.default.removeItem(at: file) }
+  #endif
   @discardableResult
   static func save(_ items: [SavedKeyboardSkin]) -> Bool {
     let items = items.prefix(12).map { item in
