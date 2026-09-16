@@ -1,4 +1,5 @@
 #import "../ScreenKeyboardPanel.h"
+#include "../ScreenKeyboardTargetPolicy.h"
 #import <Carbon/Carbon.h>
 #include <cassert>
 #include <vector>
@@ -36,6 +37,10 @@ static void Press(NSPanel *panel, NSUInteger index) {
 }
 int main() {
     @autoreleasepool {
+        assert(msime::mac::CapturedScreenKeyboardTarget(4321, 100) == 4321);
+        assert(msime::mac::CapturedScreenKeyboardTarget(100, 100) == 0);
+        assert(msime::mac::CapturedScreenKeyboardTarget(0, 100) == 0);
+        assert(msime::mac::CapturedScreenKeyboardTarget(-1, 100) == 0);
         [NSApplication sharedApplication];
         __block unsigned short lastCode = 65535;
         __block NSEventModifierFlags lastFlags = 0;

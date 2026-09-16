@@ -3,6 +3,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <algorithm>
 #include <vector>
+#include "ScreenKeyboardTargetPolicy.h"
 
 namespace {
 NSColor *KeyboardColor(NSAppearance *appearance, unsigned light, unsigned dark) {
@@ -56,11 +57,13 @@ bool CommitKey(const Key &key) {
         key.code == kVK_Space || key.code == kVK_Return || key.code == kVK_Tab ||
         key.code == kVK_Delete || key.code == kVK_ForwardDelete;
 }
-BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
+BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     // Permission prompts can change focus. Never send the pending key after prompting.
     if (!CGPreflightPostEventAccess()) { CGRequestPostEventAccess(); return NO; }
-    NSRunningApplication *target = NSWorkspace.sharedWorkspace.frontmostApplication;
-    if (!target || target.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return NO;
+    NSRunningApplication *target = targetPID > 0
+        ? [NSRunningApplication runningApplicationWithProcessIdentifier:targetPID]
+        : nil;
+    if (!target || target.terminated || target.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return NO;
     CGEventRef down = CGEventCreateKeyboardEvent(nullptr, code, true);
     CGEventRef up = CGEventCreateKeyboardEvent(nullptr, code, false);
     if (!down || !up) {
@@ -138,6 +141,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
 
 @implementation MSIMEScreenKeyboardPanel {
     MSIMEScreenKeyboardSender _sender;
+    MSIMEScreenKeyboardTargetProvider _targetProvider;
+    pid_t _inputTargetPID;
     NSMutableArray<NSButton *> *_buttons;
     std::vector<Key> _keys;
     NSEventModifierFlags _modifiers;
@@ -149,12 +154,34 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     dispatch_once(&once, ^{ panel = [[self alloc] init]; });
     return panel;
 }
-- (instancetype)init { return [self initWithKeySender:^BOOL(unsigned short code, NSEventModifierFlags flags) { return PostKey(code, flags); }]; }
+- (instancetype)init {
+    self = [self initWithKeySender:nil targetProvider:^pid_t {
+        NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+        return frontmost ? frontmost.processIdentifier : 0;
+    }];
+    if (self) {
+        __weak MSIMEScreenKeyboardPanel *weakSelf = self;
+        _sender = ^BOOL(unsigned short code, NSEventModifierFlags flags) {
+            MSIMEScreenKeyboardPanel *strongSelf = weakSelf;
+            return strongSelf ? PostKey(code, flags, strongSelf->_inputTargetPID) : NO;
+        };
+    }
+    return self;
+}
 - (instancetype)initWithKeySender:(MSIMEScreenKeyboardSender)sender {
+    return [self initWithKeySender:sender targetProvider:^pid_t {
+        NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+        return frontmost ? frontmost.processIdentifier : 0;
+    }];
+}
+- (instancetype)initWithKeySender:(MSIMEScreenKeyboardSender)sender
+                    targetProvider:(MSIMEScreenKeyboardTargetProvider)targetProvider {
     self = [super initWithContentRect:NSMakeRect(0, 0, 1100, 400)
         styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     if (!self) return nil;
     _sender = [sender copy];
+    _targetProvider = [targetProvider copy];
+    _inputTargetPID = 0;
     _buttons = [NSMutableArray new];
     self.releasedWhenClosed = NO;
     self.opaque = NO;
@@ -246,8 +273,10 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     }
     [self refreshKeys];
 }
-- (void)closeKeyboard:(id)sender { (void)sender; _modifiers = 0; [self refreshKeys]; [self orderOut:nil]; }
+- (void)closeKeyboard:(id)sender { (void)sender; _modifiers = 0; _inputTargetPID = 0; [self refreshKeys]; [self orderOut:nil]; }
 - (void)showKeyboard {
+    pid_t candidate = _targetProvider ? _targetProvider() : 0;
+    _inputTargetPID = msime::mac::CapturedScreenKeyboardTarget(candidate, NSProcessInfo.processInfo.processIdentifier);
     if (!self.visible) {
         NSRect visible = (NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
         if (!NSIsEmptyRect(visible)) {
