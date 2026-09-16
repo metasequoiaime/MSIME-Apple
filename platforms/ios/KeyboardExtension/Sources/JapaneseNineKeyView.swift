@@ -78,8 +78,10 @@ final class JapaneseNineKeyView: UIStackView {
     }
     let variants = makeKey("小゛゜", "小假名、浊音和半浊音", { [weak self] in
       guard let self else { return }
+      // Mirrors the enabled state set in setComposing: outside the digit layer the modifier only
+      // means something while a composition is open, and a no-op tap must not reach the Engine.
       if showsDigits { onSymbol?("（") }
-      else { onVariant?() }
+      else if isComposing { onVariant?() }
     })
     variantsKey = variants
     variants.accessibilityIdentifier = "japaneseVariants"

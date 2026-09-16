@@ -288,7 +288,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
     }
-    let selectedID = selected == .shuangpin ? "xiaohe" : selected.rawValue
+    let selectedID = selected.sharedIdentifier
     return updatePreferences { preferences in
       preferences["scheme"] = engineScheme
       if engineScheme != "japanese" {
@@ -299,7 +299,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       }
       preferences["touch_keyboard_layout"] = layout
       preferences["touch_keyboard_schemes"] = [
-        "enabled": enabled.map { $0 == .shuangpin ? "xiaohe" : $0.rawValue },
+        "enabled": enabled.map(\.sharedIdentifier),
         "selected": selectedID,
       ]
     }
