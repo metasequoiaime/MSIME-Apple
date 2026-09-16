@@ -12,6 +12,7 @@ NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientApp
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
+static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
@@ -211,6 +212,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSNumber *_sharedShuangpinHelpcode;
     NSNumber *_sharedVertical;
     NSNumber *_sharedCandidateFollowCursor;
+    NSNumber *_sharedInputModeHUD;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
@@ -382,6 +384,7 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
+    merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
@@ -591,6 +594,15 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)setCandidateFollowCursor:(BOOL)value {
     _sharedCandidateFollowCursor = nil;
     [_defaults setBool:value forKey:CandidateFollowCursorKey];
+    [self preferencesChanged];
+}
+- (BOOL)inputModeHUD {
+    if (_sharedInputModeHUD) return _sharedInputModeHUD.boolValue;
+    return [_defaults objectForKey:InputModeHUDKey] == nil ? YES : [_defaults boolForKey:InputModeHUDKey];
+}
+- (void)setInputModeHUD:(BOOL)value {
+    _sharedInputModeHUD = nil;
+    [_defaults setBool:value forKey:InputModeHUDKey];
     [self preferencesChanged];
 }
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
@@ -1246,6 +1258,8 @@ static BOOL ValidToolbarFontSize(id value) {
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
     id followCursor = preferences[@"candidate_follow_cursor"];
     if (LocalModeBoolean(followCursor)) _sharedCandidateFollowCursor = followCursor;
+    id inputModeHUD = preferences[@"input_mode_hud"];
+    if (LocalModeBoolean(inputModeHUD)) _sharedInputModeHUD = inputModeHUD;
     id font = preferences[@"candidate_font_size"];
     id textColor = preferences[@"candidate_text_color"];
     // This optional shared field is omitted when None; omission also clears a

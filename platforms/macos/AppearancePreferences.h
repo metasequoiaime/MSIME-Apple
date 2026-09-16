@@ -23,6 +23,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
 @property(nonatomic) BOOL candidateFollowCursor;
+/// Show the short non-activating Chinese/English mode badge near the caret.
+@property(nonatomic) BOOL inputModeHUD;
 @property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;

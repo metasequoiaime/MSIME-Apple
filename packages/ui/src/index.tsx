@@ -263,6 +263,8 @@ export type Preferences = {
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
   candidate_follow_cursor?: boolean;
+  /** macOS-only non-activating badge shown after switching Chinese/English input. */
+  input_mode_hud?: boolean;
   candidate_number_color?: string | null;
   candidate_accent_color?: string | null;
   candidate_selected_color?: string | null;
@@ -1492,6 +1494,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
+  const inputModeHUD = draft?.input_mode_hud ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
   const themeMode = draft?.theme ?? "system";
@@ -1939,6 +1942,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">成对标点<small>自动补全成对引号和括号</small></span><input className="toggle" type="checkbox" checked={pairedPunctuation} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">标点锁定</span><select aria-label="标点锁定" value={punctuationLock} onChange={event => setDraft({ ...draft, punctuation_lock: event.target.value as Preferences["punctuation_lock"] })}><option value="follow">跟随输入模式</option><option value="chinese">固定中文标点</option><option value="english">固定英文标点</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
+        {macosPlatform && <div className="section"><label className="section-header"><span className="section-title">中英文切换提示<small>切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。</small></span><input aria-label="中英文切换提示" className="toggle" type="checkbox" checked={inputModeHUD} onChange={event => setDraft({ ...draft, input_mode_hud: event.target.checked })} /></label></div>}
         {client.candidateEnglishGloss && <div className="section"><label className="section-header"><span className="section-title">显示英文释义<small>在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。</small></span><input aria-label="显示英文释义" className="toggle" type="checkbox" checked={candidateEnglishGloss} onChange={event => setDraft({ ...draft, candidate_english_gloss: event.target.checked })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>向在线服务请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>

@@ -398,6 +398,11 @@ pub struct Preferences {
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
+    /// macOS displays a short, non-activating badge after switching between
+    /// Chinese and English input. Other hosts preserve this preference but do
+    /// not render the native badge.
+    #[serde(default = "enabled_by_default")]
+    pub input_mode_hud: bool,
     pub scheme: InputScheme,
     /// Show the Wubi code suffix that remains after the typed prefix.
     /// `None` preserves the default-on behavior without rewriting legacy documents.
@@ -1093,6 +1098,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
+            input_mode_hud: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,
             wubi_mixed_pinyin: false,
@@ -2278,6 +2284,7 @@ mod tests {
             "touch_keyboard_skin",
             "ui_backend",
             "candidate_follow_cursor",
+            "input_mode_hud",
         ] {
             legacy["preferences"].as_object_mut().unwrap().remove(key);
         }
@@ -2300,6 +2307,7 @@ mod tests {
             toolbar_theme: SettingsTheme::Light,
             ui_backend: UiBackend::Webview2,
             candidate_follow_cursor: false,
+            input_mode_hud: false,
             ..Preferences::default()
         };
         let saved = store.save(0, preferences).unwrap();

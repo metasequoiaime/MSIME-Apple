@@ -43,6 +43,7 @@
 #include "ModifierTap.h"
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
+#import "InputModeHUDPanel.h"
 #import "VoiceInputService.h"
 #import "VoiceWaveOverlay.h"
 #import "VoiceInputLevel.h"
@@ -1306,6 +1307,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
+    const BOOL changed = _appearance.englishMode != enabled;
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return; // Do not hide an unsettled composition after an Engine failure.
@@ -1315,6 +1317,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self resetCandidateAnchor];
     [_panel orderOut:nil];
     [_keymapPanel orderOut:nil];
+    if (changed && _appearance.inputModeHUD && _activeClient) {
+        NSRect caret = NSZeroRect;
+        [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
+        [[MSIMEInputModeHUDPanel sharedPanel] showEnglishInputMode:enabled nearCaretRect:caret];
+    }
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;
@@ -2186,6 +2193,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [pageSize unsignedIntegerValue] != _requestedPageSize) _requestedPageSize = 0;
     [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
+    if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
     [_appearance applySharedAssistancePreferences:preferences];
     [_appearance applySharedToolbarPreferences:preferences];
     [_appearance applySharedLocalModes:preferences[@"local_modes"]];
@@ -2208,6 +2216,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)deactivateServer:(id)sender {
+    [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
     _pairedPunctuation.clear();
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
