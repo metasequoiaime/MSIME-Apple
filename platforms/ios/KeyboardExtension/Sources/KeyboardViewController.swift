@@ -2031,6 +2031,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     japaneseKeys?.applyLayout()
     actionRow?.isHidden = kana
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
+    japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
