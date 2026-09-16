@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyboardPanel, type PanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
+import { KeyboardPanel, type PanelClient, type SettingsClient, type Snapshot, type TouchKeyboardSkin, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { useCandidatePreviewTheme } from "../../../packages/ui/src/candidate-preview-theme";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
@@ -43,5 +43,7 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
   const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
   const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
   const voiceShortcut = snapshot?.preferences.touch_voice_shortcut === true;
-  return <KeyboardPanel client={client} platform={platform} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} />;
+  const skin = snapshot?.preferences.touch_keyboard_skin ?? "forest";
+  const customDesign = snapshot?.preferences.custom_touch_keyboard_skin;
+  return <KeyboardPanel client={client} platform={platform} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} skin={skin as TouchKeyboardSkin} customDesign={customDesign as TouchKeyboardSkinDesign | undefined} />;
 }

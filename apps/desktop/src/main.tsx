@@ -379,6 +379,11 @@ function DesktopSettings() {
             },
           } : {}),
           ...(host.platform === "linux" ? {
+            customTouchKeyboardSkins: true,
+            customSkinLibrary: {
+              load: () => invoke("load_custom_skin_library"),
+              mutate: action => invoke("mutate_custom_skin_library", { action }),
+            },
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
           } : {}),

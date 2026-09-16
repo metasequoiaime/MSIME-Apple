@@ -2,6 +2,8 @@ import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "./use-emoji-navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
+import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import { skinColor, skinLuminance, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 
 export interface KeyboardInputRequest {
   virtual_key: number;
@@ -161,7 +163,58 @@ function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39) || (virtualKey >= 0x60 && virtualKey <= 0x69);
 }
 
-export function KeyboardPanel({ client, platform, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false }: { client: PanelClient; platform?: string; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean }) {
+function mixKeyboardColor(first: string, second: string, amount: number) {
+  const parse = (value: string) => Number.parseInt(value.replace(/^#/, ""), 16);
+  const a = parse(first), b = parse(second);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return first;
+  const channel = (shift: number) => Math.round(((a >> shift) & 0xff) * (1 - amount) + ((b >> shift) & 0xff) * amount);
+  return `#${((channel(16) << 16) | (channel(8) << 8) | channel(0)).toString(16).padStart(6, "0")}`;
+}
+
+function readableKeyboardText(value: string) {
+  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
+  return Number.isFinite(parsed) && skinLuminance(parsed) > .179 ? "#000000" : "#ffffff";
+}
+
+function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, customDesign?: TouchKeyboardSkinDesign): CSSProperties {
+  const custom = skin === "custom" && customDesign ? customDesign : undefined;
+  const option = touchKeyboardSkinOptions.find(item => item.id === (skin === "custom" ? "forest" : skin)) ?? touchKeyboardSkinOptions[0];
+  const palette = custom ? {
+    background: skinColor(custom.background),
+    key: skinColor(custom.keyBackground),
+    foreground: skinColor(custom.keyForeground),
+    accent: skinColor(custom.accent),
+    action: skinColor(custom.actionBackground),
+  } : option[theme];
+  const radius = custom?.cornerRadius ?? option.cornerRadius;
+  const borderWidth = custom?.borderWidth ?? option.borderWidth;
+  const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
+  const shadowOffset = custom ? 1 : option.shadowOffset;
+  const shadowRadius = custom ? 2 : option.shadowRadius;
+  const fontFamily = (custom?.monospaced ?? option.monospaced)
+    ? "ui-monospace, SFMono-Regular, Consolas, monospace"
+    : "inherit";
+  return {
+    "--kb-background": palette.background,
+    "--kb-text": palette.foreground,
+    "--kb-heading": palette.accent,
+    "--kb-key": palette.key,
+    "--kb-action": palette.action,
+    "--kb-action-text": readableKeyboardText(palette.action),
+    "--kb-hover": mixKeyboardColor(palette.key, palette.accent, .18),
+    "--kb-active": mixKeyboardColor(palette.key, palette.accent, .3),
+    "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, .42),
+    "--kb-key-radius": `${Math.max(0, Math.min(20, radius))}px`,
+    "--kb-border-width": `${Math.max(0, Math.min(2, borderWidth))}px`,
+    "--kb-border-color": palette.accent,
+    "--kb-shadow": shadowOpacity > 0 ? `0 ${shadowOffset}px ${shadowRadius}px rgba(0, 0, 0, ${shadowOpacity})` : "none",
+    "--kb-font-family": fontFamily,
+  } as CSSProperties;
+}
+
+const keyboardActionLabels = new Set(["Backspace", "Enter", "Shift", "Tab", "Esc", "Caps Lock", "Ctrl", "Alt", "Win", "Del", "Menu", "Num Lock"]);
+
+export function KeyboardPanel({ client, platform, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false, skin = "forest", customDesign }: { client: PanelClient; platform?: string; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean; skin?: TouchKeyboardSkin; customDesign?: TouchKeyboardSkinDesign }) {
   const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
     let saved: string | null = null;
     try { saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null; } catch { /* restricted webviews may deny storage */ }
@@ -316,8 +369,9 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
   const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
   const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
+  const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
   const renderedModifiers = modifiersRef.current;
-  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
+  return <main className="native-panel keyboard-panel" style={skinStyle} data-keyboard-theme={theme} data-keyboard-skin={skin} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
     <div className="keyboard-panel-body">
@@ -326,7 +380,8 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
+          const action = keyToRender.modifier || keyboardActionLabels.has(keyToRender.label);
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${action ? " action" : ""}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
         })}</div>)}
       </div>
     </div>

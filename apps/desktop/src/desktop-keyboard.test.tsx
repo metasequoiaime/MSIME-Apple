@@ -65,3 +65,29 @@ test("failed initial load retains default dark theme", async () => {
   await waitFor(() => expect(load).toHaveBeenCalledOnce());
   expect(theme()).toBe("dark");
 });
+
+test("keyboard applies selected built-in and custom skin preferences", async () => {
+  let emit!: (value: Snapshot) => void;
+  const custom = {
+    background: 0x102438, keyBackground: 0x17354f, keyForeground: 0xffffff,
+    accent: 0xa2d8fa, actionBackground: 0x285d84, cornerRadius: 2,
+    borderWidth: 1, shadow: 0, pattern: 2 as const, monospaced: true,
+  };
+  const first = snapshot(1, "dark");
+  first.preferences.touch_keyboard_skin = "blueprint";
+  const preferences = {
+    load: async () => first,
+    onPreferencesChanged: async (listener: (value: Snapshot) => void) => { emit = listener; return () => {}; },
+  };
+  render(<DesktopKeyboard client={panel} preferences={preferences} />);
+  await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-skin")).toBe("blueprint"));
+  const main = screen.getByRole("main", { name: "屏幕键盘" });
+  expect(main.style.getPropertyValue("--kb-background")).toBe("#0e2138");
+  expect(main.style.getPropertyValue("--kb-font-family")).toContain("ui-monospace");
+  act(() => emit({ ...first, revision: 2, preferences: { ...first.preferences, touch_keyboard_skin: "custom", custom_touch_keyboard_skin: custom } }));
+  await waitFor(() => expect(main.getAttribute("data-keyboard-skin")).toBe("custom"));
+  expect(main.style.getPropertyValue("--kb-background")).toBe("#102438");
+  expect(main.style.getPropertyValue("--kb-key-radius")).toBe("2px");
+  expect(main.style.getPropertyValue("--kb-border-width")).toBe("1px");
+  expect(main.style.getPropertyValue("--kb-action")).toBe("#285d84");
+});
