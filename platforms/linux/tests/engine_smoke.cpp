@@ -1653,6 +1653,28 @@ int main(int argc, char **argv) {
                 !seen.lookup_visible,
             "Temporary English raw text was not committed through IBus");
 
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('e', IBUS_SHIFT_MASK), "Emoji mode could not restart");
+    for (const char character : std::string("xiaolian"))
+      require(key(static_cast<guint>(character)), "Emoji keyword input was not consumed");
+    require(!seen.candidates.empty() && seen.candidates.front() == "😀",
+            "Emoji mode did not expose the locked-resource fixture candidate");
+    require(key(IBUS_space) && seen.committed == "😀" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Emoji candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('m', IBUS_SHIFT_MASK), "Kaomoji mode could not restart");
+    for (const char character : std::string("kiss"))
+      require(key(static_cast<guint>(character)), "Kaomoji keyword input was not consumed");
+    require(!seen.candidates.empty() && seen.candidates.front() == "!(*￣(￣　*)",
+            "Kaomoji mode did not expose the locked-resource fixture candidate");
+    require(key(IBUS_space) && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Kaomoji candidate was not committed through IBus");
+
     // R mode owns the visible prefix but never forwards it to the Japanese
     // Engine. A candidate commit must therefore restore the Chinese session,
     // and the next letter must start a normal Chinese composition again.
