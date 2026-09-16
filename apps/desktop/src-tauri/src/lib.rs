@@ -3686,7 +3686,11 @@ async fn send_text(
 
 #[tauri::command]
 fn supports_clipboard_paste() -> bool {
-    cfg!(any(target_os = "linux", target_os = "windows"))
+    cfg!(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos"
+    ))
 }
 
 #[tauri::command]
@@ -3753,6 +3757,8 @@ async fn paste_clipboard_text(
             code: "unavailable",
         })?;
     }
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit_clipboard(app, window, text).await;
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, window, state, text);
