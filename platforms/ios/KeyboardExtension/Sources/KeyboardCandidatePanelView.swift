@@ -17,16 +17,21 @@ final class KeyboardCandidatePanelView: UIView {
   private var annotations: [KeyboardCandidateAnnotation]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
+  /// What a long press on a chip offers. Shared with the strip -- a press that manages an entry
+  /// there should not stop working once the list is expanded.
+  private let menuElements: (Int) -> [UIMenuElement]
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
        display: @escaping (String) -> String,
+       menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
     self.annotations = annotations
     self.display = display
+    self.menuElements = menuElements
     self.onSelect = onSelect
     super.init(frame: .zero)
     accessibilityIdentifier = "candidatePanel"
@@ -186,6 +191,13 @@ final class KeyboardCandidatePanelView: UIView {
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"
       : "候选词 \(number)：\(text)，\(annotation.accessibilityDescription)"
+    // Build the menu only when a long press opens it. A complete candidate panel can contain
+    // hundreds of chips, so eagerly creating every menu would add work to the typing path.
+    chip.menu = UIMenu(children: [
+      UIDeferredMenuElement.uncached { [weak self] completion in
+        completion(self?.menuElements(index) ?? [])
+      }
+    ])
     return chip
   }
 }
