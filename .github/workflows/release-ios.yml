@@ -1,4 +1,4 @@
-name: Release IOS
+name: Release iOS
 
 # iOS 的发布:打包 xcarchive 与 TestFlight 上传。macOS 走 release-macos.yml,两者各自触发、各自打 tag、各自出产物。
 
@@ -64,10 +64,13 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          # Start above the legacy iOS commit-count builds (491 at migration) and the 1002.x builds already on TestFlight and Sparkle; #405 dropped this offset from a stale checkout and shipped 3.64.1.
+          # Start above every build already on TestFlight and Sparkle. The offset has been raised twice for the
+          # same reason: a build number that goes backwards is invisible to Sparkle and rejected by App Store
+          # Connect. #405 dropped it from a stale checkout and shipped 3.64.1; splitting release.yml into two
+          # workflows reset GITHUB_RUN_NUMBER, which counts per workflow, and shipped 1000.1.1 after 1002.71.1.
           # Three numeric components; retries receive a distinct build, up to 99 attempts.
           test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1000 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          build="$((1003 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
