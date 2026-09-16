@@ -33,6 +33,15 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # The settings host and keyboard extension intentionally share the
+      # native App Group queue implementation. Keep these files in the Tauri
+      # app target so WebView dictionary edits never touch Engine files while
+      # the extension is active.
+      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryBridge.swift
+      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryImport.swift
+      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift
+      - path: ../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift
+      - path: ../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift
       - path: Assets.xcassets
       - path: Externals
         excludes:

@@ -58,7 +58,7 @@ use std::fs;
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios"))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -1058,6 +1058,60 @@ fn dictionary_error_code(reason: &str) -> &'static str {
     }
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_personal_dictionary_action(action: &Value) -> bool {
+    matches!(
+        action.get("operation").and_then(Value::as_str),
+        Some("list" | "edit" | "import_personal" | "export" | "retry" | "dismiss_failure")
+    )
+}
+
+#[cfg(target_os = "ios")]
+fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandError> {
+    use std::ffi::CStr;
+    let bytes = serde_json::to_vec(
+        request
+            .get("action")
+            .ok_or(CommandError { code: "storage" })?,
+    )
+    .map_err(|_| CommandError { code: "storage" })?;
+    if bytes.len() > 1_200_000 {
+        return Err(CommandError { code: "storage" });
+    }
+    let pointer = unsafe { msime_ios_personal_dictionary_request(bytes.as_ptr(), bytes.len()) };
+    if pointer.is_null() {
+        return Err(CommandError { code: "storage" });
+    }
+    let response = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
+    unsafe { msime_ios_personal_dictionary_string_free(pointer) };
+    let envelope: Value =
+        serde_json::from_slice(&response).map_err(|_| CommandError { code: "storage" })?;
+    if envelope.get("ok") == Some(&Value::Bool(true)) {
+        return envelope
+            .get("value")
+            .cloned()
+            .ok_or(CommandError { code: "storage" });
+    }
+    let code = match envelope.get("error").and_then(Value::as_str) {
+        Some("dictionary_busy") => "dictionary_busy",
+        Some("dictionary_conflict") => "dictionary_conflict",
+        Some("dictionary_too_many") => "dictionary_too_many",
+        Some("dictionary_unavailable") => "dictionary_unavailable",
+        Some("dictionary_import_rejected") => "dictionary_import_rejected",
+        _ => "storage",
+    };
+    Err(CommandError { code })
+}
+
+#[cfg(target_os = "ios")]
+unsafe extern "C" {
+    fn msime_ios_personal_dictionary_request(
+        request: *const u8,
+        length: usize,
+    ) -> *mut std::ffi::c_char;
+    fn msime_ios_personal_dictionary_string_free(value: *mut std::ffi::c_char);
+}
+
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
@@ -1067,6 +1121,10 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
+        #[cfg(target_os = "ios")]
+        if ios_personal_dictionary_action(&request["action"]) {
+            return ios_personal_dictionary_request(request);
+        }
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
@@ -5387,6 +5445,30 @@ mod tests {
             msime_client_core::host_surface::HostPlatform::Android,
         ] {
             assert!(super::clipboard_history_uses_preference(platform));
+        }
+    }
+
+    #[test]
+    fn ios_routes_only_app_group_dictionary_operations() {
+        for operation in [
+            "list",
+            "edit",
+            "import_personal",
+            "export",
+            "retry",
+            "dismiss_failure",
+        ] {
+            assert!(super::ios_personal_dictionary_action(
+                &serde_json::json!({ "operation": operation })
+            ));
+        }
+        for action in [
+            serde_json::json!({ "operation": "import" }),
+            serde_json::json!({ "operation": "unknown" }),
+            serde_json::json!({}),
+            serde_json::Value::Null,
+        ] {
+            assert!(!super::ios_personal_dictionary_action(&action));
         }
     }
 
