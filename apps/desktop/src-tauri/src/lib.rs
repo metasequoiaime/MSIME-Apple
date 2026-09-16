@@ -4040,7 +4040,7 @@ fn open_cloud_clipboard_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = remember_panel_input_target(&state, true);
+        let _ = remember_panel_input_target(&state);
         let position = windows_panel_position(560.0, 560.0);
         open_panel_window(
             &app,
@@ -4082,7 +4082,7 @@ fn open_cloud_dictionary_panel(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = remember_panel_input_target(&state, true);
+        let _ = remember_panel_input_target(&state);
         let position = windows_panel_position(760.0, 700.0);
         open_panel_window(
             &app,
