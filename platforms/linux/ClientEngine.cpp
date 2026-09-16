@@ -2053,7 +2053,8 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto fixed_position = candidate.value("fixed_position", 0);
     std::vector<std::pair<const char *, const char *>> candidate_commands = {
         {"CandidatePin", "固定候选"}};
-    if (msime::linux_host::candidate_removal_available(candidate_text))
+    if (msime::linux_host::candidate_dictionary_removal_available(
+            scheme, source, candidate_text))
       candidate_commands.emplace_back("CandidateRemove", "删除候选");
     candidate_commands.insert(candidate_commands.end(), {
                                        std::pair{"CandidateFix1", "固定到 1"},
@@ -3686,7 +3687,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           return;
         const auto generation = id.at("generation").get<uint64_t>();
         const auto index = id.at("index").get<size_t>();
-        if (remove && !msime::linux_host::candidate_removal_available(
+        if (remove && !msime::linux_host::candidate_dictionary_removal_available(
+                          s.rendered_scheme, source,
                           candidate.value("text", std::string{})))
           return;
         if (pin)

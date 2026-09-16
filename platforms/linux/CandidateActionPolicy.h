@@ -7,10 +7,11 @@
 
 namespace msime::linux_host {
 
-// Windows deliberately omits deletion for a one-code-point candidate. IBus
-// exposes candidate actions through its property menu instead of a per-row
-// context menu, but the persistent dictionary operation keeps the same rule.
-inline bool candidate_removal_available(std::string_view text) {
+// Decode the entire candidate before exposing a destructive dictionary action.
+// This mirrors Windows' UTF-8 distance check and rejects a valid prefix with
+// malformed trailing bytes.
+inline std::optional<std::size_t> candidate_utf8_codepoint_count(
+    std::string_view text) {
   std::size_t count = 0;
   for (std::size_t offset = 0; offset < text.size();) {
     const auto first = static_cast<std::uint8_t>(text[offset]);
@@ -29,36 +30,44 @@ inline bool candidate_removal_available(std::string_view text) {
       width = 4;
       code_point = first & 0x07;
     } else {
-      return false;
+      return std::nullopt;
     }
     if (offset + width > text.size())
-      return false;
+      return std::nullopt;
     for (std::size_t index = 1; index < width; ++index) {
       const auto byte = static_cast<std::uint8_t>(text[offset + index]);
       if ((byte & 0xc0) != 0x80)
-        return false;
+        return std::nullopt;
       code_point = (code_point << 6) | (byte & 0x3f);
     }
     if ((width == 2 && code_point < 0x80) ||
         (width == 3 && code_point < 0x800) ||
         (width == 4 && code_point < 0x10000) || code_point > 0x10ffff ||
         (code_point >= 0xd800 && code_point <= 0xdfff))
-      return false;
+      return std::nullopt;
     offset += width;
     ++count;
   }
-  // Match the Windows UTF-8 distance check: every byte in the candidate must
-  // be valid before exposing a destructive dictionary action. Do not return
-  // as soon as two code points are seen, otherwise a valid prefix followed by
-  // malformed bytes could incorrectly enable deletion.
-  return count > 1;
+  return count;
+}
+
+// Windows deliberately omits deletion for a one-code-point Chinese
+// candidate. IBus exposes candidate actions through its property menu instead
+// of a per-row context menu, but the persistent dictionary operation keeps the
+// same rule.
+inline bool candidate_removal_available(std::string_view text) {
+  return candidate_utf8_codepoint_count(text).value_or(0) > 1;
 }
 
 inline bool candidate_dictionary_removal_available(std::uint64_t scheme,
                                                    std::uint64_t source,
                                                    std::string_view text) {
-  return scheme != 3 && (source == 0 || source == 1 || source == 4) &&
-         candidate_removal_available(text);
+  if (scheme == 3 || (source != 0 && source != 1 && source != 4))
+    return false;
+  const auto count = candidate_utf8_codepoint_count(text);
+  // Windows permits deleting one-character English dictionary entries, while
+  // Chinese dictionary entries keep the one-code-point protection.
+  return count.has_value() && (source == 4 ? *count >= 1 : *count > 1);
 }
 
 // IBus keysyms change with the active keyboard layout. Its evdev-derived
