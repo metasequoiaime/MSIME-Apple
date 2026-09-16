@@ -4614,7 +4614,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &setting_override = std::string(name) == "EmojiCandidates"
                            ? s.emoji_override : s.kaomoji_override;
       const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
-      if (setting_override.value_or(mixed_input_value(key.c_str(), false)) == enabled)
+      if (setting_override.value_or(mixed_input_value(key, false)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
