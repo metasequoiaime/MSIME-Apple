@@ -2869,10 +2869,27 @@ void CandidateList::Render(DeviceResources &deviceResources)
             cache.fontFamily = theme.textInputFontFamily;
         }
 
-        ID2D1SolidColorBrush *labelBrush = deviceResources.GetSolidColorBrush(appearance_.labelColor);
-        ID2D1SolidColorBrush *textBrush = deviceResources.GetSolidColorBrush(appearance_.textColor);
-        ID2D1SolidColorBrush *annotationBrush = deviceResources.GetSolidColorBrush(appearance_.annotationColor);
-        D2D1_COLOR_F translationColor = appearance_.annotationColor;
+        // The WebView candidate CSS makes annotation and translation children
+        // of the candidate text, so a selected row's text color inherits into
+        // both. The D2D renderer draws them separately and must carry that
+        // inheritance explicitly; translation retains CSS opacity 0.62.
+        const bool highlighted = selected || pressed;
+        const D2D1_COLOR_F &labelColor =
+            highlighted && appearance_.rowLabelSelected.a > 0.001f
+                ? appearance_.rowLabelSelected
+                : appearance_.labelColor;
+        const D2D1_COLOR_F &textColor =
+            highlighted && appearance_.rowTextSelected.a > 0.001f
+                ? appearance_.rowTextSelected
+                : appearance_.textColor;
+        ID2D1SolidColorBrush *labelBrush = deviceResources.GetSolidColorBrush(labelColor);
+        ID2D1SolidColorBrush *textBrush = deviceResources.GetSolidColorBrush(textColor);
+        const D2D1_COLOR_F &annotationColor =
+            highlighted && appearance_.rowTextSelected.a > 0.001f
+                ? appearance_.rowTextSelected
+                : appearance_.annotationColor;
+        ID2D1SolidColorBrush *annotationBrush = deviceResources.GetSolidColorBrush(annotationColor);
+        D2D1_COLOR_F translationColor = annotationColor;
         translationColor.a *= 0.62f;
         ID2D1SolidColorBrush *translationBrush = deviceResources.GetSolidColorBrush(translationColor);
         if (cache.labelLayout && labelBrush)
