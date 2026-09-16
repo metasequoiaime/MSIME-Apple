@@ -803,6 +803,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
+  const candidatePageSizes = macosPlatform ? [5, 7, 9] : Array.from({ length: 9 }, (_, index) => index + 1);
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -1076,7 +1077,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     if (!draft || !snapshot || !validCandidateFonts(draft)) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      const value = await client.save(snapshot.revision, draft);
+      const preferences = macosPlatform && !candidatePageSizes.includes(draft.candidate_page_size)
+        ? { ...draft, candidate_page_size: 9 }
+        : draft;
+      const value = await client.save(snapshot.revision, preferences);
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
@@ -1746,8 +1750,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select aria-label="每页候选数量" value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
-          {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
+        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select aria-label="每页候选数量" value={candidatePageSizes.includes(draft.candidate_page_size) ? draft.candidate_page_size : 9} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
+          {candidatePageSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">

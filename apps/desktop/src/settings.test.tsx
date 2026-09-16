@@ -2375,6 +2375,20 @@ test("saves edited preferences against the loaded revision", async () => {
   expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
+test("macOS candidate page sizes use the native 5/7/9 options and normalize legacy values", async () => {
+  const preferences = { ...initial.preferences, candidate_page_size: 6 };
+  const save = vi.fn().mockImplementation(async (_revision, next) => ({ ...initial, revision: 8, preferences: next }));
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences }), save, host: { platform: "macos" } as HostCapabilities };
+  render(<SettingsPage client={client} />);
+  const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;
+  expect(Array.from(size.options).map(option => option.value)).toEqual(["5", "7", "9"]);
+  expect(size.value).toBe("9");
+  fireEvent.change(size, { target: { value: "7" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 7 });
+});
+
 test("conflicts preserve edits and require an explicit reload", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
   render(<SettingsPage client={client} />);
