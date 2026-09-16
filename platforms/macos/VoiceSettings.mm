@@ -56,7 +56,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
         NSArray *asrProviders = @[@"doubao", @"openai", @"siliconflow", @"groq"];
         [_provider selectItemAtIndex:IndexOrZero(asrProviders, [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao")];
         [_doubaoAuthMode selectItemAtIndex:[NormalizedDoubaoAuthMode(defaults) isEqualToString:@"legacy"] ? 1 : 0];
-        _polish.state = [defaults boolForKey:@"MSIMEClientVoicePolish"] ? NSControlStateValueOn : NSControlStateValueOff;
+        _polish.state = ([defaults boolForKey:@"MSIMEClientVoicePolish"] || [defaults boolForKey:@"MSIMEClientVoicePolishText"]) ? NSControlStateValueOn : NSControlStateValueOff;
         NSArray *polishProviders = @[@"deepseek", @"openai", @"siliconflow", @"groq"];
         [_polishProvider selectItemAtIndex:IndexOrZero(polishProviders, [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek")];
         _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @""; _polishEndpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @""; _polishPrompt.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @""; _polishCustom1.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @""; _polishCustom2.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @""; _polishCustom3.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""; NSUInteger preset = [@[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup"]; [_polishPromptID selectItemAtIndex:preset == NSNotFound ? 0 : preset];
@@ -73,7 +73,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
         _streamInline.state = [defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"] ? NSControlStateValueOn : NSControlStateValueOff;
         _muteAudio.state = [defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"] ? NSControlStateValueOn : NSControlStateValueOff;
         _provider.target = self; _provider.action = @selector(voiceOptionsChanged:);
-        _polish.target = self; _polish.action = @selector(voiceOptionsChanged:);
+        _polish.target = self; _polish.action = @selector(polishChanged:);
         _polishProvider.target = self; _polishProvider.action = @selector(polishProviderChanged:);
         _model.target = self; _model.action = @selector(voiceOptionsChanged:);
         _endpoint.target = self; _endpoint.action = @selector(voiceOptionsChanged:); _token.target = self; _token.action = @selector(voiceOptionsChanged:); _asrModel.target = self; _asrModel.action = @selector(asrModelChanged:);
@@ -92,6 +92,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
 - (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 - (void)asrModelChanged:(NSTextField *)sender { [NSUserDefaults.standardUserDefaults setObject:sender.stringValue forKey:@"MSIMEClientVoiceASRModel"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 - (void)doubaoAuthModeChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 1 ? @"legacy" : @"api_key") forKey:@"MSIMEClientVoiceDoubaoAuthMode"]; [self voiceOptionsChanged:nil]; }
+- (void)polishChanged:(NSButton *)sender { [[NSUserDefaults standardUserDefaults] setBool:sender.state == NSControlStateValueOn forKey:@"MSIMEClientVoicePolishText"]; [self voiceOptionsChanged:nil]; }
 - (void)polishProviderChanged:(id)sender
 {
     (void)sender;
