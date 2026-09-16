@@ -110,7 +110,22 @@ impl PanelSession {
     }
 
     pub fn submit(&self, text: &str) -> Result<(), SessionError> {
-        if self.accepts_clipboard() {
+        self.submit_with_mode(text, self.accepts_clipboard())
+    }
+
+    pub fn submit_candidate(&self, text: &str) -> Result<(), SessionError> {
+        self.submit_with_mode(text, false)
+    }
+
+    pub fn submit_clipboard(&self, text: &str) -> Result<(), SessionError> {
+        if !self.accepts_clipboard() {
+            return Err(SessionError::Rejected);
+        }
+        self.submit_with_mode(text, true)
+    }
+
+    fn submit_with_mode(&self, text: &str, clipboard: bool) -> Result<(), SessionError> {
+        if clipboard {
             validate_clipboard_text(text)?;
         } else if text.is_empty() || text.len() > 4096 || text.contains('\0') {
             return Err(SessionError::Invalid);
@@ -242,6 +257,43 @@ mod tests {
             Err(SessionError::Rejected)
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn clipboard_sessions_can_submit_candidates_with_candidate_limits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("input.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut config: serde_json::Value =
+            serde_json::from_str(&configuration(&path, std::process::id())).unwrap();
+        config["clipboard"] = true.into();
+        let session = PanelSession::parse(&config.to_string()).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            assert_eq!(u32::from_be_bytes(bytes[..4].try_into().unwrap()), 9);
+            assert_eq!(&bytes[4..], b"synthetic");
+            stream.write_all(&[0]).unwrap();
+        });
+        assert_eq!(
+            session.submit_candidate(&"x".repeat(4097)),
+            Err(SessionError::Invalid)
+        );
+        assert_eq!(session.submit_candidate("synthetic"), Ok(()));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn non_clipboard_sessions_reject_clipboard_mode_before_connecting() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("missing.sock");
+        let session = PanelSession::parse(&configuration(&path, std::process::id())).unwrap();
+        assert_eq!(
+            session.submit_clipboard("synthetic"),
+            Err(SessionError::Rejected)
+        );
+        assert!(!session.is_used());
     }
 
     fn configuration(path: &Path, pid: u32) -> String {

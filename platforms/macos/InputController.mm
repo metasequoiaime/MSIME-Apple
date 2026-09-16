@@ -1513,7 +1513,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     MSIMEDesktopInputSession *inputSession = [[MSIMEDesktopInputSession alloc]
         initWithTargetPID:application.processIdentifier launchTime:application.launchDate.timeIntervalSince1970
-        clipboard:[route isEqualToString:@"cloud-clipboard"]
+        clipboard:[route isEqualToString:@"cloud-clipboard"] || [route isEqualToString:@"emoji"]
         handler:^(NSString *text, double deadline, MSIMEPanelTextCompletion completion) {
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_emojiReturn.generation != token || controller->_desktopEmojiCompletion) {

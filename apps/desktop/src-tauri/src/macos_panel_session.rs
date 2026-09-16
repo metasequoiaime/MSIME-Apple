@@ -93,6 +93,23 @@ pub(crate) async fn submit(
     window: tauri::WebviewWindow,
     text: String,
 ) -> Result<(), HostActionError> {
+    submit_with_mode(app, window, text, false).await
+}
+
+pub(crate) async fn submit_clipboard(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    text: String,
+) -> Result<(), HostActionError> {
+    submit_with_mode(app, window, text, true).await
+}
+
+async fn submit_with_mode(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    text: String,
+    clipboard: bool,
+) -> Result<(), HostActionError> {
     if !owns_input_panel(super::requested_surface_route(), window.label()) {
         return Err(error(SessionError::Unavailable));
     }
@@ -101,7 +118,6 @@ pub(crate) async fn submit(
         .session
         .clone()
         .ok_or_else(|| error(SessionError::Unavailable))?;
-    let clipboard = super::requested_surface_route() == Some(SurfaceRoute::CloudClipboard);
     validate_submission(&session, clipboard, &text).map_err(error)?;
     if session.is_used()
         || state
@@ -126,7 +142,14 @@ pub(crate) async fn submit(
         if !received.recv().unwrap_or(false) {
             return (false, Err(SessionError::Unavailable));
         }
-        (true, session.submit(&text))
+        (
+            true,
+            if clipboard {
+                session.submit_clipboard(&text)
+            } else {
+                session.submit_candidate(&text)
+            },
+        )
     })
     .await
     .map_err(|_| error(SessionError::Unavailable))?;
@@ -194,7 +217,7 @@ fn validate_submission(
     clipboard: bool,
     text: &str,
 ) -> Result<(), SessionError> {
-    if clipboard != session.accepts_clipboard() {
+    if clipboard && !session.accepts_clipboard() {
         return Err(SessionError::Rejected);
     }
     if clipboard {
@@ -242,10 +265,7 @@ mod tests {
             validate_submission(&candidate, true, &text),
             Err(SessionError::Rejected)
         );
-        assert_eq!(
-            validate_submission(&clipboard, false, "synthetic"),
-            Err(SessionError::Rejected)
-        );
+        assert_eq!(validate_submission(&clipboard, false, "synthetic"), Ok(()));
         assert_eq!(
             validate_submission(&candidate, false, &text),
             Err(SessionError::Invalid)
