@@ -352,6 +352,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 @end
 
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
+- (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
+                                       completion:(void (^)(NSArray<NSDictionary *> *))completion;
 @end
 
 @implementation MSIMEInputController {
@@ -585,17 +587,30 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEInputController *owner = weakSelf;
         if (!owner || owner->_aiEpoch != epoch || owner->_aiTimer != timer || owner->_session != session || owner->_activeClient != client) return;
         owner->_aiTimer = nil;
-        owner->_aiBatch = [[MSIMECustomTranslationBatch alloc] initWithAIItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:^(NSArray *results) {
+        owner->_aiBatch = [owner aiBatchForItems:items completion:^(NSArray *results) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_aiEpoch != epoch || current->_session != session || current->_activeClient != client || ![current->_aiQuery isEqual:query]) return;
             current->_aiBatch = nil;
             NSMutableArray *texts = [NSMutableArray array];
             for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
             NSDictionary *transition = [session applyOnlineCandidates:texts source:1 query:query[@"online"] error:nil];
-            if (transition) [current apply:transition];
+            if ([transition[@"applied"] boolValue]) {
+                // apply_online_candidates advances the shared generation. Keep
+                // the post-apply identity before applying the view so the
+                // render pass does not enqueue the same AI request again.
+                current->_aiQuery = [[session onlineQueryWithError:nil] copy];
+                [current apply:transition];
+            }
         }];
         [owner->_aiBatch start];
     }];
+}
+- (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
+                                       completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    return [[MSIMECustomTranslationBatch alloc]
+        initWithAIItems:items
+           configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+              completion:completion];
 }
 - (NSDictionary *)currentCustomTranslationRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||

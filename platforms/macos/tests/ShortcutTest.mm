@@ -2473,6 +2473,59 @@ static void TestCloudCandidatePreference() {
 - (void)start { assert(!self.started); self.started = YES; }
 - (void)cancel { self.cancelled = YES; }
 @end
+@interface AIShortcutSession : ShortcutSession
+@property(nonatomic, copy) NSDictionary *query;
+@property(nonatomic) NSUInteger applications;
+@end
+@implementation AIShortcutSession
+- (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
+- (NSDictionary *)applyOnlineCandidates:(NSArray<NSString *> *)candidates source:(uint8_t)source
+                                  query:(NSDictionary *)query error:(NSError **)error {
+    (void)error;
+    assert(source == 1 && [query isEqual:self.query] && candidates.count == 1);
+    ++self.applications;
+    NSMutableDictionary *updated = [self.query mutableCopy];
+    updated[@"generation"] = @([updated[@"generation"] unsignedLongLongValue] + 1);
+    self.query = updated;
+    return @{ @"applied": @YES, @"view": @{ @"focused": @YES, @"editing_text": @"synthetic", @"candidates": @[] } };
+}
+@end
+@interface AIShortcutController : CloudShortcutController
+@property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *aiBatches;
+@end
+@implementation AIShortcutController
+- (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
+                                       completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    ControlledTranslationBatch *batch = [ControlledTranslationBatch new];
+    batch.reply = completion;
+    batch.items = items;
+    [self.aiBatches addObject:batch];
+    return batch;
+}
+@end
+static void TestAiCandidateScheduling() {
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai",
+        @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
+        @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    assert(timer);
+    [timer fire];
+    assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
+    controller.aiBatches[0].reply(@[@{ @"translation": @"合成候选" }]);
+    assert(session.applications == 1);
+    assert([[controller valueForKey:@"aiQuery"] isEqual:session.query]);
+    [controller synchronizeAITranslations];
+    assert(controller.aiBatches.count == 1);
+    [controller cancelAITranslations];
+}
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
 @property(nonatomic) BOOL useRealDelay;
@@ -3110,6 +3163,7 @@ int main(int argc, char **argv) {
         [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         TestCloudCandidateScheduling();
         TestCloudCandidateEngineDelivery();
+        TestAiCandidateScheduling();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();
