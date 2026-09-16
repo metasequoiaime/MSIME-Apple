@@ -40,6 +40,7 @@ struct Observation {
   bool mode_registered = false;
   bool input_enabled = false;
   bool english_mode = false;
+  bool emoji_candidates = false;
   bool traditional_output = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
@@ -110,6 +111,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     }
     if (key == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "EmojiCandidates")
+      seen.emoji_candidates = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "Punctuation")
@@ -258,6 +261,9 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_selected_color"] = "#fedcba";
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
+    // Keep the mixed-Emoji path below explicit; the missing-field fallback is
+    // checked separately before the main fixture starts.
+    options["preferences"]["mixed_input"]["emoji"] = true;
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
         {"revision", 0},
@@ -285,8 +291,11 @@ int main(int argc, char **argv) {
       g_object_ref_sink(created);
       return created;
     };
-    auto engine = create_engine();
     Observation seen;
+    auto missing_emoji_options = options;
+    missing_emoji_options["preferences"]["mixed_input"].erase("emoji");
+    msime_preview_configure(missing_emoji_options.dump());
+    auto engine = create_engine();
     const char *destination = g_dbus_connection_get_unique_name(server);
     guint subscription = g_dbus_connection_signal_subscribe(
         client, destination, "org.freedesktop.IBus.Engine", nullptr,
@@ -308,6 +317,10 @@ int main(int argc, char **argv) {
       for (char c : std::string("nihao"))
         require(key(c), "Phrase key not consumed");
     };
+    invoke("FocusIn");
+    require(!seen.emoji_candidates,
+            "Missing mixed Emoji preference did not default to disabled");
+    invoke("FocusOut");
     // Host shortcuts must load and reload while English passthrough has no
     // Engine session. Keep this store separate from the remaining fixtures.
     ibus_object_destroy(IBUS_OBJECT(engine));
