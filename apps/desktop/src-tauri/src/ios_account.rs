@@ -266,6 +266,57 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
 }
 
 #[cfg(target_os = "ios")]
+fn ai_command_error(
+    operation: &'static str,
+    error: crate::mobile_ai::Error,
+) -> super::CommandError {
+    super::CommandError {
+        code: match (operation, error) {
+            ("models", crate::mobile_ai::Error::Invalid) => "ai_models_invalid",
+            ("models", crate::mobile_ai::Error::Unavailable) => "ai_models_unavailable",
+            ("test", crate::mobile_ai::Error::Invalid) => "ai_test_invalid",
+            ("test", crate::mobile_ai::Error::Unavailable) => "ai_test_unavailable",
+            _ => "ai_unavailable",
+        },
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn ai_models(
+    endpoint: String,
+    token: String,
+) -> Result<Vec<String>, super::CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mobile_ai::fetch_models(&endpoint, &token)
+            .map_err(|error| ai_command_error("models", error))
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_models_unavailable",
+    })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn ai_test(
+    endpoint: String,
+    model: String,
+    prompt: String,
+    token: String,
+    text: String,
+) -> Result<String, super::CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mobile_ai::polish(&endpoint, &model, &prompt, &token, &text)
+            .map_err(|error| ai_command_error("test", error))
+    })
+    .await
+    .map_err(|_| super::CommandError {
+        code: "ai_test_unavailable",
+    })?
+}
+
+#[cfg(target_os = "ios")]
 async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, super::CommandError>
 where
     T: Send + 'static,

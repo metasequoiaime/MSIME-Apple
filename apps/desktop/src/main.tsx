@@ -327,7 +327,10 @@ function DesktopSettings() {
             host.platform === "macos" || host.platform === "ios",
           ...(host.typing_statistics ? { typingStatistics } : {}),
           ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, appleLogin: () => invoke<{ user?: { id: string; displayName: string; createdAt: string } | null }>("account_apple_login"), settingsSync: accountSettingsSync }, chat: accountChat,
+          ...(host.platform === "ios" ? { appIcon, account: { ...basicAccount, appleLogin: () => invoke<{ user?: { id: string; displayName: string; createdAt: string } | null }>("account_apple_login"), settingsSync: accountSettingsSync }, chat: accountChat, aiAssistant: {
+            fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
+            test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
+          },
             touchKeyboardSchemes: true,
             customTouchKeyboardSkins: true,
             customSkinLibrary: {

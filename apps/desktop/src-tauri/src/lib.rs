@@ -67,6 +67,7 @@ use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+mod mobile_ai;
 mod skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 mod voice_output;
@@ -5123,6 +5124,10 @@ pub fn run() {
             ios_account::account_chat_models,
             #[cfg(target_os = "ios")]
             ios_account::account_chat,
+            #[cfg(target_os = "ios")]
+            ios_account::ai_models,
+            #[cfg(target_os = "ios")]
+            ios_account::ai_test,
             #[cfg(target_os = "ios")]
             ios_account::account_rename,
             #[cfg(target_os = "ios")]
