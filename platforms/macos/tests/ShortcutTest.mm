@@ -2100,12 +2100,17 @@ show_selected_bar = true
 @interface CloudShortcutSession : ShortcutSession
 @property(nonatomic, copy) NSDictionary *query;
 @property(nonatomic) NSUInteger cloudApplications;
+@property(nonatomic) BOOL rejectNextCloud;
 @end
 @implementation CloudShortcutSession
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
 - (NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error {
     (void)body; (void)error;
     assert([query isEqual:self.query] && NSThread.isMainThread);
+    if (self.rejectNextCloud) {
+        self.rejectNextCloud = NO;
+        return @{ @"applied": @NO, @"view": @{} };
+    }
     ++self.cloudApplications;
     NSMutableDictionary *updated = [self.query mutableCopy];
     updated[@"generation"] = @([updated[@"generation"] unsignedLongLongValue] + 1);
@@ -2225,6 +2230,36 @@ static void TestCloudCandidateScheduling() {
     blurred.reply(body);
     assert(session.cloudApplications == 1);
     method_setImplementation(base, original);
+}
+
+static void TestCloudCandidateRetryAfterRejectedResponse() {
+    CloudShortcutController *controller = [CloudShortcutController alloc];
+    controller.requests = [NSMutableArray array];
+    CloudShortcutSession *session = [CloudShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-retry",
+        @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"cloud_eligible": @YES, @"ai_eligible": @NO, @"cloud_candidates": @YES, @"session_id": @1 };
+    session.rejectNextCloud = YES;
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCloudCandidates];
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 1);
+    ControlledCloudRequest *rejected = controller.requests.lastObject;
+    rejected.reply([@"synthetic" dataUsingEncoding:NSUTF8StringEncoding]);
+    assert(session.cloudApplications == 0);
+    // A rejected response must not poison the query identity: the next render can retry
+    // after the local candidate page has been rebuilt.
+    assert([controller valueForKey:@"cloudQuery"] == nil);
+    [controller synchronizeCloudCandidates];
+    timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer);
+    [timer fire]; [timer invalidate];
+    ControlledCloudRequest *retry = controller.requests.lastObject;
+    retry.reply([@"synthetic" dataUsingEncoding:NSUTF8StringEncoding]);
+    assert(session.cloudApplications == 1);
+    [controller cancelCloudCandidates];
 }
 
 static void TestAiCandidateEngineDelivery() {
@@ -3162,6 +3197,7 @@ int main(int argc, char **argv) {
         id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         TestCloudCandidateScheduling();
+        TestCloudCandidateRetryAfterRejectedResponse();
         TestCloudCandidateEngineDelivery();
         TestAiCandidateScheduling();
         TestAiCandidateEngineDelivery();

@@ -896,11 +896,22 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 (current->_appearance && !current->_appearance.cloudCandidates) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
-            if (!body) return;
+            if (!body) {
+                current->_cloudQuery = nil;
+                return;
+            }
             NSDictionary *result = [session applyCloudResponse:body query:query error:nil];
-            // Remember the post-apply identity so rendering does not re-request this result.
-            current->_cloudQuery = [[session onlineQueryWithError:nil] copy];
-            if ([result[@"applied"] boolValue]) [current apply:result];
+            const BOOL applied = [result[@"applied"] boolValue];
+            if (applied) {
+                // Remember the post-apply identity so rendering does not re-request this result.
+                current->_cloudQuery = [[session onlineQueryWithError:nil] copy];
+                [current apply:result];
+            } else {
+                // A valid response can still be rejected when the local candidate page has
+                // disappeared (or the provider returned no usable candidate). Leave the
+                // query eligible for a later render after local candidates are restored.
+                current->_cloudQuery = nil;
+            }
         }];
         [controller->_cloudRequest start];
     }];
