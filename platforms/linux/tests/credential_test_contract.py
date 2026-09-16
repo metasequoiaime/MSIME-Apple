@@ -52,8 +52,8 @@ class OnlineCredentialTest(unittest.TestCase):
     def test_ai_private_tokens_normalize_pasted_whitespace(self):
         configuration = {
             "provider": "deepseek",
-            "endpoint": "https://fixture.invalid/chat",
-            "model": "fixture-model",
+            "endpoint": "\thttps://fixture.invalid/chat\r\n",
+            "model": " fixture-model \t",
             "token": " \tfixture-private-token\r\n",
             "profiles": {
                 "openai": {
@@ -69,6 +69,8 @@ class OnlineCredentialTest(unittest.TestCase):
             path.chmod(0o600)
             loaded = online.load_ai_config(path)
         self.assertEqual(loaded["token"], "fixture-private-token")
+        self.assertEqual(loaded["endpoint"], "https://fixture.invalid/chat")
+        self.assertEqual(loaded["model"], "fixture-model")
         self.assertEqual(loaded["profiles"]["openai"]["token"], "fixture-profile-token")
 
     def test_ai_private_tokens_still_reject_control_characters(self):
@@ -128,14 +130,14 @@ class VoiceCredentialTest(unittest.TestCase):
         configuration = {
             "asr": {
                 "provider": "openai",
-                "endpoint": "https://fixture.invalid/asr",
-                "model": "whisper-1",
+                "endpoint": " https://fixture.invalid/asr\n",
+                "model": " whisper-1 \t",
                 "token": " \tfixture-asr-token\r\n",
             },
             "polish": {
                 "provider": "deepseek",
-                "endpoint": "https://fixture.invalid/chat",
-                "model": "fixture-model",
+                "endpoint": "\thttps://fixture.invalid/chat\r",
+                "model": " fixture-model \n",
                 "token": " fixture-polish-token\n",
             },
         }
@@ -145,7 +147,11 @@ class VoiceCredentialTest(unittest.TestCase):
             path.chmod(0o600)
             loaded = voice.load_config(path)
         self.assertEqual(loaded["asr"]["token"], "fixture-asr-token")
+        self.assertEqual(loaded["asr"]["endpoint"], "https://fixture.invalid/asr")
+        self.assertEqual(loaded["asr"]["model"], "whisper-1")
         self.assertEqual(loaded["polish"]["token"], "fixture-polish-token")
+        self.assertEqual(loaded["polish"]["endpoint"], "https://fixture.invalid/chat")
+        self.assertEqual(loaded["polish"]["model"], "fixture-model")
 
     def test_voice_private_tokens_still_reject_control_characters(self):
         configuration = {

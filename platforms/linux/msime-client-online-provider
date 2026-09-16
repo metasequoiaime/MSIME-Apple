@@ -608,6 +608,8 @@ def load_ai_config(path):
         if any(not isinstance(entry.get(key), str) or not entry[key].strip()
                for key in ("provider", "endpoint", "model", "token")):
             raise ValueError("invalid AI configuration")
+        for key in ("provider", "endpoint", "model"):
+            entry[key] = entry[key].strip(" \t\r\n")
         # Match the shared Windows/client credential policy for pasted tokens:
         # discard surrounding whitespace before validation and every request.
         # Keep interior whitespace untouched so the provider receives exactly
