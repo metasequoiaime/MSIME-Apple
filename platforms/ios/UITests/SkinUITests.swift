@@ -118,7 +118,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     replay.tap()
     XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
-    XCTAssertTrue(app.buttons["accountProfileCard"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
   }
 
