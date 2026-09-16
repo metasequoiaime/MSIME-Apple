@@ -261,7 +261,7 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"voice" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
   const mobilePanelRef = useRef(mobilePanel);
   useEffect(() => { mobilePanelRef.current = mobilePanel; }, [mobilePanel]);
   const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
@@ -360,6 +360,7 @@ function DesktopSettings() {
               removeReply: id => invoke("community_resource_remove_reply", { id }),
             },
             openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings").then(() => undefined),
+            openVoice: async () => { navigateMobilePanel("voice"); },
             mobileKeyboardFeedback: {
               load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
               save: settings => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_save", { settings }),
@@ -441,6 +442,18 @@ function DesktopSettings() {
   // Mount once after discovery: replacing the client later would reload draft preferences.
   if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
   if (!settingsClient) return <SettingsStartupPage onClose={isTauri() ? () => { void getCurrentWindow().close(); } : undefined} />;
+  if (mobilePanel === "voice") {
+    const ios = settingsClient.host?.platform === "ios";
+    return <VoicePanel client={{
+      ...panelClients.voice,
+      close: async () => closeMobilePanel(),
+      rememberInputTarget: undefined,
+      ...(ios ? {
+        description: "iOS App 负责录音和识别；识别结果不会直接写入键盘扩展，确认提交后会保存为待插入的语音结果。",
+        submitNotice: "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。",
+      } : {}),
+    }} theme="light" />;
+  }
   if (mobilePanel === "cloud-clipboard") {
     return <CloudClipboardPanel client={{
       ...panelClients.cloudClipboard,
