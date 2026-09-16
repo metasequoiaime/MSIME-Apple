@@ -1899,19 +1899,35 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   s.online_loading[request->source] = false;
   if (!s.session || !s.focused || s.blocked || !s.input_enabled)
     return;
+  const auto retry_empty_ai = [&] {
+    if (request->source == 1 &&
+        s.online_dispatched_query[1] == request->query)
+      s.online_dispatched_query[1].clear();
+  };
   if (online_request_is_stale(engine, request->query)) {
     online_schedule(engine);
     return;
   }
-  if (!raw)
+  if (!raw) {
+    retry_empty_ai();
     return;
+  }
   try {
     const auto document = Json::parse(raw.get());
-    if (!document.value("ok", false)) return;
+    if (!document.value("ok", false)) {
+      retry_empty_ai();
+      return;
+    }
     const auto value = document.at("value");
-    if (!value.is_object()) return;
+    if (!value.is_object()) {
+      retry_empty_ai();
+      return;
+    }
     const auto candidates = value.value("candidates", Json::array({value}));
-    if (!candidates.is_array() || candidates.size() > 11) return;
+    if (!candidates.is_array() || candidates.size() > 11) {
+      retry_empty_ai();
+      return;
+    }
     Json groups[2] = {Json::array(), Json::array()};
     for (const auto &item : candidates) {
       const auto candidate = item.value("text", std::string{});
@@ -1919,6 +1935,10 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
       if (candidate.empty() || source != request->source ||
           (!s.cloud_candidates && source == 0)) continue;
       groups[source].push_back(candidate);
+    }
+    if (groups[request->source].empty()) {
+      retry_empty_ai();
+      return;
     }
     bool ai_applied = false;
     for (uint8_t source = 0; source < 2; ++source) {
@@ -1928,8 +1948,12 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
           s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source));
       s.view = applied.at("view");
-      if (source == 1 && applied.value("applied", false))
-        ai_applied = true;
+      if (source == 1) {
+        if (applied.value("applied", false))
+          ai_applied = true;
+        else
+          retry_empty_ai();
+      }
     }
     render(engine, s.view);
     // AI insertion changes the visible candidate generation just like cloud
