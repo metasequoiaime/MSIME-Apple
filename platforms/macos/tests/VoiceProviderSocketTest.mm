@@ -15,8 +15,11 @@ int main() {
         [files createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
         NSString *configured = [root stringByAppendingPathComponent:@"configured.sock"];
         NSString *fallback = [root stringByAppendingPathComponent:@"fallback.sock"];
+        NSString *optionsPath = [root stringByAppendingPathComponent:@"runtime-options.json"];
         [files createFileAtPath:configured contents:[NSData data] attributes:nil];
         [files createFileAtPath:fallback contents:[NSData data] attributes:nil];
+        NSData *options = [NSJSONSerialization dataWithJSONObject:@{ @"voice_provider_socket": configured } options:0 error:nil];
+        [options writeToFile:optionsPath atomically:YES];
 
         require([MSIMEVoiceProviderSocketFromConfiguration(
                     @{ @"voice_provider_socket": configured },
@@ -33,6 +36,8 @@ int main() {
                     @{ @"voice_provider_socket": @"/tmp/missing-msime-voice.sock" },
                     @{}, files) == nil,
                 "missing provider path was advertised");
+        require([MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, @{}, files) isEqual:configured],
+                "explicit host options path was not read");
         [files removeItemAtPath:root error:nil];
     }
     return 0;
