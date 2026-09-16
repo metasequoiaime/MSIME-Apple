@@ -29,6 +29,10 @@ export interface PanelClient {
 
 export interface VoicePanelClient extends PanelClient {
   maxSubmitBytes?: number;
+  /** Platform-specific explanation shown above the recording controls. */
+  description?: string;
+  /** Optional handoff wording for hosts that submit to another native surface. */
+  submitNotice?: string;
   loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }) => void): Promise<() => void>;
@@ -835,7 +839,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       if (copyOnly) {
         setNotice("识别结果已复制，文本已保留");
       } else {
-        setNotice(`已提交：${text}`);
+        setNotice(client.submitNotice ?? `已提交：${text}`);
         updateText("");
       }
     } catch {
@@ -909,7 +913,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>
       {busy && !stopping && inputLevel !== undefined && <label>麦克风音量 <meter aria-label="麦克风音量" min={0} max={1} value={inputLevel} /></label>}
-      <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
+      <p className="voice-panel-description">{client.description ?? "录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。"}</p>
       <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>
       {busy && client.stopVoice && client.cancelVoice && <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>取消录音</button>}

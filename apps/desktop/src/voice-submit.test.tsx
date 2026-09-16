@@ -27,6 +27,18 @@ test("voice submission runs once and clears the submitted text after success", a
   expect(host.input.value).toBe("");
 });
 
+test("voice hosts can explain a cross-surface handoff after submission", async () => {
+  const sendVoiceText = vi.fn().mockResolvedValue(undefined);
+  render(<VoicePanel client={{ close: vi.fn().mockResolvedValue(undefined), sendVoiceText,
+    description: "iOS App 负责录音和识别。", submitNotice: "已发送到本机键盘。" }} />);
+  expect(screen.getByText("iOS App 负责录音和识别。")).toBeTruthy();
+  const input = screen.getByRole("textbox", { name: "识别结果" });
+  fireEvent.change(input, { target: { value: "fixture-result" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交到当前窗口" }));
+  await act(async () => {});
+  expect(screen.getByRole("status").textContent).toContain("已发送到本机键盘。");
+});
+
 test("a completed voice submission preserves a newer edit", async () => {
   const host = setup();
   fireEvent.change(host.input, { target: { value: "fixture-new" } });

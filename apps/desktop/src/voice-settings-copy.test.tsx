@@ -120,6 +120,19 @@ test("iOS keeps voice in the app flow and hides the desktop voice panel", async 
   expect(screen.queryByText("打开语音输入")).toBeNull();
 });
 
+test("iOS exposes the shared in-app voice action", async () => {
+  const openVoice = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage initialPage="voice" client={{
+    load: async () => snapshot,
+    save: vi.fn(),
+    host: host("ios"),
+    openVoice,
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "开始 iOS 语音" }));
+  expect(openVoice).toHaveBeenCalledOnce();
+});
+
 test("iOS handwriting points to the keyboard extension instead of a desktop panel", async () => {
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage initialPage="handwriting" client={{
