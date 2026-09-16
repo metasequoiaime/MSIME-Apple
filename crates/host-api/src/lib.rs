@@ -3809,7 +3809,8 @@ mod tests {
         SESSIONS.with(|sessions| {
             let sessions = sessions.borrow();
             let options = &sessions[&handle].options;
-            assert!(options.mixed_english && options.mixed_emoji);
+            assert!(options.mixed_english);
+            assert!(!options.mixed_emoji);
             assert!(!options.mixed_kaomoji);
         });
         read(msime_client_command(handle, 3));

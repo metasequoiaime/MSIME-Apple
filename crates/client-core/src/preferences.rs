@@ -913,7 +913,7 @@ impl Default for MixedInputPreferences {
         Self {
             english: true,
             minimum_prefix: 2,
-            emoji: true,
+            emoji: false,
             kaomoji: false,
         }
     }
@@ -2534,7 +2534,7 @@ mod tests {
             store.load().unwrap().preferences.mixed_input.minimum_prefix,
             2
         );
-        assert!(store.load().unwrap().preferences.mixed_input.emoji);
+        assert!(!store.load().unwrap().preferences.mixed_input.emoji);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         for mask in 0..8 {
             let preferences = Preferences {
