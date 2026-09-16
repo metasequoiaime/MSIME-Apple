@@ -1381,7 +1381,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
-    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
+    // The shared Tauri/Swift surface is the normal path, but the input source
+    // can be alive before that bridge is loaded (or while the desktop bundle
+    // is being repaired). Keep the macOS character viewer as a useful,
+    // platform-native fallback instead of silently dropping the menu action.
+    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) {
+        [self showSystemCharacterPalette];
+        return;
+    }
     [self showSharedTextTool:@"emoji" options:options bridge:shared];
 }
 - (void)showVoicePanel {

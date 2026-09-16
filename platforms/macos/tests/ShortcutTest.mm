@@ -856,6 +856,14 @@ static void TestPairedPunctuationHostExclusion() {
     assert(!MSIMEPairedPunctuationExcludedBundleIdentifier(nil));
 }
 
+static void TestEmojiBridgeFallback() {
+    ModeController *controller = [ModeController alloc];
+    [controller showEmoji:nil];
+    // The standalone input source can outlive the Swift/Tauri bridge during
+    // launch or bundle repair; the menu must still open macOS Character Viewer.
+    assert(controller.paletteCalls == 1);
+}
+
 static void TestMixedInputPreferences() {
     NSString *suite = [@"msime.mixed-input." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -4311,6 +4319,7 @@ int main(int argc, char **argv) {
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
+        TestEmojiBridgeFallback();
         TestMixedInputPreferences();
         TestCharacterSetShortcut(defaults, appearance);
         TestDedicatedEnglish(appearance);
