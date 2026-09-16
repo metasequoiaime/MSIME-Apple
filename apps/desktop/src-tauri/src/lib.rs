@@ -1080,6 +1080,14 @@ fn start_desktop_preferences_monitor(
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
             let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
+            #[cfg(target_os = "macos")]
+            let mut last_change_count = msime_host_macos::clipboard_snapshot(
+                store
+                    .load()
+                    .map(|snapshot| snapshot.preferences.clipboard_history)
+                    .unwrap_or(false),
+            )
+            .map(|snapshot| snapshot.change_count);
             loop {
                 #[cfg(target_os = "windows")]
                 {
@@ -1098,7 +1106,24 @@ fn start_desktop_preferences_monitor(
                         std::time::Duration::from_millis(750),
                     );
                 }
-                #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                #[cfg(target_os = "macos")]
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(750));
+                    let enabled = store
+                        .load()
+                        .map(|snapshot| snapshot.preferences.clipboard_history)
+                        .unwrap_or(false);
+                    if let Some(snapshot) = msime_host_macos::clipboard_snapshot(enabled) {
+                        desktop_preferences_monitor::record_macos_clipboard_change(
+                            snapshot,
+                            &mut last_change_count,
+                            enabled,
+                            &store,
+                            &history,
+                        );
+                    }
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
             }

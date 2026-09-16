@@ -5,11 +5,13 @@ fn main() {
     println!("cargo:rerun-if-changed=native/keyboard.mm");
     println!("cargo:rerun-if-changed=native/keyboard.h");
     println!("cargo:rerun-if-changed=native/voice_capture_devices.mm");
+    println!("cargo:rerun-if-changed=native/clipboard.mm");
     println!("cargo:rerun-if-changed=../../platforms/macos/VoiceCaptureDevice.h");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")
         .file("native/voice_capture_devices.mm")
+        .file("native/clipboard.mm")
         .flag("-fobjc-arc")
         .std("c++17")
         .compile("msime_macos_keyboard");
