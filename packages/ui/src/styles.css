@@ -716,6 +716,15 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .cloud-dictionary-toolbar button:hover:not(:disabled), .cloud-dictionary-actions button:hover:not(:disabled), .cloud-dictionary-pagination button:hover:not(:disabled), .cloud-dictionary-form button:hover:not(:disabled) { background: var(--button-secondary-hover); }
 .cloud-dictionary-actions { display: flex; gap: 8px; align-items: center; }
 .cloud-dictionary-actions .secondary { margin-top: 0; cursor: pointer; }
+.cloud-dictionary-file-section { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--surface-raised); }
+.cloud-dictionary-file-section h2 { flex: 1 0 100%; margin: 0; font-size: 14px; font-weight: 600; }
+.cloud-dictionary-file-section p { flex: 1 0 100%; }
+.cloud-dictionary-file-section > button, .cloud-dictionary-file-section > label { padding: 7px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--button-secondary-bg); color: var(--text-color); cursor: pointer; }
+.cloud-dictionary-file-section > button:hover:not(:disabled), .cloud-dictionary-file-section > label:hover { background: var(--button-secondary-hover); }
+.cloud-dictionary-file-preview { display: flex; flex: 1 0 100%; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+.cloud-dictionary-file-preview strong { flex: 1 1 auto; overflow-wrap: anywhere; }
+.cloud-dictionary-file-preview small { color: var(--text-muted); }
+.cloud-dictionary-file-preview pre { flex: 1 0 100%; max-height: 180px; margin: 0; padding: 8px; overflow: auto; border-radius: 6px; background: var(--surface-subtle); color: var(--text-secondary); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .cloud-dictionary-kind-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
   .cloud-dictionary-kind-tabs button { min-width: 0; min-height: 34px; padding: 5px 3px; overflow: hidden; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }

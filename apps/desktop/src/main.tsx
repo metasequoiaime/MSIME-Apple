@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type MobileKeyboardFeedback, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type MobileKeyboardFeedback, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -201,7 +201,7 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"voice" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"voice" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | "cloud-dictionary-files" | null>(null);
   const mobilePanelRef = useRef(mobilePanel);
   useEffect(() => { mobilePanelRef.current = mobilePanel; }, [mobilePanel]);
   const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
@@ -369,6 +369,7 @@ function DesktopSettings() {
       ...cloudDictionary,
       openCatalog: async () => navigateMobilePanel("cloud-dictionary-catalog"),
       openCandidates: async () => navigateMobilePanel("cloud-candidates"),
+      openFiles: async () => navigateMobilePanel("cloud-dictionary-files"),
       close: async () => closeMobilePanel(),
     }} />;
   }
@@ -381,6 +382,13 @@ function DesktopSettings() {
   }
   if (mobilePanel === "cloud-candidates") {
     return <CloudCandidatesPanel client={{
+      ...cloudDictionary,
+      back: async () => navigateMobilePanel("cloud-dictionary", true),
+      close: async () => closeMobilePanel(),
+    }} />;
+  }
+  if (mobilePanel === "cloud-dictionary-files") {
+    return <CloudDictionaryFilesPanel client={{
       ...cloudDictionary,
       back: async () => navigateMobilePanel("cloud-dictionary", true),
       close: async () => closeMobilePanel(),
