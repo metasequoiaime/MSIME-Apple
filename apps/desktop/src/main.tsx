@@ -12,6 +12,7 @@ import { discoverFontReader } from "./system-font-client";
 import { DesktopKeyboard } from "./desktop-keyboard";
 import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./credential-test-client";
+import { cloudDictionaryCapabilities, isMobileHost } from "./mobile-host-capabilities";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
@@ -21,13 +22,24 @@ const dictionary: DictionaryClient = {
   }),
   edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
   import: (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import", kind, format, text, request_id } }),
-  ...(/\b(Android|iPhone|iPad)\b/i.test(navigator.userAgent) ? {
-    importPersonal: (text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
-  } : {}),
   export: (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number) => invoke("dictionary_request", { action: { operation: "export", kind, format, offset, limit } }),
   retry: request_id => invoke("dictionary_request", { action: { operation: "retry", request_id } }).then(() => undefined),
   dismissFailure: request_id => invoke("dictionary_request", { action: { operation: "dismiss_failure", request_id } }).then(() => undefined),
 };
+const mobileDictionary: DictionaryClient = {
+  ...dictionary,
+  importPersonal: (text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
+};
+
+async function downloadCloudEntryToLocal(entry: CloudDictionaryEntry, dictionaryClient: DictionaryClient): Promise<void> {
+  if (!dictionaryClient.importPersonal) throw new Error("personal dictionary import is unavailable");
+  const text = JSON.stringify({
+    format: "msime-personal-dictionary",
+    version: 1,
+    entries: [{ kind: entry.kind === "quick" ? "quickPhrase" : entry.kind, key: entry.code, value: entry.word, weight: entry.weight }],
+  });
+  await dictionaryClient.importPersonal(text, `ui-cloud-download-${Date.now()}`);
+}
 const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
@@ -103,42 +115,7 @@ const client: SettingsClient = {
     setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
-  ...(/\bAndroid\b/i.test(navigator.userAgent) ? { typingStatistics, fuzzyPinyin: true, touchKeyboardSchemes: true, customTouchKeyboardSkins: true, customSkinLibrary: {
-    load: () => invoke("load_custom_skin_library"),
-    mutate: action => invoke("mutate_custom_skin_library", { action }),
-  }, appIcon, account: {
-    ...basicAccount,
-    settingsSync: accountSettingsSync,
-  }, chat: accountChat, aiAssistant: {
-    fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
-    test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
-  }, home: {
-    openKeyboard: () => invoke("open_keyboard_panel"),
-    openSystemKeyboardSettings: () => invoke("android_open_input_method_settings"),
-    showInputMethodPicker: () => invoke("android_show_input_method_picker"),
-  }, communitySkins: {
-    list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
-    detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),
-    download: (id, name) => invoke<CommunitySkinDownload>("community_skin_download", { id, name }),
-    rate: (id, stars) => invoke("community_skin_rate", { id, stars }),
-    publish: (id, name, description, design) => invoke("community_skin_publish", { id, name, description, design }),
-    unpublish: id => invoke("community_skin_unpublish", { id }),
-    finishTrial: (id, keep) => invoke("community_skin_finish_trial", { id, keep }),
-  }, aiSkins: {
-    generate: (requestId, prompt) => invoke<AiSkinProposal[]>("ai_skin_generate", { requestId, prompt }),
-    cancel: requestId => invoke("ai_skin_cancel", { requestId }),
-    onProgress: listener => listen<{ requestId: string; completed: number }>("ai-skin-progress", event => listener(event.payload)),
-  }, communityResources: {
-    list: (kind, scope, search, offset) => invoke<CommunityResourcePage>("community_resource_list", { kind, scope, search, offset }),
-    detail: id => invoke<CommunityResource>("community_resource_detail", { id }),
-    publish: (id, kind, name, description, content, revision) => invoke("community_resource_publish", { id, kind, name, description, content, revision }),
-    apply: (id, resourceRevision) => invoke<CommunityResourceApplication>("community_resource_apply", { id, resourceRevision }),
-    save: (id, saved) => invoke("community_resource_save", { id, saved }),
-    rate: (id, stars) => invoke("community_resource_rate", { id, stars }),
-    unpublish: id => invoke("community_resource_unpublish", { id }),
-    storeReply: item => invoke("community_resource_store_reply", { item }),
-    removeReply: id => invoke("community_resource_remove_reply", { id }),
-  }, candidateEnglishGloss: true } : {}),
+  /* mobile host services are injected after host_capabilities resolves */
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
@@ -178,21 +155,6 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   cloudDictionary: {
     close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
     request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
-    ...(/\b(Android|iPhone|iPad)\b/i.test(navigator.userAgent) ? {
-      downloadToLocal: async (entry: CloudDictionaryEntry) => {
-        if (!dictionary.importPersonal) throw new Error("personal dictionary import is unavailable");
-        const text = JSON.stringify({
-          format: "msime-personal-dictionary",
-          version: 1,
-          entries: [{ kind: entry.kind === "quick" ? "quickPhrase" : entry.kind, key: entry.code, value: entry.word, weight: entry.weight }],
-        });
-        await dictionary.importPersonal(text, `ui-cloud-download-${Date.now()}`);
-      },
-    } : {}),
-    // Android and iOS Tauri hosts both use the native snapshot handoff queue;
-    // macOS keeps its direct file-backed implementation.
-    snapshot: /\b(Android|iPhone|iPad)\b/i.test(navigator.userAgent) || /\bMacintosh\b/i.test(navigator.userAgent),
-    snapshotNative: /\bMacintosh\b/i.test(navigator.userAgent),
   },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[]; unavailable?: ("emoji" | "kaomoji" | "symbols")[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then(entries => entries.map(entry => entry.text)),
@@ -322,6 +284,7 @@ function DesktopSettings() {
         ? {
           ...client,
           host,
+          dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
           // Windows and macOS resolve the offline gloss in their native
           // candidate controllers, so the setting is real on both hosts.
           candidateEnglishGloss: host.platform === "linux" ||
@@ -376,6 +339,49 @@ function DesktopSettings() {
             },
           } : {}),
           ...(host.platform === "android" ? {
+            touchKeyboardSchemes: true,
+            customTouchKeyboardSkins: true,
+            customSkinLibrary: {
+              load: () => invoke("load_custom_skin_library"),
+              mutate: action => invoke("mutate_custom_skin_library", { action }),
+            },
+            appIcon,
+            account: { ...basicAccount, settingsSync: accountSettingsSync },
+            chat: accountChat,
+            aiAssistant: {
+              fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
+              test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
+            },
+            communitySkins: {
+              list: (offset, search) => invoke<CommunitySkinPage>("community_skin_list", { offset, search }),
+              detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),
+              download: (id, name) => invoke<CommunitySkinDownload>("community_skin_download", { id, name }),
+              rate: (id, stars) => invoke("community_skin_rate", { id, stars }),
+              publish: (id, name, description, design) => invoke("community_skin_publish", { id, name, description, design }),
+              unpublish: id => invoke("community_skin_unpublish", { id }),
+              finishTrial: (id, keep) => invoke("community_skin_finish_trial", { id, keep }),
+            },
+            aiSkins: {
+              generate: (requestId, prompt) => invoke<AiSkinProposal[]>("ai_skin_generate", { requestId, prompt }),
+              cancel: requestId => invoke("ai_skin_cancel", { requestId }),
+              onProgress: listener => listen<{ requestId: string; completed: number }>("ai-skin-progress", event => listener(event.payload)),
+            },
+            communityResources: {
+              list: (kind, scope, search, offset) => invoke<CommunityResourcePage>("community_resource_list", { kind, scope, search, offset }),
+              detail: id => invoke<CommunityResource>("community_resource_detail", { id }),
+              publish: (id, kind, name, description, content, revision) => invoke("community_resource_publish", { id, kind, name, description, content, revision }),
+              apply: (id, resourceRevision) => invoke<CommunityResourceApplication>("community_resource_apply", { id, resourceRevision }),
+              save: (id, saved) => invoke("community_resource_save", { id, saved }),
+              rate: (id, stars) => invoke("community_resource_rate", { id, stars }),
+              unpublish: id => invoke("community_resource_unpublish", { id }),
+              storeReply: item => invoke("community_resource_store_reply", { item }),
+              removeReply: id => invoke("community_resource_remove_reply", { id }),
+            },
+            home: {
+              openKeyboard: () => invoke("open_keyboard_panel"),
+              openSystemKeyboardSettings: () => invoke("android_open_input_method_settings"),
+              showInputMethodPicker: () => invoke("android_show_input_method_picker"),
+            },
             openSystemKeyboardSettings: () => invoke("android_open_input_method_settings").then(() => undefined),
             mobileKeyboardFeedback: {
               load: () => invoke<MobileKeyboardFeedback>("mobile_keyboard_feedback_load"),
@@ -447,6 +453,13 @@ function DesktopSettings() {
   // Mount once after discovery: replacing the client later would reload draft preferences.
   if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
   if (!settingsClient) return <SettingsStartupPage onClose={isTauri() ? () => { void getCurrentWindow().close(); } : undefined} />;
+  const cloudDictionary = {
+    ...panelClients.cloudDictionary,
+    ...cloudDictionaryCapabilities(settingsClient.host?.platform),
+    ...(isMobileHost(settingsClient.host?.platform) ? {
+      downloadToLocal: (entry: CloudDictionaryEntry) => downloadCloudEntryToLocal(entry, mobileDictionary),
+    } : {}),
+  };
   if (mobilePanel === "voice") {
     const ios = settingsClient.host?.platform === "ios";
     return <VoicePanel client={{
@@ -469,7 +482,7 @@ function DesktopSettings() {
   }
   if (mobilePanel === "cloud-dictionary") {
     return <CloudDictionaryPanel client={{
-      ...panelClients.cloudDictionary,
+      ...cloudDictionary,
       openCatalog: async () => navigateMobilePanel("cloud-dictionary-catalog"),
       openCandidates: async () => navigateMobilePanel("cloud-candidates"),
       close: async () => closeMobilePanel(),
@@ -477,19 +490,37 @@ function DesktopSettings() {
   }
   if (mobilePanel === "cloud-dictionary-catalog") {
     return <CloudDictionaryCatalogPanel client={{
-      ...panelClients.cloudDictionary,
+      ...cloudDictionary,
       back: async () => navigateMobilePanel("cloud-dictionary", true),
       close: async () => closeMobilePanel(),
     }} />;
   }
   if (mobilePanel === "cloud-candidates") {
     return <CloudCandidatesPanel client={{
-      ...panelClients.cloudDictionary,
+      ...cloudDictionary,
       back: async () => navigateMobilePanel("cloud-dictionary", true),
       close: async () => closeMobilePanel(),
     }} />;
   }
   return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} onReplayOnboarding={() => setReplayOnboarding(true)} />
+}
+function DesktopCloudDictionarySurface() {
+  const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    void discoverHostCapabilities().then(value => { if (active) setHost(value); });
+    return () => { active = false; };
+  }, []);
+  if (host === undefined) return <p role="status">正在连接云词库…</p>;
+  const capabilities = cloudDictionaryCapabilities(host?.platform);
+  const cloudDictionary = {
+    ...panelClients.cloudDictionary,
+    ...capabilities,
+    ...(isMobileHost(host?.platform) ? {
+      downloadToLocal: (entry: CloudDictionaryEntry) => downloadCloudEntryToLocal(entry, mobileDictionary),
+    } : {}),
+  };
+  return <DesktopCloudDictionary client={cloudDictionary} />;
 }
 function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
@@ -520,7 +551,7 @@ const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.key
   : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
   : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
-  : panel === "cloud-dictionary" ? <DesktopCloudDictionary client={panelClients.cloudDictionary} />
+  : panel === "cloud-dictionary" ? <DesktopCloudDictionarySurface />
   : panel === "clipboard" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} initialPage="clipboard" />}</DesktopPanelTheme>
   : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} />}</DesktopPanelTheme>
   : <DesktopSettings />;
