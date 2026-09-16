@@ -57,6 +57,7 @@
 #import "CustomTranslationBatch.h"
 #import "TranslationCache.h"
 #include "WubiCommitPolicy.h"
+#include "WubiCodeHintPolicy.h"
 #include "PairedPunctuation.h"
 #include "PairedPunctuation.h"
 #include "TypingStatistics.h"
@@ -162,6 +163,29 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
         if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
     }
     return text;
+}
+
+static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
+    if (![candidate isKindOfClass:NSDictionary.class] || ![view isKindOfClass:NSDictionary.class]) return @"";
+    NSString *code = candidate[@"code"];
+    NSString *typed = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : view[@"editing_text"];
+    NSNumber *scheme = view[@"scheme"];
+    NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
+    if (![code isKindOfClass:NSString.class] || ![typed isKindOfClass:NSString.class] ||
+        ![scheme isKindOfClass:NSNumber.class]) return @"";
+    const std::string codeUTF8 = code.UTF8String ? code.UTF8String : "";
+    const std::string typedUTF8 = typed.UTF8String ? typed.UTF8String : "";
+    const std::string hint = msime::mac::WubiCodeHint(codeUTF8, typedUTF8, enabled, scheme.intValue,
+                                                       localMode.UTF8String ?: "none",
+                                                       [view[@"answered_by_pinyin_fallback"] boolValue]);
+    return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
+}
+
+static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint) {
+    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplay(candidate, traditional);
+    NSMutableDictionary *annotated = [candidate mutableCopy];
+    annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
+    return CandidateDisplay(annotated, traditional);
 }
 
 static NSString *CandidateTranslation(NSDictionary *candidate) {
@@ -484,6 +508,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
+    BOOL _wubiCodeHintEnabled;
     BOOL _capsLock;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
@@ -1097,6 +1122,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)ensureAppearance {
     if (_appearance) return;
+    _wubiCodeHintEnabled = YES;
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
@@ -2383,6 +2409,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     msime_macos_diagnostic_configure(directory, diagnosticEnabled);
     if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
+        id wubiCodeHint = preferences[@"wubi_code_hint"];
+        if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
+            CFGetTypeID((__bridge CFTypeRef)wubiCodeHint) == CFBooleanGetTypeID())
+            _wubiCodeHintEnabled = [wubiCodeHint boolValue];
         _voiceThemePreferences = [preferences copy];
         _menuThemePreferences = [preferences copy];
         if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
@@ -3039,7 +3069,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
         BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
         for (NSDictionary *candidate in candidates)
-            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplay(candidate, traditional), font) + 12);
+            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplayWithWubiHint(candidate, traditional,
+                MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled)), font) + 12);
         if (!_appearance.vertical) {
             CGFloat glossHeight = 0;
             NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
@@ -3110,7 +3141,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     CGFloat glossHeight = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
-        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
+            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, display];
         rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
         CGFloat itemWidth = ceil([number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
@@ -3173,7 +3205,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger slot = 0;
     CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
-        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
+            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
