@@ -523,6 +523,15 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
   expect(testAi).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", model: "fixture-fast", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", token: "fixture-token", text: "fixture input" });
 });
 
+test("AI settings explain the platform-specific keyboard surface", async () => {
+  const client = { load: async () => initial, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  render(<SettingsPage initialPage="ai" client={client} />);
+  expect(await screen.findByText("为键盘 AI 联想、回复与润色提供共享配置")).toBeTruthy();
+  cleanup();
+  render(<SettingsPage initialPage="ai" client={{ ...client, host: { platform: "android" } as HostCapabilities }} />);
+  expect(await screen.findByText("为拼音联想和 Android 选中文字润色提供共享配置")).toBeTruthy();
+});
+
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
