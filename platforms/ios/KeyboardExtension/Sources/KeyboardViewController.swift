@@ -1677,7 +1677,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       defer { synchronizingPersonalDictionary = false }
       try store.synchronize(apply: { request in
         try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
-                                          requestID: request.id.uuidString)
+                                          requestID: request.id)
       }, page: { offset in
         let result = try session.personalEntries(atOffset: UInt(offset))
         guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {

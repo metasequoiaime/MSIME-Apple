@@ -1,5 +1,6 @@
 import json
 import plistlib
+import re
 import unittest
 from pathlib import Path
 
@@ -366,6 +367,53 @@ class IOSProjectConfigTests(unittest.TestCase):
         build_script = (TAURI_ROOT / "build.rs").read_text()
         self.assertIn("CONFIGURATION_BUILD_DIR", build_script)
         self.assertIn("cargo:rustc-link-lib=static=MSIMESwiftRsRuntimeExports", build_script)
+
+    def test_ios_tauri_dictionary_edits_use_the_app_group_queue(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        store = (TAURI_ROOT / "../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift").read_text()
+
+        for path in [
+            "../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift",
+            "../../../../../platforms/ios/SharedUI/PersonalDictionaryImport.swift",
+            "../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift",
+            "../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift",
+        ]:
+            self.assertIn(path, project)
+        target = re.search(
+            r"/\* msime-desktop_iOS \*/ = \{.*?buildPhases = \((.*?)\);",
+            generated,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(target)
+        source_phase = re.search(r"([A-F0-9]{24}) /\* Sources \*/", target.group(1))
+        self.assertIsNotNone(source_phase)
+        phase = re.search(
+            rf"{source_phase.group(1)} /\* Sources \*/ = \{{.*?files = \((.*?)\);",
+            generated,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(phase)
+        for source in [
+            "PersonalDictionaryBridge.swift",
+            "PersonalDictionaryImport.swift",
+            "PersonalDictionaryStore.swift",
+            "PersonalWordBridge.swift",
+            "TauriPersonalDictionaryBridge.swift",
+        ]:
+            self.assertIn(f"{source} in Sources", phase.group(1))
+        self.assertIn("ios_personal_dictionary_action", rust_entry)
+        self.assertIn("msime_ios_personal_dictionary_request", rust_entry)
+        self.assertIn('case "import_personal":', bridge)
+        self.assertIn('case "edit":', bridge)
+        self.assertIn("requestID: requestID", bridge)
+        self.assertIn("PersonalDictionaryStore", bridge)
+        self.assertIn("var id = UUID().uuidString", store)
+        self.assertIn("decoder.dateDecodingStrategy = .custom", store)
+        self.assertIn("Date(timeIntervalSinceReferenceDate: seconds)", store)
+        self.assertIn("encoder.dateEncodingStrategy = .iso8601", store)
 
 
 if __name__ == "__main__":

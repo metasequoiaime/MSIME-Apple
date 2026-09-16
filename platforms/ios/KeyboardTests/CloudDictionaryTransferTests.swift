@@ -26,7 +26,7 @@ final class CloudDictionaryTransferTests: XCTestCase {
     }
     try store.enqueue(previous: nil, replacement: word)
     try store.synchronize(apply: {
-      try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue, requestID: $0.id.uuidString)
+      try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue, requestID: $0.id)
     }, page: { _ in .init(entries: [], hasMore: false) })
     XCTAssertEqual(try store.read().requests.first?.status, .applied)
     _ = session.openLocalMode("K")
