@@ -374,6 +374,9 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .account-community-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .account-community-actions > div { min-width: 0; }
 .account-community-actions .secondary { flex: 0 0 auto; margin: 0; }
+.account-community-group { flex-wrap: wrap; }
+.account-community-group > div { flex: 1 0 100%; }
+.account-community-group .secondary { flex: 1 1 96px; }
 .account-mobile-menu { display: flex; flex-direction: column; gap: 10px; }
 .account-mobile-menu summary { width: fit-content; padding: 7px 14px; border: 1px solid var(--control-border); border-radius: 8px; color: var(--text-color); cursor: pointer; list-style: none; }
 .account-mobile-menu summary::-webkit-details-marker { display: none; }
