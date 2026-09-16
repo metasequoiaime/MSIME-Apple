@@ -627,6 +627,8 @@ export interface SettingsClient {
   openCloudClipboard?: () => Promise<void>;
   openCloudDictionary?: () => Promise<void>;
   restartInputMethod?: () => Promise<void>;
+  /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
+  installInputSource?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -808,6 +810,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
   const showRestartInputMethod = (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
+  const showInstallInputSource = macosPlatform && client.installInputSource;
   const showFloatingToolbar = host ? host.floating_toolbar : true;
   // An IBus property menu has no scale or icon size to apply, but it can
   // expose component visibility as individual menu entries.
@@ -2111,6 +2114,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <span>{macosPlatform ? "重新注册当前输入源" : "立即重启输入法服务"}</span>
             <HostActionButton action={client.restartInputMethod} label={macosPlatform ? "重新注册" : "重启"} success={macosPlatform ? "已重新注册输入源。" : "已发送重启请求。"} error={macosPlatform ? "重新注册输入源失败，请确认输入法已经安装。" : "重启输入法服务失败，请稍后重试。"} />
           </div>
+          {showInstallInputSource && <div className="service-action-row">
+            <span>安装或更新水杉输入源<small>将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。</small></span>
+            <HostActionButton action={client.installInputSource} label="安装 / 更新" success="输入源已安装并注册。" error="输入源安装或注册失败，请重试。" />
+          </div>}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
