@@ -912,7 +912,7 @@ impl Default for MixedInputPreferences {
     fn default() -> Self {
         Self {
             english: true,
-            minimum_prefix: 5,
+            minimum_prefix: 2,
             emoji: true,
             kaomoji: false,
         }
@@ -2529,6 +2529,10 @@ mod tests {
         assert_eq!(
             store.load().unwrap().preferences.mixed_input,
             MixedInputPreferences::default()
+        );
+        assert_eq!(
+            store.load().unwrap().preferences.mixed_input.minimum_prefix,
+            2
         );
         assert!(store.load().unwrap().preferences.mixed_input.emoji);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);

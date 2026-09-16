@@ -403,7 +403,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   expect(english.checked).toBe(true);
   expect(emoji.checked).toBe(true);
   expect(kaomoji.checked).toBe(false);
-  expect(threshold.value).toBe("5");
+  expect(threshold.value).toBe("2");
   expect(threshold.options.length).toBe(8);
   fireEvent.change(threshold, { target: { value: "8" } });
   fireEvent.click(english);
