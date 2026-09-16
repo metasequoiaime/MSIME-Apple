@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import textwrap
+import re
 import subprocess
 import tempfile
 import unittest
@@ -22,6 +23,11 @@ SIGNING_SECRETS = (
     "MACOS_DEVELOPER_ID_APPLICATION",
     "MACOS_DEVELOPER_ID_INSTALLER",
 )
+
+
+# 已经发到 TestFlight 与 Sparkle 上的最高 build。任何新分配的 build 都必须高于它 —— 两次事故都是
+# 因为这条线只存在于注释里,而断言钉的是一个比它低的数。
+SHIPPED_BUILD_CEILING = (1002, 71, 1)
 
 
 class BuildNumberTests(unittest.TestCase):
@@ -48,8 +54,22 @@ class BuildNumberTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
         self.assertEqual(builds, sorted(set(builds)))
-        # The offset keeps every build above the legacy commit-count builds (491): #405 dropped it from a stale checkout and shipped 3.64.1, a CFBundleVersion below the 1002.x line TestFlight and Sparkle already carry.
-        self.assertGreater(builds[0], (1000, 0, 0))
+        # 门槛钉在「已经发出去的最高 build」上,而不是一个比它低的整数。这条断言此前写的是 1000,
+        # 于是 1000.1.1 满足它 —— 而真实世界里 TestFlight 和 Sparkle 上已经是 1002.71.1,倒退了。
+        # 这个错犯过两次:#405 从陈旧检出里丢掉偏移量发了 3.64.1,把 release.yml 拆成两个 workflow
+        # 又让 GITHUB_RUN_NUMBER(按 workflow 计数)从 1 重来,发了 1000.1.1。号一旦回退,Sparkle 看不见
+        # 更新,App Store Connect 直接拒收。
+        self.assertGreater(builds[0], SHIPPED_BUILD_CEILING)
+
+    def test_every_release_workflow_allocates_above_what_shipped(self):
+        """两个发布 workflow 各有各的 GITHUB_RUN_NUMBER,所以偏移量要各自够高。"""
+        root = MACOS_ROOT.parents[1] / ".github/workflows"
+        for name in ("release-macos.yml", "release-ios.yml"):
+            body = (root / name).read_text()
+            offset = re.search(r"build=\"\$\(\((\d+) \+ GITHUB_RUN_NUMBER", body)
+            with self.subTest(workflow=name):
+                self.assertIsNotNone(offset, f"{name} 应当从一个显式偏移量算 build")
+                self.assertGreater((int(offset.group(1)), 0, 0), SHIPPED_BUILD_CEILING, name)
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
