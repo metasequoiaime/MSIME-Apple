@@ -22,6 +22,18 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
   expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
 });
 
+test("macOS exposes the non-activating input-mode HUD preference", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, host: { platform: "macos" } as HostCapabilities }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const toggle = screen.getByRole("checkbox", { name: "中英文切换提示" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_hud: false }));
+});
+
 test("titlebar sits above the shared sidebar and content body", async () => {
   const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
     windowControl: vi.fn().mockResolvedValue(undefined) }} />);
