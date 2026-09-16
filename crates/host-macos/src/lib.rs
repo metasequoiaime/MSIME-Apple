@@ -157,6 +157,50 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
     Vec::new()
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardSnapshot {
+    pub change_count: i64,
+    pub text: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+pub fn clipboard_snapshot(include_text: bool) -> Option<ClipboardSnapshot> {
+    let mut bytes = vec![0_u8; msime_client_core::clipboard::MAX_TEXT_BYTES];
+    let mut length = 0_usize;
+    let mut has_text = false;
+    let mut change_count = 0_i64;
+    unsafe extern "C" {
+        fn msime_macos_read_clipboard(
+            buffer: *mut u8,
+            capacity: usize,
+            read_text: bool,
+            length: *mut usize,
+            has_text: *mut bool,
+            change_count: *mut i64,
+        ) -> bool;
+    }
+    // SAFETY: the native function fills only the provided bounded buffer and
+    // scalar outputs, and never retains any pointer after returning.
+    let available = unsafe {
+        msime_macos_read_clipboard(
+            bytes.as_mut_ptr(),
+            bytes.len(),
+            include_text,
+            &mut length,
+            &mut has_text,
+            &mut change_count,
+        )
+    };
+    if !available || length > bytes.len() {
+        return None;
+    }
+    let text = has_text
+        .then(|| String::from_utf8(bytes[..length].to_vec()).ok())
+        .flatten();
+    Some(ClipboardSnapshot { change_count, text })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyStroke {
     pub code: u16,
