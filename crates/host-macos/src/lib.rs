@@ -68,6 +68,65 @@ pub fn restore_launch_target(target: LaunchTarget) -> bool {
     unsafe { msime_macos_restore_launch_target(target.pid, target.launched) }
 }
 
+/// Enumerate input-capable CoreAudio devices using their stable UIDs. The
+/// callback runs synchronously on the caller's thread and never opens a
+/// device, so this is safe to use from a Tauri blocking task.
+#[cfg(target_os = "macos")]
+pub fn voice_capture_devices() -> Vec<(String, String)> {
+    use std::ffi::{c_char, c_void, CStr};
+
+    extern "C" fn collect(
+        uid: *const c_char,
+        name: *const c_char,
+        _is_default: bool,
+        context: *mut c_void,
+    ) {
+        if uid.is_null() || name.is_null() || context.is_null() {
+            return;
+        }
+        let (uid, name) = unsafe { (CStr::from_ptr(uid), CStr::from_ptr(name)) };
+        let (Ok(uid), Ok(name)) = (uid.to_str(), name.to_str()) else {
+            return;
+        };
+        if uid.is_empty()
+            || name.is_empty()
+            || uid.len() > 512
+            || name.len() > 512
+            || uid.chars().any(char::is_control)
+            || name.chars().any(char::is_control)
+        {
+            return;
+        }
+        // SAFETY: the native enumerator invokes this callback synchronously
+        // with the exact Vec pointer passed below and never stores it.
+        let devices = unsafe { &mut *(context.cast::<Vec<(String, String)>>()) };
+        devices.push((uid.to_owned(), name.to_owned()));
+    }
+
+    unsafe extern "C" {
+        fn msime_macos_list_voice_capture_devices(
+            callback: extern "C" fn(*const c_char, *const c_char, bool, *mut c_void),
+            context: *mut c_void,
+        );
+    }
+
+    let mut devices = Vec::new();
+    // SAFETY: `collect` has the ABI and lifetime required by the native
+    // callback; the context points to a live Vec for the duration of the call.
+    unsafe {
+        msime_macos_list_voice_capture_devices(
+            collect,
+            (&mut devices as *mut Vec<(String, String)>).cast::<c_void>(),
+        );
+    }
+    devices
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn voice_capture_devices() -> Vec<(String, String)> {
+    Vec::new()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyStroke {
     pub code: u16,

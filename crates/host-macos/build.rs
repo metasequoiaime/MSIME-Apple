@@ -4,12 +4,17 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=native/keyboard.mm");
     println!("cargo:rerun-if-changed=native/keyboard.h");
+    println!("cargo:rerun-if-changed=native/voice_capture_devices.mm");
+    println!("cargo:rerun-if-changed=../../platforms/macos/VoiceCaptureDevice.h");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")
+        .file("native/voice_capture_devices.mm")
         .flag("-fobjc-arc")
         .std("c++17")
         .compile("msime_macos_keyboard");
     println!("cargo:rustc-link-lib=framework=AppKit");
     println!("cargo:rustc-link-lib=framework=CoreGraphics");
+    println!("cargo:rustc-link-lib=framework=CoreAudio");
+    println!("cargo:rustc-link-lib=framework=AudioToolbox");
 }
