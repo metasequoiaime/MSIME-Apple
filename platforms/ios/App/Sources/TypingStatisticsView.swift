@@ -246,21 +246,10 @@ struct TypingStatisticsView: View {
     let visible = slices.filter { $0.count > 0 || $0.id != "unknown" }
     return VStack(spacing: 14) {
       switch chart {
-      // SectorMark arrived in iOS 17 and this app still ships to 16. The ranked bars answer the
-      // same question -- who takes the larger share -- so the older system gets those rather than
-      // an empty space.
       case .pie:
-        if #available(iOS 17, *) {
-          StatisticsPieChart(slices: slices, progress: revealed ? 1 : 0)
-        } else {
-          StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
-        }
+        StatisticsPieChart(slices: slices, progress: revealed ? 1 : 0)
       case .donut:
-        if #available(iOS 17, *) {
-          StatisticsDonutChart(slices: slices, total: total, progress: revealed ? 1 : 0)
-        } else {
-          StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
-        }
+        StatisticsDonutChart(slices: slices, total: total, progress: revealed ? 1 : 0)
       case .rank:
         StatisticsRankChart(slices: slices, progress: revealed ? 1 : 0)
       }

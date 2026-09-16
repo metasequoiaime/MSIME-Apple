@@ -222,7 +222,6 @@ struct StatisticsHeatmap: View {
 }
 
 /// 饼图:看一类占了整块的多少。
-@available(iOS 17, *)
 struct StatisticsPieChart: View {
   let slices: [StatisticsChart.Slice]
   let progress: Double
@@ -239,7 +238,6 @@ struct StatisticsPieChart: View {
 }
 
 /// 环形图:中间留出总数,一眼看到「一共多少、谁占大头」。
-@available(iOS 17, *)
 struct StatisticsDonutChart: View {
   let slices: [StatisticsChart.Slice]
   let total: Int
