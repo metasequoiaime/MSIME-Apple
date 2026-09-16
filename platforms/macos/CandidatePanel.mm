@@ -32,6 +32,7 @@
 @property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *hoverColor;
+@property(nonatomic, copy) NSColor *selectedHoverColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
 @property(nonatomic, copy) NSColor *barColor;
@@ -80,7 +81,9 @@
 {
     (void)dirtyRect;
     NSRectClip(self.bounds);
-    NSColor *rowFill = self.candidateHighlighted ? self.fillColor : (self.candidateHovered ? self.hoverColor : nil);
+    NSColor *rowFill = self.candidateHighlighted
+        ? (self.candidateHovered ? self.selectedHoverColor : self.fillColor)
+        : (self.candidateHovered ? self.hoverColor : nil);
     if (rowFill != nil && rowFill.alphaComponent > 0.01)
     {
         [rowFill setFill];
@@ -381,6 +384,7 @@
         button.candidateHighlighted = (NSInteger)index == _selected;
         button.fillColor = selectedFill;
         button.hoverColor = MetasequoiaColorFromRgba(_skin.tokens.hover);
+        button.selectedHoverColor = MetasequoiaColorFromRgba(_skin.tokens.selectedHover);
         button.titleColor = button.candidateHighlighted ? selectedText : textColor;
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;

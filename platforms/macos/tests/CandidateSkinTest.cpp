@@ -44,7 +44,10 @@ int main() {
     CheckColor(BuiltInSkinTokens("fluent", true).selected, 0x3E3E3E, .725f);
     for (bool dark : {false, true}) {
         CheckColor(BuiltInSkinTokens("wechat", dark).selected, 0x07C160);
+        CheckColor(BuiltInSkinTokens("wechat", dark).selectedHover, 0x07C160);
         CheckColor(BuiltInSkinTokens("graphite", dark).selected, 0, 0);
+        assert(SameColor(BuiltInSkinTokens("graphite", dark).selectedHover,
+                         BuiltInSkinTokens("graphite", dark).hover));
         CheckColor(BuiltInSkinTokens("willow_green", dark).border, 0, 0);
         CheckColor(BuiltInSkinTokens("unknown", dark).surface, dark ? 0x202020 : 0xFFFFFF);
 

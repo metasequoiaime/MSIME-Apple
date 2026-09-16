@@ -24,6 +24,7 @@ struct SkinTokens
     Rgba text;
     Rgba number;
     Rgba selected;
+    Rgba selectedHover;
     Rgba selectedText;
     Rgba hover;
     Rgba accent;
