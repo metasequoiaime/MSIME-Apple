@@ -721,17 +721,24 @@ button.statistics-heatmap-cell { cursor: pointer; }
   .cloud-dictionary-kind-tabs button { min-width: 0; min-height: 34px; padding: 5px 3px; overflow: hidden; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
   .cloud-dictionary-kind-tabs button.active { background: var(--surface-raised); color: var(--text-color); box-shadow: var(--card-shadow); }
   .cloud-dictionary-toolbar > label:first-child { display: none; }
+  .cloud-dictionary-mobile-hint { display: block; }
+  .cloud-dictionary-item { align-items: stretch; flex-direction: column; gap: 8px; }
+  .cloud-dictionary-item-main { width: 100%; }
+  .cloud-dictionary-item-actions { width: 100%; flex-wrap: wrap; }
+  .cloud-dictionary-item-actions button { flex: 1 1 96px; min-height: 34px; }
 }
 .cloud-dictionary-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 14px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--surface-raised); }
 .cloud-dictionary-form .cloud-dictionary-word { flex: 1 1 220px; }
 .cloud-dictionary-form .cloud-dictionary-word input { width: 100%; }
 .cloud-dictionary-list { display: flex; min-height: 180px; flex-direction: column; gap: 8px; }
 .cloud-dictionary-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--divider-color); }
-.cloud-dictionary-item > div { min-width: 0; }
+.cloud-dictionary-item-main { display: block; min-width: 0; flex: 1 1 auto; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.cloud-dictionary-item-main:hover:not(:disabled) strong, .cloud-dictionary-item-main:focus-visible strong { text-decoration: underline; }
 .cloud-dictionary-item strong { display: block; overflow-wrap: anywhere; font-weight: 500; }
 .cloud-dictionary-item small { margin-top: 3px; }
-.cloud-dictionary-item > span { display: flex; flex-shrink: 0; gap: 6px; }
+.cloud-dictionary-item-actions { display: flex; flex-shrink: 0; gap: 6px; }
 .cloud-dictionary-item .secondary { margin-top: 0; padding: 5px 9px; }
+.cloud-dictionary-mobile-hint { display: none; margin: 0; color: var(--text-muted); font-size: 12px; }
 .cloud-dictionary-empty { margin: auto; color: var(--text-muted); }
 .cloud-dictionary-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; color: var(--text-secondary); font-size: 12px; }
 .ink-canvas-section { min-width: 0; }

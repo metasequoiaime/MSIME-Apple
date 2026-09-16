@@ -2218,6 +2218,28 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   panel.unmount();
 });
 
+test("cloud dictionary entries open their editor from the row on touch layouts", async () => {
+  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
+  render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("你");
+  fireEvent.click(screen.getByRole("button", { name: "编辑云词条 你" }));
+  expect((screen.getByRole("textbox", { name: "编码" }) as HTMLInputElement).value).toBe("ni");
+  expect(screen.getByText("点按词条可编辑；窄屏下的下载和删除操作会分组显示。")).toBeTruthy();
+});
+
+test("cloud dictionary deletion asks for confirmation before changing the cloud entry", async () => {
+  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
+  render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
+  await screen.findByText("你");
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  expect(confirm).toHaveBeenCalledWith("确认删除云词条“你”？仅删除云端版本，本机词库不会改变。");
+  expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "delete" }));
+  confirm.mockRestore();
+});
+
 test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
