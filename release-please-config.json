@@ -17,10 +17,26 @@
         {
           "type": "generic",
           "path": "CMakeLists.txt"
-        },
+        }
+      ]
+    },
+    "platforms/ios": {
+      "release-type": "simple",
+      "package-name": "MetasequoiaImeIOS",
+      "component": "ios",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "version-file": "version.txt",
+      "bump-patch-for-minor-pre-major": true,
+      "bump-minor-pre-major": true,
+      "draft": true,
+      "force-tag-creation": true,
+      "pull-request-header": "This PR prepares the next Metasequoia IME for iOS release.",
+      "pull-request-footer": "CI runs automatically; after it passes, this PR is squash-merged and the release is finalized automatically.",
+      "extra-files": [
         {
           "type": "generic",
-          "path": "platforms/ios/project.yml"
+          "path": "project.yml"
         }
       ]
     }

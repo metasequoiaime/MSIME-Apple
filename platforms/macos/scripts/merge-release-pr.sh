@@ -36,13 +36,13 @@ if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ || ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; the
     exit 1
 fi
 
-gh workflow run ci.yml --repo "$GH_REPO" --ref "$head_branch"
+gh workflow run ci-macos.yml --repo "$GH_REPO" --ref "$head_branch"
 
 max_polls=${METASEQUOIA_RELEASE_CI_MAX_POLLS:-150}
 poll_interval=${METASEQUOIA_RELEASE_CI_POLL_INTERVAL:-2}
 run_id=""
 for ((attempt = 1; attempt <= max_polls; ++attempt)); do
-    run_id=$(gh run list --repo "$GH_REPO" --workflow ci.yml --branch "$head_branch" \
+    run_id=$(gh run list --repo "$GH_REPO" --workflow ci-macos.yml --branch "$head_branch" \
         --event workflow_dispatch --limit 20 --json databaseId,headSha \
         --jq "map(select(.headSha == \"$head_sha\")) | first | .databaseId // empty")
     if [[ -n "$run_id" ]]; then

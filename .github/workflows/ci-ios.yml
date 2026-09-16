@@ -1,0 +1,196 @@
+name: iOS CI
+
+# iOS 的模拟器套件与手写识别。iOS 的改动不该让 macOS 的编译器跑起来,反过来也一样 —— 这两半原来同在 ci.yml 里,任何一次改动都要两边都编一遍。
+#
+# 触发条件不按路径过滤,而是文件内部先算一遍改动范围,再决定重活跑不跑。分支保护是按 job 名字要求检查的:workflow 整个没被触发时它什么都不上报,PR 就永远卡在等一个不会来的检查上;而在 workflow 内部被 `if:` 跳过的 job 会上报 skipped,那是算通过的。
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
+  pull_request:
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
+  workflow_dispatch:
+
+  merge_group:
+
+concurrency:
+  group: ci-ios-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Decide whether iOS needs building
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the changed paths
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # 手动触发和合并队列一律构建:前者是有人明确要这一次,后者是合并前最后一道,两种情况都不该由路径来猜。
+          if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          printf '改动文件:\n%s\n' "$changed"
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              platforms/ios/*)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "iOS 改动: $path"; exit 0 ;;
+              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+            esac
+          done <<< "$changed"
+          echo "build=false" >> "$GITHUB_OUTPUT"
+          echo "本次改动不涉及iOS,跳过构建。"
+
+  ios:
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' }}
+    name: iOS Simulator
+    # Everything except the three handwriting cases, on arm64, always. Only MLKitDigitalInkRecognition
+    # needs an Intel runner -- its arm64 slice is built for devices, so there is none to link against
+    # on an Apple Silicon Simulator -- and only MetasequoiaKeyboardTests/HandwritingTests needs it.
+    # The interface suite does not, and used to be dragged onto Intel with it: a twenty-five minute
+    # test build before a case ran, then thirty-seven cases on a Simulator half the speed of an arm64
+    # one. The handwriting cases are their own job now, so neither waits on the other.
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      MSIME_IOS_SKIP_HANDWRITING: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install project generator
+        run: |
+          brew install boost fmt spdlog nlohmann-json xcodegen
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
+      - name: Test shared account transport and session lifecycle
+        run: swift test --package-path shared/backend
+      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Validate keyboard configuration
+        run: |
+          python3 platforms/ios/tests/ProjectConfigurationTests.py
+          python3 platforms/ios/tests/DictionaryPackagingTests.py
+      - name: Package iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
+            pod install --deployment --project-directory=platforms/ios
+          fi
+      - name: Test native iOS keyboard and settings
+        # The full interface suite runs where it gates something: the pull request that promotes
+        # develop to main, and main itself. Everywhere else runs the unit suites and the handful of
+        # interface cases in the pr scope.
+        #
+        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking
+        # the app to tell us something a dozen times a day, blocking nothing, while the promotion
+        # that actually ships ran the cheap scope. The expensive scope belongs at the gate.
+        #
+        # The interface suite dominates either way -- each case is a cold launch and a walk through
+        # the app -- so it runs its classes across cloned Simulators rather than one after another.
+        # The runner has the cores; a single Simulator was leaving most of them idle.
+        #
+        # The cap is what the whole suite took on arm64 before that, with room to spare, rather than
+        # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
+        # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
+        env:
+          MSIME_TEST_SCOPE: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'all' || 'pr' }}
+        timeout-minutes: 45
+        run: bash platforms/ios/scripts/run_ui_tests.sh
+      - name: Upload iOS test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-test-results
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
+
+  ios-handwriting:
+    needs: changes
+    name: iOS Handwriting
+    # The three cases that need MLKitDigitalInkRecognition, which has no arm64 Simulator slice, and
+    # therefore the only ones that still need an Intel runner. They are here rather than in the job
+    # above so that the interface suite does not wait behind an Intel build for a dependency it does
+    # not use. Deferred to merge for the same reason the whole suite used to be: the build in front
+    # of three cases costs more than the cases do, and a review signal is not worth that.
+    if: ${{ needs.changes.outputs.build == 'true' && github.event_name != 'pull_request' }}
+    runs-on: macos-15-intel
+    timeout-minutes: 75
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      MSIME_IOS_SKIP_HANDWRITING: '0'
+      MSIME_TEST_SCOPE: handwriting
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install project generator
+        run: |
+          brew install boost fmt spdlog nlohmann-json xcodegen
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Package iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          pod install --deployment --project-directory=platforms/ios
+      - name: Test handwriting recognition
+        run: bash platforms/ios/scripts/run_ui_tests.sh
+      - name: Upload handwriting test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-handwriting-test-results
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
