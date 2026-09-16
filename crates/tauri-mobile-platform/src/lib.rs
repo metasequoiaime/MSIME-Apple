@@ -133,6 +133,42 @@ pub struct IosKeyboardPreferences {
     pub custom_keyboard_skin: Option<String>,
 }
 
+/// The small, native-facing AI configuration shared by the Tauri settings app
+/// and the keyboard extension. The extension deliberately receives only the
+/// already-resolved token for the configured endpoint; the complete Rust
+/// preferences document never crosses the plugin boundary.
+#[cfg(any(target_os = "ios", test))]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IosKeyboardAiPreferences {
+    pub enabled: bool,
+    pub provider: String,
+    pub endpoint: String,
+    pub model: String,
+    pub prompt: String,
+    pub token: String,
+}
+
+#[cfg(any(target_os = "ios", test))]
+impl IosKeyboardAiPreferences {
+    pub fn is_valid(&self) -> bool {
+        let bounded = |value: &str, limit: usize| {
+            value.len() <= limit && !value.chars().any(char::is_control)
+        };
+        bounded(&self.provider, 64)
+            && bounded(&self.endpoint, 2_048)
+            && bounded(&self.model, 512)
+            && bounded(&self.prompt, 16 * 1_024)
+            && bounded(&self.token, 16 * 1_024)
+            && (!self.enabled
+                || (!self.provider.is_empty()
+                    && !self.endpoint.trim().is_empty()
+                    && !self.model.trim().is_empty()
+                    && !self.prompt.trim().is_empty()
+                    && !self.token.trim().is_empty()))
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct IosVoiceRequestHeader {
@@ -578,6 +614,15 @@ impl<R: Runtime> MobilePlatform<R> {
         saved.is_valid().then_some(saved).ok_or(())
     }
 
+    pub fn save_keyboard_ai(&self, preferences: &IosKeyboardAiPreferences) -> Result<(), ()> {
+        if !preferences.is_valid() {
+            return Err(());
+        }
+        self.0
+            .run_mobile_plugin("saveKeyboardAI", preferences)
+            .map_err(|_| ())
+    }
+
     pub fn preview_keyboard_haptics(&self, strength: &str) -> Result<(), ()> {
         if !matches!(strength, "light" | "medium" | "strong") {
             return Err(());
@@ -612,9 +657,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
-        migrated_account_session_payload, valid_android_voice_request, IosKeyboardPreferences,
-        IosVoiceRequestHeader, IosVoiceTranscriptionRequest, IosVoiceTranscriptionResponse,
-        MAX_ACCOUNT_SESSION_BYTES, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
+        migrated_account_session_payload, valid_android_voice_request, IosKeyboardAiPreferences,
+        IosKeyboardPreferences, IosVoiceRequestHeader, IosVoiceTranscriptionRequest,
+        IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
+        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -626,6 +672,33 @@ mod tests {
         for style in ["", "Classic", "unknown", "../AppIcon"] {
             assert!(!is_supported_app_icon_style(style));
         }
+    }
+
+    #[test]
+    fn ios_keyboard_ai_preferences_require_a_complete_enabled_configuration() {
+        let valid = IosKeyboardAiPreferences {
+            enabled: true,
+            provider: "deepSeek".into(),
+            endpoint: "https://api.example.invalid/v1/chat/completions".into(),
+            model: "fixture-model".into(),
+            prompt: "只返回结果".into(),
+            token: "fixture-token".into(),
+        };
+        assert!(valid.is_valid());
+        assert!(!IosKeyboardAiPreferences {
+            token: String::new(),
+            ..valid.clone()
+        }
+        .is_valid());
+        assert!(IosKeyboardAiPreferences {
+            enabled: false,
+            endpoint: String::new(),
+            model: String::new(),
+            prompt: String::new(),
+            token: String::new(),
+            ..valid
+        }
+        .is_valid());
     }
 
     #[test]
