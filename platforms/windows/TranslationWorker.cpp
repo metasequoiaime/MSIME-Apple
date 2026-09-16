@@ -11,6 +11,7 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace msime::windows {
@@ -357,6 +358,7 @@ TranslationWorker::translate(const Request &request,
   try {
     const auto &query = *document;
     const auto generation = query.at("generation").get<uint64_t>();
+    auto translations = nlohmann::json::array().dump();
     // The offline English gloss comes from a packaged dictionary, so it is
     // resolved before any provider is consulted and never reaches the network.
     // It is also the only source available when no online provider is
@@ -382,11 +384,8 @@ TranslationWorker::translate(const Request &request,
         if (cancelled())
           return std::nullopt;
         if (glossed && glossed->is_object() &&
-            glossed->value("translations", nlohmann::json::array())
-                .is_array() &&
-            !glossed->at("translations").empty())
-          return TranslationWorker::Result{request.lease, generation,
-                                           glossed->at("translations").dump()};
+            glossed->value("translations", nlohmann::json::array()).is_array())
+          translations = glossed->at("translations").dump();
       }
       // No gloss for this page. Fall through: an online provider may still be
       // configured, and a page with no dictionary entry is not a failure.
@@ -404,15 +403,37 @@ TranslationWorker::translate(const Request &request,
     auto plan = host_value(msime_client_custom_translation_plan(
         reinterpret_cast<const uint8_t *>(plan_bytes.data()),
         plan_bytes.size()));
-    if (!plan || !plan->is_array() || plan->empty() || cancelled())
+    if (!plan || !plan->is_array() || cancelled())
       return std::nullopt;
+
+    // Keep local dictionary hits and ask an online provider only for misses.
+    // This mirrors the source worker's local-first merge behavior instead of
+    // treating one offline hit as a complete page.
+    std::unordered_set<std::string> translated_texts;
+    try {
+      for (const auto &entry : nlohmann::json::parse(translations))
+        if (entry.is_object() && entry.value("text", std::string{}) != "")
+          translated_texts.insert(entry.at("text").get<std::string>());
+    } catch (...) {
+      return std::nullopt;
+    }
+    if (plan->empty()) {
+      if (translated_texts.empty())
+        return std::nullopt;
+      return TranslationWorker::Result{request.lease, generation, translations};
+    }
 
     // Translation results are valid across candidate generations. Cache each
     // item independently so one provider miss does not suppress retries for
     // unrelated candidates. Keys deliberately exclude credentials and the
     // generation.
     std::string provider_scope;
-    auto translations = nlohmann::json::array().dump();
+    const auto local_result =
+        [&]() -> std::optional<TranslationWorker::Result> {
+      if (translations == "[]")
+        return std::nullopt;
+      return TranslationWorker::Result{request.lease, generation, translations};
+    };
     const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
     const auto custom =
         query.value("custom_translation", nlohmann::json(nullptr));
@@ -423,7 +444,7 @@ TranslationWorker::translate(const Request &request,
     } else {
       const auto tencent = query.value("tencent_tmt", nlohmann::json(nullptr));
       if (!tencent.is_object() || !tencent.value("enabled", false))
-        return std::nullopt;
+        return local_result();
       provider_scope = "tencent";
     }
     const auto target_language = query.at("target_language");
@@ -440,6 +461,8 @@ TranslationWorker::translate(const Request &request,
     };
     std::vector<nlohmann::json> pending;
     for (const auto &item : *plan) {
+      if (translated_texts.contains(item.at("text").get<std::string>()))
+        continue;
       const auto cache_id = item_cache_id(item);
       if (const auto cached = translation_cache_.find(cache_id);
           cached != translation_cache_.end()) {
@@ -447,6 +470,7 @@ TranslationWorker::translate(const Request &request,
         output.push_back(
             {{"text", item.at("text")}, {"translation", cached->second}});
         translations = output.dump();
+        translated_texts.insert(item.at("text").get<std::string>());
         continue;
       }
       const auto negative = translation_negative_cache_.find(cache_id);
