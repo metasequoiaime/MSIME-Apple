@@ -3785,6 +3785,7 @@ int main(int argc, char **argv) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
             NSArray *shifted = @[@"_", @"+", @"{", @"}"];
+            NSArray *physicalCodes = @[@27, @24, @33, @30];
             for (NSUInteger i = 0; i < plain.count; ++i) {
                 for (NSNumber *visible in @[@NO, @YES]) {
                     for (NSNumber *shift in @[@NO, @YES]) {
@@ -3792,7 +3793,7 @@ int main(int argc, char **argv) {
                         session.lastCommand = UINT32_MAX;
                         session.asciiCalls = 0;
                         NSString *characters = shift.boolValue ? shifted[i] : plain[i];
-                        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:shift.boolValue ? NSEventModifierFlagShift : 0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:plain[i] isARepeat:NO keyCode:0];
+                        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:shift.boolValue ? NSEventModifierFlagShift : 0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:plain[i] isARepeat:NO keyCode:[physicalCodes[i] unsignedShortValue]];
                         assert([controller handleEvent:event client:client]);
                         BOOL paging = visible.boolValue && !shift.boolValue && ((option == 0 && i < 2) || (option == 1 && i >= 2));
                         if (paging) {
@@ -3831,6 +3832,18 @@ int main(int argc, char **argv) {
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == [character characterAtIndex:0]);
         }
+        // Unicode composition owns '+' even when it arrives from the
+        // physical ANSI equal key; it must not become candidate paging.
+        NSMutableDictionary *unicodePagingView = [pageView mutableCopy];
+        unicodePagingView[@"local_mode"] = @"unicode";
+        [controller setValue:unicodePagingView forKey:@"view"];
+        [controller renderCandidates];
+        layoutPanel.requestedVisible = YES;
+        session.lastCommand = UINT32_MAX;
+        session.asciiCalls = 0;
+        NSEvent *unicodePlus = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"+" charactersIgnoringModifiers:@"+" isARepeat:NO keyCode:24];
+        assert(![controller handleEvent:unicodePlus client:client]);
+        assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == '+');
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         appearance.pageShortcut = 0;
@@ -3851,11 +3864,19 @@ int main(int argc, char **argv) {
                 [controller setValue:edgeView forKey:@"view"];
                 layoutPanel.requestedVisible = YES;
                 NSString *character = [keys isEqual:@"brackets"] ? (edge ? @"]" : @"[") : (edge ? @"=" : @"-");
-                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:0];
+                unsigned short physicalKey = [keys isEqual:@"brackets"] ? (edge ? 30 : 33) : (edge ? 24 : 27);
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:physicalKey];
                 NSUInteger calls = session.edgeCalls;
                 session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
                 assert([controller handleEvent:event client:client]);
                 assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
+                // Matching glyphs from an unrelated physical key must not
+                // activate word-to-character; Windows checks both VK and WCH.
+                NSEvent *wrongPhysical = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:0];
+                NSUInteger wrongCalls = session.edgeCalls;
+                session.asciiCalls = 0;
+                [controller handleEvent:wrongPhysical client:client];
+                assert(session.edgeCalls == wrongCalls && session.asciiCalls == 1);
                 for (NSString *field in @[@"session", @"generation", @"index"]) {
                     for (id invalid in @[@(-1), @YES, @1.5, @"8", NSNull.null, @"missing"]) {
                         NSMutableDictionary *badID = [@{@"session": @71, @"generation": @72, @"index": @8} mutableCopy];
