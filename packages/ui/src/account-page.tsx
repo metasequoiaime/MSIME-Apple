@@ -702,7 +702,21 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
         {onOpenCloudDictionary && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudDictionary}>云词库</button>}
         {onOpenCloudClipboard && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudClipboard}>云剪贴板</button>}
       </section>}
-      {(openPublishedSkins || onOpenCommunity) && <section className="section account-community-actions">
+      {(openPublishedSkins || onOpenCommunity) && (mobile ? <>
+        <section className="section account-community-actions account-community-group">
+          <div><h2>我发布的</h2><p>管理你公开发布的社区作品。</p></div>
+          {openPublishedSkins && <button type="button" className="secondary" aria-label="我发布的皮肤" disabled={busy} onClick={openPublishedSkins}>皮肤</button>}
+          {onOpenCommunity && <>
+            <button type="button" className="secondary" aria-label="我发布的词库" disabled={busy} onClick={() => onOpenCommunity("published-dictionary")}>词库</button>
+            <button type="button" className="secondary" aria-label="我发布的回复" disabled={busy} onClick={() => onOpenCommunity("published-reply")}>回复</button>
+          </>}
+        </section>
+        {onOpenCommunity && <section className="section account-community-actions account-community-group">
+          <div><h2>我收藏的</h2><p>管理你收藏的社区资源。</p></div>
+          <button type="button" className="secondary" aria-label="收藏的词库" disabled={busy} onClick={() => onOpenCommunity("saved-dictionary")}>词库</button>
+          <button type="button" className="secondary" aria-label="收藏的回复" disabled={busy} onClick={() => onOpenCommunity("saved-reply")}>回复</button>
+        </section>}
+      </> : <section className="section account-community-actions">
         <div><h2>我的社区作品</h2><p>管理你公开发布或收藏的社区作品。</p></div>
         {openPublishedSkins && <button type="button" className="secondary" disabled={busy} onClick={openPublishedSkins}>我发布的皮肤</button>}
         {onOpenCommunity && <>
@@ -711,7 +725,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
           <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-dictionary")}>收藏的词库</button>
           <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-reply")}>收藏的回复</button>
         </>}
-      </section>}
+      </section>)}
     </> : <section className="section account-login">
       <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>
       {!channel ? <>

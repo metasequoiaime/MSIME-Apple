@@ -176,6 +176,23 @@ test("logged-in accounts expose local designs and every community collection", a
   ]);
 });
 
+test("mobile accounts group published and saved community resources", async () => {
+  const openCommunity = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="ios" onOpenCommunity={openCommunity} />);
+  expect(await screen.findByRole("heading", { name: "我发布的" })).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "我收藏的" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  expect(openCommunity.mock.calls).toEqual([
+    ["published-skins"], ["published-dictionary"], ["published-reply"],
+    ["saved-dictionary"], ["saved-reply"],
+  ]);
+});
+
 test("logged-in mobile accounts expose direct cloud dictionary and clipboard entries", async () => {
   const openCloudDictionary = vi.fn();
   const openCloudClipboard = vi.fn();
