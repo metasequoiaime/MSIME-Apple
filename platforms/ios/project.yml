@@ -30,6 +30,13 @@ schemes:
     test:
       targets:
         - MSIMEDoubaoTransportTests
+  MSIMEClientUITests:
+    build:
+      targets:
+        MSIMEClientUITests: all
+    test:
+      targets:
+        - MSIMEClientUITests
 targets:
   MSIMEClientApp:
     type: application
@@ -45,6 +52,7 @@ targets:
       - path: ../../shared/backend-ui
       - path: SharedUI
       - path: App/Resources/Assets.xcassets
+      - path: App/Resources/LaunchScreen.storyboard
       - path: ../../target/ios/EngineResources/dictionary-manifest.json
         buildPhase: resources
       - path: SharedResources/MLKit-NOTICES.txt
@@ -75,6 +83,12 @@ targets:
           - UIKit
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/../../target/ios/simulator"
+      configs:
+        # Without this the Debug build compiles out every `#if DEBUG` branch, which is where the
+        # UI-test fixtures and preview screens live -- the suite then drives an app that cannot
+        # show them.
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) DEBUG
     dependencies:
       - target: MSIMEKeyboardExtension
       - sdk: Security.framework
@@ -269,6 +283,21 @@ targets:
     dependencies:
       - target: MSIMEKeyboardTestHost
       - sdk: Security.framework
+  MSIMEClientUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.uitests
+        PRODUCT_NAME: MSIMEClientUITests
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
+        TEST_TARGET_NAME: MSIMEClientApp
+    dependencies:
+      - target: MSIMEClientApp
   MSIMEDoubaoTransport:
     type: framework
     platform: iOS
