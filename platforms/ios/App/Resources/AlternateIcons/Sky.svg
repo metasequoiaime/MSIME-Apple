@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="-2 0 36 36">
+  <title>Metasequoia — Sky</title>
+  <defs><linearGradient id="background" x2=".8" y2="1"><stop stop-color="#70DCF0"/><stop offset="1" stop-color="#2665D4"/></linearGradient></defs>
+  <path fill="url(#background)" d="M-2 0h36v36H-2z"/>
+  <path d="M-2 26Q8 20 18 27T38 26V36H-2Z" fill="#FFFFFF" opacity=".12"/>
+  <path d="M25 6.5 7.5 14 24.5 18.25 7.5 25.75c4.5 3.5 10.5 5.25 17.5 2.75" transform="translate(1.6 1.8) scale(.9)" fill="none" stroke="#FFFFFF" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

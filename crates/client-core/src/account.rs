@@ -2424,6 +2424,9 @@ fn valid_preference_key(value: &str) -> bool {
 }
 
 fn validate_provider_target(provider: &str, target: &str) -> Result<(), AccountError> {
+    if provider == "apple" {
+        return target.is_empty().then_some(()).ok_or(AccountError::Invalid);
+    }
     if !matches!(provider, "email" | "phone")
         || target.is_empty()
         || target.len() > 320
@@ -2460,6 +2463,19 @@ fn validate_login(challenge: &str, credential: &str) -> Result<(), AccountError>
         || challenge.chars().any(char::is_control)
         || credential.len() != 6
         || !credential.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_apple_login(challenge: &str, credential: &str) -> Result<(), AccountError> {
+    if challenge.is_empty()
+        || challenge.len() > 256
+        || challenge.chars().any(char::is_control)
+        || credential.is_empty()
+        || credential.len() > 16 * 1024
+        || credential.chars().any(char::is_control)
     {
         return Err(AccountError::Invalid);
     }
@@ -2680,6 +2696,26 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn sign_in(&self, challenge: &str, credential: &str) -> Result<AccountUser, AccountError> {
         validate_login(challenge, credential)?;
+        self.sign_in_validated(challenge, credential)
+    }
+
+    /// Completes an Apple challenge using the identity token returned by the
+    /// native AuthenticationServices flow. The token never crosses the UI
+    /// boundary; platform hosts pass it directly into the session.
+    pub fn sign_in_apple(
+        &self,
+        challenge: &str,
+        credential: &str,
+    ) -> Result<AccountUser, AccountError> {
+        validate_apple_login(challenge, credential)?;
+        self.sign_in_validated(challenge, credential)
+    }
+
+    fn sign_in_validated(
+        &self,
+        challenge: &str,
+        credential: &str,
+    ) -> Result<AccountUser, AccountError> {
         let version = {
             let mut state = self.lock()?;
             state.generation = state.generation.wrapping_add(1);
@@ -3536,8 +3572,17 @@ mod tests {
             validate_provider_target("email", " fixture@example.test"),
             Err(AccountError::Invalid)
         );
+        assert_eq!(validate_provider_target("apple", ""), Ok(()));
+        assert_eq!(
+            validate_provider_target("apple", "unexpected-target"),
+            Err(AccountError::Invalid)
+        );
         assert_eq!(
             validate_login("challenge", "１２３４５６"),
+            Err(AccountError::Invalid)
+        );
+        assert_eq!(
+            validate_apple_login("challenge", "identity-token\n"),
             Err(AccountError::Invalid)
         );
         let mut invalid = tokens(b'a', b'b', 900);

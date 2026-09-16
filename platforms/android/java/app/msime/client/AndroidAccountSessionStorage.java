@@ -24,9 +24,18 @@ public final class AndroidAccountSessionStorage {
     private final String keyAlias;
 
     public AndroidAccountSessionStorage(Context context) {
+        this(context, PREFERENCES_NAME);
+    }
+
+    public AndroidAccountSessionStorage(Context context, String preferencesName) {
         Context application = context.getApplicationContext();
-        preferences = application.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
-        keyAlias = application.getPackageName() + ".account.session.v1";
+        if (preferencesName == null || !preferencesName.matches("[a-zA-Z0-9_.-]{1,80}")) {
+            throw new IllegalArgumentException("secure_storage");
+        }
+        preferences = application.getSharedPreferences(preferencesName, Context.MODE_PRIVATE);
+        keyAlias = preferencesName.equals(PREFERENCES_NAME)
+            ? application.getPackageName() + ".account.session.v1"
+            : application.getPackageName() + "." + preferencesName + ".key";
     }
 
     public synchronized String load() throws Exception {

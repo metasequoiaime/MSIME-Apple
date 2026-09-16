@@ -12,7 +12,7 @@ import java.nio.file.Files;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
-/** Device acceptance for opt-in, offline candidate gloss presentation and selection identity. */
+/** Device acceptance for default-on offline candidate gloss presentation and selection identity. */
 public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return "offline candidate gloss strip, expanded panel, selection and opt-out";
@@ -33,9 +33,8 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             .put("touch_keyboard_layout", "twenty_six_key")
             .put("traditional_chinese_output", false);
         try {
-            stage = "enable offline gloss preference";
-            publish(preferences, snapshot(revision + 1,
-                new JSONObject(base.toString()).put("candidate_english_gloss", true)));
+            stage = "default offline gloss preference";
+            publish(preferences, snapshot(revision + 1, new JSONObject(base.toString())));
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));

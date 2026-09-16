@@ -3,6 +3,7 @@ import { useState } from "react";
 export type OnboardingInputScheme = "quanpin" | "nine_key";
 
 export interface OnboardingActions {
+  platform?: "android" | "ios";
   prepareResources: () => Promise<void>;
   openSystemKeyboardSettings: () => Promise<void>;
   showInputMethodPicker: () => Promise<void>;
@@ -31,6 +32,7 @@ export function WelcomeFlowPage({ actions, onComplete }: {
   const [scheme, setScheme] = useState<OnboardingInputScheme>("quanpin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const ios = actions.platform === "ios";
 
   const run = async (operation: () => Promise<void>, next?: number) => {
     if (busy) return;
@@ -67,18 +69,18 @@ export function WelcomeFlowPage({ actions, onComplete }: {
         <p className="onboarding-privacy">日常输入无需登录，默认保持离线。</p>
       </section>}
       {page === 1 && <section className="onboarding-section">
-        <h2>添加水杉输入法</h2>
-        <p className="onboarding-lead">准备好内置词库后，按下面步骤启用系统键盘。</p>
+        <h2>{ios ? "添加水杉键盘" : "添加水杉输入法"}</h2>
+        <p className="onboarding-lead">{ios ? "在系统键盘列表中启用水杉，再回到任意输入框开始使用。" : "准备好内置词库后，按下面步骤启用系统键盘。"}</p>
         <div className="onboarding-setup-card">
-          <SetupStep number={1} title="打开键盘设置">前往系统设置中的“语言和输入法”或“屏幕键盘”。</SetupStep>
-          <SetupStep number={2} title="启用水杉输入法">在可用输入法列表中打开 MSIME Preview。</SetupStep>
-          <SetupStep number={3} title="切换并开始输入" last>在输入框中选择水杉输入法即可开始使用。</SetupStep>
+          <SetupStep number={1} title="打开键盘设置">{ios ? "前往系统设置中的“通用 → 键盘 → 键盘”。" : "前往系统设置中的“语言和输入法”或“屏幕键盘”。"}</SetupStep>
+          <SetupStep number={2} title={ios ? "添加水杉键盘" : "启用水杉输入法"}>{ios ? "在第三方键盘列表中添加水杉键盘。" : "在可用输入法列表中打开 MSIME Preview。"}</SetupStep>
+          <SetupStep number={3} title="切换并开始输入" last>{ios ? "在输入框中切换到水杉键盘即可开始使用。" : "在输入框中选择水杉输入法即可开始使用。"}</SetupStep>
         </div>
         <div className="onboarding-system-actions">
           <button type="button" className="primary" disabled={busy} onClick={() => void run(actions.openSystemKeyboardSettings)}>打开系统设置</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => void run(actions.showInputMethodPicker)}>选择输入法</button>
+          {!ios && <button type="button" className="secondary" disabled={busy} onClick={() => void run(actions.showInputMethodPicker)}>选择输入法</button>}
         </div>
-        <p className="onboarding-note">系统设置页面由 Android 管理，水杉不会自动启用或切换输入法。</p>
+        <p className="onboarding-note">{ios ? "系统设置页面由 iOS 管理，水杉不会自动启用或切换键盘。" : "系统设置页面由 Android 管理，水杉不会自动启用或切换输入法。"}</p>
       </section>}
       {page === 2 && <section className="onboarding-section">
         <h2>从你熟悉的键盘开始</h2>
