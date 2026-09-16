@@ -58,12 +58,19 @@ bool CommitKey(const Key &key) {
         key.code == kVK_Delete || key.code == kVK_ForwardDelete;
 }
 BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
+    (void)targetPID;
     // Permission prompts can change focus. Never send the pending key after prompting.
     if (!CGPreflightPostEventAccess()) { CGRequestPostEventAccess(); return NO; }
-    NSRunningApplication *target = targetPID > 0
-        ? [NSRunningApplication runningApplicationWithProcessIdentifier:targetPID]
+    // Resolve the destination for every stroke. The panel is non-activating,
+    // so the user may switch editors while it remains visible; a cached PID
+    // from showKeyboard must never send a later key to the old editor.
+    const pid_t ownProcess = NSProcessInfo.processInfo.processIdentifier;
+    const pid_t foreground = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    const pid_t destination = msime::mac::LiveScreenKeyboardTarget(foreground, ownProcess);
+    NSRunningApplication *target = destination > 0
+        ? [NSRunningApplication runningApplicationWithProcessIdentifier:destination]
         : nil;
-    if (!target || target.terminated || target.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return NO;
+    if (!target || target.terminated) return NO;
     CGEventRef down = CGEventCreateKeyboardEvent(nullptr, code, true);
     CGEventRef up = CGEventCreateKeyboardEvent(nullptr, code, false);
     if (!down || !up) {
@@ -78,12 +85,17 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     if (flags & NSEventModifierFlagCommand) eventFlags |= kCGEventFlagMaskCommand;
     CGEventSetFlags(down, eventFlags);
     CGEventSetFlags(up, eventFlags);
-    // Pin delivery to the foreground process sampled for this click, not a cached old client.
-    CGEventPostToPid(target.processIdentifier, down);
-    CGEventPostToPid(target.processIdentifier, up);
+    // Do not deliver a pending click after a focus change while events were
+    // being allocated.
+    const pid_t currentForeground = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    const BOOL valid = currentForeground == destination && !target.terminated;
+    if (valid) {
+        CGEventPostToPid(destination, down);
+        CGEventPostToPid(destination, up);
+    }
     CFRelease(down);
     CFRelease(up);
-    return YES;
+    return valid;
 }
 }
 
