@@ -477,7 +477,7 @@ fn discard(handle: u64) -> Result<Value, &'static str> {
 
 #[no_mangle]
 pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
-    response(|| discard(handle))
+    response(|| discard(handle).map_err(str::to_owned))
 }
 
 #[no_mangle]
