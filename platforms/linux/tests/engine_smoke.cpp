@@ -1591,6 +1591,68 @@ int main(int argc, char **argv) {
             "Shift+R did not enter temporary Japanese mode");
     require(key(IBUS_Escape), "Temporary Japanese mode could not be canceled");
 
+    // Local-mode submissions must traverse the IBus bridge as commits, not
+    // merely expose a display prefix. These inputs are fixed, public fixtures
+    // and do not contain user-provided text.
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('u', IBUS_SHIFT_MASK), "Unicode mode could not restart");
+    for (const char character : std::string("4e00"))
+      require(key(static_cast<guint>(character)), "Unicode scalar input was not consumed");
+    require(seen.preedit == "U4e00" && seen.candidates.size() == 1 &&
+                seen.candidates.front() == "一",
+            "Unicode mode did not expose the deterministic scalar candidate");
+    require(key(IBUS_space) && seen.committed == "一" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Unicode candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('t', IBUS_SHIFT_MASK), "Date-time mode could not restart");
+    for (const char character : std::string("rq"))
+      require(key(static_cast<guint>(character)), "Date-time keyword input was not consumed");
+    require(seen.candidates.size() >= 13 && !seen.candidates.front().empty(),
+            "Date-time mode did not expose current date candidates");
+    require(key(IBUS_space) && !seen.committed.empty() && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Date-time candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('k', IBUS_SHIFT_MASK), "Quick-phrase mode could not restart");
+    for (const char character : std::string("yyds"))
+      require(key(static_cast<guint>(character)), "Quick-phrase input was not consumed");
+    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
+                        [](const std::string &candidate) { return candidate == "永远滴神"; }),
+            "Quick-phrase fixture candidate was not exposed");
+    require(key(IBUS_space) && seen.committed == "永远滴神" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Quick-phrase candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('j', IBUS_SHIFT_MASK), "Super-jianpin mode could not restart");
+    for (const char character : std::string("nh"))
+      require(key(static_cast<guint>(character)), "Super-jianpin input was not consumed");
+    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
+                        [](const std::string &candidate) { return candidate == "你好"; }),
+            "Super-jianpin fixture candidate was not exposed");
+    require(key(IBUS_space) && seen.committed == "你好" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Super-jianpin candidate was not committed through IBus");
+
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('y', IBUS_SHIFT_MASK), "Temporary English mode could not restart");
+    for (const char character : std::string("MSIME"))
+      require(key(static_cast<guint>(character)), "Temporary English input was not consumed");
+    require(seen.preedit == "YMSIME" && seen.candidates.size() >= 1 &&
+                seen.candidates.front() == "MSIME",
+            "Temporary English mode did not expose its raw candidate");
+    require(key(IBUS_Return) && seen.committed == "MSIME" && !seen.preedit_visible &&
+                !seen.lookup_visible,
+            "Temporary English raw text was not committed through IBus");
+
     // R mode owns the visible prefix but never forwards it to the Japanese
     // Engine. A candidate commit must therefore restore the Chinese session,
     // and the next letter must start a normal Chinese composition again.
