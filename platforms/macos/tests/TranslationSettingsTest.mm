@@ -29,7 +29,8 @@ int main() {
             assert(NSThread.isMainThread && [preferences[@"custom_translation"] isKindOfClass:NSDictionary.class]); ++saves;
         }];
         [window showWindow:nil]; Wait(window);
-        NSButton *enabled = [window valueForKey:@"enabled"], *reveal = [window valueForKey:@"reveal"];
+        NSButton *enabled = [window valueForKey:@"enabled"], *offline = [window valueForKey:@"offline"];
+        NSButton *reveal = [window valueForKey:@"reveal"];
         NSPopUpButton *provider = [window valueForKey:@"provider"];
         NSGridView *grid = [window valueForKey:@"grid"];
         NSTextField *endpoint = [window valueForKey:@"endpoint"], *plain = [window valueForKey:@"plainKey"];
@@ -49,9 +50,10 @@ int main() {
         assert(target.numberOfItems == 7 && secondary.numberOfItems == 8 && secondary.indexOfSelectedItem == 0);
         assert(provider.indexOfSelectedItem == 0 && !endpoint.enabled);
         assert(([provider.itemTitles isEqual:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]]));
-        assert([grid rowAtIndex:4].hidden && ![grid rowAtIndex:7].hidden);
+        assert(offline.state == NSControlStateValueOff && offline.enabled);
+        assert([grid rowAtIndex:5].hidden && ![grid rowAtIndex:8].hidden);
         [provider selectItemAtIndex:1]; [window providerChanged:nil];
-        assert(![grid rowAtIndex:10].hidden && ![grid rowAtIndex:11].hidden && appId.enabled && niuTransKey.enabled);
+        assert(![grid rowAtIndex:11].hidden && ![grid rowAtIndex:12].hidden && appId.enabled && niuTransKey.enabled);
         appId.stringValue = @"synthetic-niutrans-app"; niuTransKey.stringValue = @"synthetic-niutrans-key";
         appId.stringValue = @""; [window save:nil]; assert(saves == 0 && ![[window valueForKey:@"busy"] boolValue]);
         appId.stringValue = @"synthetic-niutrans-app";
@@ -61,7 +63,7 @@ int main() {
         revealNiuTrans.state = NSControlStateValueOff; [window revealNiuTransKey:nil];
         assert([niuTransKey.stringValue isEqual:@"synthetic-niutrans-key-edited"] && !plainNiuTrans.stringValue.length);
         [provider selectItemAtIndex:2]; [window providerChanged:nil];
-        assert(![grid rowAtIndex:4].hidden && [grid rowAtIndex:7].hidden);
+        assert(![grid rowAtIndex:5].hidden && [grid rowAtIndex:8].hidden);
         assert(endpoint.enabled && key.enabled);
         assert(!tencent.enabled && !secretId.enabled && !tencentKey.enabled && !region.enabled);
         endpoint.stringValue = @"file:///synthetic";
@@ -97,14 +99,18 @@ int main() {
         assert(saves == 1);
         [window reload:nil]; Wait(window);
         assert([endpoint.stringValue isEqual:@"https://translation.invalid/api"]);
-        assert(provider.indexOfSelectedItem == 2 && ![grid rowAtIndex:4].hidden && [grid rowAtIndex:7].hidden);
+        assert(provider.indexOfSelectedItem == 2 && ![grid rowAtIndex:5].hidden && [grid rowAtIndex:8].hidden);
         assert(secondary.indexOfSelectedItem == 3);
+        assert(offline.state == NSControlStateValueOff);
         enabled.state = NSControlStateValueOff; [provider selectItemAtIndex:0];
         [window providerChanged:nil]; assert(!target.enabled && !secondary.enabled && !endpoint.enabled);
+        offline.state = NSControlStateValueOn; [window updateControls:nil];
+        assert(target.enabled && secondary.enabled);
         [window save:nil]; Wait(window); assert(saves == 2);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"candidate_page_size"] isEqual:@7]);
         assert([stored[@"preferences"][@"candidate_translations"] isEqual:@NO]);
+        assert([stored[@"preferences"][@"candidate_english_gloss"] isEqual:@YES]);
         assert([stored[@"preferences"][@"custom_translation"][@"enabled"] isEqual:@NO]);
         assert([stored[@"preferences"][@"custom_translation"][@"api_key"] isEqual:@"synthetic-edited"]);
         assert(tencent.enabled && secretId.enabled && tencentKey.enabled);
@@ -113,11 +119,11 @@ int main() {
         assert([plainTencent.stringValue isEqual:@"synthetic-tencent"]);
         [provider selectItemAtIndex:2]; [window providerChanged:nil];
         assert(revealTencent.state == NSControlStateValueOff && !plainTencent.stringValue.length);
-        assert([tencentKey.stringValue isEqual:@"synthetic-tencent"] && ![grid rowAtIndex:4].hidden);
+        assert([tencentKey.stringValue isEqual:@"synthetic-tencent"] && ![grid rowAtIndex:5].hidden);
         reveal.state = NSControlStateValueOn; [window revealKey:nil];
         [provider selectItemAtIndex:0]; [window providerChanged:nil];
         assert(reveal.state == NSControlStateValueOff && !plain.stringValue.length);
-        assert([key.stringValue isEqual:@"synthetic-edited"] && [grid rowAtIndex:4].hidden);
+        assert([key.stringValue isEqual:@"synthetic-edited"] && [grid rowAtIndex:5].hidden);
         [provider selectItemAtIndex:1]; [window providerChanged:nil];
         assert(appId.enabled && [appId.stringValue isEqual:@"synthetic-niutrans-app"]);
         [window save:nil]; Wait(window); assert(saves == 3);
@@ -137,7 +143,7 @@ int main() {
         assert([[MSIMEClientSession loadPreferencesInDirectory:root error:&error][@"revision"] isEqual:stored[@"revision"]]);
         [window reload:nil]; Wait(window);
         assert([region.stringValue isEqual:@"ap-shanghai"] && !tencentKey.hidden && plainTencent.hidden);
-        assert(provider.indexOfSelectedItem == 0 && [grid rowAtIndex:4].hidden && ![grid rowAtIndex:7].hidden);
+        assert(provider.indexOfSelectedItem == 0 && [grid rowAtIndex:5].hidden && ![grid rowAtIndex:8].hidden);
         // A concurrent edit also protects Tencent drafts through the same CAS revision.
         other = [stored mutableCopy]; otherPreferences = [stored[@"preferences"] mutableCopy];
         otherPreferences[@"candidate_page_size"] = @8; other[@"preferences"] = otherPreferences;
@@ -154,6 +160,11 @@ int main() {
         [secondary selectItemAtIndex:0]; [window save:nil]; Wait(window); assert(saves == 6);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(!stored[@"preferences"][@"translation_secondary_language"]);
+        offline.state = NSControlStateValueOff; [window updateControls:nil];
+        assert(!target.enabled && !secondary.enabled);
+        [window save:nil]; Wait(window); assert(saves == 7);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert([stored[@"preferences"][@"candidate_english_gloss"] isEqual:@NO]);
         [window.window.contentView layoutSubtreeIfNeeded];
         NSView *stack = window.window.contentView.subviews.firstObject;
         assert(NSMinY(stack.frame) >= 0 && NSMaxY(stack.frame) <= NSHeight(window.window.contentView.bounds));
