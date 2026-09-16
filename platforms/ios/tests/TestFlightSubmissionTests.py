@@ -83,6 +83,30 @@ class TestFlightSubmissionTests(unittest.TestCase):
                 self.module.group_id("t", "1", "没有这个组")
         self.assertIn("外部测试", str(raised.exception))
 
+    def test_an_internal_handover_does_not_ask_apple_for_anything(self):
+        """合进 main 的构建进内部组。内部测试不需要审核,提交它只会白占一个名额。"""
+        calls = []
+
+        def answer(method, path, auth, body=None):
+            calls.append((method, path))
+            if path.startswith("/builds?filter[app]"):
+                return {"data": [{"id": "b1", "attributes": {"version": "1003.1.1"}}]}
+            if path.startswith("/builds/"):
+                return {"data": {"attributes": {"processingState": "VALID"}}}
+            if path.startswith("/betaGroups?"):
+                return {"data": [{"id": "gi", "attributes": {"name": "internal"}}]}
+            return {}
+
+        argv = ["submit", "--app", "1", "--build-version", "1003.1.1", "--group", "internal",
+                "--key-id", "K", "--issuer-id", "I", "--key-path", str(SCRIPTS)]
+        with mock.patch.object(self.module, "request", side_effect=answer), \
+             mock.patch.object(self.module, "token", return_value="t"), \
+             mock.patch.object(sys, "argv", argv):
+            self.assertEqual(self.module.main(), 0)
+        posts = [path for method, path in calls if method == "POST"]
+        self.assertEqual(posts, ["/betaGroups/gi/relationships/builds"])
+        self.assertNotIn("/betaAppReviewSubmissions", [p for _, p in calls])
+
     def test_a_rerun_of_a_submitted_build_is_not_a_failure(self):
         """发布重跑一次不该因为"活已经干完了"而变红。"""
         calls = []
@@ -100,7 +124,7 @@ class TestFlightSubmissionTests(unittest.TestCase):
             return {}
 
         argv = ["submit", "--app", "1", "--build-version", "1003.1.1", "--group", "外部测试",
-                "--key-id", "K", "--issuer-id", "I", "--key-path", str(SCRIPTS)]
+                "--submit-review", "--key-id", "K", "--issuer-id", "I", "--key-path", str(SCRIPTS)]
         with mock.patch.object(self.module, "request", side_effect=answer), \
              mock.patch.object(self.module, "token", return_value="t"), \
              mock.patch.object(sys, "argv", argv):

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Hand a freshly uploaded build to the external testers.
+"""Hand a freshly uploaded build to its testers.
 
 `altool --upload-app` finishes when App Store Connect has the file, and that is all it does. The
-build then sits at READY_FOR_BETA_SUBMISSION until somebody opens the website and submits it, so
-every release since the pipeline was written has uploaded a build that external testers never saw:
-they were still on whichever build a person last submitted by hand.
+build then sits undistributed until somebody opens the website, so every release before this one
+uploaded a build its testers never saw: they stayed on whichever one a person last handed over.
 
-Only a deliberate release comes through here. An automatic per-merge build is a prerelease in the
-same sense the GitHub release is -- uploading it is useful, spending one of Apple's review slots on
-it a dozen times a day is not.
+Two audiences, reached differently. A merge into main goes to the internal group, which needs no
+review and so reaches the people waiting on the change as soon as processing ends. A deliberate
+release also goes to the external group, and that one Apple must review -- a queue worth one slot
+per release rather than one per merge.
 """
 import argparse
 import json
@@ -96,7 +96,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True)
     parser.add_argument("--build-version", required=True, help="CFBundleVersion of the upload")
-    parser.add_argument("--group", required=True, help="External beta group to distribute to")
+    parser.add_argument("--group", required=True, help="Beta group to distribute to")
+    parser.add_argument("--submit-review", action="store_true",
+                        help="Ask Apple to review the build, which external testing requires")
     parser.add_argument("--key-id", required=True)
     parser.add_argument("--issuer-id", required=True)
     parser.add_argument("--key-path", required=True, type=Path)
@@ -115,6 +117,10 @@ def main() -> int:
     request("POST", f"/betaGroups/{group}/relationships/builds", auth,
             {"data": [{"type": "builds", "id": build["id"]}]})
     print(f"added to beta group {arguments.group}", flush=True)
+
+    # 内部组自己就能分发,只有外部测试要过 Apple 的审核。
+    if not arguments.submit_review:
+        return 0
 
     # Already submitted is the state we want, not a failure: a rerun of a published release should
     # not turn red for finding its own work done.
