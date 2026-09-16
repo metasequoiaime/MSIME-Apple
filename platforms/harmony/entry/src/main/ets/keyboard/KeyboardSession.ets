@@ -8,8 +8,14 @@ import { KeyboardGeometry } from './KeyboardGeometry';
 import { FullWidthInputPolicy } from './FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './ChineseOutputPolicy';
+import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
+import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './InputDiagnosticPolicy';
+import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
+import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
+  from './FloatingToolbarLayout';
+import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy, GlossToken } from './CandidateGlossPolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
@@ -63,7 +69,13 @@ interface EngineView {
   generation: number;
   /** Which spellings the digits typed so far could be, offered while the nine-key grid is up. */
   nine_key_spellings: string[];
-  /** 'halfwidth' or 'fullwidth'; what the Engine is committing its own output as. */
+  /**
+   * What the Engine is committing its own output as.
+   *
+   * 'Fullwidth' or 'Halfwidth', capitalised: this is the Rust enum's own name, not the lowercase
+   * spelling the preference document uses for the same idea. Comparing it against the preference
+   * vocabulary matches nothing, which is a toggle that reports success and changes no face.
+   */
   character_width: string;
   /** What has been typed so far, which is the prefix a Wubi code hint is measured against. */
   preedit: string;
@@ -198,12 +210,36 @@ interface PreparedPreferences {
   screen_keyboard_theme: string;
   theme: string;
   traditional_chinese_output: boolean;
+  chinese_punctuation: boolean;
+  floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
   touch_key_spacing_tenths: number;
   touch_row_spacing_tenths: number;
   /** Added to the total height of the key rows, between -12 and 48 vp. */
   touch_keyboard_height_adjustment: number;
+  keybindings: PreparedKeybindings;
+}
+
+/** The shared floating toolbar record. Only what a HarmonyOS toolbar can honour is read from it. */
+interface PreparedFloatingToolbar {
+  enabled: boolean;
+  english_mode: boolean;
+  punctuation: boolean;
+  fullwidth: boolean;
+  character_set: boolean;
+  emoji: boolean;
+  screen_keyboard: boolean;
+  scale_percent: number;
+  font_size: number;
+}
+
+/** The shared mode-switch bindings, which a host with a real keyboard is the one to consume. */
+interface PreparedKeybindings {
+  switch_language_shift: boolean;
+  switch_language_ctrl: boolean;
+  switch_language_ctrl_alt_space: boolean;
+  toggle_character_set_ctrl_shift_f: boolean;
 }
 
 /** What the view needs to draw itself, resolved once from the prepared preferences. */
@@ -286,8 +322,35 @@ export class KeyboardSession {
   };
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
+  /**
+   * Whether a composition is open, for the host that owns the panel.
+   *
+   * A candidate window has nothing to say when nothing is being spelled, and the framework does not
+   * show or hide one on its own, so the ability needs to hear about the transitions. The view has
+   * onChanged; this is the same news for the other reader, and fires only when the answer changes.
+   */
+  onComposition: ((active: boolean) => void) | undefined = undefined;
+  /** The mode badge's face, set by whichever window is currently drawing it. */
+  onModeBadge: ((english: boolean, dark: boolean) => void) | undefined = undefined;
+  /** The toolbar's face, set by whichever window is currently drawing it. */
+  onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number,
+               skin: KeyboardSkin) => void) | undefined = undefined;
+  /** The gear, which only the host can answer: it owns the window the settings open in. */
+  onToolbarSettings: (() => void) | undefined = undefined;
+  /**
+   * A surface the toolbar asked for, which two readers need and for different reasons: the host
+   * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
+   * onChanged and onComposition are already split, because a single slot silently keeps whichever
+   * listener registered last — and the window then resizes around a face that was never drawn.
+   */
+  onSurfaceRequested: ((surface: DesktopSurface) => void) | undefined = undefined;
+  onSurfaceChanged: ((surface: DesktopSurface) => void) | undefined = undefined;
+  private desktopSurface: DesktopSurface = DesktopSurface.NONE;
+  private composedLast: boolean = false;
   /** The editor's traits arrive after inputStart, so the view is told when they do. */
   onEditorChanged: (() => void) | undefined = undefined;
+  /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
+  onDismiss: (() => void) | undefined = undefined;
 
   /**
    * True once the native ABI matches and a session exists.
@@ -310,6 +373,7 @@ export class KeyboardSession {
     }
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
+    this.feedbackSettings = this.feedback();
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
     try {
@@ -322,6 +386,12 @@ export class KeyboardSession {
       options = JSON.stringify(prepared.value);
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.englishMode = preferences.default_ime_mode === 'english';
+      this.bindings = {
+        switchLanguageShift: preferences.keybindings.switch_language_shift,
+        switchLanguageCtrl: preferences.keybindings.switch_language_ctrl,
+        switchLanguageCtrlAltSpace: preferences.keybindings.switch_language_ctrl_alt_space,
+        toggleCharacterSetCtrlShiftF: preferences.keybindings.toggle_character_set_ctrl_shift_f
+      };
       this.appearance = {
         // The keyboard's own theme wins, then the global one, and only if both defer does the
         // system decide. resolveDark is the ported rule every other host already follows.
@@ -342,6 +412,8 @@ export class KeyboardSession {
       };
       this.schemeName = preferences.scheme;
       this.traditional = preferences.traditional_chinese_output;
+      this.chinesePunctuation = preferences.chinese_punctuation;
+      this.toolbar = preferences.floating_toolbar;
       this.glosses = preferences.candidate_english_gloss;
       this.nineKeyMode = preferences.touch_keyboard_layout === 'nine_key'
         && preferences.scheme === 'quanpin';
@@ -364,6 +436,11 @@ export class KeyboardSession {
       KeyboardLog.error(`session reply unreadable: ${describeError(error)}`);
       return false;
     }
+  }
+
+  /** Whether the Engine's output is being converted to traditional. */
+  usesTraditional(): boolean {
+    return this.traditional;
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -417,6 +494,135 @@ export class KeyboardSession {
     return this.englishMode;
   }
 
+  /** Which mode-switch gestures the user left bound, as the shared document has them. */
+  modeBindings(): ModeBindings {
+    return this.bindings;
+  }
+
+  /** Halfwidth ASCII or its fullwidth twin, which Ctrl+Shift+F toggles. */
+  toggleCharacterWidth(): boolean {
+    if (this.handle === 0) {
+      return this.fullWidth;
+    }
+    this.applyView(client.setCharacterWidth(this.handle, !this.fullWidth));
+    return this.fullWidth;
+  }
+
+  /** Whether the user wants a toolbar at all, and how big. */
+  toolbarEnabled(): boolean {
+    return this.toolbar.enabled;
+  }
+
+  toolbarScale(): number {
+    return this.toolbar.scale_percent / 100;
+  }
+
+  toolbarFontSize(): number {
+    return this.toolbar.font_size;
+  }
+
+  toolbarComponents(): ToolbarComponents {
+    return {
+      englishMode: this.toolbar.english_mode, punctuation: this.toolbar.punctuation,
+      fullwidth: this.toolbar.fullwidth, characterSet: this.toolbar.character_set,
+      emoji: this.toolbar.emoji, screenKeyboard: this.toolbar.screen_keyboard
+    };
+  }
+
+  /** Push the toolbar's face to whichever window is drawing it. */
+  refreshToolbar(): void {
+    if (this.onToolbar === undefined) {
+      return;
+    }
+    const state: ToolbarState = {
+      english: this.englishMode, chinesePunctuation: this.chinesePunctuation,
+      fullWidth: this.fullWidth, traditional: this.traditional
+    };
+    this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
+      this.toolbar.font_size, KeyboardSkin.from(this.appearance.skinId, this.appearance.dark));
+  }
+
+  /**
+   * What a toolbar button does.
+   *
+   * The three that are preferences are written back to the document as well as applied, because they
+   * are the same three the settings page shows: a toolbar that changed them only for this session
+   * would disagree with the page the moment either was looked at.
+   */
+  runToolbarButton(button: ToolbarButton): void {
+    switch (button) {
+      case ToolbarButton.INPUT_MODE:
+        this.toggleLanguage();
+        break;
+      case ToolbarButton.PUNCTUATION:
+        this.chinesePunctuation = !this.chinesePunctuation;
+        this.writePreference('chinese_punctuation', this.chinesePunctuation);
+        break;
+      case ToolbarButton.FULL_WIDTH:
+        this.toggleCharacterWidth();
+        break;
+      case ToolbarButton.CHARACTER_SET:
+        this.traditional = !this.traditional;
+        this.writePreference('traditional_chinese_output', this.traditional);
+        break;
+      case ToolbarButton.EMOJI:
+        this.requestSurface(DesktopSurface.EMOJI);
+        break;
+      case ToolbarButton.SCREEN_KEYBOARD:
+        this.requestSurface(DesktopSurface.SCREEN_KEYBOARD);
+        break;
+      default:
+        if (this.onToolbarSettings !== undefined) {
+          this.onToolbarSettings();
+        }
+        break;
+    }
+    this.refreshToolbar();
+  }
+
+  /** One value, through the same store the settings page writes, revision check and all. */
+  private writePreference(key: string, value: Object): void {
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set(key, value);
+    this.changePreferences(changes);
+  }
+
+  /**
+   * Ask for a surface that is not the candidate list.
+   *
+   * On a phone these are opened from the keyboard's own key faces. A desktop has none, so the
+   * toolbar asks instead, and the host decides which window it goes in and how big it has to be.
+   * Asking for the one already open closes it, the way tapping its icon does on the keyboard.
+   */
+  private requestSurface(surface: DesktopSurface): void {
+    this.desktopSurface = this.desktopSurface === surface ? DesktopSurface.NONE : surface;
+    // The view first: the window is sized around what it drew, so drawing it second would leave one
+    // frame of a keyboard-sized window with a candidate strip in it.
+    if (this.onSurfaceChanged !== undefined) {
+      this.onSurfaceChanged(this.desktopSurface);
+    }
+    if (this.onSurfaceRequested !== undefined) {
+      this.onSurfaceRequested(this.desktopSurface);
+    }
+  }
+
+  /** Which of them is open, for the view that has to draw it. */
+  openSurface(): DesktopSurface {
+    return this.desktopSurface;
+  }
+
+  /** Tell whichever window is drawing the mode badge what to put on it. */
+  setModeBadge(english: boolean): void {
+    if (this.onModeBadge !== undefined) {
+      this.onModeBadge(english, this.appearance.dark);
+    }
+  }
+
+  /** Whether something is being spelled right now, which decides who a physical key belongs to. */
+  composing(): boolean {
+    return this.editing.length > 0;
+  }
+
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
   /** The scheme now in force, which decides whether the nine-key flag means anything. */
   useScheme(name: string): void {
@@ -448,6 +654,16 @@ export class KeyboardSession {
   /** What this editor asked its return key to do, in the shared editor-action numbering. */
   returnAction(): number {
     return this.enterKey;
+  }
+
+  /** Ask the host to put the keyboard away, committing whatever was being composed first. */
+  dismiss(): void {
+    // The user typed those letters and never asked to throw them away, which is the same reason
+    // macOS commits in prepareForDeactivation.
+    this.commitRaw();
+    if (this.onDismiss !== undefined) {
+      this.onDismiss();
+    }
   }
 
   /** The return key, doing whatever this particular editor asked its return key to do. */
@@ -511,6 +727,7 @@ export class KeyboardSession {
       KeyboardLog.error('key ignored: no session');
       return;
     }
+    this.tapFeedback();
     this.apply(client.character(this.handle, ascii, shift));
   }
 
@@ -580,7 +797,6 @@ export class KeyboardSession {
     const value: EngineValue = response.value;
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
     // stack trace into a keyboard four rows tall.
-    this.fullWidth = value.view.character_width === 'fullwidth';
     this.editing = value.view.editing_text;
     this.scheme = value.view.scheme;
     this.localMode = value.view.local_mode;
@@ -614,7 +830,15 @@ export class KeyboardSession {
 
   private diagnostic: string = '';
   private fullWidth: boolean = false;
+  private bindings: ModeBindings = DEFAULT_MODE_BINDINGS;
+  private feedbackSettings: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  private vibratorFailed: boolean = false;
   private traditional: boolean = false;
+  private chinesePunctuation: boolean = true;
+  private toolbar: PreparedFloatingToolbar = {
+    enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
+    emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
+  };
   private glosses: boolean = false;
   // Which view a pending gloss lookup belongs to. A gloss arrives after the keystroke that asked for
   // it, and by then the composition may have moved on; anything stale is dropped rather than painted
@@ -682,6 +906,18 @@ export class KeyboardSession {
 
   private render(view: EngineView): void {
     this.generation = view.generation;
+    // Here rather than in apply(), because both paths end up here and only one of them went through
+    // apply(): a reply that is a bare view — which is what every mode switch answers with — left
+    // this behind, so the toolbar's 半 never became 全 and the next tap asked for the same thing
+    // again.
+    this.fullWidth = view.character_width === 'Fullwidth';
+    const active: boolean = view.editing_text.length > 0;
+    if (active !== this.composedLast) {
+      this.composedLast = active;
+      if (this.onComposition !== undefined) {
+        this.onComposition(active);
+      }
+    }
     const entries: CandidateEntry[] = [];
     for (const candidate of view.candidates) {
       entries.push({
@@ -704,6 +940,58 @@ export class KeyboardSession {
         english: view.dedicated_english,
         diagnostic: this.diagnostic
       });
+    }
+  }
+
+  private feedbackFile(): string {
+    return `${this.stateDirectory}/key-feedback.json`;
+  }
+
+  /** How keys should feel on this device, which is not something the shared preferences carry. */
+  feedback(): FeedbackSettings {
+    try {
+      if (!fs.accessSync(this.feedbackFile())) {
+        return KeyboardFeedback.DEFAULTS;
+      }
+      return KeyboardFeedback.parse(fs.readTextSync(this.feedbackFile()));
+    } catch (error) {
+      KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
+      return KeyboardFeedback.DEFAULTS;
+    }
+  }
+
+  saveFeedback(settings: FeedbackSettings): boolean {
+    try {
+      const handle = fs.openSync(this.feedbackFile(),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
+      fs.closeSync(handle);
+      this.feedbackSettings = settings;
+      return true;
+    } catch (error) {
+      KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Fires the feedback a key press asks for.
+   *
+   * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
+   * fill the log with the same line at typing speed.
+   */
+  private tapFeedback(): void {
+    const settings: FeedbackSettings = this.feedbackSettings;
+    if (!settings.haptics || this.vibratorFailed) {
+      return;
+    }
+    try {
+      vibrator.startVibration(
+        { type: 'time', duration: KeyboardFeedback.duration(settings.strength) },
+        { usage: 'physicalFeedback' });
+    } catch (error) {
+      this.vibratorFailed = true;
+      KeyboardLog.error(`vibration unavailable: ${describeError(error)}`);
     }
   }
 

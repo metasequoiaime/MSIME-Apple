@@ -50,6 +50,16 @@ int main() {
         MSIMEOpenDesktopRoute(@"settings:help", workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=settings:help"]]);
         assert(workspace.launches == 3);
+        MSIMEOpenDesktopUpdateSettings(workspace, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=settings:about"]]);
+        assert(workspace.launches == 4);
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        assert(fallbacks == 2);
+        MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, workspace, fallback);
+        assert([workspace.configuration.arguments isEqual:@[@"--route=settings:skin"]]);
+        assert(workspace.launches == 5);
+        workspace.completion(NSRunningApplication.currentApplication, nil);
+        assert(fallbacks == 2);
         for (NSArray *entry in @[@[@((int)MSIMEDesktopSettingsPage::Translation), @"--route=settings:input"],
                                  @[@((int)MSIMEDesktopSettingsPage::AI), @"--route=settings:ai"]]) {
             MSIMEOpenDesktopSettings((MSIMEDesktopSettingsPage)[entry[0] intValue], workspace, fallback);
@@ -58,18 +68,18 @@ int main() {
             workspace.completion(NSRunningApplication.currentApplication, nil);
             assert(fallbacks == 2);
         }
-        assert(workspace.launches == 5);
+        assert(workspace.launches == 7);
         NSString *options = @"/synthetic/共享 配置/runtime-options.json";
         MSIMEOpenDesktopRouteWithOptions(@"settings:input", options, workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=settings:input"]]);
         assert([workspace.configuration.environment isEqual:@{@"MSIME_CLIENT_HOST_OPTIONS":options}]);
         workspace.completion(NSRunningApplication.currentApplication, nil);
-        assert(fallbacks == 2 && workspace.launches == 6);
+        assert(fallbacks == 2 && workspace.launches == 8);
         MSIMEOpenDesktopRouteWithOptions(@"settings:input", @"relative.json", workspace, fallback);
-        assert(fallbacks == 3 && workspace.launches == 6);
+        assert(fallbacks == 3 && workspace.launches == 8);
         MSIMEOpenDesktopRouteWithOptions(@"settings:input", nil, workspace, fallback);
         assert(!workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"]);
-        assert(workspace.launches == 7);
+        assert(workspace.launches == 9);
         // Existing entry points select exactly the same file as the native host.
         MSIMEOpenDesktopRoute(@"settings:ai", workspace, fallback);
         assert([workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:MSIMERuntimeOptionsPath()]);

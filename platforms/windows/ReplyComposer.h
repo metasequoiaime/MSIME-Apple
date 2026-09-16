@@ -2,6 +2,7 @@
 #include "ReplyCodec.h"
 #include "EditPolicy.h"
 #include "ServerSession.h"
+#include <functional>
 #include <optional>
 
 namespace msime::windows {
@@ -59,6 +60,14 @@ public:
       uint64_t epoch, TsfPreeditStyle style, const NavigationBindings &bindings,
       std::optional<std::string> local_text = std::nullopt,
       WordCharacterBinding word_binding = WordCharacterBinding::Disabled);
+  // Ctrl+Shift+F changes only the host output projection. It still creates a
+  // pending no-frame reply so SessionPump preserves the normal confirmation
+  // and ordering gate.
+  std::optional<PendingReply>
+  toggle_character_set(ServerSession &session,
+                       const FanyImeNamedpipeData &packet, uint64_t epoch,
+                       bool enabled,
+                       const std::function<bool(bool)> &persist);
   // Native configuration-specific priority routes must run first. Null leaves
   // Engine untouched and means this key needs another native route.
   std::optional<PendingReply> basic_key(ServerSession &session,

@@ -268,7 +268,7 @@ void DrawTextBlock(DeviceResources &deviceResources, const std::wstring &text, f
     {
         return;
     }
-    target->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format,
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
                       D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height), brush);
 }
 
@@ -357,7 +357,7 @@ void DrawLabel(DeviceResources &deviceResources, const std::wstring &text, float
         return;
     }
 
-    target->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format,
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
                       D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height), brush);
 }
 
@@ -3344,7 +3344,10 @@ void TreeView::BuildVisibleNodes()
 
 void TreeView::AppendVisibleNodes(Node &node, size_t depth)
 {
-    visibleNodes_.push_back({&node, depth, {}, {}});
+    VisibleNode visible;
+    visible.node = &node;
+    visible.depth = depth;
+    visibleNodes_.push_back(std::move(visible));
     if (!node.expanded)
     {
         return;

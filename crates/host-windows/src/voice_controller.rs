@@ -11,7 +11,10 @@ use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::IO::*;
 
-pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControllerV2";
+/// Dedicated control endpoint used by the Windows Server. The legacy name is
+/// retained for older installed Servers during rolling upgrades.
+pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControlNamedPipe";
+pub const LEGACY_PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControllerV2";
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -61,8 +64,8 @@ struct Pipe<'a> {
     cancelled: &'a AtomicBool,
 }
 impl<'a> Pipe<'a> {
-    fn connect(cancelled: &'a AtomicBool) -> Result<Self, Error> {
-        let name: Vec<u16> = PIPE_NAME.encode_utf16().chain(Some(0)).collect();
+    fn connect_named(cancelled: &'a AtomicBool, pipe_name: &str) -> Result<Self, Error> {
+        let name: Vec<u16> = pipe_name.encode_utf16().chain(Some(0)).collect();
         let deadline = Instant::now() + Duration::from_secs(2);
         let pipe = loop {
             if cancelled.load(Ordering::Acquire) {
@@ -234,6 +237,15 @@ impl<'a> Pipe<'a> {
             return Err(Error::Cancelled);
         }
         Ok(count as usize)
+    }
+}
+impl<'a> Pipe<'a> {
+    fn connect(cancelled: &'a AtomicBool) -> Result<Self, Error> {
+        match Self::connect_named(cancelled, PIPE_NAME) {
+            Ok(pipe) => Ok(pipe),
+            Err(Error::Unavailable) => Self::connect_named(cancelled, LEGACY_PIPE_NAME),
+            Err(error) => Err(error),
+        }
     }
 }
 impl Transport for Pipe<'_> {

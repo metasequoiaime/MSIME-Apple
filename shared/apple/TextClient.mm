@@ -49,7 +49,30 @@ NSString *MSIMETextClientFollowingCharacter(id<MSIMETextClient> client) {
     return text.length == 1 ? [text substringWithRange:NSMakeRange(0, 1)] : nil;
 }
 
-void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {
+uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client) {
+    if (!client || ![client respondsToSelector:@selector(selectedRange)] ||
+        ![client respondsToSelector:@selector(attributedSubstringFromRange:)]) return 0;
+    NSRange selected = [client selectedRange];
+    if (selected.location == NSNotFound || selected.length != 0 || selected.location == 0) return 0;
+    NSUInteger start = selected.location - 1;
+    NSAttributedString *one = [client attributedSubstringFromRange:NSMakeRange(start, 1)];
+    NSString *text = one.string;
+    if (!text.length) return 0;
+    unichar tail = [text characterAtIndex:text.length - 1];
+    if (tail >= 0xDC00 && tail <= 0xDFFF && start > 0) {
+        NSAttributedString *pair = [client attributedSubstringFromRange:NSMakeRange(start - 1, 2)];
+        NSString *pairText = pair.string;
+        if (pairText.length == 2) {
+            unichar high = [pairText characterAtIndex:0];
+            if (high >= 0xD800 && high <= 0xDBFF)
+                return CFStringGetLongCharacterForSurrogatePair(high, tail);
+        }
+    }
+    return tail;
+}
+
+void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
+                                          MSIMEInlinePreeditStyle style) {
     id commit = transition[@"commit"];
     if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     NSDictionary *view = transition[@"view"];
@@ -58,6 +81,21 @@ void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) 
     if (![editing isKindOfClass:NSString.class]) editing = @"";
     NSString *preedit = view[@"preedit"];
     if (![preedit isKindOfClass:NSString.class]) preedit = editing;
-    NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, view[@"caret_position"]);
-    [client setMarkedText:preedit selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    id position = view[@"caret_position"];
+    NSString *marked = preedit;
+    NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, position);
+    if (style == MSIMEInlinePreeditStyleRaw) {
+        marked = editing;
+        caret = [position isKindOfClass:NSNumber.class]
+            ? MIN([position unsignedIntegerValue], editing.length)
+            : editing.length;
+    } else if (style == MSIMEInlinePreeditStyleEmpty) {
+        marked = @"";
+        caret = 0;
+    }
+    [client setMarkedText:marked selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+}
+
+void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {
+    MSIMEApplyTransitionWithPreeditStyle(transition, client, MSIMEInlinePreeditStylePinyin);
 }

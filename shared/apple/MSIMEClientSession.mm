@@ -352,6 +352,8 @@ static NSDictionary *decode(char *response, NSError **error) {
     MSIMEClientSession *session = gActiveSession;
     uint64_t old = session ? session->_handle : 0;
     if (!session || !old) { setError(error, @"输入会话不可用"); return NO; }
+    NSDictionary *ready = [self snapshotActivationReady];
+    if (![ready[@"ready"] isEqual:@YES]) { setError(error, @"请先完成正在输入的内容，再应用本地词库"); return NO; }
     NSDictionary *optionsCopy = [session->_hostOptions copy];
     msime_client_string_free(msime_client_destroy(old));
     session->_handle = 0;
@@ -387,6 +389,17 @@ static NSDictionary *decode(char *response, NSError **error) {
     return ok ? @{ @"activated": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
 + (NSDictionary *)activeHostOptions { return gActiveSession ? [gActiveSession.hostOptions copy] : @{@"error" : [NSError errorWithDomain:MSIMEClientErrorDomain code:503 userInfo:nil]}; }
++ (NSDictionary *)snapshotActivationReady {
+    if (![NSThread isMainThread]) return @{ @"error" : [NSError errorWithDomain:MSIMEClientErrorDomain code:400 userInfo:nil] };
+    MSIMEClientSession *session = gActiveSession;
+    if (!session || !session->_handle) return @{ @"ready" : @NO };
+    NSDictionary *view = [session viewWithError:nil];
+    if (!view) return @{ @"ready" : @NO };
+    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
+    NSString *preedit = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : @"";
+    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
+    return @{ @"ready" : @(editing.length == 0 && preedit.length == 0 && candidates.count == 0) };
+}
 + (NSDictionary *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
                                nextRecord:(MSIMESnapshotNextRecord)nextRecord
                                     error:(NSError **)error {
@@ -496,6 +509,18 @@ static NSDictionary *decode(char *response, NSError **error) {
 - (nullable NSDictionary *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_character(_handle, character, shift), error);
+}
+- (nullable NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_punctuation_ascii(_handle, ascii), error);
+}
+- (nullable NSDictionary *)punctuation:(uint8_t)ascii error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_punctuation(_handle, ascii), error);
+}
+- (nullable NSDictionary *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_punctuation_with_context(_handle, ascii, preceding), error);
 }
 - (nullable NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;

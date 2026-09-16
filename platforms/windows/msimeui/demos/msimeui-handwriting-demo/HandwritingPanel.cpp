@@ -61,7 +61,7 @@ void Text(DeviceResources &resources, const std::wstring &text, const RectF &rec
                                            DWRITE_WORD_WRAPPING_NO_WRAP);
     auto *brush = resources.GetSolidColorBrush(color);
     if (target && format && brush)
-        target->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format, D2DRect(rect), brush,
+        target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format, D2DRect(rect), brush,
                           D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 

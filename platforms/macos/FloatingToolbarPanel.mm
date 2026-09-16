@@ -2,6 +2,7 @@
 #import "CandidateSkinAppearance.h"
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
+#import <CoreGraphics/CoreGraphics.h>
 
 #include <algorithm>
 #include <cmath>
@@ -58,6 +59,71 @@ NSScreen *ScreenContainingMouse()
     return NSScreen.mainScreen;
 }
 } // namespace
+
+BOOL MetasequoiaFloatingToolbarShouldShow(BOOL configuredEnabled, BOOL imeActive, BOOL fullscreen)
+{
+    return configuredEnabled && imeActive && !fullscreen;
+}
+
+static BOOL FrontmostApplicationOwnsFullscreenDisplay(void)
+{
+    NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (frontmost == nil || frontmost == NSRunningApplication.currentApplication)
+    {
+        return NO;
+    }
+
+    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    if (![windows isKindOfClass:NSArray.class])
+    {
+        return NO;
+    }
+
+    const pid_t pid = frontmost.processIdentifier;
+    for (NSDictionary *window in windows)
+    {
+        if (![window isKindOfClass:NSDictionary.class] ||
+            [window[(id)kCGWindowOwnerPID] intValue] != pid ||
+            [window[(id)kCGWindowLayer] integerValue] != 0)
+        {
+            continue;
+        }
+        CGRect bounds = CGRectZero;
+        if (!CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)window[(id)kCGWindowBounds], &bounds))
+        {
+            continue;
+        }
+        for (NSScreen *screen in NSScreen.screens)
+        {
+            // CGWindow and CGDisplay bounds share Quartz' global display
+            // coordinate space. Prefer the display rectangle over NSScreen's
+            // AppKit frame so the origin is checked as well as the size; a
+            // maximized or partially off-screen window must not hide the
+            // toolbar merely because it is large enough.
+            NSNumber *number = screen.deviceDescription[@"NSScreenNumber"];
+            CGRect display = number != nil ? CGDisplayBounds((CGDirectDisplayID)number.unsignedIntValue)
+                                           : NSRectToCGRect(screen.frame);
+            if (MetasequoiaWindowCoversDisplay(bounds, display)) return YES;
+        }
+    }
+    return NO;
+}
+
+BOOL MetasequoiaWindowCoversDisplay(CGRect windowBounds, CGRect displayBounds)
+{
+    if (!std::isfinite(windowBounds.origin.x) || !std::isfinite(windowBounds.origin.y) ||
+        !std::isfinite(windowBounds.size.width) || !std::isfinite(windowBounds.size.height) ||
+        !std::isfinite(displayBounds.origin.x) || !std::isfinite(displayBounds.origin.y) ||
+        !std::isfinite(displayBounds.size.width) || !std::isfinite(displayBounds.size.height) ||
+        CGRectIsEmpty(windowBounds) || CGRectIsEmpty(displayBounds))
+        return NO;
+    constexpr CGFloat tolerance = 2.0;
+    return CGRectGetMinX(windowBounds) <= CGRectGetMinX(displayBounds) + tolerance &&
+           CGRectGetMinY(windowBounds) <= CGRectGetMinY(displayBounds) + tolerance &&
+           CGRectGetMaxX(windowBounds) >= CGRectGetMaxX(displayBounds) - tolerance &&
+           CGRectGetMaxY(windowBounds) >= CGRectGetMaxY(displayBounds) - tolerance;
+}
 
 static NSRect SizedToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame, NSSize size)
 {
@@ -191,6 +257,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     BOOL _hasHostToolbarSkin;
     msime::mac::SkinTokens _lightToolbarSkin;
     msime::mac::SkinTokens _darkToolbarSkin;
+    BOOL _requestedVisible;
+    BOOL _imeActive;
 }
 
 + (instancetype)sharedPanel
@@ -290,8 +358,18 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                              selector:@selector(applySkin)
                                                  name:MetasequoiaCandidateSkinDidChangeNotification
                                                object:nil];
+    [[NSWorkspace sharedWorkspace].notificationCenter addObserver:self
+                                                          selector:@selector(refreshVisibility)
+                                                              name:NSWorkspaceDidActivateApplicationNotification
+                                                            object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(refreshVisibility)
+                                                 name:NSApplicationDidChangeScreenParametersNotification
+                                               object:nil];
     [self applySizingPreferences:@{}];
     [self updateEnglishInputMode:NO
+              japaneseInputMode:NO
+                       capsLock:NO
               chinesePunctuationEnabled:YES
                        fullWidthEnabled:NO
         traditionalChineseOutputEnabled:NO];
@@ -301,6 +379,34 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:self];
+}
+
+- (void)refreshVisibility
+{
+    if (self.toolbarDelegate == nil)
+    {
+        [self orderOut:nil];
+        return;
+    }
+    const BOOL show = MetasequoiaFloatingToolbarShouldShow(
+        _requestedVisible, _imeActive, FrontmostApplicationOwnsFullscreenDisplay());
+    if (!show)
+    {
+        [self orderOut:nil];
+        return;
+    }
+    if (self.visible)
+    {
+        [self orderFrontRegardless];
+        return;
+    }
+    BOOL hasSavedFrame = [[NSUserDefaults standardUserDefaults]
+        objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
+    NSScreen *screen = hasSavedFrame ? ScreenContainingFrame(self.frame) : ScreenContainingMouse();
+    if (screen == nil) screen = NSScreen.mainScreen;
+    if (screen != nil) [self setFrame:SizedToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame, _preferredSize) display:NO];
+    [self orderFrontRegardless];
 }
 
 - (void)applySizingPreferences:(NSDictionary *)preferences
@@ -423,8 +529,43 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
-    _inputModeButton.title = englishInputMode ? @"英" : @"中";
-    _inputModeButton.accessibilityLabel = englishInputMode ? @"切换到中文输入" : @"切换到英文输入";
+    [self updateEnglishInputMode:englishInputMode
+             englishCandidateMode:NO
+              japaneseInputMode:NO
+                       capsLock:NO
+              chinesePunctuationEnabled:chinesePunctuationEnabled
+                       fullWidthEnabled:fullWidthEnabled
+        traditionalChineseOutputEnabled:traditionalChineseOutputEnabled];
+}
+
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
+{
+    [self updateEnglishInputMode:englishInputMode
+             englishCandidateMode:NO
+              japaneseInputMode:japaneseInputMode
+                       capsLock:capsLock
+              chinesePunctuationEnabled:chinesePunctuationEnabled
+                       fullWidthEnabled:fullWidthEnabled
+        traditionalChineseOutputEnabled:traditionalChineseOutputEnabled];
+}
+
+- (void)updateEnglishInputMode:(BOOL)englishInputMode
+         englishCandidateMode:(BOOL)englishCandidateMode
+             japaneseInputMode:(BOOL)japaneseInputMode
+                      capsLock:(BOOL)capsLock
+          chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
+                   fullWidthEnabled:(BOOL)fullWidthEnabled
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
+{
+    NSString *inputModeTitle = capsLock ? @"A" :
+        (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (japaneseInputMode ? @"日" : @"中")));
+    _inputModeButton.title = inputModeTitle;
+    _inputModeButton.accessibilityLabel = englishInputMode || englishCandidateMode ? @"切换到中文输入" : @"切换到英文输入";
     _punctuationButton.title = chinesePunctuationEnabled ? @"。" : @".";
     _punctuationButton.accessibilityLabel = chinesePunctuationEnabled ? @"切换到西文标点" : @"切换到中文标点";
     _fullWidthButton.title = fullWidthEnabled ? @"全" : @"半";
@@ -442,7 +583,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
     self.toolbarDelegate = delegate;
-    [self setVisible:visible forDelegate:delegate];
+    _imeActive = YES;
+    _requestedVisible = visible;
+    [self refreshVisibility];
 }
 
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
@@ -451,32 +594,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     {
         return;
     }
-    if (!visible)
-    {
-        [self orderOut:nil];
-        return;
-    }
-    if (self.visible)
-    {
-        // Only clamp the frame when the panel comes on screen; re-showing a visible panel must not move it away from
-        // where the user dragged it.
-        [self orderFrontRegardless];
-        return;
-    }
-
-    BOOL hasSavedFrame =
-        [[NSUserDefaults standardUserDefaults]
-            objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
-    NSScreen *screen = hasSavedFrame ? ScreenContainingFrame(self.frame) : ScreenContainingMouse();
-    if (screen == nil)
-    {
-        screen = NSScreen.mainScreen;
-    }
-    if (screen != nil)
-    {
-        [self setFrame:SizedToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame, _preferredSize) display:NO];
-    }
-    [self orderFrontRegardless];
+    _requestedVisible = visible;
+    [self refreshVisibility];
 }
 
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
@@ -489,6 +608,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         return;
     }
     [self orderOut:nil];
+    _imeActive = NO;
+    _requestedVisible = NO;
     self.toolbarDelegate = nil;
 }
 

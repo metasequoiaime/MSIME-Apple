@@ -36,6 +36,7 @@ static const GUID SupportCategories[] = {
 BOOL RegisterProfiles()
 {
     HRESULT hr = S_FALSE;
+    size_t lenOfDesc = 0;
 
     ITfInputProcessorProfileMgr *pITfInputProcessorProfileMgr = nullptr;
     hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, NULL, CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfileMgr,
@@ -48,10 +49,13 @@ BOOL RegisterProfiles()
     WCHAR achIconFile[MAX_PATH] = {'\0'};
     DWORD cchA = 0;
     cchA = GetModuleFileName(Global::dllInstanceHandle, achIconFile, MAX_PATH);
-    cchA = cchA >= MAX_PATH ? (MAX_PATH - 1) : cchA;
+    if (cchA == 0 || cchA >= MAX_PATH)
+    {
+        hr = E_FAIL;
+        goto Exit;
+    }
     achIconFile[cchA] = '\0';
 
-    size_t lenOfDesc = 0;
     hr = StringCchLength(TEXTSERVICE_DESC, STRSAFE_MAX_CCH, &lenOfDesc);
     if (hr != S_OK)
     {
@@ -81,7 +85,7 @@ Exit:
 //
 //----------------------------------------------------------------------------
 
-void UnregisterProfiles()
+BOOL UnregisterProfiles()
 {
     HRESULT hr = S_OK;
 
@@ -106,7 +110,7 @@ Exit:
         pITfInputProcessorProfileMgr->Release();
     }
 
-    return;
+    return hr == S_OK ? TRUE : FALSE;
 }
 
 //+---------------------------------------------------------------------------
@@ -130,11 +134,18 @@ BOOL RegisterCategories()
     for (const auto &guid : SupportCategories)
     {
         hr = pCategoryMgr->RegisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        if (FAILED(hr))
+        {
+            // Do not report success when a later category happened to mask a
+            // failed registration. The caller will roll back the partial set.
+            pCategoryMgr->Release();
+            return FALSE;
+        }
     }
 
     pCategoryMgr->Release();
 
-    return (hr == S_OK);
+    return TRUE;
 }
 
 //+---------------------------------------------------------------------------
@@ -143,26 +154,32 @@ BOOL RegisterCategories()
 //
 //----------------------------------------------------------------------------
 
-void UnregisterCategories()
+BOOL UnregisterCategories()
 {
-    ITfCategoryMgr *pCategoryMgr = S_OK;
+    ITfCategoryMgr *pCategoryMgr = nullptr;
     HRESULT hr = S_OK;
 
     hr = CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void **)&pCategoryMgr);
     if (FAILED(hr))
     {
-        return;
+        return FALSE;
     }
 
-    // for each (GUID guid in SupportCategories)
+    // Cleanup is best-effort across the entire category set. Retain any
+    // failure for DllUnregisterServer without leaving later categories behind.
+    BOOL complete = TRUE;
     for (const auto &guid : SupportCategories)
     {
-        pCategoryMgr->UnregisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        hr = pCategoryMgr->UnregisterCategory(Global::MetasequoiaIMECLSID, guid, Global::MetasequoiaIMECLSID);
+        if (FAILED(hr))
+        {
+            complete = FALSE;
+        }
     }
 
     pCategoryMgr->Release();
 
-    return;
+    return complete;
 }
 
 //+---------------------------------------------------------------------------
@@ -181,9 +198,14 @@ LONG RecurseDeleteKey(_In_ HKEY hParentKey, _In_ LPCTSTR lpszKey)
     WCHAR stringBuffer[256] = {'\0'};
     DWORD size = ARRAYSIZE(stringBuffer);
 
-    if (RegOpenKey(hParentKey, lpszKey, &regKeyHandle) != ERROR_SUCCESS)
+    const LONG openResult = RegOpenKey(hParentKey, lpszKey, &regKeyHandle);
+    if (openResult == ERROR_FILE_NOT_FOUND || openResult == ERROR_PATH_NOT_FOUND)
     {
         return ERROR_SUCCESS;
+    }
+    if (openResult != ERROR_SUCCESS)
+    {
+        return openResult;
     }
 
     res = ERROR_SUCCESS;
@@ -237,7 +259,13 @@ BOOL RegisterServer()
                            &regSubkeyHandle, &copiedStringLen) == ERROR_SUCCESS)
         {
             copiedStringLen = GetModuleFileNameW(Global::dllInstanceHandle, achFileName, ARRAYSIZE(achFileName));
-            copiedStringLen = (copiedStringLen >= (MAX_PATH - 1)) ? MAX_PATH : (++copiedStringLen);
+            // A zero result or truncation must not register a DLL path that
+            // cannot be loaded later by TSF.
+            if (copiedStringLen == 0 || copiedStringLen >= ARRAYSIZE(achFileName))
+            {
+                goto Exit;
+            }
+            ++copiedStringLen;
             if (RegSetValueEx(regSubkeyHandle, NULL, 0, REG_SZ, (const BYTE *)achFileName,
                               (copiedStringLen) * sizeof(WCHAR)) != ERROR_SUCCESS)
             {
@@ -274,16 +302,16 @@ Exit:
 //
 //----------------------------------------------------------------------------
 
-void UnregisterServer()
+BOOL UnregisterServer()
 {
     WCHAR achIMEKey[ARRAYSIZE(RegInfo_Prefix_CLSID) + CLSID_STRLEN] = {'\0'};
 
     if (!CLSIDToString(Global::MetasequoiaIMECLSID, achIMEKey + ARRAYSIZE(RegInfo_Prefix_CLSID) - 1))
     {
-        return;
+        return FALSE;
     }
 
     memcpy(achIMEKey, RegInfo_Prefix_CLSID, sizeof(RegInfo_Prefix_CLSID) - sizeof(WCHAR));
 
-    RecurseDeleteKey(HKEY_CLASSES_ROOT, achIMEKey);
+    return RecurseDeleteKey(HKEY_CLASSES_ROOT, achIMEKey) == ERROR_SUCCESS;
 }

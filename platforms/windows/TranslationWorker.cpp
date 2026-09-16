@@ -43,8 +43,7 @@ int transfer_progress(void *context, curl_off_t, curl_off_t, curl_off_t,
   return cancelled && cancelled() ? 1 : 0;
 }
 
-std::unique_ptr<char, decltype(&msime_client_string_free)>
-owned(char *raw) {
+std::unique_ptr<char, decltype(&msime_client_string_free)> owned(char *raw) {
   return {raw, msime_client_string_free};
 }
 
@@ -88,16 +87,18 @@ std::optional<nlohmann::json> query_document(const std::string &query) {
   }
 }
 
-std::optional<std::string> https_request(const nlohmann::json &descriptor,
-                                         const std::function<bool()> &cancelled) {
+std::optional<std::string> http_request(const nlohmann::json &descriptor,
+                                        const std::function<bool()> &cancelled,
+                                        bool allow_http) {
   try {
     if (!descriptor.is_object() || !descriptor.at("url").is_string())
       return std::nullopt;
     const auto url = descriptor.at("url").get<std::string>();
-    if (url.size() > 2048 || url.rfind("https://", 0) != 0 ||
-        std::any_of(url.begin(), url.end(), [](unsigned char ch) {
-          return ch < 32 || ch == 127;
-        }))
+    const bool https = url.rfind("https://", 0) == 0;
+    const bool http = allow_http && url.rfind("http://", 0) == 0;
+    if (url.size() > 2048 || (!https && !http) ||
+        std::any_of(url.begin(), url.end(),
+                    [](unsigned char ch) { return ch < 32 || ch == 127; }))
       return std::nullopt;
     const auto headers = descriptor.value("headers", nlohmann::json::object());
     if (!headers.is_object())
@@ -105,7 +106,7 @@ std::optional<std::string> https_request(const nlohmann::json &descriptor,
     static std::once_flag curl_once;
     std::call_once(curl_once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(),
-                                                              curl_easy_cleanup);
+                                                             curl_easy_cleanup);
     if (!curl)
       return std::nullopt;
     curl_slist *raw_headers = nullptr;
@@ -123,7 +124,8 @@ std::optional<std::string> https_request(const nlohmann::json &descriptor,
     }
     HttpResponse response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR,
+                     allow_http ? "http,https" : "https");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);
     curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 3000L);
@@ -163,20 +165,22 @@ std::optional<std::string> https_request(const nlohmann::json &descriptor,
   }
 }
 
-std::optional<std::string> custom_translation(
-    const nlohmann::json &config, const nlohmann::json &item,
-    const std::function<bool()> &cancelled) {
-  const auto request = nlohmann::json{
-      {"config", config},
-      {"text", item.at("key")},
-      {"source_language", item.at("source_language")},
-      {"target_language", item.at("target_language")}};
+std::optional<std::string>
+custom_translation(const nlohmann::json &config, const nlohmann::json &item,
+                   const std::function<bool()> &cancelled) {
+  const auto request =
+      nlohmann::json{{"config", config},
+                     {"text", item.at("key")},
+                     {"source_language", item.at("source_language")},
+                     {"target_language", item.at("target_language")}};
   const auto bytes = request.dump();
   auto descriptor = host_value(msime_client_custom_translation_http_request(
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null() || cancelled())
     return std::nullopt;
-  auto body = https_request(*descriptor, cancelled);
+  // The source Windows client permits an explicitly configured HTTP custom
+  // translator (useful for a local service).  Keep cloud providers HTTPS-only.
+  auto body = http_request(*descriptor, cancelled, true);
   if (!body || cancelled())
     return std::nullopt;
   auto parsed = host_value(msime_client_parse_custom_translation_response(
@@ -195,18 +199,18 @@ void append_tencent_group(const nlohmann::json &config,
   nlohmann::json texts = nlohmann::json::array();
   for (const auto &item : items)
     texts.push_back(item.at("key"));
-  const auto request = nlohmann::json{
-      {"config", config},
-      {"texts", texts},
-      {"source_language", items.front().at("source_language")},
-      {"target_language", items.front().at("target_language")},
-      {"timestamp", static_cast<int64_t>(std::time(nullptr))}};
+  const auto request =
+      nlohmann::json{{"config", config},
+                     {"texts", texts},
+                     {"source_language", items.front().at("source_language")},
+                     {"target_language", items.front().at("target_language")},
+                     {"timestamp", static_cast<int64_t>(std::time(nullptr))}};
   const auto bytes = request.dump();
   auto descriptor = host_value(msime_client_tencent_translation_http_request(
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null())
     return;
-  auto body = https_request(*descriptor, cancelled);
+  auto body = http_request(*descriptor, cancelled, false);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_tencent_translation_response(
@@ -218,8 +222,8 @@ void append_tencent_group(const nlohmann::json &config,
     auto output = nlohmann::json::parse(translations);
     for (size_t i = 0; i < items.size(); ++i)
       if (!parsed->at(i).is_null() && parsed->at(i).is_string())
-        output.push_back({{"text", items[i].at("text")},
-                          {"translation", parsed->at(i)}});
+        output.push_back(
+            {{"text", items[i].at("text")}, {"translation", parsed->at(i)}});
     translations = output.dump();
   } catch (...) {
   }
@@ -227,7 +231,8 @@ void append_tencent_group(const nlohmann::json &config,
 
 std::string millisecond_timestamp() {
   const auto now = std::chrono::system_clock::now().time_since_epoch();
-  return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+  return std::to_string(
+      std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 }
 
 void append_niutrans_item(const nlohmann::json &config,
@@ -236,18 +241,18 @@ void append_niutrans_item(const nlohmann::json &config,
   if (cancelled())
     return;
   const auto timestamp = millisecond_timestamp();
-  const auto request = nlohmann::json{
-      {"config", config},
-      {"text", item.at("key")},
-      {"source_language", item.at("source_language")},
-      {"target_language", item.at("target_language")},
-      {"timestamp", timestamp}};
+  const auto request =
+      nlohmann::json{{"config", config},
+                     {"text", item.at("key")},
+                     {"source_language", item.at("source_language")},
+                     {"target_language", item.at("target_language")},
+                     {"timestamp", timestamp}};
   const auto bytes = request.dump();
   auto descriptor = host_value(msime_client_niutrans_translation_http_request(
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null() || cancelled())
     return;
-  auto body = https_request(*descriptor, cancelled);
+  auto body = http_request(*descriptor, cancelled, false);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_niutrans_translation_response(
@@ -311,8 +316,9 @@ bool TranslationWorker::cancelled(uint64_t serial) const noexcept {
          latest_serial_.load(std::memory_order_acquire) != serial;
 }
 
-std::optional<TranslationWorker::Result> TranslationWorker::translate(
-    const Request &request, const std::function<bool()> &cancelled) {
+std::optional<TranslationWorker::Result>
+TranslationWorker::translate(const Request &request,
+                             const std::function<bool()> &cancelled) {
   const auto document = query_document(request.query);
   if (!document || cancelled())
     return std::nullopt;
@@ -344,7 +350,8 @@ std::optional<TranslationWorker::Result> TranslationWorker::translate(
         if (cancelled())
           return std::nullopt;
         if (glossed && glossed->is_object() &&
-            glossed->value("translations", nlohmann::json::array()).is_array() &&
+            glossed->value("translations", nlohmann::json::array())
+                .is_array() &&
             !glossed->at("translations").empty())
           return TranslationWorker::Result{request.lease, generation,
                                            glossed->at("translations").dump()};
@@ -357,17 +364,20 @@ std::optional<TranslationWorker::Result> TranslationWorker::translate(
         {"candidates", [&] {
            auto candidates = nlohmann::json::array();
            for (const auto &candidate : query.at("candidates"))
-             candidates.push_back({{"text", candidate.at("text")}, {"source", 0}});
+             candidates.push_back(
+                 {{"text", candidate.at("text")}, {"source", 0}});
            return candidates;
          }()}};
     const auto plan_bytes = plan_request.dump();
     auto plan = host_value(msime_client_custom_translation_plan(
-        reinterpret_cast<const uint8_t *>(plan_bytes.data()), plan_bytes.size()));
+        reinterpret_cast<const uint8_t *>(plan_bytes.data()),
+        plan_bytes.size()));
     if (!plan || !plan->is_array() || plan->empty() || cancelled())
       return std::nullopt;
     auto translations = nlohmann::json::array().dump();
     const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
-    const auto custom = query.value("custom_translation", nlohmann::json(nullptr));
+    const auto custom =
+        query.value("custom_translation", nlohmann::json(nullptr));
     if (niutrans.is_object() && niutrans.value("enabled", false)) {
       for (const auto &item : *plan) {
         if (cancelled())
@@ -380,7 +390,8 @@ std::optional<TranslationWorker::Result> TranslationWorker::translate(
           return std::nullopt;
         if (auto value = custom_translation(custom, item, cancelled)) {
           auto output = nlohmann::json::parse(translations);
-          output.push_back({{"text", item.at("text")}, {"translation", *value}});
+          output.push_back(
+              {{"text", item.at("text")}, {"translation", *value}});
           translations = output.dump();
         }
       }
@@ -413,7 +424,8 @@ void TranslationWorker::run() noexcept {
     {
       std::unique_lock lock(mutex_);
       wake_.wait(lock, [&] {
-        return stopping_.load(std::memory_order_acquire) || pending_.has_value();
+        return stopping_.load(std::memory_order_acquire) ||
+               pending_.has_value();
       });
       if (stopping_.load(std::memory_order_acquire))
         return;
@@ -422,7 +434,8 @@ void TranslationWorker::run() noexcept {
       for (;;) {
         const auto deadline = std::chrono::steady_clock::now() + kDebounce;
         if (!wake_.wait_until(lock, deadline, [&] {
-              return stopping_.load(std::memory_order_acquire) || pending_.has_value();
+              return stopping_.load(std::memory_order_acquire) ||
+                     pending_.has_value();
             }))
           break;
         if (stopping_.load(std::memory_order_acquire))

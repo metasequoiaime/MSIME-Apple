@@ -3,7 +3,7 @@
 #import <AppKit/AppKit.h>
 #import "RuntimeOptions.h"
 
-enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI };
+enum class MSIMEDesktopSettingsPage { Appearance, Voice, Translation, AI, Skin };
 
 static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *optionsPath,
     NSDictionary<NSString *, NSString *> *environment, NSWorkspace *workspace,
@@ -40,6 +40,13 @@ static inline void MSIMEOpenDesktopRoute(NSString *route, NSWorkspace *workspace
     MSIMEOpenDesktopRouteWithOptions(route, MSIMERuntimeOptionsPath(), workspace, fallback);
 }
 
+// The update entry is a shared About page on desktop. Native Sparkle remains
+// the platform fallback when the Tauri shell is not installed or cannot launch.
+static inline void MSIMEOpenDesktopUpdateSettings(NSWorkspace *workspace,
+                                                  dispatch_block_t fallback) {
+    MSIMEOpenDesktopRoute(@"settings:about", workspace, fallback);
+}
+
 // These are settings categories from client-core, not input-panel routes.
 static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
                                            NSWorkspace *workspace,
@@ -51,6 +58,7 @@ static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
         // Translation controls live in the shared Input category.
         case MSIMEDesktopSettingsPage::Translation: route = @"settings:input"; break;
         case MSIMEDesktopSettingsPage::AI: route = @"settings:ai"; break;
+        case MSIMEDesktopSettingsPage::Skin: route = @"settings:skin"; break;
     }
     MSIMEOpenDesktopRoute(route, workspace, fallback);
 }

@@ -179,6 +179,7 @@ HANDLE_ENTRY(Destroy, msime_client_destroy)
 FLAG_ENTRY(Focus, msime_client_focus)
 FLAG_ENTRY(SetNineKeyMode, msime_client_set_nine_key_mode)
 FLAG_ENTRY(SetEnglishMode, msime_client_set_english_mode)
+FLAG_ENTRY(SetCharacterWidth, msime_client_set_character_width)
 
 // Candidate identity is the generation plus the index, so a stale page cannot act on a fresh one.
 #define CANDIDATE_ENTRY(name, call, message)                                                        \
@@ -373,6 +374,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("focus", Focus),
         ENTRY("setNineKeyMode", SetNineKeyMode),
         ENTRY("setEnglishMode", SetEnglishMode),
+        ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("character", Character),
         ENTRY("punctuationWithContext", PunctuationWithContext),
         ENTRY("command", Command),

@@ -12,14 +12,20 @@
 @property(nonatomic, strong) NSMutableArray<NSString *> *events;
 @property(nonatomic) NSRange documentSelection;
 @property(nonatomic, copy) NSString *following;
+@property(nonatomic, copy) NSString *document;
 @end
 @implementation FakeTextClient
 - (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"commit"]; self.committed = text; }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"marked"]; self.marked = text; self.selection = selection; }
 - (NSRange)selectedRange { return self.documentSelection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
-    if (range.location != self.documentSelection.location || range.length != 1 || !self.following) return nil;
-    return [[NSAttributedString alloc] initWithString:self.following];
+    if (self.following) {
+        if (range.location != self.documentSelection.location || range.length != 1) return nil;
+        return [[NSAttributedString alloc] initWithString:self.following];
+    }
+    if (!self.document || range.location == NSNotFound || range.location > self.document.length ||
+        range.length > self.document.length - range.location) return nil;
+    return [[NSAttributedString alloc] initWithString:[self.document substringWithRange:range]];
 }
 @end
 
@@ -439,11 +445,27 @@ int main() {
         MSIMEApplyTransition(@{@"commit": @"合成", @"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, client);
         assert([client.committed isEqual:@"合成"] && client.marked.length == 0 && client.selection.location == 0);
         assert(client.events.count >= 2 && [client.events[client.events.count - 2] isEqual:@"commit"] && [client.events.lastObject isEqual:@"marked"]);
+        // The shared inline-preedit preference selects the actual marked text,
+        // while preserving the display-specific caret contract.
+        NSDictionary *styled = @{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @1}};
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleRaw);
+        assert([client.marked isEqual:@"b;"] && client.selection.location == 1);
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStylePinyin);
+        assert([client.marked isEqual:@"bing"] && client.selection.location == 4);
+        MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
+        assert(client.marked.length == 0 && client.selection.location == 0);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);
         client.following = nil;
         assert(MSIMETextClientFollowingCharacter(client) == nil);
+        client.document = @"a😀";
+        client.documentSelection = NSMakeRange(client.document.length, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 0x1f600);
+        client.documentSelection = NSMakeRange(1, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 'a');
+        client.documentSelection = NSMakeRange(0, 0);
+        assert(MSIMETextClientPrecedingUnicodeScalar(client) == 0);
     }
     return 0;
 }

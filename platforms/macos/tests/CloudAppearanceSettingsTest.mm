@@ -10,15 +10,19 @@ int main() {
     assert([initial[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([initial[@"platform.macos.candidate_panel_style"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(initial));
-    assert(initial.count == 21);
+    assert(initial.count == 23);
     assert([initial[@"platform.macos.quanpin_helpcode_schema"] isEqual:@1]);
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
     assert([initial[@"platform.macos.shuangpin_preedit_uses_raw"] isEqual:@YES]);
-    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning"])
+    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"smart_punctuation", @"smart_punctuation_repeat", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
     for (NSString *key in @[@"english_input_mode", @"full_width_input", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
+    [defaults setObject:@"japanese" forKey:@"MSIMEClientInputScheme"];
+    NSDictionary *japaneseNativeSnapshot = MSIMECloudAppearanceSnapshot(defaults);
+    assert([japaneseNativeSnapshot[@"platform.macos.input_scheme"] isEqual:@0]);
+    assert(MSIMEValidateCloudAppearance(japaneseNativeSnapshot));
     NSMutableDictionary *values = [initial mutableCopy];
     values[@"platform.macos.candidate_panel_style"] = @1;
     values[@"platform.macos.candidate_font_size"] = @20;

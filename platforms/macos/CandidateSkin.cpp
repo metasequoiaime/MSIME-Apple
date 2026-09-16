@@ -786,6 +786,12 @@ std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoo
         SetError(error, "toolbar_stylesheet 文件名无效");
         return std::nullopt;
     }
+    if (!package.toolbarStylesheet.empty() &&
+        !std::filesystem::is_regular_file(directory / package.toolbarStylesheet, ec))
+    {
+        SetError(error, "找不到 toolbar_stylesheet 文件");
+        return std::nullopt;
+    }
     if (root.scalars.count("preview") &&
         (!ReadString(root, "preview", package.preview, 256, false) || !IsSafeRelativeResource(package.preview) ||
          !IsContained(directory, directory / package.preview)))
@@ -834,6 +840,14 @@ std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoo
         return std::nullopt;
     }
     return package;
+}
+
+bool SupportsSkin(const SkinPackage &package, std::string_view layout, std::string_view theme)
+{
+    const auto contains = [](const std::vector<std::string> &values, std::string_view value) {
+        return std::find(values.begin(), values.end(), value) != values.end();
+    };
+    return contains(package.layouts, layout) && contains(package.themes, theme);
 }
 
 SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
@@ -886,6 +900,12 @@ std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot)
 
 ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot)
 {
+    return ResolveSkin(id, dark, skinsRoot, {}, {});
+}
+
+ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot,
+                         std::string_view layout, std::string_view theme)
+{
     const std::string normalized = NormalizeSkinId(id);
     ResolvedSkin resolved;
     resolved.id = "fluent";
@@ -907,6 +927,10 @@ ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::
     }
     std::optional<SkinPackage> package = LoadSkinPackage(skinsRoot, normalized);
     if (!package)
+    {
+        return resolved;
+    }
+    if ((!layout.empty() || !theme.empty()) && !SupportsSkin(*package, layout, theme))
     {
         return resolved;
     }

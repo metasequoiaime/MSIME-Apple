@@ -18,7 +18,7 @@ CGFloat PreviewCandidateHeight(NSFont *font) {
 CGFloat PreviewPreeditHeight(CGFloat preeditFontSize, MSIMEAppearancePreferences *preferences)
 {
     if (preeditFontSize <= 0) return 0;
-    NSFont *font = [preferences candidateFontOfSize:preeditFontSize] ?: [NSFont systemFontOfSize:preeditFontSize];
+    NSFont *font = [preferences candidateFontOfSize:preeditFontSize englishFirst:YES] ?: [NSFont systemFontOfSize:preeditFontSize];
     return MAX(22.0, MSIMECandidateTextHeight(@"nihao", font) + 6.0);
 }
 
@@ -57,7 +57,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
 {
     SkinPreviewMetrics metrics;
     metrics.fontSize = MIN(candidateFontSize, 15.0);
-    NSFont *font = [preferences candidateFontOfSize:metrics.fontSize] ?: [NSFont systemFontOfSize:metrics.fontSize];
+    NSFont *font = [preferences candidateFontOfSize:metrics.fontSize englishFirst:YES] ?: [NSFont systemFontOfSize:metrics.fontSize];
     metrics.captionHeight = 16.0;
     metrics.captionGap = 4.0;
     metrics.sectionGap = 10.0;
@@ -82,7 +82,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
 {
     SkinPreviewMetrics metrics;
     metrics.fontSize = MAX(12.0, candidateFontSize);
-    NSFont *font = [preferences candidateFontOfSize:metrics.fontSize] ?: [NSFont systemFontOfSize:metrics.fontSize];
+    NSFont *font = [preferences candidateFontOfSize:metrics.fontSize englishFirst:YES] ?: [NSFont systemFontOfSize:metrics.fontSize];
     metrics.captionHeight = 16.0;
     metrics.captionGap = 4.0;
     metrics.sectionGap = 0.0;
@@ -158,8 +158,8 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     [NSGraphicsContext saveGraphicsState];
     [clip addClip];
 
-    NSFont *font = [preferences candidateFontOfSize:fontSize] ?: [NSFont systemFontOfSize:fontSize];
-    NSFont *preeditFont = [preferences candidateFontOfSize:MAX(11.0, preeditFontSize)] ?: [NSFont systemFontOfSize:MAX(11.0, preeditFontSize)];
+    NSFont *font = [preferences candidateFontOfSize:fontSize englishFirst:YES] ?: [NSFont systemFontOfSize:fontSize];
+    NSFont *preeditFont = [preferences candidateFontOfSize:MAX(11.0, preeditFontSize) englishFirst:YES] ?: [NSFont systemFontOfSize:MAX(11.0, preeditFontSize)];
     NSFont *numberFont = [NSFont monospacedDigitSystemFontOfSize:MAX(10.0, fontSize - 4.0) weight:NSFontWeightRegular];
     NSDictionary *preeditAttributes = @{
         NSFontAttributeName : preeditFont,

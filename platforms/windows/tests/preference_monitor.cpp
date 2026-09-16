@@ -39,6 +39,7 @@ void preference_monitor_tests(const std::string &options,
   document["preferences"]["navigation"] = {{"minus_equal", false}, {"comma_period", false},
     {"brackets", true}, {"tab", false}, {"page_up_down", false}, {"arrows", false}};
   document["preferences"]["word_character"] = {{"enabled", true}, {"keys", "minus_equal"}};
+  document["preferences"]["keybindings"]["toggle_character_set_ctrl_shift_f"] = false;
   write(document.dump());
   FocusGate gate;
   InputQueue input(gate, 1, 1, options);
@@ -93,6 +94,8 @@ void preference_monitor_tests(const std::string &options,
     const auto navigation = state.navigation_bindings();
     require(state.word_character_binding() == WordCharacterBinding::MinusEqual,
             "Live word binding was not published or was reverted by stale settings");
+    require(!state.character_set_shortcut_enabled(),
+            "Live character-set shortcut setting was not published");
     require(!navigation.minus_equal && !navigation.comma_period && navigation.brackets &&
             !navigation.tab && !navigation.page_up_down && !navigation.arrows,
             "Live navigation settings were not published or were reverted by stale settings");

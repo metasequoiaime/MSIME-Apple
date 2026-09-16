@@ -47,8 +47,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
@@ -93,8 +91,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
       - shell: bash

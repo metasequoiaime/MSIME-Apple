@@ -38,11 +38,14 @@ preference_navigation(const nlohmann::json &preferences) {
 }
 inline std::optional<NavigationAction>
 navigation_action(const FanyImeNamedpipeData &packet,
-                  const NavigationBindings &bindings, bool unicode) {
+                  const NavigationBindings &bindings, bool unicode,
+                  bool japanese = false) {
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   if (packet.event_type != FanyImePipeEventType::KeyEvent || (modifiers & ~1u))
     return std::nullopt;
   const auto key = packet.keycode;
+  if (japanese && (key == 0xBD || key == 0xBB))
+    return std::nullopt;
   // Unicode '+' extends the code sequence, even with equal-key paging enabled.
   if (unicode && packet.wch == '+')
     return std::nullopt;

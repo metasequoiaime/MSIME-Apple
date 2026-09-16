@@ -74,6 +74,9 @@ public:
       TsfPreeditStyle style, const NavigationBindings &bindings,
       std::optional<std::string> local_text = std::nullopt,
       WordCharacterBinding word_binding = WordCharacterBinding::Disabled);
+  std::optional<PendingReply> toggle_character_set(
+      const FocusLease &lease, const FanyImeNamedpipeData &packet,
+      bool enabled, const std::function<bool(bool)> &persist = {});
   std::optional<PendingReply> basic_key(const FocusLease &lease,
       const FanyImeNamedpipeData &packet, TsfPreeditStyle style,
       std::optional<std::string> local_text = std::nullopt);
@@ -95,6 +98,10 @@ public:
     return word_character_;
   }
   TsfPreeditStyle tsf_preedit_style() const { check_thread(); return tsf_preedit_style_; }
+  bool character_set_shortcut_enabled() const {
+    check_thread();
+    return character_set_shortcut_enabled_;
+  }
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -118,6 +125,7 @@ private:
   NavigationBindings navigation_;
   WordCharacterBinding word_character_ = WordCharacterBinding::Disabled;
   TsfPreeditStyle tsf_preedit_style_ = TsfPreeditStyle::Local;
+  bool character_set_shortcut_enabled_ = true;
   std::optional<PreferenceSnapshot> preferences_;
   bool quiesced_ = false;
   std::unordered_map<uint64_t, Client> clients_;

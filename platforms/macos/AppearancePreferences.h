@@ -1,5 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#import "../../shared/apple/TextClient.h"
 #include "CandidateSkin.h"
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
@@ -25,14 +26,25 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
+/// Shared inline composition display: raw keys, formatted pinyin, or hidden.
+@property(nonatomic, readonly) MSIMEInlinePreeditStyle inlinePreeditStyle;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic, copy) NSString *fontFamily;
+/// Optional leading face for Latin glyphs in the candidate cascade.
+@property(nonatomic, copy) NSString *candidateEnglishFont;
 @property(nonatomic, copy) NSArray<NSString *> *fallbackFonts;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
+- (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateNumberColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color;
+- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.
@@ -50,6 +62,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL smartPunctuation;
+@property(nonatomic) BOOL smartPunctuationRepeatToChinese;
 @property(nonatomic) BOOL pairedPunctuation;
 @property(nonatomic, copy) NSString *punctuationLock;
 @property(nonatomic) BOOL mixedEnglishInput;
@@ -66,6 +80,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (void)setFuzzyPinyinRule:(NSString *)rule enabled:(BOOL)enabled;
 @property(nonatomic) BOOL cloudCandidates;
 @property(nonatomic) BOOL candidateTranslations;
+/// Offline Engine glossary lookup; independent from online candidate translation providers.
+@property(nonatomic) BOOL candidateEnglishGloss;
 @property(nonatomic) BOOL autocorrectTransposition;
 @property(nonatomic) BOOL autocorrectNeighbor;
 // Legacy fallback for both schemes; setting it explicitly still sets both.

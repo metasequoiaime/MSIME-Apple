@@ -16,8 +16,8 @@ static NSView *FindControl(NSView *root, NSString *label) {
     return nil;
 }
 
-static NSString *RenderedFamily(NSFont *font) {
-    NSAttributedString *text = [[NSAttributedString alloc] initWithString:@"合" attributes:@{NSFontAttributeName:font}];
+static NSString *RenderedFamilyForText(NSFont *font, NSString *value) {
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:value attributes:@{NSFontAttributeName:font}];
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)text);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     assert(CFArrayGetCount(runs) == 1);
@@ -26,6 +26,14 @@ static NSString *RenderedFamily(NSFont *font) {
     NSString *family = CFBridgingRelease(CTFontCopyFamilyName(actual));
     CFRelease(line);
     return family;
+}
+
+static NSString *RenderedFamily(NSFont *font) { return RenderedFamilyForText(font, @"合"); }
+
+static NSColor *TestCandidateColor(NSString *value) {
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
 }
 
 static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
@@ -37,8 +45,15 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert(sans && serif);
     __block NSUInteger notifications = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
-    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_fallback_fonts": @[sans, serif]}];
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_english_font": @"Helvetica", @"candidate_fallback_fonts": @[sans, serif]}];
     assert(notifications == 0 && list.numberOfItems == 2);
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
+    NSDictionary *fontMerge = [preferences sharedPreferencesByMerging:@{}];
+    assert([fontMerge[@"candidate_english_font"] isEqual:@"Helvetica"]);
+    assert([RenderedFamilyForText([preferences candidateFontOfSize:18 englishFirst:YES], @"Latin") isEqual:@"Helvetica"]);
+    [preferences applySharedCandidatePreferences:@{}];
+    assert(!preferences.candidateEnglishFont);
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:sans]);
     [list selectItemAtIndex:1];
     [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontUp:") to:preferences from:nil];
@@ -58,6 +73,10 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
         [preferences applySharedCandidatePreferences:@{@"candidate_fallback_fonts": invalid}];
         assert([preferences.fallbackFonts isEqual:saved]);
     }
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
+    [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"bad\nname"}];
+    assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
     NSMutableArray *limit = [NSMutableArray array];
     for (NSUInteger i = 0; i < 32; ++i) [limit addObject:sans];
     preferences.fallbackFonts = limit;
@@ -90,6 +109,15 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     [preferences applySharedCandidatePreferences:@{@"candidate_font_size": @12, @"candidate_page_size": @1,
         @"candidate_layout": @"vertical", @"candidate_font_family": @"Menlo", @"candidate_preedit_font_size": @28}];
     [preferences applySharedInputPreferences:@{@"scheme": @"wubi", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO, @"chinese_punctuation": @NO}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleRaw);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleRaw);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"pinyin"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStylePinyin);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"empty"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleEmpty);
+    [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"invalid"}];
+    assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleEmpty);
     [preferences applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_neighbor": @NO}}];
     [preferences applySharedToolbarVisibility:NO];
     assert(!preferences.chinesePunctuation && !preferences.autocorrect && !preferences.shuangpinPreeditUsesRaw && !preferences.floatingToolbarEnabled);
@@ -380,6 +408,28 @@ int main(int argc, const char **argv) {
         [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#112233"}];
         [preferences applySharedCandidatePreferences:@{@"candidate_text_color": NSNull.null}];
         assert(preferences.candidateTextColor == nil);
+        NSDictionary *rowColors = @{@"candidate_text_color": @"#102030", @"candidate_number_color": @"#203040",
+            @"candidate_accent_color": @"#304050", @"candidate_selected_color": @"#405060",
+            @"candidate_hover_color": @"#506070", @"candidate_surface_color": @"#607080",
+            @"candidate_border_color": @"#708090"};
+        [preferences applySharedCandidatePreferences:rowColors];
+        NSArray *resolvedColors = @[[preferences candidateTextColorWithDefault:NSColor.clearColor],
+            [preferences candidateNumberColorWithDefault:NSColor.clearColor],
+            [preferences candidateAccentColorWithDefault:NSColor.clearColor],
+            [preferences candidateSelectedColorWithDefault:NSColor.clearColor],
+            [preferences candidateHoverColorWithDefault:NSColor.clearColor],
+            [preferences candidateSurfaceColorWithDefault:NSColor.clearColor],
+            [preferences candidateBorderColorWithDefault:NSColor.clearColor]];
+        NSArray *expectedColors = @[@"#102030", @"#203040", @"#304050", @"#405060", @"#506070", @"#607080", @"#708090"];
+        for (NSUInteger index = 0; index < expectedColors.count; ++index)
+            assert([resolvedColors[index] isEqual:TestCandidateColor(expectedColors[index])]);
+        for (id invalid in @[@YES, @"red", @"#123", @"#12345678", @"#GG0000"])
+            [preferences applySharedCandidatePreferences:@{@"candidate_number_color": invalid}];
+        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:TestCandidateColor(@"#203040")]);
+        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030"}];
+        NSColor *derivedNumber = [TestCandidateColor(@"#102030") colorWithAlphaComponent:0x9d / 255.0];
+        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:derivedNumber]);
+        assert([[preferences candidateAccentColorWithDefault:NSColor.redColor] isEqual:NSColor.redColor]);
         preferences.candidateTextColor = @"#112233";
         [NSApp sendAction:NSSelectorFromString(@"resetTextColor:") to:preferences from:nil];
         assert([preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] == NSNull.null);

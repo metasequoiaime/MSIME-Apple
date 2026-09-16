@@ -1,5 +1,8 @@
 {
   "src": [
-    "keyboard/KeyboardView"
+    "keyboard/KeyboardView",
+    "pages/Settings",
+    "keyboard/InputModeHud",
+    "keyboard/FloatingToolbar"
   ]
 }

@@ -2,6 +2,7 @@
 #include "UiSelectionDelivery.h"
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
+#include "ProductionDispatcher.h"
 #include <fstream>
 #include <atomic>
 #include <exception>
@@ -206,15 +207,41 @@ void session_pump_tests(const std::string &options) {
     FocusGate gate;
     InputQueue queue(gate, 2, 8, options);
     FixtureTransport transport;
-    transport.packets.resize(2);
+    transport.packets.resize(4);
+    auto &first_shortcut = transport.packets[1];
+    first_shortcut.keycode = 'F';
+    first_shortcut.wch = 'f';
+    first_shortcut.modifiers_down = 0b11;
+    first_shortcut.request_id = 2;
+    auto &busy_shortcut = transport.packets[2];
+    busy_shortcut = first_shortcut;
+    busy_shortcut.request_id = 3;
     auto &punctuation = transport.packets.back();
     punctuation.keycode = 0xBC;
     punctuation.wch = ',';
-    punctuation.request_id = 2;
+    punctuation.request_id = 4;
+    size_t persist_calls = 0, shortcut_deliveries = 0;
+    const auto production = production_key_handler([&](bool desired) {
+      require(desired == (persist_calls == 0));
+      ++persist_calls;
+      return persist_calls == 1;
+    });
+    SessionPump::Presentation presentation;
+    presentation.delivered = [&](const FocusLease &, const PendingReply &reply,
+                                 const FanyImeNamedpipeData &packet) {
+      if (!FanyImeProtocol::IsCharacterSetShortcut(packet.keycode,
+                                                   packet.modifiers_down))
+        return;
+      ++shortcut_deliveries;
+      require(!reply.encoded && reply.traditional_output);
+    };
     SessionPump pump(
         transport, queue, gate,
-        [](InputState &state, const FocusLease &lease,
-           const FanyImeNamedpipeData &packet) {
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          if (FanyImeProtocol::IsCharacterSetShortcut(packet.keycode,
+                                                      packet.modifiers_down))
+            return production(state, lease, packet);
           auto reply = state.configured_key(
               lease, packet, TsfPreeditStyle::Local, {});
           require(reply && reply->encoded && static_cast<bool>(*reply->encoded));
@@ -223,9 +250,20 @@ void session_pump_tests(const std::string &options) {
           require(reply->source.transition.at("commit") == "，");
           return reply;
         },
-        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        presentation);
     require(pump.run(transport.ticket) == PumpResult::Disconnected);
-    require(transport.writes.size() == 2);
+    require(persist_calls == 2 && shortcut_deliveries == 2);
+    require(transport.writes.size() == 5);
+    require(transport.writes[0].first ==
+                FanyImePipeRole::ToTsfWorkerThread &&
+            transport.writes[1].first ==
+                FanyImePipeRole::ToTsfWorkerThread &&
+            transport.writes[2].first ==
+                FanyImePipeRole::ToTsfWorkerThread &&
+            transport.writes[3].first ==
+                FanyImePipeRole::ToTsfWorkerThread &&
+            transport.writes[4].first == FanyImePipeRole::ToTsf);
     queue.stop();
   }
   {
@@ -498,6 +536,10 @@ void session_pump_tests(const std::string &options) {
               {"tab", false},
               {"page_up_down", false},
               {"arrows", false}};
+          // This fixture owns brackets/comma as navigation or punctuation;
+          // keep the shared word-character binding out of the same key space.
+          host["preferences"]["word_character"] = {
+              {"enabled", false}, {"keys", "brackets"}};
           InputQueue queue(gate, 2, 8, host.dump());
           FixtureTransport transport;
           auto &last = transport.packets.back();

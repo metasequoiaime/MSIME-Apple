@@ -191,5 +191,10 @@ import Foundation
       checks += 1; if checks > 1 { throw CancellationError() }; return "synthetic-token"
     })
     do { _ = try await changed.execute(catalog as NSDictionary); assertionFailure("stale catalog exposed") } catch { }
+    let snapshots = BackendDesktopSnapshots(credentials: { throw CancellationError() })
+    let status = try await snapshots.execute(["operation":"snapshot_status"])
+    assert(status["nativeFiles"] as? Bool == true)
+    let cancelled = try await snapshots.execute(["operation":"snapshot_cancel"])
+    assert(cancelled["request"] is NSNull)
   }
 }

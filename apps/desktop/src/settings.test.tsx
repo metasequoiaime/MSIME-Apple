@@ -878,6 +878,19 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
+test("macOS does not expose Windows or Linux diagnostic switches", async () => {
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+  expect(screen.queryByRole("group", { name: "诊断日志" })).toBeNull();
+  expect(screen.queryByLabelText("Server 端日志")).toBeNull();
+  expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
+  expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
+});
+
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
@@ -1759,6 +1772,31 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
   expect(screen.getByLabelText("手写识别板预览")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "打开" }));
   await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
+});
+
+test("macOS routes input-session panels through the native input-method process", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openHandwriting: vi.fn(),
+    openCloudClipboard: vi.fn(),
+    openCloudDictionary: vi.fn(),
+    host: { platform: "macos" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
+  expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
+  expect(screen.getByText(/需要当前输入法进程提供 IMK 输入会话/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(await screen.findByText(/云剪贴板和云词典需要当前输入法进程提供输入会话/)).toBeDefined();
+  expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开云词典" })).toBeNull();
+  expect(client.openHandwriting).not.toHaveBeenCalled();
+  expect(client.openCloudClipboard).not.toHaveBeenCalled();
+  expect(client.openCloudDictionary).not.toHaveBeenCalled();
 });
 
 test("native panel views support close, modifier, drawing and undo interactions", async () => {

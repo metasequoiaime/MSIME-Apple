@@ -21,3 +21,7 @@ unicode-segmentation = "1.13"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+[profile.dev]
+debug = 0
+incremental = true

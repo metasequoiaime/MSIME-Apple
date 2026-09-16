@@ -1,5 +1,6 @@
 #import "CandidatePanel.h"
 #import "CandidateSkinAppearance.h"
+#import "CandidateTypography.h"
 
 #include <cmath>
 
@@ -27,6 +28,7 @@
 
 @interface MetasequoiaCandidateButton : NSButton
 @property(nonatomic) BOOL candidateHighlighted;
+@property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
@@ -68,7 +70,7 @@
     NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
     paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
     NSDictionary *numberAttributes = @{
-        NSFontAttributeName : self.font,
+        NSFontAttributeName : self.numberFont ?: MSIMECandidateNumberFont(self.font),
         NSForegroundColorAttributeName : self.numberColor != nil ? self.numberColor : NSColor.tertiaryLabelColor,
     };
     NSDictionary *titleAttributes = @{
@@ -91,11 +93,12 @@
     NSString *word = [title substringFromIndex:NSMaxRange(split)];
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-    const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
-    [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-    const CGFloat wordX = textLeft + numberSize.width + 6.0;
+    const CGFloat numberY = (self.bounds.size.height - numberSize.height) / 2;
+    const CGFloat wordY = (self.bounds.size.height - wordSize.height) / 2;
+    [number drawAtPoint:NSMakePoint(textLeft, numberY) withAttributes:numberAttributes];
+    const CGFloat wordX = textLeft + numberSize.width + MSIMECandidateNumberGap;
     const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
-    [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    [word drawInRect:NSMakeRect(wordX, wordY, maxWidth, wordSize.height) withAttributes:titleAttributes];
 }
 @end
 
@@ -270,12 +273,14 @@
     const CGFloat availableWidth = MAX(80, screenWidth - 20 - 2 * inset - (paging && !vertical ? 56 : 0));
     const CGFloat leftPad = 8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0);
     NSDictionary *measure = @{NSFontAttributeName : _font};
+    NSFont *numberFont = MSIMECandidateNumberFont(_font);
+    NSDictionary *numberMeasure = @{NSFontAttributeName : numberFont};
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
+        const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +
                                        [word sizeWithAttributes:measure].width + 8.0);
         [titles addObject:title];
         [widths addObject:@(itemWidth)];
@@ -336,6 +341,7 @@
             [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(vertical ? inset : x, y, itemWidth, rowHeight)];
         button.title = titles[index];
         button.font = _font;
+        button.numberFont = numberFont;
         button.bordered = NO;
         button.tag = (NSInteger)index;
         button.target = self;

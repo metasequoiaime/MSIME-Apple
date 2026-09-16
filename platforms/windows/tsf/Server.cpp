@@ -4,11 +4,11 @@
 
 // from Register.cpp
 BOOL RegisterProfiles();
-void UnregisterProfiles();
+BOOL UnregisterProfiles();
 BOOL RegisterCategories();
-void UnregisterCategories();
+BOOL UnregisterCategories();
 BOOL RegisterServer();
-void UnregisterServer();
+BOOL UnregisterServer();
 
 void FreeGlobalObjects(void);
 
@@ -252,11 +252,10 @@ STDAPI DllCanUnloadNow(void)
 
 STDAPI DllUnregisterServer(void)
 {
-    UnregisterProfiles();
-    UnregisterCategories();
-    UnregisterServer();
-
-    return S_OK;
+    const BOOL profiles = UnregisterProfiles();
+    const BOOL categories = UnregisterCategories();
+    const BOOL server = UnregisterServer();
+    return profiles && categories && server ? S_OK : E_FAIL;
 }
 
 //+---------------------------------------------------------------------------

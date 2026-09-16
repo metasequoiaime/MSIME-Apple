@@ -191,11 +191,12 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
   if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
     throw std::runtime_error("Configuration replace failed");
 }
-// The native toolbar's character-set button uses the same revisioned store as
-// the settings shell. Read and write on its single action worker so the UI
-// thread never waits on the preferences lock.
-bool toggle_traditional_output(const std::filesystem::path &directory,
-                               std::atomic<bool> &state) {
+// The native toolbar and TSF shortcut use the same revisioned store as the
+// settings shell. Read and write on their shared single action worker so
+// neither the UI thread nor the input queue waits on the preferences lock.
+bool persist_traditional_output(const std::filesystem::path &directory,
+                                std::atomic<bool> &state,
+                                std::optional<bool> desired = std::nullopt) {
   try {
     const auto root = directory.u8string();
     std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
@@ -211,7 +212,12 @@ bool toggle_traditional_output(const std::filesystem::path &directory,
     const auto revision = snapshot.at("revision").get<uint64_t>();
     auto &preferences = snapshot.at("preferences");
     const bool enabled = preferences.value("traditional_chinese_output", false);
-    preferences["traditional_chinese_output"] = !enabled;
+    const bool next = desired.value_or(!enabled);
+    if (next == enabled) {
+      state.store(next, std::memory_order_release);
+      return true;
+    }
+    preferences["traditional_chinese_output"] = next;
     const auto serialized = snapshot.dump();
     std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
         msime_client_save_preferences(
@@ -226,7 +232,7 @@ bool toggle_traditional_output(const std::filesystem::path &directory,
     if (!saved_response.value("ok", false) ||
         !saved_response.at("value").is_object())
       return false;
-    state.store(!enabled, std::memory_order_release);
+    state.store(next, std::memory_order_release);
     return true;
   } catch (...) {
     return false;
@@ -591,6 +597,15 @@ int wmain(int argc, wchar_t **argv) {
     auto follow_cursor = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
+    // The TSF Ctrl+Shift+F route is delivered through the same bounded worker
+    // as the toolbar button. It must exist before WindowsServer construction:
+    // a newly connected client may dispatch its first key immediately.
+    CharacterSetClickWorker character_set_clicks(
+        [traditional_output, directory = config.state_root](
+            const CharacterSetClick &click) {
+          (void)persist_traditional_output(directory, *traditional_output,
+                                           click.desired);
+        });
     auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
     auto toolbar_settings = std::make_shared<FloatingToolbarMailbox>();
     auto candidate_theme = std::make_shared<CandidateThemeMailbox>();
@@ -607,7 +622,10 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServerOptions options;
     options.pipes.names = production ? production_pipe_names()
                                      : config.pipe_names();
-    options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
+    options.pipes.capabilities =
+        production ? (FanyImeProtocol::Capabilities |
+                      FanyImeProtocol::CharacterSetShortcut)
+                   : FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, traditional_output,
@@ -722,7 +740,11 @@ int wmain(int argc, wchar_t **argv) {
         };
     WindowsServer server(
         options, prepared.at("value").dump(),
-        production ? production_key_handler() : preview_key_handler(config),
+        production
+              ? production_key_handler([&character_set_clicks](bool desired) {
+                return character_set_clicks.submit(CharacterSetClick{desired});
+              })
+            : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     WaveOverlay voice_overlay;
     voice_overlay.set_light_theme(surface_theme_is_light(
@@ -768,6 +790,14 @@ int wmain(int argc, wchar_t **argv) {
     DWORD voice_controller_error = ERROR_SUCCESS;
     auto voice_controller = VoiceControllerListener::create(
         voice_controller_mailbox, voice_controller_error);
+    // Keep the pre-dedicated endpoint alive during rolling upgrades. Both
+    // listeners feed the same authenticated mailbox and dispatcher; a client
+    // still using VoiceControllerV2 therefore receives identical ownership
+    // and generation checks.
+    DWORD legacy_voice_controller_error = ERROR_SUCCESS;
+    auto legacy_voice_controller = VoiceControllerListener::create(
+        voice_controller_mailbox, legacy_voice_controller_error,
+        FanyImeVoiceController::PipeName);
     if (!voice_controller)
       std::cerr
           << "Voice controller unavailable; native input remains enabled\n";
@@ -833,11 +863,6 @@ int wmain(int argc, wchar_t **argv) {
         english_state.publish(lease, *value);
     });
     uint64_t english_read_at = 0;
-    CharacterSetClickWorker character_set_clicks(
-        [traditional_output, directory = config.state_root](
-            const CharacterSetClick &) {
-          (void)toggle_traditional_output(directory, *traditional_output);
-        });
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
@@ -1375,6 +1400,8 @@ int wmain(int argc, wchar_t **argv) {
     // thread. Retire the matching review before Server/focus teardown.
     if (voice_controller)
       voice_controller->stop();
+    if (legacy_voice_controller)
+      legacy_voice_controller->stop();
     voice_controller_dispatch.retire();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a

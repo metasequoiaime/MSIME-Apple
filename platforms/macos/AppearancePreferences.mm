@@ -35,15 +35,28 @@ static BOOL ValidMixedPrefix(id value) {
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
+static NSString *const CandidateEnglishFontKey = @"MSIMEClientCandidateEnglishFont";
 static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
 static BOOL ValidTextColor(id value) {
     if (![value isKindOfClass:NSString.class] || [value length] != 7 || ![value hasPrefix:@"#"]) return NO;
     return [[value substringFromIndex:1] rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"] invertedSet]].location == NSNotFound;
 }
+static NSColor *CandidateColor(id value, NSColor *fallback) {
+    if (!ValidTextColor(value)) return fallback;
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+}
+static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id current) {
+    id value = preferences[key];
+    if (!value || value == NSNull.null) return NSNull.null;
+    return ValidTextColor(value) ? [value copy] : current;
+}
 static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
-           [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128;
+           [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128 &&
+           [value rangeOfCharacterFromSet:[NSCharacterSet controlCharacterSet]].location == NSNotFound;
 }
 static BOOL ValidFallbackFonts(id value) {
     if (![value isKindOfClass:NSArray.class] || [value count] > 32) return NO;
@@ -69,6 +82,8 @@ static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
+static NSString *const SmartPunctuationKey = @"MSIMEClientSmartPunctuation";
+static NSString *const SmartPunctuationRepeatToChineseKey = @"MSIMEClientSmartPunctuationRepeatToChinese";
 static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
 static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
 static NSString *const MixedInputKey = @"MSIMEClientMixedInput";
@@ -106,6 +121,7 @@ static BOOL ValidFuzzyPinyinRules(id value) {
 }
 static NSString *const CloudCandidatesKey = @"MSIMEClientCloudCandidates";
 static NSString *const CandidateTranslationsKey = @"MSIMEClientCandidateTranslations";
+static NSString *const CandidateEnglishGlossKey = @"MSIMEClientCandidateEnglishGloss";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
@@ -170,6 +186,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
     NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
+    NSNumber *_sharedSmartPunctuation;
+    NSNumber *_sharedSmartPunctuationRepeatToChinese;
     NSNumber *_sharedPairedPunctuation;
     NSString *_sharedPunctuationLock;
     NSButton *_pairedPunctuationButton;
@@ -185,6 +203,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSButton *_cloudCandidatesButton;
     NSNumber *_sharedCandidateTranslations;
     NSButton *_candidateTranslationsButton;
+    NSNumber *_sharedCandidateEnglishGloss;
+    NSButton *_candidateEnglishGlossButton;
     id _sharedTransposition;
     id _sharedNeighbor;
     NSNumber *_sharedQuanpinHelpcode;
@@ -193,8 +213,15 @@ static BOOL ValidToolbarFontSize(id value) {
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
+    id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
     id _sharedTextColor;
+    id _sharedNumberColor;
+    id _sharedAccentColor;
+    id _sharedSelectedColor;
+    id _sharedHoverColor;
+    id _sharedSurfaceColor;
+    id _sharedBorderColor;
     NSTextField *_textColorField;
     NSColorWell *_textColorWell;
     NSNumber *_sharedPreeditFontSize;
@@ -210,6 +237,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
+    NSString *_sharedInlinePreeditStyle;
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
@@ -217,6 +245,7 @@ static BOOL ValidToolbarFontSize(id value) {
     NSPopUpButton *_profileButton;
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
+    NSComboBox *_englishFontFamilyControl;
     NSComboBox *_fontFamilyControl;
     NSPopUpButton *_fallbackList;
     NSComboBox *_fallbackFamilyControl;
@@ -241,6 +270,8 @@ static BOOL ValidToolbarFontSize(id value) {
     NSButton *_keymapButton;
     NSButton *_wubiButton;
     NSButton *_punctuationButton;
+    NSButton *_smartPunctuationButton;
+    NSButton *_smartPunctuationRepeatButton;
     NSButton *_toolbarButton;
     NSButton *_transpositionButton;
     NSButton *_neighborButton;
@@ -341,6 +372,8 @@ static BOOL ValidToolbarFontSize(id value) {
         merged[@"cloud_candidates"] = @(self.cloudCandidates);
     if ([_defaults objectForKey:CandidateTranslationsKey] != nil)
         merged[@"candidate_translations"] = @(self.candidateTranslations);
+    if ([_defaults objectForKey:CandidateEnglishGlossKey] != nil)
+        merged[@"candidate_english_gloss"] = @(self.candidateEnglishGloss);
     if ([_defaults objectForKey:CharacterSetShortcutKey] != nil) {
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -377,11 +410,15 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     merged[@"candidate_font_size"] = @(self.fontSize);
     if (_sharedFontFamily || [_defaults objectForKey:FontFamilyKey]) merged[@"candidate_font_family"] = self.fontFamily;
+    if (_sharedCandidateEnglishFont || [_defaults objectForKey:CandidateEnglishFontKey])
+        merged[@"candidate_english_font"] = self.candidateEnglishFont ?: (id)NSNull.null;
     if (_sharedTextColor || [_defaults objectForKey:TextColorKey]) merged[@"candidate_text_color"] = self.candidateTextColor ?: (id)NSNull.null;
     if (_sharedFallbackFonts || [_defaults objectForKey:FallbackFontsKey]) merged[@"candidate_fallback_fonts"] = self.fallbackFonts;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    merged[@"smart_punctuation"] = @(self.smartPunctuation);
+    merged[@"smart_punctuation_repeat"] = @(self.smartPunctuationRepeatToChinese);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
     merged[@"mixed_input"] = @{
@@ -493,6 +530,8 @@ static BOOL ValidToolbarFontSize(id value) {
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
     _sharedChinesePunctuation = nil;
+    _sharedSmartPunctuation = nil;
+    _sharedSmartPunctuationRepeatToChinese = nil;
     _sharedTraditionalOutput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
@@ -512,7 +551,12 @@ static BOOL ValidToolbarFontSize(id value) {
     snapshot[@"platform.macos.candidate_font_size"] = @(self.fontSize);
     snapshot[@"platform.macos.candidate_page_size"] = @(self.pageSize);
     snapshot[@"platform.macos.candidate_panel_style"] = @(self.vertical ? 1 : 0);
-    snapshot[@"platform.macos.input_scheme"] = @([@[@"quanpin", @"shuangpin", @"wubi"] indexOfObject:self.inputScheme]);
+    NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
+    NSUInteger schemeIndex = [schemes indexOfObject:self.inputScheme];
+    // The fixed Apple cloud contract has no Japanese entry. Keep its
+    // historical Chinese fallback instead of serializing NSNotFound when a
+    // shared Tauri snapshot currently uses the Japanese Engine scheme.
+    snapshot[@"platform.macos.input_scheme"] = @(schemeIndex == NSNotFound ? 0 : schemeIndex);
     snapshot[@"platform.macos.quanpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"quanpin"][@"schema"]]);
     snapshot[@"platform.macos.shuangpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"shuangpin"][@"schema"]]);
     BOOL allLocalModes = YES;
@@ -528,11 +572,15 @@ static BOOL ValidToolbarFontSize(id value) {
 }
 - (void)resolveSelectedSkin {
     const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
-    _lightSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, false, root);
-    _darkSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, true, root);
+    const std::string_view layout = self.vertical ? "vertical" : "horizontal";
+    _lightSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, false, root, layout, "light");
+    _darkSkin = msime::mac::ResolveSkin(self.skinID.UTF8String, true, root, layout, "dark");
     _decorationImage = nil;
     if (_lightSkin.decorationTopDip > 0 && !_lightSkin.decorationPath.empty()) {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
+    }
+    if (!_decorationImage && _darkSkin.decorationTopDip > 0 && !_darkSkin.decorationPath.empty()) {
+        _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_darkSkin.decorationPath.c_str())];
     }
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
@@ -630,6 +678,8 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
 - (BOOL)candidateTranslations { if (_sharedCandidateTranslations) return _sharedCandidateTranslations.boolValue; return [_defaults objectForKey:CandidateTranslationsKey] == nil ? YES : [_defaults boolForKey:CandidateTranslationsKey]; }
 - (void)setCandidateTranslations:(BOOL)value { _sharedCandidateTranslations = nil; [_defaults setBool:value forKey:CandidateTranslationsKey]; [self preferencesChanged]; }
+- (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
+- (void)setCandidateEnglishGloss:(BOOL)value { _sharedCandidateEnglishGloss = nil; [_defaults setBool:value forKey:CandidateEnglishGlossKey]; [self preferencesChanged]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
 - (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
@@ -720,12 +770,18 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)helpcodeDisplayChanged:(NSButton *)sender {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
-- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value] ? value : @"quanpin"; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (MSIMEInlinePreeditStyle)inlinePreeditStyle {
+    NSString *value = _sharedInlinePreeditStyle ?: @"raw";
+    if ([value isEqual:@"raw"]) return MSIMEInlinePreeditStyleRaw;
+    if ([value isEqual:@"empty"]) return MSIMEInlinePreeditStyleEmpty;
+    return MSIMEInlinePreeditStylePinyin;
+}
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
@@ -742,6 +798,10 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
+    id smart = preferences[@"smart_punctuation"];
+    if (LocalModeBoolean(smart)) _sharedSmartPunctuation = smart;
+    id smartRepeat = preferences[@"smart_punctuation_repeat"];
+    if (LocalModeBoolean(smartRepeat)) _sharedSmartPunctuationRepeatToChinese = smartRepeat;
     id paired = preferences[@"paired_punctuation"];
     if (LocalModeBoolean(paired)) _sharedPairedPunctuation = paired;
     id punctuationLock = preferences[@"punctuation_lock"];
@@ -761,12 +821,16 @@ static BOOL ValidToolbarFontSize(id value) {
     if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id translations = preferences[@"candidate_translations"];
     if (LocalModeBoolean(translations)) _sharedCandidateTranslations = translations;
+    id englishGloss = preferences[@"candidate_english_gloss"];
+    if (LocalModeBoolean(englishGloss)) _sharedCandidateEnglishGloss = englishGloss;
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
-    if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if ([@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    id inlinePreedit = preferences[@"tsf_preedit_style"];
+    if ([@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit]) _sharedInlinePreeditStyle = [inlinePreedit copy];
     [self refreshControls];
 }
 - (NSString *)defaultImeMode {
@@ -812,6 +876,10 @@ static BOOL ValidToolbarFontSize(id value) {
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
+- (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationKey]); }
+- (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
+- (BOOL)smartPunctuationRepeatToChinese { return _sharedSmartPunctuationRepeatToChinese ? _sharedSmartPunctuationRepeatToChinese.boolValue : ([_defaults objectForKey:SmartPunctuationRepeatToChineseKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationRepeatToChineseKey]); }
+- (void)setSmartPunctuationRepeatToChinese:(BOOL)value { _sharedSmartPunctuationRepeatToChinese = nil; [_defaults setBool:value forKey:SmartPunctuationRepeatToChineseKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
@@ -1002,6 +1070,10 @@ static BOOL ValidToolbarFontSize(id value) {
     id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
     return ValidFontFamily(value) ? value : @"Segoe UI";
 }
+- (NSString *)candidateEnglishFont {
+    id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
+    return ValidFontFamily(value) ? value : nil;
+}
 - (NSString *)candidateTextColor {
     id value = _sharedTextColor ?: [_defaults objectForKey:TextColorKey];
     return ValidTextColor(value) ? value : nil;
@@ -1013,24 +1085,44 @@ static BOOL ValidToolbarFontSize(id value) {
     [self preferencesChanged];
 }
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color {
-    NSString *value = self.candidateTextColor;
-    if (!value) return color;
-    unsigned int rgb = 0;
-    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
-    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+    return CandidateColor(self.candidateTextColor, color);
 }
+- (NSColor *)candidateNumberColorWithDefault:(NSColor *)color {
+    NSColor *text = CandidateColor(self.candidateTextColor, nil);
+    return CandidateColor(_sharedNumberColor, text ? [text colorWithAlphaComponent:0x9d / 255.0] : color);
+}
+- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color { return CandidateColor(_sharedAccentColor, color); }
+- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSelectedColor, color); }
+- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color { return CandidateColor(_sharedHoverColor, color); }
+- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSurfaceColor, color); }
+- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color { return CandidateColor(_sharedBorderColor, color); }
 - (void)setFontFamily:(NSString *)value {
     if (!ValidFontFamily(value)) { [self refreshControls]; return; }
     _sharedFontFamily = nil;
     [_defaults setObject:[value copy] forKey:FontFamilyKey];
     [self preferencesChanged];
 }
+- (void)setCandidateEnglishFont:(NSString *)value {
+    if (value && !ValidFontFamily(value)) { [self refreshControls]; return; }
+    _sharedCandidateEnglishFont = nil;
+    // An empty marker lets the native fallback explicitly clear a previously
+    // shared value without putting NSNull into NSUserDefaults.
+    [_defaults setObject:value.length ? [value copy] : @"" forKey:CandidateEnglishFontKey];
+    [self preferencesChanged];
+}
 - (NSFont *)candidateFontOfSize:(CGFloat)size {
+    return [self candidateFontOfSize:size englishFirst:NO];
+}
+- (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst {
     // Resolve a family without silently substituting a different installed family.
     // Preserve unavailable cross-platform names in preferences. Resolve installed
     // supplementary families in order, retaining system fallback at the end.
     NSMutableArray<NSFontDescriptor *> *resolved = [NSMutableArray array];
-    for (NSString *family in [@[self.fontFamily] arrayByAddingObjectsFromArray:self.fallbackFonts]) {
+    NSMutableArray<NSString *> *families = [NSMutableArray array];
+    if (englishFirst && self.candidateEnglishFont.length) [families addObject:self.candidateEnglishFont];
+    [families addObject:self.fontFamily];
+    [families addObjectsFromArray:self.fallbackFonts];
+    for (NSString *family in families) {
         NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
         NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
         if (matched) [resolved addObject:matched];
@@ -1039,7 +1131,7 @@ static BOOL ValidToolbarFontSize(id value) {
     if (!resolved.count) return system;
     NSFontDescriptor *primary = resolved.firstObject;
     [resolved removeObjectAtIndex:0];
-    if (self.fallbackFonts.count) {
+    if (families.count > 1 || resolved.count) {
         [resolved addObject:system.fontDescriptor];
         primary = [primary fontDescriptorByAddingAttributes:@{NSFontCascadeListAttribute:resolved}];
     }
@@ -1160,8 +1252,21 @@ static BOOL ValidToolbarFontSize(id value) {
     // previously loaded explicit color, without persisting a local override.
     if (!textColor || textColor == NSNull.null) _sharedTextColor = NSNull.null;
     else if (ValidTextColor(textColor)) _sharedTextColor = [textColor copy];
+    _sharedNumberColor = SharedCandidateColor(preferences, @"candidate_number_color", _sharedNumberColor);
+    _sharedAccentColor = SharedCandidateColor(preferences, @"candidate_accent_color", _sharedAccentColor);
+    _sharedSelectedColor = SharedCandidateColor(preferences, @"candidate_selected_color", _sharedSelectedColor);
+    _sharedHoverColor = SharedCandidateColor(preferences, @"candidate_hover_color", _sharedHoverColor);
+    _sharedSurfaceColor = SharedCandidateColor(preferences, @"candidate_surface_color", _sharedSurfaceColor);
+    _sharedBorderColor = SharedCandidateColor(preferences, @"candidate_border_color", _sharedBorderColor);
     id family = preferences[@"candidate_font_family"];
     if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
+    id englishFamily = preferences[@"candidate_english_font"];
+    if (!englishFamily) {
+        // An omitted optional field clears a previously loaded shared value,
+        // while leaving a legacy native-only value usable on first load.
+        if (_sharedCandidateEnglishFont) _sharedCandidateEnglishFont = NSNull.null;
+    } else if (englishFamily == NSNull.null) _sharedCandidateEnglishFont = NSNull.null;
+    else if (ValidFontFamily(englishFamily)) _sharedCandidateEnglishFont = [englishFamily copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
@@ -1224,6 +1329,8 @@ static BOOL ValidToolbarFontSize(id value) {
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _smartPunctuationButton.state = self.smartPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _smartPunctuationRepeatButton.state = self.smartPunctuationRepeatToChinese ? NSControlStateValueOn : NSControlStateValueOff;
     _pairedPunctuationButton.state = self.pairedPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
@@ -1256,6 +1363,7 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     _cloudCandidatesButton.state = self.cloudCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateTranslationsButton.state = self.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateEnglishGlossButton.state = self.candidateEnglishGloss ? NSControlStateValueOn : NSControlStateValueOff;
     _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinHelpcodeButton.state = self.shuangpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSButton *button in _localModeButtons)
@@ -1266,12 +1374,13 @@ static BOOL ValidToolbarFontSize(id value) {
     _controlOptionSpaceShortcutButton.state = self.controlOptionSpaceShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     _characterSetShortcutButton.state = self.characterSetShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
-    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
+    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"japanese": @3};
     [_schemeButton selectItemAtIndex:[schemeIndexes[self.inputScheme] integerValue]];
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
+    _englishFontFamilyControl.stringValue = self.candidateEnglishFont ?: @"";
     _fontFamilyControl.stringValue = self.fontFamily;
     _textColorField.stringValue = self.candidateTextColor ?: @"";
     _textColorWell.color = [self candidateTextColorWithDefault:NSColor.labelColor];
@@ -1315,7 +1424,7 @@ static BOOL ValidToolbarFontSize(id value) {
     _candidateFollowCursorButton = [NSButton checkboxWithTitle:@"候选窗口跟随光标" target:self action:@selector(candidateFollowCursorChanged:)];
     _candidateFollowCursorButton.accessibilityLabel = @"候选窗口跟随光标";
     _schemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔"]];
+    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔", @"日语"]];
     _schemeButton.target = self;
     _schemeButton.action = @selector(schemeChanged:);
     _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1333,6 +1442,13 @@ static BOOL ValidToolbarFontSize(id value) {
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
+    _englishFontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    [_englishFontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
+    _englishFontFamilyControl.completes = YES;
+    _englishFontFamilyControl.accessibilityLabel = @"候选窗英文字体";
+    _englishFontFamilyControl.toolTip = @"优先用于拉丁字符；未安装时回退到候选主字体和补充字体；留空表示不设置独立英文字体";
+    _englishFontFamilyControl.target = self;
+    _englishFontFamilyControl.action = @selector(englishFontFamilyChanged:);
     _fontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
     [_fontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
     _fontFamilyControl.completes = YES;
@@ -1437,6 +1553,10 @@ static BOOL ValidToolbarFontSize(id value) {
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _punctuationButton.toolTip = @"Control+. 切换中英文标点";
+    _smartPunctuationButton = [NSButton checkboxWithTitle:@"智能标点" target:self action:@selector(smartPunctuationChanged:)];
+    _smartPunctuationButton.toolTip = @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式";
+    _smartPunctuationRepeatButton = [NSButton checkboxWithTitle:@"重复标点转中文" target:self action:@selector(smartPunctuationRepeatChanged:)];
+    _smartPunctuationRepeatButton.toolTip = @"短时间重复输入 ASCII 标点时替换为中文标点";
     _pairedPunctuationButton = [NSButton checkboxWithTitle:@"成对标点" target:self action:@selector(pairedPunctuationChanged:)];
     _pairedPunctuationButton.toolTip = @"自动插入并配对引号、括号等标点";
     _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1495,6 +1615,7 @@ static BOOL ValidToolbarFontSize(id value) {
     _fuzzyPinyinButton = [NSButton checkboxWithTitle:@"启用模糊音" target:self action:@selector(fuzzyPinyinChanged:)];
     _cloudCandidatesButton = [NSButton checkboxWithTitle:@"启用云候选（将查询发送至 Google 输入工具）" target:self action:@selector(cloudCandidatesChanged:)];
     _candidateTranslationsButton = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(candidateTranslationsChanged:)];
+    _candidateEnglishGlossButton = [NSButton checkboxWithTitle:@"显示离线英文释义" target:self action:@selector(candidateEnglishGlossChanged:)];
     _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
     _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
@@ -1506,6 +1627,7 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选位置"], _candidateFollowCursorButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
+        @[[NSTextField labelWithString:@"候选窗英文字体"], _englishFontFamilyControl],
         @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
         @[[NSTextField labelWithString:@"候选文字颜色"], textColorControls],
         @[[NSTextField labelWithString:@"补充字体（最多 32 项）"], fallbackAdd],
@@ -1529,6 +1651,8 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
+        @[[NSTextField labelWithString:@"标点输入"], _smartPunctuationButton],
+        @[[NSTextField labelWithString:@"标点输入"], _smartPunctuationRepeatButton],
         @[[NSTextField labelWithString:@"标点输入"], _pairedPunctuationButton],
         @[[NSTextField labelWithString:@"标点锁定"], _punctuationLockButton],
         @[[NSTextField labelWithString:@"混合输入"], _mixedEnglishButton],
@@ -1546,6 +1670,7 @@ static BOOL ValidToolbarFontSize(id value) {
         @[[NSTextField labelWithString:@"工具栏字号"], _toolbarFontSizeButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
+        @[[NSTextField labelWithString:@"候选释义"], _candidateEnglishGlossButton],
         @[[NSTextField labelWithString:@"AI 联想"], [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)]],
         @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
@@ -1648,9 +1773,10 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)frequencyStepChanged:(NSPopUpButton *)sender { self.frequencyLinearStep = sender.indexOfSelectedItem + 1; }
 - (void)cloudCandidatesChanged:(NSButton *)sender { self.cloudCandidates = sender.state == NSControlStateValueOn; }
 - (void)candidateTranslationsChanged:(NSButton *)sender { self.candidateTranslations = sender.state == NSControlStateValueOn; }
+- (void)candidateEnglishGlossChanged:(NSButton *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
-- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
+- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.indexOfSelectedItem]; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
@@ -1664,6 +1790,8 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (void)punctuationChanged:(NSButton *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationChanged:(NSButton *)sender { self.smartPunctuation = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationRepeatChanged:(NSButton *)sender { self.smartPunctuationRepeatToChinese = sender.state == NSControlStateValueOn; }
 - (void)pairedPunctuationChanged:(NSButton *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
 - (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
 - (void)mixedEnglishChanged:(NSButton *)sender { self.mixedEnglishInput = sender.state == NSControlStateValueOn; }
@@ -1699,7 +1827,13 @@ static BOOL ValidToolbarFontSize(id value) {
     }
     return _skinWindow;
 }
-- (void)showSkinCatalog:(id)sender { [[self skinCatalogController] showWindow:sender]; }
+- (void)showSkinCatalog:(id)sender {
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, [self desktopSettingsWorkspace], ^{
+        MSIMEAppearancePreferences *strongSelf = weakSelf;
+        if (strongSelf) [[strongSelf skinCatalogController] showWindow:sender];
+    });
+}
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
 - (void)skinChanged:(NSPopUpButton *)sender {
@@ -1719,6 +1853,9 @@ static BOOL ValidToolbarFontSize(id value) {
 - (void)fontChanged:(NSPopUpButton *)sender {
     NSInteger index = sender.indexOfSelectedItem;
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
+}
+- (void)englishFontFamilyChanged:(NSComboBox *)sender {
+    self.candidateEnglishFont = sender.stringValue.length ? sender.stringValue : nil;
 }
 - (void)fontFamilyChanged:(NSComboBox *)sender { self.fontFamily = sender.stringValue; }
 - (void)textColorChanged:(NSTextField *)sender { self.candidateTextColor = sender.stringValue.length ? sender.stringValue : nil; }

@@ -62,6 +62,16 @@ int main() {
         assert(defaultFrame.origin.x == NSMaxX(visible) - 442.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
+        assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(NO, YES, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(YES, NO, NO));
+        assert(!MetasequoiaFloatingToolbarShouldShow(YES, YES, YES));
+        const CGRect display = CGRectMake(-1440.0, 0.0, 1440.0, 900.0);
+        assert(MetasequoiaWindowCoversDisplay(display, display));
+        assert(MetasequoiaWindowCoversDisplay(CGRectMake(-1441.0, -1.0, 1442.0, 902.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectMake(-1440.0, 22.0, 1440.0, 878.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectMake(-720.0, 0.0, 1440.0, 900.0), display));
+        assert(!MetasequoiaWindowCoversDisplay(CGRectZero, display));
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
@@ -228,6 +238,36 @@ int main() {
         assert([punctuation.toolTip isEqualToString:punctuation.accessibilityLabel]);
         assert([fullWidth.toolTip isEqualToString:fullWidth.accessibilityLabel]);
         assert([traditional.toolTip isEqualToString:traditional.accessibilityLabel]);
+
+        [panel updateEnglishInputMode:NO
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"日"]);
+        [panel updateEnglishInputMode:NO
+                    japaneseInputMode:YES
+                             capsLock:YES
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"A"]);
+        [panel updateEnglishInputMode:YES
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"英"]);
+        [panel updateEnglishInputMode:NO
+                 englishCandidateMode:YES
+                    japaneseInputMode:YES
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"En"]);
 
         FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
         panel.toolbarDelegate = delegate;

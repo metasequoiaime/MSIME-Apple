@@ -3516,6 +3516,10 @@ async fn send_voice_text(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     text: String,
 ) -> Result<(), HostActionError> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = &window;
+    #[cfg(target_os = "macos")]
+    let _ = (&state, &typing_statistics, &store);
     #[cfg(target_os = "windows")]
     {
         let _ = (&app, &window);
@@ -3593,7 +3597,9 @@ async fn send_voice_text(
             code: "unavailable",
         })?;
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit(app, window, text).await;
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         #[cfg(target_os = "ios")]
         {
@@ -4748,12 +4754,21 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
             #[cfg(target_os = "macos")]
-            let macos_launch = macos_launch::resolve(
-                &app.path().app_data_dir()?,
-                std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
-                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS")),
-                std::env::var_os("MSIME_CLIENT_STATE_DIR"),
-            )?;
+            let macos_launch = {
+                let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                    .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"));
+                let resources_directory = if options_override.is_none() {
+                    Some(app.path().resource_dir()?.join("EngineResources"))
+                } else {
+                    None
+                };
+                macos_launch::resolve_with_resources(
+                    &app.path().app_data_dir()?,
+                    resources_directory.as_deref(),
+                    options_override,
+                    std::env::var_os("MSIME_CLIENT_STATE_DIR"),
+                )?
+            };
             #[cfg(target_os = "macos")]
             let directory = macos_launch.preferences_directory.clone();
             #[cfg(target_os = "android")]

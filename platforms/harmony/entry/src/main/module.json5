@@ -20,12 +20,44 @@
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
       {
+        // normal and system-granted: declaring it is all a keyboard needs to buzz a key.
+        "name": "ohos.permission.VIBRATE",
+        "reason": "$string:vibrate_permission_reason",
+        "usedScene": {
+          "abilities": ["KeyboardExtensionAbility"],
+          "when": "inuse"
+        }
+      },
+      {
         "name": "ohos.permission.READ_PASTEBOARD",
         "reason": "$string:clipboard_permission_reason",
         "usedScene": {
           "abilities": ["KeyboardExtensionAbility"],
           "when": "inuse"
         }
+      }
+    ],
+    "abilities": [
+      {
+        // The keyboard is an extension and has no window of its own beyond its panel. This is where
+        // everything that is a setting rather than a keystroke lives, and on a 2in1 it is the only
+        // place: a candidate window has no key faces to reach a surface from.
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:entry_ability_desc",
+        "label": "$string:entry_ability_label",
+        // The application's own icon, not the brand path the keyboard tints with fillColor: that one is a
+        // single black shape at 24x24, and a start window scales its icon to fill, which opened the
+        // settings on a window-sized black scrawl.
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": ["entity.system.home"],
+            "actions": ["action.system.home"]
+          }
+        ]
       }
     ],
     "extensionAbilities": [

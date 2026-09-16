@@ -260,6 +260,25 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     return dispatch(session, packet, epoch, ReplyPath::Selection, uiless);
   return std::nullopt;
 }
+std::optional<PendingReply> ReplyComposer::toggle_character_set(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch, bool enabled,
+    const std::function<bool(bool)> &persist) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_ ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID)
+    throw std::logic_error("Invalid Windows character-set shortcut route");
+  const bool desired = !session.traditional_output();
+  const bool apply = enabled && session.input_enabled() &&
+                     (!persist || persist(desired));
+  if (apply)
+    (void)session.toggle_traditional_output(epoch);
+  traditional_output_ = session.traditional_output();
+  KeyResult result{client_, epoch_, packet.request_id, false,
+                   nlohmann::json{{"commit", nullptr}, {"view", session.view()}}};
+  return stage(result, ReplyPath::NoReply,
+               (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+}
 std::optional<PendingReply>
 ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
