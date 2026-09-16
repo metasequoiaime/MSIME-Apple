@@ -38,7 +38,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var appliedLayout: KeyboardGeometry?
 
   private var keyboardHeightConstraint: NSLayoutConstraint?
-  private var sharedKeyboardHeightAdjustment: CGFloat = 0
+  /// Seeded from the stored setting because updatePreferredKeyboardHeight() runs long before the
+  /// first shared-preferences sync; starting at zero discarded the user's height on every load.
+  private var sharedKeyboardHeightAdjustment =
+    CGFloat(KeyboardLayoutPreference.heightAdjustment)
   private let session = MetasequoiaInputSessionBridge()
   private lazy var snapshotWorker: DictionarySnapshotWorker = {
     let worker = DictionarySnapshotWorker(session: session)
@@ -723,7 +726,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    brand.brandImageView.image = Self.brandTemplate() ?? UIImage(systemName: "leaf.fill")
+    // The tint below only reaches a template image, so the fallback has to be one too; otherwise
+    // the substitute icon ignores the skin accent the brand mark is supposed to carry.
+    brand.brandImageView.image = Self.brandTemplate()
+      ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate)
     brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -1708,21 +1714,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeReplyKeyboard()
   }
 
+  // Reads the same table the writer uses, so a scheme can never be persisted under a spelling this
+  // side then fails to recognise.
   private static func sharedInputScheme(_ value: String) -> ChineseInputScheme? {
-    switch value {
-    case "quanpin": return .quanpin
-    case "nine_key": return .nineKey
-    case "xiaohe": return .shuangpin
-    case "ziranma": return .ziranma
-    case "microsoft": return .microsoft
-    case "shoudao": return .shoudao
-    case "wubi": return .wubi
-    case "japanese_nine_key": return .japaneseNineKey
-    case "japanese": return .japanese
-    case "handwriting": return .handwriting
-    case "thoughtful_reply": return .thoughtfulReply
-    default: return nil
-    }
+    ChineseInputScheme.scheme(sharedIdentifier: value)
   }
 
   /// Apply settings written by the Tauri iOS host to the native keyboard's

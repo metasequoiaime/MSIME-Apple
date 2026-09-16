@@ -90,7 +90,9 @@ final class JapaneseNineKeyTests: XCTestCase {
         panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
         panel.applyLayout(); panel.layoutIfNeeded()
         let buttons = nodes(panel).compactMap { $0 as? UIButton }
-        XCTAssertEqual(buttons.count, 12)
+        // Eleven kana keys, the kana modifier and delete. The punctuation row added the eleventh
+        // kana key; without side or mode keys the panel builds nothing else.
+        XCTAssertEqual(buttons.count, 13)
         for button in buttons {
           XCTAssertGreaterThan(button.bounds.height, 45)
           XCTAssertGreaterThan(button.bounds.width, 44)

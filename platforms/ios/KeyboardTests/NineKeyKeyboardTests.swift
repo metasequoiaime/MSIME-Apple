@@ -614,7 +614,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       XCTAssertNil(more.menu)
       XCTAssertNotNil(descendants(more).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
-      XCTAssertEqual(try button("schemeButton", in: controller).configuration?.background.strokeWidth, 0)
+      // "Unboxed" is about what paints, not about a zero stroke: UIButton.Configuration.plain()
+      // ships a 1pt stroke, so the shortcuts stay borderless through a clear stroke and fill.
+      let schemeBackground = try XCTUnwrap(
+        try button("schemeButton", in: controller).configuration?.background)
+      XCTAssertEqual(schemeBackground.strokeColor?.cgColor.alpha, 0)
+      XCTAssertEqual(schemeBackground.backgroundColor?.cgColor.alpha, 0)
       more.sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
@@ -1101,7 +1106,13 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           controller.view.layoutIfNeeded()
-          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          // The kana layout hides the shared action row and carries its own Space/Return column at
+          // the fixed kana row height, so only the other schemes share the action row's geometry.
+          if scheme == .japaneseNineKey {
+            XCTAssertFalse(try button("japaneseReturn", in: controller).isHidden)
+          } else {
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)

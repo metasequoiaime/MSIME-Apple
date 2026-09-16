@@ -12,6 +12,27 @@ enum ChineseInputScheme: String, CaseIterable {
     default: nil
     }
   }
+  /// Identifier this scheme carries in the shared PreferencesStore. The raw values stay camel case
+  /// for Swift and for the App Group mirror, but the shared schema is snake cased and rejects a
+  /// document that uses the wrong spelling, which fails the whole preferences update.
+  var sharedIdentifier: String {
+    switch self {
+    case .quanpin: "quanpin"
+    case .nineKey: "nine_key"
+    case .shuangpin: "xiaohe"
+    case .ziranma: "ziranma"
+    case .microsoft: "microsoft"
+    case .shoudao: "shoudao"
+    case .wubi: "wubi"
+    case .japaneseNineKey: "japanese_nine_key"
+    case .japanese: "japanese"
+    case .handwriting: "handwriting"
+    case .thoughtfulReply: "thoughtful_reply"
+    }
+  }
+  static func scheme(sharedIdentifier value: String) -> ChineseInputScheme? {
+    allCases.first { $0.sharedIdentifier == value }
+  }
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
