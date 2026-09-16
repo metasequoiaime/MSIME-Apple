@@ -46,6 +46,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)viewWithError:(NSError **)error;
 /// Copied Engine query, or nil when ineligible. Does not perform network I/O.
 - (nullable NSDictionary *)onlineQueryWithError:(NSError **)error;
+/// Build a descriptor for the copied query using this session's current AI
+/// credentials. The shared host validates query/config identity; never log it.
+- (nullable NSDictionary *)aiRequestForQuery:(NSDictionary *)query error:(NSError **)error;
 + (nullable NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error;
 /// Shared bounded parser and stale-query guard; returns {applied,view}.
 - (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;

@@ -578,9 +578,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *query = @{ @"online": online, @"config": config };
     if ([_aiQuery isEqual:query]) return;
     [self cancelAITranslations]; _aiQuery = query;
-    NSDictionary *input = @{ @"segmented_pinyin": segments, @"context": online[@"ai_context"] ?: @"",
-        @"candidate_limit": config[@"candidate_limit"] ?: @3 };
-    NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{ @"config": config, @"input": input } error:nil];
+    NSDictionary *descriptor = [_session aiRequestForQuery:online error:nil];
     if (!descriptor) {
         // A malformed or temporarily unavailable provider descriptor must not
         // poison this query identity. A later render may observe corrected
