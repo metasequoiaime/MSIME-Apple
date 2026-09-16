@@ -2173,7 +2173,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const bool english_candidates = s.english_override.value_or(
       configured.at("preferences").at("mixed_input").value("english", true));
   const bool emoji_candidates = s.emoji_override.value_or(
-      configured.at("preferences").at("mixed_input").value("emoji", true));
+      configured.at("preferences").at("mixed_input").value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       configured.at("preferences").at("mixed_input").value("kaomoji", false));
   const auto quanpin_preferences = configured.at("preferences").value(
@@ -4595,7 +4595,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       auto &setting_override = std::string(name) == "EmojiCandidates"
                            ? s.emoji_override : s.kaomoji_override;
       const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
-      if (setting_override.value_or(configured.at("preferences").at("mixed_input").value(key, std::string_view(key) == "emoji")) == enabled)
+      if (setting_override.value_or(configured.at("preferences").at("mixed_input").value(key, false)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
