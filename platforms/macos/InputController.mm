@@ -167,6 +167,56 @@ static NSString *CandidateTranslation(NSDictionary *candidate) {
     return [text isKindOfClass:NSString.class] ? text : @"";
 }
 
+static NSSize MSIMETranslationTextSize(NSString *text, NSFont *font) {
+    if (!text.length) return NSZeroSize;
+    NSRect bounds = [text boundingRectWithSize:NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)
+        options:NSStringDrawingUsesLineFragmentOrigin
+        attributes:@{NSFontAttributeName:font}];
+    return NSMakeSize(ceil(bounds.size.width), ceil(bounds.size.height));
+}
+
+static NSArray<NSString *> *MSIMETranslationTargets(NSDictionary *query) {
+    NSArray *supported = @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"];
+    NSMutableArray<NSString *> *targets = [NSMutableArray arrayWithCapacity:2];
+    NSArray *raw = [query[@"target_languages"] isKindOfClass:NSArray.class] ? query[@"target_languages"] : @[];
+    for (id value in raw) {
+        if (![value isKindOfClass:NSString.class] || ![(NSString *)value length] || ![supported containsObject:value] || [targets containsObject:value]) continue;
+        [targets addObject:(NSString *)value];
+    }
+    NSString *primary = [query[@"target_language"] isKindOfClass:NSString.class] ? query[@"target_language"] : nil;
+    if ([supported containsObject:primary]) {
+        [targets removeObject:primary];
+        [targets insertObject:primary atIndex:0];
+    }
+    return targets.count ? [targets copy] : @[];
+}
+
+static NSArray<NSString *> *MSIMETranslationTargetsFromPreferences(NSDictionary *preferences, NSString *fallback) {
+    NSArray *supported = @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"];
+    NSString *primary = [preferences[@"translation_target_language"] isKindOfClass:NSString.class]
+        ? preferences[@"translation_target_language"] : fallback;
+    NSMutableArray<NSString *> *targets = [NSMutableArray array];
+    if ([supported containsObject:primary]) [targets addObject:primary];
+    id secondary = preferences[@"translation_secondary_language"];
+    if ([supported containsObject:secondary] && ![targets containsObject:secondary])
+        [targets addObject:secondary];
+    return [targets copy];
+}
+
+static NSString *MSIMETranslationWorkKey(NSString *target, NSString *text) {
+    return [NSString stringWithFormat:@"%@\u001f%@", target ?: @"", text ?: @""];
+}
+
+static NSString *MSIMEJoinedTranslations(NSDictionary<NSString *, NSString *> *values,
+                                          NSArray<NSString *> *targets) {
+    NSMutableArray<NSString *> *ordered = [NSMutableArray array];
+    for (NSString *target in targets) {
+        NSString *value = values[target];
+        if (value.length) [ordered addObject:value];
+    }
+    return [ordered componentsJoinedByString:@"\n"];
+}
+
 static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
@@ -459,8 +509,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     uint64_t _glossEpoch;
     NSNumber *_glossEnabled;
     NSString *_glossTargetLanguage;
+    NSArray<NSString *> *_glossTargetLanguages;
     NSArray<NSDictionary *> *_glossResults;
     MSIMECustomTranslationBatch *_customBatch;
+    NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     NSTimer *_customTimer;
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
@@ -576,6 +628,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_customTimer invalidate];
     _customTimer = nil;
     [_customBatch cancel];
+    for (MSIMECustomTranslationBatch *batch in [_customBatches copy])
+        if (batch != _customBatch) [batch cancel];
+    [_customBatches removeAllObjects];
     _customBatch = nil;
     _customQuery = nil;
     _customResults = nil;
@@ -680,7 +735,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
         (!niuTrans && !custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
             (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
-        (_glossTargetLanguage && ![_glossTargetLanguage isEqual:query[@"target_language"]])) return nil;
+        (_glossTargetLanguages && ![_glossTargetLanguages isEqual:MSIMETranslationTargets(query)])) return nil;
     NSDictionary *view = [_session viewWithError:nil];
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
         ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
@@ -690,20 +745,20 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"]) {
         if (![candidate[@"text"] isKindOfClass:NSString.class] || ![candidate[@"source"] isKindOfClass:NSNumber.class]) continue;
-        BOOL resolved = NO;
-        for (NSDictionary *result in _glossResults)
-            if (gloss && [result[@"text"] isEqual:candidate[@"text"]]) { resolved = YES; break; }
-        if (!resolved) [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
+        [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
     }
     if (!candidates.count) return nil;
     return @{@"generation":query[@"generation"], @"target_language":query[@"target_language"],
+        @"target_languages":MSIMETranslationTargets(query),
         (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
 - (void)applyCandidateTranslationResults {
     NSMutableArray *results = [NSMutableArray array];
-    if (_glossResults && [_glossRequest isEqual:[self currentGlossRequest]]) [results addObjectsFromArray:_glossResults];
-    if (_customResults && [_customQuery isEqual:[self currentCustomTranslationRequest]]) [results addObjectsFromArray:_customResults];
+    BOOL customCurrent = _customResults && [_customQuery isEqual:[self currentCustomTranslationRequest]];
+    BOOL glossCurrent = _glossResults && [_glossRequest isEqual:[self currentGlossRequest]];
+    if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
+    else if (glossCurrent) [results addObjectsFromArray:_glossResults];
     NSDictionary *view = [_session viewWithError:nil];
     if (!view) return;
     NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
@@ -733,38 +788,90 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if ([_customQuery isEqual:query]) return;
     [self cancelCustomTranslations];
     _customQuery = query;
-    NSArray *plan = [MSIMEClientSession customTranslationPlan:@{@"target_language":query[@"target_language"], @"candidates":query[@"candidates"]} error:nil];
-    NSMutableArray *items = [NSMutableArray array];
-    NSMutableArray *cached = [NSMutableArray array];
-    NSMutableDictionary *identities = [NSMutableDictionary dictionary];
+    NSArray<NSString *> *targets = MSIMETranslationTargets(query);
+    NSMutableArray<NSDictionary *> *chunks = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     BOOL tencent = query[@"tencent_tmt"] != nil;
     BOOL niuTrans = query[@"niutrans"] != nil;
     NSString *scope = niuTrans ? [@"niutrans:" stringByAppendingString:query[@"niutrans"][@"app_id"] ?: @""] :
         tencent ? @"tencent" : [@"custom:" stringByAppendingString:query[@"custom_translation"][@"endpoint"] ?: @""];
-    for (NSDictionary *item in plan) {
-        NSArray *identity = @[scope, query[@"target_language"],
-            item[@"source_language"], item[@"target_language"], item[@"key"]];
-        id value = [cache valueForIdentity:identity];
-        if (value) {
-            if ([value isKindOfClass:NSString.class]) [cached addObject:@{@"text":item[@"text"], @"translation":value}];
-            continue;
-        }
-        if (tencent || niuTrans) {
-            [items addObject:item];
-            identities[item[@"text"]] = identity;
-            continue;
-        }
-        NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
-            @"text":item[@"key"], @"source_language":item[@"source_language"], @"target_language":item[@"target_language"]} error:nil];
-        if (descriptor) {
-            [items addObject:@{@"text":item[@"text"], @"request":descriptor}];
-            identities[item[@"text"]] = identity;
+    NSSet *glossTexts = [NSSet setWithArray:[_glossResults valueForKey:@"text"] ?: @[]];
+    if ([_glossRequest isEqual:[self currentGlossRequest]]) {
+        for (NSDictionary *result in _glossResults) {
+            NSString *text = result[@"text"];
+            NSString *translation = result[@"translation"];
+            if (![text isKindOfClass:NSString.class] || ![translation isKindOfClass:NSString.class] || !translation.length) continue;
+            NSMutableDictionary *byTarget = values[text];
+            if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+            byTarget[@"en"] = translation;
         }
     }
-    _customResults = [cached copy];
-    if (cached.count) [self applyCandidateTranslationResults];
-    if (!items.count) return;
+    for (NSString *target in targets) {
+        NSMutableArray *targetCandidates = [NSMutableArray array];
+        for (NSDictionary *candidate in query[@"candidates"]) {
+            // A packaged/user English gloss already satisfies the English row. Keep
+            // other target rows eligible when English is only the secondary language.
+            if ([target isEqual:@"en"] && [glossTexts containsObject:candidate[@"text"]]) continue;
+            [targetCandidates addObject:candidate];
+        }
+        if (!targetCandidates.count) continue;
+        NSArray *plan = [MSIMEClientSession customTranslationPlan:@{@"target_language":target,
+            @"candidates":targetCandidates} error:nil];
+        NSMutableArray *pending = [NSMutableArray array];
+        NSMutableDictionary *identities = [NSMutableDictionary dictionary];
+        for (NSDictionary *item in plan) {
+            NSArray *identity = @[scope, target, item[@"source_language"], item[@"target_language"], item[@"key"]];
+            NSString *workKey = MSIMETranslationWorkKey(target, item[@"text"]);
+            id value = [cache valueForIdentity:identity];
+            if (value) {
+                if ([value isKindOfClass:NSString.class]) {
+                    NSMutableDictionary *byTarget = values[item[@"text"]];
+                    if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[item[@"text"]] = byTarget; }
+                    byTarget[target] = value;
+                }
+                continue;
+            }
+            if (tencent || niuTrans) {
+                [pending addObject:item];
+                identities[workKey] = identity;
+                continue;
+            }
+            NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
+                @"text":item[@"key"], @"source_language":item[@"source_language"], @"target_language":item[@"target_language"]} error:nil];
+            if (descriptor) {
+                [pending addObject:@{@"text":item[@"text"], @"request":descriptor}];
+                identities[workKey] = identity;
+            } else {
+                [cache rememberTranslation:nil identity:identity];
+            }
+        }
+        for (NSUInteger offset = 0; offset < pending.count; offset += 9) {
+            NSUInteger length = MIN((NSUInteger)9, pending.count - offset);
+            NSArray *items = [pending subarrayWithRange:NSMakeRange(offset, length)];
+            NSMutableDictionary *chunk = [@{@"target":target, @"items":items} mutableCopy];
+            NSMutableDictionary *chunkIdentities = [NSMutableDictionary dictionary];
+            for (NSDictionary *item in items) {
+                NSString *key = MSIMETranslationWorkKey(target, item[@"text"]);
+                NSArray *identity = identities[key];
+                if (identity) chunkIdentities[key] = identity;
+            }
+            chunk[@"identities"] = chunkIdentities;
+            [chunks addObject:chunk];
+        }
+    }
+    NSMutableArray *(^combinedResults)(void) = ^NSMutableArray *{
+        NSMutableArray *result = [NSMutableArray array];
+        for (NSDictionary *candidate in query[@"candidates"]) {
+            NSString *text = candidate[@"text"];
+            NSString *translation = MSIMEJoinedTranslations(values[text], targets);
+            if (translation.length) [result addObject:@{@"text":text, @"translation":translation}];
+        }
+        return result;
+    };
+    _customResults = [combinedResults() copy];
+    if (_customResults.count) [self applyCandidateTranslationResults];
+    if (!chunks.count) return;
     if (![[self currentCustomTranslationRequest] isEqual:query]) return;
     uint64_t epoch = _customEpoch;
     MSIMEClientSession *session = _session;
@@ -776,27 +883,41 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [timer invalidate]; owner->_customTimer = nil;
         if (owner->_session != session || owner->_activeClient != client ||
             ![[owner currentCustomTranslationRequest] isEqual:query]) return;
-        void (^completion)(NSArray<NSDictionary *> *) = ^(NSArray<NSDictionary *> *results) {
-            MSIMEInputController *current = weakSelf;
-            if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
-                ![[current currentCustomTranslationRequest] isEqual:query]) return;
-            current->_customBatch = nil;
-            NSMutableArray *combined = [cached mutableCopy];
-            [combined addObjectsFromArray:results];
-            for (NSString *text in identities) {
-                NSString *translation = nil;
-                for (NSDictionary *result in results)
-                    if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
-                [cache rememberTranslation:translation identity:identities[text]];
-            }
-            [current persistCandidateTranslations:results query:query];
-            current->_customResults = [combined copy];
-            [current applyCandidateTranslationResults];
-        };
-        owner->_customBatch = niuTrans ? [owner niuTransBatchForItems:items config:query[@"niutrans"] completion:completion]
-            : tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
-            : [owner customBatchForItems:items completion:completion];
-        [owner->_customBatch start];
+        owner->_customBatches = [NSMutableArray array];
+        for (NSDictionary *chunk in chunks) {
+            NSString *target = chunk[@"target"];
+            NSArray *items = chunk[@"items"];
+            NSDictionary *identities = chunk[@"identities"];
+            void (^completion)(NSArray<NSDictionary *> *) = ^(NSArray<NSDictionary *> *results) {
+                MSIMEInputController *latest = weakSelf;
+                if (!latest || latest->_customEpoch != epoch || latest->_session != session || latest->_activeClient != client ||
+                    ![[latest currentCustomTranslationRequest] isEqual:query]) return;
+                for (NSDictionary *item in items) {
+                    NSString *text = item[@"text"];
+                    NSString *workKey = MSIMETranslationWorkKey(target, text);
+                    NSString *translation = nil;
+                    for (NSDictionary *result in results)
+                        if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
+                    [cache rememberTranslation:translation identity:identities[workKey]];
+                    if (translation.length) {
+                        NSMutableDictionary *byTarget = values[text];
+                        if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+                        byTarget[target] = translation;
+                    }
+                }
+                if ([target isEqual:@"en"] && results.count)
+                    [latest persistCandidateTranslations:results query:query];
+                latest->_customResults = [combinedResults() copy];
+                [latest applyCandidateTranslationResults];
+                latest->_customBatch = nil;
+            };
+            MSIMECustomTranslationBatch *batch = niuTrans ? [owner niuTransBatchForItems:items config:query[@"niutrans"] completion:completion]
+                : tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
+                : [owner customBatchForItems:items completion:completion];
+            owner->_customBatch = batch;
+            [owner->_customBatches addObject:batch];
+            [batch start];
+        }
     }];
 }
 - (void)cancelCandidateGloss {
@@ -809,9 +930,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
         (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
-    if (_glossTargetLanguage && ![_glossTargetLanguage isEqual:@"en"]) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
-    if (!query || ![query[@"target_language"] isEqual:@"en"]) return nil;
+    NSArray *targets = MSIMETranslationTargets(query);
+    if (!query || ![targets containsObject:@"en"]) return nil;
+    if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
     NSDictionary *view = [_session viewWithError:nil];
     // Windows suppresses candidate translations in Japanese, including a
     // temporary Japanese composition whose view retains its original scheme.
@@ -821,7 +943,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     for (NSDictionary *candidate in view[@"candidates"])
         if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
-    return candidates.count ? @{@"generation":query[@"generation"], @"candidates":[candidates copy],
+    return candidates.count ? @{@"generation":query[@"generation"], @"target_languages":targets,
+        @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""} : nil;
 }
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
@@ -851,7 +974,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)persistCandidateTranslations:(NSArray *)results query:(NSDictionary *)query {
     NSString *directory = query[@"directory"];
-    if (!directory.isAbsolutePath || ![query[@"target_language"] isEqual:@"en"] || !results.count) return;
+    if (!directory.isAbsolutePath || ![MSIMETranslationTargets(query) containsObject:@"en"] || !results.count) return;
     NSArray *items = [self learnedTranslationItems:query[@"candidates"] results:results];
     if (!items.count) return;
     // Copy only storage fields; never retain provider credentials in the IO queue.
@@ -2270,6 +2393,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         translationChanged |= ![_glossTargetLanguage isEqual:target];
         _glossTargetLanguage = [target copy];
     }
+    if (target || preferences[@"translation_secondary_language"] ||
+        [preferences.allKeys containsObject:@"translation_secondary_language"]) {
+        NSArray *targets = MSIMETranslationTargetsFromPreferences(preferences, _glossTargetLanguage ?: @"en");
+        translationChanged |= ![_glossTargetLanguages isEqual:targets];
+        _glossTargetLanguages = [targets copy];
+    }
     NSDictionary *custom = preferences[@"custom_translation"];
     if ([custom isKindOfClass:NSDictionary.class]) {
         if (_customTranslationConfig && ![_customTranslationConfig isEqual:custom]) [[MSIMETranslationCache sharedCache] clear];
@@ -2897,7 +3026,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
             for (NSDictionary *candidate in candidates) {
                 NSString *translation = CandidateTranslation(candidate);
-                if (translation.length) glossHeight = MAX(glossHeight, [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}].height + 4);
+                if (translation.length) glossHeight = MAX(glossHeight, MSIMETranslationTextSize(translation, glossFont).height + 4);
             }
             rowHeight += glossHeight;
         }
@@ -2970,9 +3099,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                                  16 + (geometry.showSelectedBar ? 6 : 0));
         NSString *translation = CandidateTranslation(candidate);
         if (translation.length) {
-            NSSize glossSize = [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}];
+            NSSize glossSize = MSIMETranslationTextSize(translation, glossFont);
             if (vertical) itemWidth += font.pointSize * 0.65 + ceil(glossSize.width);
             else { itemWidth = MAX(itemWidth, ceil(glossSize.width) + 40 + (geometry.showSelectedBar ? 6 : 0)); glossHeight = MAX(glossHeight, glossSize.height + 4); }
+            if (vertical) rowHeight = MAX(rowHeight, glossSize.height + MSIMECandidateTextHeight(title, font) + 4);
         }
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;

@@ -2479,6 +2479,7 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic, copy) NSDictionary *tencent;
 @property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
+@property(nonatomic, copy) NSArray *targetLanguages;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
@@ -2487,6 +2488,7 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
+        @"target_languages":self.targetLanguages ?: @[],
         @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
@@ -2995,6 +2997,45 @@ static void TestCustomTranslationController() {
     [prefs.window close];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
+static void TestSecondaryTranslationScheduling() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.targetLanguages = @[@"fr", @"ja"];
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://secondary.invalid/api", @"api_key":@""};
+    session.page = @[@{@"text":@"Hello", @"source":@4}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && controller.batches[0].items.count == 1 && controller.batches[1].items.count == 1);
+    assert([controller.batches[0].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"FR"]);
+    assert([controller.batches[1].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"JA"]);
+    controller.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"bonjour"}]);
+    controller.batches[1].reply(@[@{@"text":@"Hello", @"translation":@"こんにちは"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"bonjour\nこんにちは"}]]));
+    session.generation++;
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"bonjour\nこんにちは"]);
+    session.generation++;
+    session.targetLanguage = @"ja";
+    session.targetLanguages = @[@"ja", @"fr"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"こんにちは\nbonjour"]);
+    [[MSIMETranslationCache sharedCache] clear];
+    session.generation++;
+    session.targetLanguage = @"fr";
+    session.targetLanguages = @[@"fr", @"ja"];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 4);
+    ControlledTranslationBatch *stale = controller.batches.lastObject;
+    session.generation++;
+    stale.reply(@[@{@"text":@"Hello", @"translation":@"stale"}]);
+    assert(![session.delivered[0][@"translation"] isEqual:@"stale"]);
+    [controller cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationCacheDelivery() {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
@@ -3290,6 +3331,7 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
             TestCustomTranslationController();
+            TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
             TestCustomTranslationIdleDelay(NO);
             TestCustomTranslationIdleDelay(YES);
@@ -3314,6 +3356,7 @@ int main(int argc, char **argv) {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestCustomTranslationController();
+        TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();
         TestCustomTranslationIdleDelay(NO);
         TestCustomTranslationIdleDelay(YES);
