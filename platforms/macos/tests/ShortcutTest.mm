@@ -2598,6 +2598,29 @@ static void TestAiCandidateRetryAfterRejectedResponse() {
     assert(session.applications == 1);
     [controller cancelAITranslations];
 }
+
+static void TestAiCandidateDescriptorFailureIsRetryable() {
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-descriptor",
+        @"query_text": @"nihao", @"cache_key": @"nihao", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"descriptor retry", @"cloud_eligible": @NO, @"ai_eligible": @YES,
+        @"cloud_candidates": @YES, @"ai_assistant": @{ @"enabled": @YES, @"provider": @"invalid",
+            @"endpoint": @"file:///not-http", @"candidate_limit": @3 }, @"session_id": @1 };
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    assert(controller.aiBatches.count == 0 && [controller valueForKey:@"aiQuery"] == nil);
+    NSMutableDictionary *query = [session.query mutableCopy];
+    query[@"ai_assistant"] = @{ @"enabled": @YES, @"provider": @"openai",
+        @"endpoint": @"https://synthetic.invalid/chat", @"model": @"synthetic", @"candidate_limit": @3 };
+    session.query = query;
+    [controller synchronizeAITranslations];
+    assert(controller.aiBatches.count == 0); // Descriptor creation still rejects this synthetic transport.
+    assert([controller valueForKey:@"aiQuery"] == nil);
+    [controller cancelAITranslations];
+}
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
 @property(nonatomic) BOOL useRealDelay;
@@ -3238,6 +3261,7 @@ int main(int argc, char **argv) {
         TestCloudCandidateEngineDelivery();
         TestAiCandidateScheduling();
         TestAiCandidateRetryAfterRejectedResponse();
+        TestAiCandidateDescriptorFailureIsRetryable();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();

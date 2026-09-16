@@ -581,7 +581,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *input = @{ @"segmented_pinyin": segments, @"context": online[@"ai_context"] ?: @"",
         @"candidate_limit": config[@"candidate_limit"] ?: @3 };
     NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{ @"config": config, @"input": input } error:nil];
-    if (!descriptor) return;
+    if (!descriptor) {
+        // A malformed or temporarily unavailable provider descriptor must not
+        // poison this query identity. A later render may observe corrected
+        // settings and should be allowed to construct a fresh request.
+        _aiQuery = nil;
+        return;
+    }
     NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor } ];
     uint64_t epoch = _aiEpoch; MSIMEClientSession *session = _session; id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
