@@ -114,7 +114,8 @@ final class WelcomeUITests: KeyboardInterfaceTests {
     let app = XCUIApplication()
     app.launchArguments = ["-launchScreenPreview"]
     app.launch()
-    XCTAssertTrue(app.staticTexts["让输入，更像你"].waitForExistence(timeout: 5))
+    // 启动故事板上的品牌字,和导航栏标题无关 —— 那个已经去掉了,这个还在。
+    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["让输入更自然"].exists)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "System launch storyboard"
