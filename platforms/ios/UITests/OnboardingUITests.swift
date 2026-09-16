@@ -265,7 +265,9 @@ final class OnboardingUITests: XCTestCase {
       return link.isHittable
     }
     if scrollToLink() { return }
-    let entry = app.buttons["openKeyboardSettingsButton"]
+    // 按键, not 系统设置: the latter leaves for the iOS Settings app. This is the page whose title
+    // is 键盘设置 and where the links that are not on the home page live.
+    let entry = app.buttons["keyboardLayoutLink"]
     for _ in 0..<5 { if entry.isHittable { break }; app.swipeUp() }
     guard entry.isHittable else { return }
     entry.tap()

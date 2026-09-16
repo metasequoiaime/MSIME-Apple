@@ -21,6 +21,11 @@ struct KeyboardLayoutSettingsView: View {
       }
       Section {
         Toggle("顶部语音入口", isOn: $voice).accessibilityIdentifier("appVoiceShortcutSwitch")
+        // 这是语音识别服务本身的唯一入口。它原来只挂在 KeyboardSettingsView 上，而首页改版后
+        // 没有任何地方呈现那一页，于是语音服务的配置在 App 里打不开。
+        NavigationLink(destination: ServiceSettingsView(kind: .voice)) {
+          Label("语音设置", systemImage: "waveform")
+        }.accessibilityIdentifier("voiceSettingsLink")
       } header: {
         Text("快捷入口")
       } footer: {
