@@ -108,6 +108,25 @@ final class JapaneseNineKeyTests: XCTestCase {
     }
   }
 
+  func testModeColumnGivesScriptKeyTwoRowsWhenTheGlobeIsSystemOwned() throws {
+    let modeKeys = (0..<4).map { index in
+      let button = UIButton(type: .system)
+      button.accessibilityIdentifier = "mode-(index)"
+      return button
+    }
+    let panel = JapaneseNineKeyView(makeKey: { title, _, action in
+      UIButton(type: .system, primaryAction: UIAction { _ in action() })
+    }, modeKeys: modeKeys)
+    panel.frame = CGRect(x: 0, y: 0, width: 414, height: 220)
+    panel.layoutIfNeeded()
+    panel.setModeColumnFull(false)
+    panel.layoutIfNeeded()
+    XCTAssertGreaterThan(modeKeys[2].bounds.height, modeKeys[0].bounds.height * 1.5)
+    panel.setModeColumnFull(true)
+    panel.layoutIfNeeded()
+    XCTAssertEqual(modeKeys[2].bounds.height, modeKeys[0].bounds.height, accuracy: 1)
+  }
+
   func testJapaneseNineKeyDigitLayerUsesSymbolsAndKeepsKanaPunctuation() throws {
     var symbols: [String] = []
     let panel = JapaneseNineKeyView { title, _, action in
