@@ -621,7 +621,8 @@ impl UnixSocketProvider {
         let parent = self.path.parent()?;
         let parent_metadata = std::fs::symlink_metadata(parent).ok()?;
         let socket_metadata = std::fs::symlink_metadata(&self.path).ok()?;
-        if parent_metadata.uid() != libc::geteuid()
+        let effective_uid = rustix::process::geteuid().as_raw();
+        if parent_metadata.uid() != effective_uid
             || !parent_metadata.file_type().is_dir()
             || parent_metadata.mode() & 0o077 != 0
             || !socket_metadata.file_type().is_socket()

@@ -2429,9 +2429,9 @@ dependencies = [
 name = "msime-input-runtime"
 version = "0.1.0"
 dependencies = [
- "libc",
  "msime-client-core",
  "msime-engine-bridge",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

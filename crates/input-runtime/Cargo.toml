@@ -5,9 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-libc = "0.2"
 msime-engine-bridge = { path = "../engine-bridge" }
 msime-client-core = { path = "../client-core" }
+rustix = { version = "1.1", features = ["process"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
