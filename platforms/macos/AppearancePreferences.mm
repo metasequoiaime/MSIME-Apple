@@ -148,7 +148,7 @@ static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortc
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
-    return @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
 }
 static BOOL ValidToolbarScale(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
@@ -620,6 +620,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     merged[@"voice_input"] = voice;
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
+    id sharedEnglishMode = _sharedToolbarOptions[@"english_mode"];
+    toolbar[@"english_mode"] = LocalModeBoolean(sharedEnglishMode) ? sharedEnglishMode : @YES;
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
     toolbar[@"punctuation"] = @(self.floatingToolbarPunctuation);
     toolbar[@"fullwidth"] = @(self.floatingToolbarFullWidth);
