@@ -45,6 +45,17 @@ class TranslationCacheParity(unittest.TestCase):
         self.assertIsNone(value)
         self.assertGreaterEqual(expiry - time.monotonic(), 479)
 
+    def test_positive_result_survives_without_a_time_expiry(self):
+        result = "你好"
+        with mock.patch.object(provider, "custom_translation", return_value=result) as translate:
+            expected = [{"text": "hello", "translation": result}]
+            self.assertEqual(provider.translations(self.query, self.server), expected)
+            self.assertEqual(provider.translations(self.query, self.server), expected)
+        self.assertEqual(translate.call_count, 1)
+        expiry, value = next(iter(self.server.translation_cache.values()))
+        self.assertEqual(value, result)
+        self.assertEqual(expiry, float("inf"))
+
     def test_translation_cache_capacity_matches_windows_worker(self):
         self.assertEqual(provider.MAX_TRANSLATION_CACHE_ENTRIES, 4096)
         self.assertEqual(provider.NEGATIVE_TRANSLATION_CACHE_TTL, 480)

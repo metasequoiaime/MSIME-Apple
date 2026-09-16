@@ -461,6 +461,7 @@ def translations(query, server):
                 if len(server.translation_cache) >= MAX_TRANSLATION_CACHE_ENTRIES:
                     server.translation_cache.pop(next(iter(server.translation_cache)))
                 server.translation_cache[(provider, (source, destination), text)] = (
+                    float("inf") if value else
                     time.monotonic() + NEGATIVE_TRANSLATION_CACHE_TTL, value)
     return [{"text": text, "translation": found[text]} for text in dict.fromkeys(texts) if found.get(text)]
 
