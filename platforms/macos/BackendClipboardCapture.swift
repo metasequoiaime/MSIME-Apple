@@ -55,10 +55,7 @@ import AppKit
       return nil
     }
     guard let text = source.text(), source.changeCount == sequence else { return nil }
-    guard !text.isEmpty, text.utf8.count <= 4096,
-          !text.unicodeScalars.contains(where: {
-            ($0.value < 32 && ![9, 10, 13].contains($0.value)) || (127...159).contains($0.value)
-          }) else {
+    guard MacClipboardTextLimits.valid(text) else {
       lastSequence = sequence
       offeredSequence = nil
       return nil

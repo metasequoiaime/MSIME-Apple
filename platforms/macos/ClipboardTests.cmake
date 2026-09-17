@@ -20,7 +20,7 @@ function(msime_clipboard_swift_test name entry)
   set_tests_properties(${name} PROPERTIES LABELS "clipboard-local" TIMEOUT 30)
 endfunction()
 
-set(clipboard_catalog_sources BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
+set(clipboard_catalog_sources BackendClipboardTextLimits.swift BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
   BackendEmojiClipboardHistory.swift)
 set(clipboard_monitor_sources ${clipboard_catalog_sources} BackendClipboardCapture.swift
   BackendClipboardMonitor.swift)
