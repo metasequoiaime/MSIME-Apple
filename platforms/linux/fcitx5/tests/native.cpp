@@ -236,6 +236,19 @@ int main(int argc, char **argv) {
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);
     require(state->traditional_, "traditional status action enables conversion");
+    const auto traditionalSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    Json savedTraditional;
+    while (std::chrono::steady_clock::now() < traditionalSaveDeadline) {
+      state->refreshPreferences();
+      savedTraditional = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      if (savedTraditional.value("preferences", Json::object())
+              .value("traditional_chinese_output", false)) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(savedTraditional.value("preferences", Json::object())
+                .value("traditional_chinese_output", false),
+            "traditional status action persists preference");
     engine.traditional_action_.activate(&ic);
     require(!state->traditional_, "traditional status action disables conversion");
     engine.english_action_.activate(&ic);

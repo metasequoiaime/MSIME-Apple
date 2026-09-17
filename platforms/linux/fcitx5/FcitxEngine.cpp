@@ -177,6 +177,7 @@ public:
     resources_.clear();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
+    preferences_save_job_ = {};
     online_socket_.clear();
     online_query_.clear();
     online_job_session_ = 0;
@@ -299,6 +300,11 @@ public:
   }
   void refreshPreferences() {
     try {
+      if (preferences_save_job_.valid()) {
+        if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        preferences_save_job_.get();
+        preferences_save_job_ = {};
+      }
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto snapshot = preferences_job_.get();
@@ -759,6 +765,22 @@ public:
   bool toggleTraditional() {
     if (!session_ || view_.value("scheme", 0u) == 3) return false;
     traditional_ = !traditional_;
+    if (!options_path_.empty() && !private_) {
+      const auto directory = options_path_;
+      const auto enabled = traditional_;
+      preferences_save_job_ = std::async(std::launch::async, [directory, enabled] {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+        if (!snapshot.is_object() || !snapshot.contains("revision") ||
+            !snapshot.contains("preferences")) return Json::object();
+        snapshot["preferences"]["traditional_chinese_output"] = enabled;
+        const auto encoded = snapshot.dump();
+        return response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+            snapshot.at("revision").get<uint64_t>(),
+            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+      }).share();
+    }
     render();
     return true;
   }
@@ -772,6 +794,7 @@ public:
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
+  std::shared_future<Json> preferences_save_job_;
   std::unique_ptr<fcitx::EventSourceTime> preferences_timer_;
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
@@ -1221,6 +1244,7 @@ public:
     if (!ic || !ic->hasFocus()) return;
     try {
       auto *state = ic->propertyFor(factory_);
+      if (state->restricted() || state->privateInput()) return;
       if (state->toggleTraditional()) update(ic);
     } catch (...) {}
   }
