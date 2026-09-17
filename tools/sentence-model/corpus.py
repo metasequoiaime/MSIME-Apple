@@ -41,19 +41,31 @@ MAX_LINE = 96
 # would teach the model a parallel vocabulary that no candidate can ever contain, splitting
 # probability mass between variants and spending vocabulary slots on the half we never score.
 #
-# These are traditional forms whose simplified counterpart is a different character. The decision
-# is made per document rather than per extracted fragment: fragments run a handful of characters
-# and frequently contain no marker at all, while a whole article in traditional Chinese is certain
-# to contain several. There is far more corpus available than a training run needs, so a document
-# that merely quotes a traditional title is discarded too rather than risk admitting the variant.
+# These are traditional forms whose simplified counterpart is a different character.
 TRADITIONAL = set(
     "們來這國會個時發當後萬與東車長門問開關電話語說讀點對還進遠過樣學實現經濟應該為數屬體麼兩內從產業讓認機動華區"
     "邏輯嚴謹導詞稱種義議論據處質網統標準級結構總織線給續練縮聯興舉寫農運達適選鐵錄鐘銀陸際隨險難靜韓頭題顯風飛馬驗黨齊龍"
 )
 
+# Filtering happens twice, because the two levels are answering different questions.
+#
+# A document is traditional or it is not, and the markers above are common enough that a genuinely
+# traditional one spends several percent of its characters on them. Discarding a document on a
+# single marker throws away most of Wikipedia: simplified articles quote traditional titles and
+# names constantly, and requiring zero markers kept only about a fifth of the corpus.
+TRADITIONAL_SHARE = 0.005
 
-def is_traditional(text):
-    return any(ch in TRADITIONAL for ch in text)
+# Within a document that passed, a fragment carrying any marker at all is the quoted traditional
+# name itself, so it is dropped outright. Fragments run a handful of characters, which is why this
+# test cannot be the one that judges the document.
+
+
+def traditional_share(text):
+    return sum(ch in TRADITIONAL for ch in text) / max(1, len(text))
+
+
+def is_traditional_document(text):
+    return traditional_share(text) > TRADITIONAL_SHARE
 
 
 ATTEMPTS = 5
@@ -116,7 +128,7 @@ def segment(text):
         run = match.group()
         for start in range(0, len(run), MAX_LINE):
             piece = run[start : start + MAX_LINE]
-            if len(piece) >= MIN_LINE:
+            if len(piece) >= MIN_LINE and not TRADITIONAL.intersection(piece):
                 yield piece
 
 
@@ -185,7 +197,7 @@ def wiki_lines(path, max_chars):
                 if not article:
                     continue
                 stripped = strip_wikitext(body)
-                if is_traditional(stripped):
+                if is_traditional_document(stripped):
                     continue
                 for line in segment(stripped):
                     yield line
@@ -209,7 +221,7 @@ def lccc_lines(path, max_chars):
             for turn in turns:
                 # LCCC ships pre-tokenized with spaces between characters; joining restores the raw text.
                 utterance = str(turn).replace(" ", "")
-                if is_traditional(utterance):
+                if is_traditional_document(utterance):
                     continue
                 for line in segment(utterance):
                     yield line
