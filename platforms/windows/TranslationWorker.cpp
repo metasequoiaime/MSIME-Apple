@@ -358,6 +358,64 @@ TranslationWorker::translate(const Request &request,
   try {
     const auto &query = *document;
     const auto generation = query.at("generation").get<uint64_t>();
+
+    // The host exposes one candidate translation field, while preferences may
+    // request two target languages. Translate each target independently and
+    // join successful rows in preference order, matching the desktop hosts'
+    // presentation contract. A recursive call is reduced to one target so the
+    // existing provider, cache, cancellation, and persistence paths remain
+    // identical for each row.
+    const auto target_languages = query.value("target_languages",
+                                              nlohmann::json::array());
+    if (target_languages.is_array() && target_languages.size() > 1) {
+      nlohmann::json merged = nlohmann::json::array();
+      std::unordered_map<std::string, size_t> positions;
+      for (const auto &target : target_languages) {
+        if (!target.is_string() || target.get<std::string>().empty())
+          continue;
+        auto single = query;
+        single["target_language"] = target;
+        single["target_languages"] = nlohmann::json::array({target});
+        // Packaged glosses are specifically English-target data. A secondary
+        // non-English row must never display that gloss as its translation.
+        single["english_gloss"] =
+            query.value("english_gloss", false) && target == "en";
+        const auto bytes = single.dump();
+        auto child = translate(
+            Request{request.lease, bytes, request.serial}, cancelled);
+        if (!child)
+          continue;
+        try {
+          const auto values = nlohmann::json::parse(child->translations);
+          if (!values.is_array())
+            continue;
+          for (const auto &value : values) {
+            if (!value.is_object() || !value.contains("text") ||
+                !value.at("text").is_string() ||
+                !value.contains("translation") ||
+                !value.at("translation").is_string())
+              continue;
+            const auto text = value.at("text").get<std::string>();
+            const auto translation = value.at("translation").get<std::string>();
+            if (translation.empty())
+              continue;
+            const auto [it, inserted] = positions.emplace(text, merged.size());
+            if (inserted)
+              merged.push_back({{"text", text}, {"translation", translation}});
+            else
+              merged.at(it->second)["translation"] =
+                  merged.at(it->second).at("translation").get<std::string>() +
+                  "\n" + translation;
+          }
+        } catch (...) {
+          continue;
+        }
+      }
+      if (cancelled() || merged.empty())
+        return std::nullopt;
+      return TranslationWorker::Result{request.lease, generation, merged.dump()};
+    }
+
     auto translations = nlohmann::json::array().dump();
     // The offline English gloss comes from a packaged dictionary, so it is
     // resolved before any provider is consulted and never reaches the network.
