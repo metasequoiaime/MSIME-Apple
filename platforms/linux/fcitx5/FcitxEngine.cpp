@@ -374,6 +374,25 @@ public:
     render();
     return true;
   }
+  bool cycleTranslationLanguage() {
+    if (!session_) return false;
+    static constexpr std::array<const char *, 7> languages = {
+        "en", "fr", "ja", "es", "ru", "de", "ko"};
+    const auto current = preferences_.value("translation_target_language", std::string("en"));
+    auto it = std::find(languages.begin(), languages.end(), current);
+    const auto next = it == languages.end() || std::next(it) == languages.end()
+        ? languages.front() : *std::next(it);
+    preferences_["translation_target_language"] = next;
+    const auto empty = std::string("[]");
+    view_ = response(msime_client_apply_translations(
+        session_, view_.at("generation"),
+        reinterpret_cast<const uint8_t *>(empty.data()), empty.size())).at("view");
+    translation_query_.clear();
+    translation_pending_.clear();
+    saveStringPreference("translation_target_language", next);
+    render();
+    return true;
+  }
   bool selectEdge(uint8_t edge) {
     if (!session_ || view_.value("candidates", Json::array()).empty()) return false;
     for (const auto &candidate : view_.at("candidates")) {
@@ -1291,6 +1310,34 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxTranslationLanguageAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxTranslationLanguageAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) { setLongText("循环切换候选翻译目标语言"); }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "翻译语言";
+    const auto *state = ic->propertyFor(factory_);
+    const auto language = state->preferences_.value("translation_target_language", std::string("en"));
+    const std::array<std::pair<const char *, const char *>, 7> labels{{
+        {"en", "翻译：英语"}, {"fr", "翻译：法语"}, {"ja", "翻译：日语"},
+        {"es", "翻译：西班牙语"}, {"ru", "翻译：俄语"}, {"de", "翻译：德语"},
+        {"ko", "翻译：韩语"}}};
+    for (const auto &[value, label] : labels)
+      if (language == value) return label;
+    return "翻译语言";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->session_ && !state->restricted() && !state->privateInput())
+        state->cycleTranslationLanguage();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxMaintenanceAction : public fcitx::SimpleAction {
 public:
   FcitxMaintenanceAction(fcitx::FactoryFor<FcitxState> *factory, int operation,
@@ -1571,6 +1618,7 @@ public:
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
+    translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -1656,6 +1704,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1673,6 +1722,7 @@ public:
     event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
+    event.inputContext()->statusArea().removeAction(&translation_language_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1710,6 +1760,7 @@ public:
   FcitxPunctuationAction paired_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Paired};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
+  FcitxTranslationLanguageAction translation_language_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

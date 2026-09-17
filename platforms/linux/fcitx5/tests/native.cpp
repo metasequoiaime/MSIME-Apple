@@ -192,8 +192,17 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 13,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 14,
             "native status actions attached");
+    require(engine.translation_language_action_.shortText(&ic) == "翻译：英语",
+            "translation language action starts in English");
+    engine.translation_language_action_.activate(&ic);
+    require(state->preferences_.value("translation_target_language", std::string{}) == "fr" &&
+            engine.translation_language_action_.shortText(&ic) == "翻译：法语",
+            "translation language action cycles to French");
+    for (int index = 0; index < 6; ++index) engine.translation_language_action_.activate(&ic);
+    require(state->preferences_.value("translation_target_language", std::string{}) == "en",
+            "translation language action cycles back to English");
     require(engine.punctuation_lock_action_.shortText(&ic) == "标点：跟随",
             "punctuation lock status action starts in follow mode");
     engine.punctuation_lock_action_.activate(&ic);
