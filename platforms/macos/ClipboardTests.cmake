@@ -31,7 +31,7 @@ msime_clipboard_swift_test(clipboard-history-adapter tests/EmojiClipboardHistory
   ${clipboard_catalog_sources})
 msime_clipboard_swift_test(clipboard-history-observation tests/EmojiClipboardObservationTest.swift
   ${clipboard_catalog_sources})
-msime_clipboard_swift_test(clipboard-capture tests/ClipboardCaptureTest.swift BackendClipboardCapture.swift)
+msime_clipboard_swift_test(clipboard-capture tests/ClipboardCaptureTest.swift BackendClipboardCapture.swift BackendClipboardTextLimits.swift)
 msime_clipboard_swift_test(clipboard-monitor tests/ClipboardMonitorTest.swift ${clipboard_monitor_sources})
 msime_clipboard_swift_test(clipboard-service tests/ClipboardServiceTest.swift
   ${clipboard_monitor_sources} BackendClipboardService.swift)

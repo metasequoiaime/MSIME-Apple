@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Metasequoia IME (Preview)";
+"CFBundleName" = "Metasequoia IME (Preview)";
+"app.msime.client.preview.inputmethod" = "Metasequoia IME (Preview)";
+"app.msime.client.preview.inputmethod.Hans" = "Metasequoia IME (Preview)";
+"NSMicrophoneUsageDescription" = "Record speech only when voice input is started, to transcribe and insert your words.";
