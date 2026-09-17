@@ -7,6 +7,7 @@
 #include <fcitx/addonmanager.h>
 #include <fcitx/action.h>
 #include <fcitx/statusarea.h>
+#include <fcitx/menu.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputcontextmanager.h>
@@ -40,6 +41,7 @@
 namespace msime::fcitx_host {
 using Json = nlohmann::json;
 class FcitxEngine;
+class FcitxMaintenanceAction;
 
 // ABI buffers and errors never escape into diagnostics or the panel.
 Json response(char *raw) {
@@ -136,6 +138,7 @@ public:
     }
     return false;
   }
+  void maintenance(int operation);
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
@@ -415,6 +418,23 @@ private:
   Mode mode_;
 };
 
+class FcitxMaintenanceAction : public fcitx::SimpleAction {
+public:
+  FcitxMaintenanceAction(fcitx::FactoryFor<FcitxState> *factory, int operation,
+                         const char *text)
+      : factory_(factory), operation_(operation) {
+    setShortText(text);
+    setLongText(text);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->maintenance(operation_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  int operation_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -422,6 +442,16 @@ public:
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
+    maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
+    maintenance_action_.setMenu(&maintenance_menu_);
+    maintenance_menu_.addAction(&pin_action_);
+    maintenance_menu_.addAction(&remove_action_);
+    maintenance_menu_.addAction(&fix1_action_);
+    maintenance_menu_.addAction(&fix2_action_);
+    maintenance_menu_.addAction(&fix3_action_);
+    maintenance_menu_.addAction(&fix4_action_);
+    maintenance_menu_.addAction(&fix5_action_);
+    maintenance_menu_.addAction(&clear_action_);
     capability_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCapabilityChanged,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
@@ -451,12 +481,14 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
+    event.inputContext()->statusArea().removeAction(&maintenance_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -482,6 +514,16 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
+  fcitx::Menu maintenance_menu_;
+  FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
+  FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
+  FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
+  FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
+  FcitxMaintenanceAction fix2_action_{&factory_, 12, "固定到 2"};
+  FcitxMaintenanceAction fix3_action_{&factory_, 13, "固定到 3"};
+  FcitxMaintenanceAction fix4_action_{&factory_, 14, "固定到 4"};
+  FcitxMaintenanceAction fix5_action_{&factory_, 15, "固定到 5"};
+  FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
 };
 
 void FcitxState::render() {
@@ -504,6 +546,29 @@ void FcitxState::render() {
   }
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+void FcitxState::maintenance(int operation) {
+  if (!ensure() || view_.value("candidates", Json::array()).empty()) return;
+  for (const auto &candidate : view_.at("candidates")) {
+    if (!candidate.value("highlighted", false)) continue;
+    const auto &id = candidate.at("id");
+    const auto generation = id.at("generation").get<uint64_t>();
+    const auto index = id.at("index").get<size_t>();
+    char *raw = nullptr;
+    if (operation == 1) raw = msime_client_pin_candidate(session_, generation, index);
+    else if (operation == 2 && msime::linux_host::candidate_dictionary_removal_available(
+                 view_.value("scheme", 0u), candidate.value("source", 0u),
+                 candidate.value("text", std::string{})))
+      raw = msime_client_remove_candidate(session_, generation, index);
+    else if (operation >= 11 && operation <= 15)
+      raw = msime_client_fix_candidate_position(session_, generation, index,
+                                                 static_cast<uint8_t>(operation - 10));
+    else if (operation == 20)
+      raw = msime_client_clear_candidate_position(session_, generation, index);
+    if (raw) apply(raw);
+    return;
+  }
 }
 
 bool FcitxState::key(fcitx::KeyEvent &event) {

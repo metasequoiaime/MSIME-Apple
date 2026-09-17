@@ -71,8 +71,10 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 2,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 3,
             "native status actions attached");
+    require(engine.maintenance_menu_.actions().size() == 8,
+            "candidate maintenance menu attached");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     engine.english_action_.activate(&ic);
     require(engine.english_action_.isChecked(&ic), "status action enables English candidates");
