@@ -8,6 +8,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <cstring>
+#include <poll.h>
 
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
@@ -24,7 +25,10 @@ public:
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 int main(int argc, char **argv) {
   try {
-    require(argc == 2, "usage: fcitx5-native-test <verified-resources>");
+    require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
+            "usage: fcitx5-native-test <verified-resources> [--ai]");
+    const bool ai = argc == 3;
+    const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
     const auto *directory = mkdtemp(temporary);
     require(directory != nullptr, "fixture directory");
@@ -33,6 +37,12 @@ int main(int argc, char **argv) {
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
+    options["preferences"]["cloud_candidates"] = !ai;
+    options["preferences"]["ai_assistant"]["enabled"] = ai;
+    options["preferences"]["ai_assistant"]["candidate_limit"] = 1;
+    options["preferences"]["ai_assistant"]["endpoint"] = "https://synthetic.invalid/v1/chat/completions";
+    options["preferences"]["ai_assistant"]["model"] = "synthetic";
+    options["preferences"]["ai_assistant"]["token"] = "synthetic-token";
     const auto socketPath = std::string(directory) + "/online.sock";
     const int providerServer = socket(AF_UNIX, SOCK_STREAM, 0);
     require(providerServer >= 0, "online provider socket");
@@ -46,17 +56,33 @@ int main(int argc, char **argv) {
     options["online_provider_socket"] = socketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
-    std::thread provider([providerServer] {
-      const int client = accept(providerServer, nullptr, nullptr);
-      require(client >= 0, "online provider accept");
-      char request[16384]{};
-      require(read(client, request, sizeof(request) - 1) > 0, "online provider query");
-      const std::string reply = "{\"text\":\"在线\",\"source\":0}\n";
-      require(write(client, reply.data(), reply.size()) == static_cast<ssize_t>(reply.size()),
-              "online provider reply");
-      close(client);
+    std::thread provider([providerServer, ai, suggestion] {
+      const auto reply = Json{{"text", suggestion}, {"source", ai ? 1 : 0}}.dump() + "\n";
+      for (int attempt = 0; attempt < 1; ++attempt) {
+        pollfd descriptor{providerServer, POLLIN, 0};
+        if (poll(&descriptor, 1, 7000) <= 0) break;
+        const int client = accept(providerServer, nullptr, nullptr);
+        if (client < 0) break;
+        std::string request;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (request.size() < 16384 && request.find('\n') == std::string::npos &&
+               std::chrono::steady_clock::now() < deadline) {
+          pollfd input{client, POLLIN, 0};
+          if (poll(&input, 1, 100) <= 0) continue;
+          char chunk[1024];
+          const auto count = read(client, chunk, sizeof(chunk));
+          if (count <= 0) break;
+          request.append(chunk, count);
+        }
+        if (request.find('\n') == std::string::npos ||
+            send(client, reply.data(), reply.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(reply.size())) {
+          close(client); break;
+        }
+        close(client);
+      }
       close(providerServer);
     });
+    struct ProviderJoiner { std::thread &thread; ~ProviderJoiner() { if (thread.joinable()) thread.join(); } } providerJoiner{provider};
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
     char disable[] = "--disable=all";
@@ -126,15 +152,24 @@ int main(int argc, char **argv) {
     ic.focusIn();
     engine.activate(entry, focus);
     require(state->session_ != 0, "focus in creates a fresh host session");
-    require(key(FcitxKey_n) && key(FcitxKey_i), "composition after refocus");
+    for (const auto sym : {FcitxKey_n, FcitxKey_i, FcitxKey_h, FcitxKey_a, FcitxKey_o,
+                           FcitxKey_j, FcitxKey_i, FcitxKey_e})
+      require(key(sym), "composition after refocus");
+    const auto onlineQuery = response(msime_client_online_query(state->session_));
+    if (ai) {
+      require(onlineQuery.value("ai_eligible", false), "AI query eligible");
+      require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
+      require(!onlineQuery.at("cloud_candidates").get<bool>(), "cloud disabled for AI-only test");
+    }
+    require(!state->online_socket_.empty(), "AI provider socket configured");
     const auto onlineDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (state->view_.at("candidates").dump().find("在线") == std::string::npos &&
+    while (response(msime_client_all_candidates(state->session_)).dump().find(suggestion) == std::string::npos &&
            std::chrono::steady_clock::now() < onlineDeadline) {
       state->refreshOnline();
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    require(state->view_.at("candidates").dump().find("在线") != std::string::npos,
-            "online provider candidate applied to Fcitx view");
+    require(response(msime_client_all_candidates(state->session_)).dump().find(suggestion) != std::string::npos,
+            "provider candidate applied to full candidate list");
     provider.join();
     auto page = ic.inputPanel().candidateList();
     require(page && page->layoutHint() == fcitx::CandidateLayoutHint::Vertical,
@@ -146,9 +181,23 @@ int main(int argc, char **argv) {
     const auto oldCommit = ic.committed;
     page->candidate(0).select(&ic);
     require(ic.committed == oldCommit, "stale page must not commit");
-    page = ic.inputPanel().candidateList();
-    page->candidate(0).select(&ic);
-    require(!ic.committed.empty(), "native candidate selection");
+    require(key(FcitxKey_Page_Up), "return to first page");
+    bool selected = false;
+    for (int pages = 0; pages < 100 && !selected; ++pages) {
+      page = ic.inputPanel().candidateList();
+      for (int i = 0; i < page->size(); ++i) {
+        if (page->candidate(i).text().toString() == suggestion) {
+          page->candidate(i).select(&ic);
+          selected = true;
+          break;
+        }
+      }
+      if (!selected) {
+        require(page->toPageable()->hasNext(), "provider candidate reachable by paging");
+        require(key(FcitxKey_Page_Down), "page to provider candidate");
+      }
+    }
+    require(selected && ic.committed == oldCommit + suggestion, "exact provider candidate commit");
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     const auto beforeWordCharacter = ic.committed;
     require(key(FcitxKey_bracketleft), "configured word-to-character binding");
