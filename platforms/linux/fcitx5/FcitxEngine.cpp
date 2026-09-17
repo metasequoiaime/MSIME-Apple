@@ -2600,7 +2600,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const auto &key = event.key();
   const auto sym = key.sym();
   const auto states = key.states();
-  if (sym == FcitxKey_Alt_R && voice_hotkey_ralt_ && voice_enabled_ &&
+  if (sym == FcitxKey_Alt_R && voice_hotkey_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
       !restricted() && !privateInput() && ic_.hasFocus()) {
