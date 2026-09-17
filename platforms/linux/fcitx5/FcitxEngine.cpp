@@ -298,6 +298,24 @@ public:
     render();
     return true;
   }
+  bool toggleHelpcode() {
+    if (!session_ || (view_.value("scheme", 0u) != 0 && view_.value("scheme", 0u) != 1))
+      return false;
+    const std::string section = view_.value("scheme", 0u) == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    const bool enabled = !preferences_.value(section, Json::object()).value("enabled", true);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"][section]["enabled"] = enabled;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedBooleanPreference(section.c_str(), "enabled", enabled);
+    render();
+    return true;
+  }
   bool toggleWidth() {
     if (!session_) return false;
     const auto width = view_.value("character_width", std::string("Halfwidth"));
@@ -1333,6 +1351,37 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxHelpcodeAction : public fcitx::Action {
+public:
+  explicit FcitxHelpcodeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "辅助码"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    if (!state->session_) return false;
+    const auto scheme = state->view_.value("scheme", 0u);
+    if (scheme != 0 && scheme != 1) return false;
+    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    return state->preferences_.value(section, Json::object()).value("enabled", true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure() && state->toggleHelpcode()) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxPunctuationAction : public fcitx::Action {
 public:
   enum class Mode { Chinese, Paired };
@@ -1804,6 +1853,7 @@ public:
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
+    helpcode_action_.registerAction("msime-helpcode", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
@@ -1894,6 +1944,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
@@ -1916,6 +1967,7 @@ public:
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
+    event.inputContext()->statusArea().removeAction(&helpcode_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
@@ -1957,6 +2009,7 @@ public:
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   FcitxNineKeyAction nine_key_action_{&factory_};
+  FcitxHelpcodeAction helpcode_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
