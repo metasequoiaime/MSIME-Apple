@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <cstring>
 #include <poll.h>
 
@@ -171,12 +172,29 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 8,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 9,
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
     require(engine.clipboard_menu_.actions().size() == 5,
             "clipboard history menu attached");
+    require(engine.desktop_tools_menu_.actions().size() == 9,
+            "desktop tools menu attached");
+    const auto routeScript = std::string(directory) + "/route-helper.sh";
+    const auto routeOutput = std::string(directory) + "/route-output";
+    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" > \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
+    require(chmod(routeScript.c_str(), 0700) == 0, "desktop route helper permissions");
+    setenv("MSIME_CLIENT_SETTINGS_COMMAND", routeScript.c_str(), 1);
+    setenv("MSIME_TEST_ROUTE_OUTPUT", routeOutput.c_str(), 1);
+    engine.handwriting_action_.activate(&ic);
+    const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!std::filesystem::exists(routeOutput) && std::chrono::steady_clock::now() < routeDeadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    require(std::filesystem::exists(routeOutput), "desktop route helper launched");
+    std::ifstream routeFile(routeOutput);
+    std::string route;
+    std::getline(routeFile, route);
+    require(route == "handwriting", "desktop route environment propagated");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);

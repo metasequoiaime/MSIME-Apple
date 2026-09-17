@@ -30,6 +30,9 @@
 #include <stdexcept>
 #include <future>
 #include <chrono>
+#include <spawn.h>
+#include <vector>
+#include <cstring>
 #if __has_include(<fcitx/candidateaction.h>)
 #include <fcitx/candidateaction.h>
 #define MSIME_FCITX_ACTIONS 1
@@ -38,6 +41,8 @@
 #ifndef MSIME_SYSTEM_OPTIONS
 #define MSIME_SYSTEM_OPTIONS "/etc/msime-client/runtime-options.json"
 #endif
+
+extern char **environ;
 
 namespace msime::fcitx_host {
 using Json = nlohmann::json;
@@ -88,6 +93,35 @@ std::string onlineSocket(const Json &options) {
     if (std::filesystem::is_socket(candidate, error)) return candidate.string();
   }
   return {};
+}
+
+bool launchDesktopPanel(const char *panel) {
+  if (!panel || !*panel) return false;
+  const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
+  if (!command || !*command) command = "msime-client-settings";
+  const bool about = std::strcmp(panel, "about") == 0;
+  const std::string route = about ? "settings:about" : panel;
+  const std::string panelValue = about ? "settings" : panel;
+  std::vector<std::string> environment;
+  for (char **entry = ::environ; entry && *entry; ++entry) {
+    const std::string value(*entry);
+    if (value.rfind("MSIME_CLIENT_PANEL=", 0) == 0 ||
+        value.rfind("MSIME_CLIENT_ROUTE=", 0) == 0 ||
+        value.rfind("MSIME_CLIENT_SETTINGS_PAGE=", 0) == 0)
+      continue;
+    environment.push_back(value);
+  }
+  environment.push_back("MSIME_CLIENT_PANEL=" + panelValue);
+  environment.push_back("MSIME_CLIENT_ROUTE=" + route);
+  if (about) environment.push_back("MSIME_CLIENT_SETTINGS_PAGE=about");
+  std::vector<char *> environmentPointers;
+  environmentPointers.reserve(environment.size() + 1);
+  for (auto &value : environment) environmentPointers.push_back(value.data());
+  environmentPointers.push_back(nullptr);
+  char *arguments[] = {const_cast<char *>(command), nullptr};
+  pid_t child = 0;
+  return posix_spawnp(&child, command, nullptr, nullptr, arguments,
+                      environmentPointers.data()) == 0;
 }
 
 class FcitxState : public fcitx::InputContextProperty {
@@ -805,6 +839,37 @@ private:
   int operation_;
 };
 
+class FcitxDesktopPanelAction : public fcitx::SimpleAction {
+public:
+  FcitxDesktopPanelAction(fcitx::FactoryFor<FcitxState> *factory,
+                          const char *panel, const char *text)
+      : panel_(panel), factory_(factory) {
+    setShortText(text);
+    setLongText(text);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (!state || state->restricted() || state->privateInput() || !state->ensure()) return;
+      launchDesktopPanel(panel_);
+    } catch (...) {}
+  }
+private:
+  const char *panel_;
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxDesktopToolsAction : public fcitx::SimpleAction {
+public:
+  FcitxDesktopToolsAction() {
+    setShortText("桌面工具");
+    setLongText("打开手写、Emoji、剪贴板和设置等桌面工具");
+  }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  void activate(fcitx::InputContext *) override {}
+};
+
 class FcitxClipboardAction : public fcitx::SimpleAction {
 public:
   explicit FcitxClipboardAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -925,6 +990,7 @@ public:
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
+    desktop_tools_action_.registerAction("msime-desktop-tools", &instance->userInterfaceManager());
     traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
@@ -932,6 +998,16 @@ public:
     clipboard_menu_.addAction(&clipboard_item3_);
     clipboard_menu_.addAction(&clipboard_item4_);
     clipboard_menu_.addAction(&clipboard_item5_);
+    desktop_tools_action_.setMenu(&desktop_tools_menu_);
+    desktop_tools_menu_.addAction(&handwriting_action_);
+    desktop_tools_menu_.addAction(&keyboard_action_);
+    desktop_tools_menu_.addAction(&desktop_emoji_action_);
+    desktop_tools_menu_.addAction(&desktop_clipboard_action_);
+    desktop_tools_menu_.addAction(&desktop_voice_action_);
+    desktop_tools_menu_.addAction(&cloud_dictionary_action_);
+    desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
+    desktop_tools_menu_.addAction(&settings_action_);
+    desktop_tools_menu_.addAction(&about_action_);
     maintenance_action_.setMenu(&maintenance_menu_);
     maintenance_menu_.addAction(&pin_action_);
     maintenance_menu_.addAction(&remove_action_);
@@ -975,6 +1051,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
@@ -987,6 +1064,7 @@ public:
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
+    event.inputContext()->statusArea().removeAction(&desktop_tools_action_);
     event.inputContext()->statusArea().removeAction(&traditional_action_);
     state->close(); state->clearPanel();
   }
@@ -1019,6 +1097,7 @@ public:
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
   FcitxVoiceAction voice_action_{&factory_};
+  FcitxDesktopToolsAction desktop_tools_action_;
   FcitxTraditionalAction traditional_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
@@ -1034,6 +1113,16 @@ public:
   FcitxMaintenanceAction fix4_action_{&factory_, 14, "固定到 4"};
   FcitxMaintenanceAction fix5_action_{&factory_, 15, "固定到 5"};
   FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
+  fcitx::Menu desktop_tools_menu_;
+  FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", "手写识别板"};
+  FcitxDesktopPanelAction keyboard_action_{&factory_, "keyboard", "屏幕键盘"};
+  FcitxDesktopPanelAction desktop_emoji_action_{&factory_, "emoji", "表情与符号"};
+  FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", "本地剪贴板"};
+  FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", "语音面板"};
+  FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词典"};
+  FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
+  FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置"};
+  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
 };
 
 void FcitxState::render() {
