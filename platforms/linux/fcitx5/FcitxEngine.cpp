@@ -2687,8 +2687,15 @@ void FcitxState::render() {
   if (!view_.at("candidates").empty()) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
-    ic_.inputPanel().setAuxDown(fcitx::Text(std::to_string(view_.at("page").get<int>() + 1) +
-        "/" + std::to_string(view_.at("page_count").get<int>())));
+    std::string aux = std::to_string(view_.at("page").get<int>() + 1) +
+        "/" + std::to_string(view_.at("page_count").get<int>());
+    const auto mode = view_.value("local_mode", std::string("none"));
+    const auto modeLabel = mode == "unicode" ? "U+" : mode == "date_time" ? "日期时间" :
+        mode == "phrase" ? "短语" : mode == "emoji" ? "Emoji" :
+        mode == "kaomoji" ? "颜文字" : mode == "abbreviation" ? "简拼" :
+        mode == "english" ? "EN" : mode == "japanese" ? "日文" : "";
+    if (*modeLabel) aux += " · " + std::string(modeLabel);
+    ic_.inputPanel().setAuxDown(fcitx::Text(aux));
   }
   if (emoji_search_mode_)
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
