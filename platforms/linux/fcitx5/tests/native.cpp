@@ -70,8 +70,30 @@ int main(int argc, char **argv) {
     require(ic.committed == beforePunctuation + "，", "Unicode scalar cursor context");
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
+    require(state->session_ == 0, "password capability immediately closes session");
+    require(ic.inputPanel().clientPreedit().empty(), "password immediately clears preedit");
     require(!key(FcitxKey_i) && state->session_ == 0, "password context closes session");
     require(ic.inputPanel().clientPreedit().empty(), "password clears preedit");
+    ic.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
+    require(key(FcitxKey_n), "normal input resumes after restricted context");
+    ic.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
+                                               fcitx::CapabilityFlag::Sensitive});
+    require(state->session_ == 0, "privacy transition closes old session immediately");
+    require(ic.inputPanel().clientPreedit().empty(), "privacy transition clears previous composition");
+    require(key(FcitxKey_n), "private context can compose");
+    require(!state->preferences_.at("learning").get<bool>() &&
+            !state->preferences_.at("cloud_candidates").get<bool>() &&
+            !state->preferences_.at("ai_assistant").at("enabled").get<bool>(),
+            "private context disables learning and remote candidates");
+    ic.setCapabilityFlags(fcitx::CapabilityFlag::NoFlag);
+    require(state->session_ == 0, "leaving private context invalidates session");
+    require(key(FcitxKey_n), "panel preedit composition");
+    require(ic.inputPanel().preedit().toString() == "n", "server preedit without client support");
+    ic.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
+    require(ic.inputPanel().preedit().empty() &&
+            ic.inputPanel().clientPreedit().toString() == "n", "capability moves active preedit to client");
+    state->close();
+    state->clearPanel();
     std::filesystem::remove_all(directory);
     std::cout << "Fcitx5 native context tests passed\n";
   } catch (const std::exception &error) {

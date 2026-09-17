@@ -352,6 +352,21 @@ class FcitxEngine : public fcitx::InputMethodEngine {
 public:
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
+    capability_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextCapabilityChanged,
+        fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
+          auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          auto *state = ic->propertyFor(&factory_);
+          // Never activate MSIME or clear another input method's panel here.
+          if (!state->session_) return;
+          if (state->restricted() || state->private_ != state->privateInput()) {
+            state->close();
+            state->clearPanel();
+          } else {
+            // Client-side preedit support may also change while composing.
+            try { state->render(); } catch (...) { unavailable(*state); }
+          }
+        });
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -380,6 +395,7 @@ public:
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
 };
 
 void FcitxState::render() {
