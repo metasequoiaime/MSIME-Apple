@@ -15,8 +15,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(300))
         .build()?;
+    // Engine-sourced artifacts come from the pinned checkout rather than the dictionary release.
+    // fetch_engine.py has already verified that tree against engine-lock.json, and install()
+    // checks this artifact's own SHA-256 either way.
+    let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/MSIME-Engine");
     let destination = ResourceStore::new(root).install(&specification, |artifact| {
         eprintln!("Verifying {}", artifact.name);
+        if !artifact.engine_path.is_empty() {
+            let path = engine.join(&artifact.engine_path);
+            let file = std::fs::File::open(&path).map_err(|error| {
+                std::io::Error::other(format!(
+                    "{}: {error}; run scripts/fetch_engine.py first",
+                    path.display()
+                ))
+            })?;
+            return Ok(Box::new(file) as Box<dyn Read>);
+        }
         let response = client
             .get(&artifact.url)
             .send()
