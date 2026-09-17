@@ -12,16 +12,16 @@
     "3": {
       "cases": 365,
       "found": 0.995,
-      "mrr": 0.952,
+      "mrr": 0.951,
       "top1": 0.926,
-      "top1_char_prefix": 0.955,
+      "top1_char_prefix": 0.954,
       "top5": 0.989,
       "top9": 0.992
     },
     "4": {
       "cases": 556,
       "found": 0.968,
-      "mrr": 0.935,
+      "mrr": 0.93,
       "top1": 0.905,
       "top1_char_prefix": 0.938,
       "top5": 0.968,
@@ -30,9 +30,9 @@
     "5": {
       "cases": 10,
       "found": 0.7,
-      "mrr": 0.5,
-      "top1": 0.3,
-      "top1_char_prefix": 0.68,
+      "mrr": 0.417,
+      "top1": 0.2,
+      "top1_char_prefix": 0.56,
       "top5": 0.7,
       "top9": 0.7
     }
@@ -45,9 +45,9 @@
   "overall": {
     "cases": 2791,
     "found": 0.991,
-    "mrr": 0.846,
-    "top1": 0.767,
-    "top1_char_prefix": 0.81,
+    "mrr": 0.845,
+    "top1": 0.766,
+    "top1_char_prefix": 0.809,
     "top5": 0.945,
     "top9": 0.97
   },
@@ -334,7 +334,8 @@
     }
   ],
   "top1_source": {
-    "database": 2732,
-    "generated": 59
+    "database": 2730,
+    "fallback": 58,
+    "generated": 3
   }
 }
