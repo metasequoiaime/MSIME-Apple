@@ -515,6 +515,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_CANCEL);
     return false;
   }
+  // CapsLock uppercase letters belong to the editor when a new composition
+  // has not started, matching the Windows and IBus host routers.
+  if (states.test(fcitx::KeyState::CapsLock) && !shift &&
+      sym >= FcitxKey_A && sym <= FcitxKey_Z &&
+      view_.value("editing_text", std::string{}).empty() &&
+      view_.value("candidates", Json::array()).empty())
+    return false;
   if (composing) {
     const bool japanese = view_.value("scheme", 0u) == 3;
     if (!shift && !view_.at("candidates").empty()) {

@@ -140,6 +140,14 @@ int main(int argc, char **argv) {
             ic.inputPanel().clientPreedit().toString() == "n", "capability moves active preedit to client");
     state->close();
     state->clearPanel();
+    auto capsEvent = fcitx::KeyEvent(&ic,
+        fcitx::Key(FcitxKey_A, fcitx::KeyStates{fcitx::KeyState::CapsLock}));
+    engine.keyEvent(entry, capsEvent);
+    require(!capsEvent.accepted(), "CapsLock uppercase passes through idle editor");
+    require(state->view_.value("editing_text", std::string{}).empty(),
+            "CapsLock does not begin composition");
+    state->close();
+    state->clearPanel();
     options["preferences"]["scheme"] = "japanese";
     std::ofstream(path) << options.dump();
     require(key(FcitxKey_k) && key(FcitxKey_o), "Japanese romaji composition");
