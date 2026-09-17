@@ -35,7 +35,8 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
-use std::sync::{Arc, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 // Only the Unix socket streaming entry point takes raw callback context.
 #[cfg(unix)]
 use std::ffi::c_void;
@@ -391,6 +392,10 @@ struct HostOptions {
     cloud_clipboard_provider_socket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     voice_provider_socket: Option<String>,
+    /// Absolute path to the candidate reranking model, when it is installed as its own artifact
+    /// rather than placed beside the dictionaries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sentence_model: Option<String>,
 }
 
 impl HostOptions {
@@ -484,6 +489,9 @@ pub fn prepare_host_configuration(
         cloud_dictionary_provider_socket: None,
         cloud_clipboard_provider_socket: None,
         voice_provider_socket: None,
+        // Written only when a model has actually been installed as its own artifact; a host that
+        // places one beside the dictionaries needs no configuration.
+        sentence_model: None,
     })?)
 }
 
@@ -1352,28 +1360,42 @@ pub unsafe extern "C" fn msime_client_save_preferences(
 /// The file name the reranking model is published under inside the resource set.
 const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
 
-/// The candidate reranking model, loaded once and shared by every session.
+/// The candidate reranking model, loaded once per path and shared by every session using it.
 ///
-/// It ships next to the dictionaries because it is the same kind of artifact: large, versioned with
-/// the resource set, and absent on installations that have not downloaded it. Absence is the normal
-/// case for a host that ships no model, so it is not an error and leaves behaviour unchanged.
-fn sentence_model(dictionaries: &str) -> Option<Arc<SentenceModel>> {
-    static MODEL: OnceLock<Option<Arc<SentenceModel>>> = OnceLock::new();
-    MODEL
-        .get_or_init(|| {
-            let path = std::path::Path::new(dictionaries).join(SENTENCE_MODEL_FILE);
-            let bytes = std::fs::read(&path).ok()?;
-            match SentenceModel::load(&bytes) {
-                Ok(model) => Some(Arc::new(model)),
-                Err(error) => {
-                    // A corrupt or mismatched model is worth saying out loud: the input method keeps
-                    // working without it, so nothing else would ever reveal that it is not running.
-                    eprintln!("msime: ignoring {}: {error}", path.display());
-                    None
-                }
+/// The path is separate from the dictionaries because the two artifacts change on entirely
+/// different schedules. A resource set is identified by a hash over all of its artifacts, so adding
+/// a seven megabyte model to the dictionary lock would make every model revision re-download the
+/// hundred and eighty five megabytes of dictionaries alongside it. Hosts that have not adopted a
+/// separate model artifact still find one placed next to the dictionaries.
+///
+/// Absence is the normal case for an installation that ships no model, so it is not an error and
+/// leaves behaviour exactly as it was.
+fn sentence_model(dictionaries: &str, configured: Option<&str>) -> Option<Arc<SentenceModel>> {
+    static MODELS: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<SentenceModel>>>>> = OnceLock::new();
+    let path = match configured {
+        Some(path) => PathBuf::from(path),
+        None => Path::new(dictionaries).join(SENTENCE_MODEL_FILE),
+    };
+    let cache = MODELS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().ok()?;
+    // Keyed by path: two sessions may legitimately be pointed at different models, and a cache that
+    // remembered only the first would silently serve one of them the other's weights.
+    if let Some(cached) = cache.get(&path) {
+        return cached.clone();
+    }
+    let loaded = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| match SentenceModel::load(&bytes) {
+            Ok(model) => Some(Arc::new(model)),
+            Err(error) => {
+                // A corrupt or mismatched model is worth saying out loud: the input method keeps
+                // working without it, so nothing else would ever reveal that it is not running.
+                eprintln!("msime: ignoring {}: {error}", path.display());
+                None
             }
-        })
-        .clone()
+        });
+    cache.insert(path, loaded.clone());
+    loaded
 }
 
 /// # Safety
@@ -1394,6 +1416,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
+        // Taken before the options are consumed, and kept separate from the engine's own paths.
+        let sentence_model_path = options.sentence_model.clone();
         let options = options.into_engine_options();
         let dictionary_access = DictionaryAccess::try_session(
             std::path::Path::new(&options.user_data),
@@ -1422,7 +1446,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let mut runtime =
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
-        runtime.set_reranker(sentence_model(&options.dictionaries).map(Reranker::new));
+        runtime.set_reranker(
+            sentence_model(&options.dictionaries, sentence_model_path.as_deref())
+                .map(Reranker::new),
+        );
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
         SESSIONS.with(|sessions| {

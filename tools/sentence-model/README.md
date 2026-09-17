@@ -62,9 +62,19 @@ Plain safetensors. The configuration, the vocabulary and the corpus attribution 
 
 Embeddings are tied, and `head.weight` is therefore absent from the file; a loader reuses `tok.weight`. Under `--precision int8`, two-dimensional weights are quantized symmetrically per output row and accompanied by a `<name>.scale` float32 tensor; norm parameters, biases and the positional table stay in float32.
 
+## Shipping it
+
+The model is installed and verified exactly like a dictionary: by name, length and SHA-256, out of a reviewed resource lock. `export.py` prints the lock entry it needs, so publishing a model means adding that entry rather than copying a file into place.
+
+It belongs in its own lock rather than in `resources/desktop-dictionary.lock.json`. A resource set is identified by a hash over all of its artifacts, so putting a seven megabyte model beside the dictionaries would make every model revision re-download the hundred and eighty five megabytes of dictionaries with it — and the model is expected to change far more often than they do.
+
+Hosts point at it with the optional `sentence_model` path in their options. When that is absent the host looks for `sentence-model.safetensors` beside the dictionaries, which is what makes a hand-placed file work for local testing.
+
 ## Corpora and licensing
 
 - Chinese Wikipedia article dumps — CC BY-SA 4.0
 - LCCC — MIT
+- The Chinese portion of C4 — ODC-BY
+- Chinese documentation from Kubernetes (CC BY 4.0), MDN (CC BY-SA 2.5) and TensorFlow (Apache-2.0)
 
-Both permit redistributing a model trained on them, and both require the attribution to travel with it. `export.py` writes it into the `attribution` metadata field of the weights file rather than into a document beside it, so it cannot be separated from the weights.
+All permit redistributing a model trained on them, and all require the attribution to travel with it. `export.py` writes it into the `attribution` metadata field of the weights file rather than into a document beside it, so it cannot be separated from the weights.
