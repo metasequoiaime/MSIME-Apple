@@ -96,6 +96,10 @@ def main():
                 assert commits == ["你好"], "Unexpected committed result"
                 context.FocusOut()
                 context.DestroyIC()
+                if os.environ.get("MSIME_TEST_GTK") == "1":
+                    subprocess.run([sys.executable, str(source / "tests" / "gtk_editor.py")],
+                                   env=dict(env, GTK_IM_MODULE="fcitx", GDK_BACKEND="x11"),
+                                   check=True, timeout=30)
                 control.Exit()
                 assert daemon.wait(timeout=10) == 0, "Daemon failed on shutdown"
             finally:

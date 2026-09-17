@@ -39,6 +39,17 @@ if(BUILD_TESTING)
           "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"
           "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
           "$<TARGET_FILE:msime-fcitx5>")
+      find_program(XVFB_RUN xvfb-run)
+      find_program(XDOTOOL xdotool)
+      if(XVFB_RUN AND XDOTOOL)
+        add_test(NAME fcitx5-gtk-editor
+          COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_GTK=1
+            "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"
+            "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+            "$<TARGET_FILE:msime-fcitx5>")
+        set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+      endif()
     endif()
   endif()
 endif()
