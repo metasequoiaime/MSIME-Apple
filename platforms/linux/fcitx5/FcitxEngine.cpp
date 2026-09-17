@@ -2651,7 +2651,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
       states.test(fcitx::KeyState::Super) &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Hyper}) &&
-      ic_.hasFocus() && !restricted() && !privateInput())
+      ic_.hasFocus() && !restricted() && !privateInput() && ensure())
     return launchDesktopPanel("keyboard");
   if (voice_hotkey_rctrl_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       (rightControlKey || rightAltKey) &&
