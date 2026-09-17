@@ -1185,8 +1185,12 @@ int wmain(int argc, wchar_t **argv) {
     uint64_t tray_shown_at = 0;
     uint64_t pointer_left_at = 0;
     HWND tray_foreground = nullptr;
-    std::cout
-        << "Preview Server running; candidate selection and mode controls enabled.\n";
+    // Keep the operator-facing status truthful in both launch modes. The
+    // managed Server uses the production TSF pipe, while the preview binary
+    // uses an isolated endpoint; conflating them makes support logs suggest
+    // that a preview instance is serving the installed input method.
+    std::cout << (production ? "Production" : "Preview")
+              << " Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !mode_clicks.failed() &&
