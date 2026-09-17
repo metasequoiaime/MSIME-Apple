@@ -1053,7 +1053,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
             body = (PROJECT_ROOT / ".github/workflows" / workflow).read_text()
             self.assertIn("run: python3 scripts/fetch_engine.py", body)
         # The lock is rewritten by a script rather than by hand, so a bump moves the submodule pins with the Engine instead of leaving them on the previous commit.
-        self.assertIn("python3 scripts/relock_engine.py", (PROJECT_ROOT / ".github/workflows/engine-update.yml").read_text())
+        engine_update = (PROJECT_ROOT / ".github/workflows/engine-update.yml").read_text()
+        self.assertIn("python3 scripts/relock_engine.py", engine_update)
+        # 开 PR 那一步不能只靠 GITHUB_TOKEN:组织关着「Allow GitHub Actions to create and approve pull requests」,gh pr create 会被拒,而分支已经推上去了 —— 引擎更新于是静悄悄地停住,不翻 Actions 根本看不见。和 release-please 用同一个凭据,回退保留给没配这个 secret 的分叉。
+        self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", engine_update)
 
     def engine_submodule_paths(self):
         """The Engine's own submodules, read from the .gitmodules its archive ships."""
