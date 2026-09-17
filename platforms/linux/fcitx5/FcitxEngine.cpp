@@ -267,6 +267,8 @@ public:
     voice_enabled_ = true;
     voice_hotkey_ctrl_f9_ = true;
     voice_hotkey_ralt_ = true;
+    voice_ralt_held_ = false;
+    voice_f9_held_ = false;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -1337,6 +1339,8 @@ public:
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
   bool voice_hotkey_ralt_ = true;
+  bool voice_ralt_held_ = false;
+  bool voice_f9_held_ = false;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -2600,16 +2604,26 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const auto &key = event.key();
   const auto sym = key.sym();
   const auto states = key.states();
+  // An accepted stroke owns its repeats and release, even if modifiers or
+  // preferences change while held. Unmatched releases must not stop voice.
+  if (sym == FcitxKey_F9 && voice_f9_held_) {
+    if (event.isRelease()) voice_f9_held_ = false;
+    return true;
+  }
+  if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
+    if (event.isRelease()) {
+      voice_ralt_held_ = false;
+      if (voice_loading_) stopVoice();
+    }
+    return true;
+  }
+  if (event.isRelease()) return false;
   if (sym == FcitxKey_Alt_R && voice_hotkey_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
       !restricted() && !privateInput() && ic_.hasFocus()) {
-    if (event.isRelease()) {
-      if (voice_loading_) stopVoice();
-      return true;
-    }
-    if (voice_loading_) return true;
-    requestVoice();
+    if (!voice_loading_ && !requestVoice()) return false;
+    voice_ralt_held_ = true;
     return true;
   }
   if (event.isRelease() || key.isModifier()) return false;
@@ -2619,10 +2633,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const bool shift = states.test(fcitx::KeyState::Shift);
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
-      voice_hotkey_ctrl_f9_ && voice_enabled_ && !restricted() && !privateInput() &&
+      voice_hotkey_ctrl_f9_ && voice_enabled_ && !voice_socket_.empty() && !restricted() && !privateInput() &&
       ic_.hasFocus()) {
-    if (voice_loading_) stopVoice();
-    else requestVoice();
+    if (voice_loading_) {
+      if (!stopVoice()) return false;
+    } else if (!requestVoice()) return false;
+    voice_f9_held_ = true;
     return true;
   }
   if (emoji_search_mode_) {
