@@ -131,6 +131,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
+  private var symbolPanel: KeyboardSymbolPanelView?
   private let punctuationStack = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
@@ -727,8 +728,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
-    // The tint below only reaches a template image, so the fallback has to be one too; otherwise
-    // the substitute icon ignores the skin accent the brand mark is supposed to carry.
     brand.brandImageView.image = Self.brandTemplate()
       ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate)
     brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
@@ -1061,9 +1060,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    // This key used to open a menu of sixteen marks: it covered the keyboard, had to be aimed at
-    // and dragged through, and gave one mark per press. It turns the keyboard into a symbol panel
-    // now, the way every other IME does.
     nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
       self?.showSymbolPanel()
     }
@@ -1686,7 +1682,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       defer { synchronizingPersonalDictionary = false }
       try store.synchronize(apply: { request in
         try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
-                                          requestID: request.id.uuidString)
+                                          requestID: request.id)
       }, page: { offset in
         let result = try session.personalEntries(atOffset: UInt(offset))
         guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {
@@ -2028,6 +2024,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     japaneseKeys?.applyLayout()
     actionRow?.isHidden = kana
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
+    japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
@@ -2598,8 +2595,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
-  /// index the engine's whole answer, not the nine on the strip, so they cannot go through the
-  /// visible-index overload.
+  /// index the engine's whole answer, not the visible strip, so they cannot use the visible index.
   func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
     guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
     return candidateMenuElements { [weak self] operation in
@@ -2878,21 +2874,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: picker)
   }
 
-  /// Covers the keyboard the way the Emoji browser does, rather than floating a menu over it.
+  /// Replace the keyboard with the categorized symbol surface, finishing any active composition
+  /// before direct local insertion can occur.
   private func showSymbolPanel() {
     closeKeyboardService()
     closeKeyboardPicker()
     playInputClick()
-    // A symbol is not a candidate for the pinyin in flight. Finish it first or the two reach the
-    // host in the wrong order — the same reason the Emoji browser does this.
     render(session.finishComposition())
-    let panel = KeyboardSymbolPanelView(
-      onInsert: { [weak self] symbol in
-        self?.playInputClick()
-        self?.insertOwnText(symbol, source: .local)
-      },
-      onDelete: { [weak self] in self?.deleteOwnBackward() },
-      onClose: { [weak self] in self?.closeKeyboardPicker() })
+    let panel = KeyboardSymbolPanelView(onInsert: { [weak self] symbol in
+      self?.playInputClick()
+      self?.insertOwnText(symbol, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
     panel.accessibilityViewIsModal = true
     panel.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(panel)

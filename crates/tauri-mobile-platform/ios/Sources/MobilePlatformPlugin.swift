@@ -480,6 +480,110 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let customKeyboardSkin: String?
 }
 
+private struct SaveKeyboardAIArgs: Decodable {
+  let enabled: Bool
+  let provider: String
+  let endpoint: String
+  let model: String
+  let prompt: String
+  let token: String
+}
+
+/// Compatibility storage for the native keyboard AI surface. The canonical
+/// settings document lives in Rust; this mirror exists because the extension
+/// cannot call into the Tauri WebView while it is active.
+private final class IOSKeyboardAIStore {
+  private static let group = "group.app.msime.ios"
+  private static let configurationKey = "keyboard.ai.configuration"
+  private static let keychainService = "app.msime.ios.keyboard-ai"
+  private static let providers: Set<String> = [
+    "everyAPI", "openAI", "anthropic", "gemini", "deepSeek", "qwen", "kimi",
+    "zhipu", "siliconFlow", "openRouter", "custom",
+  ]
+
+  private var defaults: UserDefaults {
+    UserDefaults(suiteName: Self.group) ?? .standard
+  }
+
+  private func keychainQuery(account: String? = nil) -> [String: Any] {
+    var query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrAccessGroup as String: Self.group,
+      kSecAttrService as String: Self.keychainService,
+    ]
+    if let account { query[kSecAttrAccount as String] = account }
+    return query
+  }
+
+  private func origin(for endpoint: String) throws -> String {
+    guard endpoint.utf8.count <= 2_048,
+          !endpoint.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
+          url.scheme?.lowercased() == "https",
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil else {
+      throw NSError(domain: "keyboard_ai", code: 1)
+    }
+    return "https://\(host.lowercased()):\(url.port ?? 443)"
+  }
+
+  private func bounded(_ value: String, maximum: Int, allowEmpty: Bool = true) -> Bool {
+    value.utf8.count <= maximum
+      && (allowEmpty || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      && !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+  }
+
+  func save(_ args: SaveKeyboardAIArgs) throws {
+    guard bounded(args.provider, maximum: 64), Self.providers.contains(args.provider),
+          bounded(args.endpoint, maximum: 2_048), bounded(args.model, maximum: 512),
+          bounded(args.prompt, maximum: 16 * 1_024), bounded(args.token, maximum: 16 * 1_024)
+    else { throw NSError(domain: "keyboard_ai", code: 2) }
+
+    guard args.enabled else {
+      defaults.removeObject(forKey: Self.configurationKey)
+      let status = SecItemDelete(keychainQuery() as CFDictionary)
+      guard status == errSecSuccess || status == errSecItemNotFound else {
+        throw NSError(domain: "keyboard_ai", code: 3)
+      }
+      return
+    }
+
+    guard !args.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !args.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !args.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !args.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw NSError(domain: "keyboard_ai", code: 4)
+    }
+    let account = try origin(for: args.endpoint)
+    let query = keychainQuery(account: account)
+    let attributes = [kSecValueData as String: Data(args.token.utf8)]
+    var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+    if status == errSecItemNotFound {
+      var item = query.merging(attributes) { _, new in new }
+      item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+      status = SecItemAdd(item as CFDictionary, nil)
+    }
+    guard status == errSecSuccess else { throw NSError(domain: "keyboard_ai", code: 5) }
+
+    let document: [String: Any] = [
+      "provider": args.provider,
+      "voiceProvider": "custom",
+      "voiceAppKey": "",
+      "voiceResourceID": "",
+      "doubaoEnableITN": true,
+      "doubaoEnablePunctuation": true,
+      "doubaoEnableDDC": false,
+      "doubaoBoostingTableID": "",
+      "endpoint": args.endpoint,
+      "model": args.model,
+      "prompt": args.prompt,
+    ]
+    let data = try JSONSerialization.data(withJSONObject: document, options: [])
+    guard data.count <= 32 * 1_024 else { throw NSError(domain: "keyboard_ai", code: 6) }
+    defaults.set(data, forKey: Self.configurationKey)
+  }
+}
+
 /// App Group adapter for preferences that the keyboard extension can change
 /// without opening the Tauri settings app. The keys and fallback behaviour are
 /// fixed to MSIME-Apple develop@81e79abec7b53e7243fb8cbe82a42a4dde1e528f.
@@ -728,6 +832,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
 final class MobilePlatformPlugin: Plugin {
   private let accountSession = AccountSessionKeychain()
   private let keyboardPreferences = IOSKeyboardPreferenceStore()
+  private let keyboardAI = IOSKeyboardAIStore()
   private let voiceHandoff = VoiceTextHandoffWriter()
   private let voiceTranscription = IOSVoiceTranscriptionService()
   private var appleSignIn: AppleSignInCoordinator?
@@ -970,6 +1075,16 @@ final class MobilePlatformPlugin: Plugin {
       invoke.reject("keyboard_preferences", code: "keyboard_preferences")
     }
   }
+  @objc public func saveKeyboardAI(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(SaveKeyboardAIArgs.self)
+      try keyboardAI.save(args)
+      invoke.resolve()
+    } catch {
+      invoke.reject("keyboard_ai", code: "keyboard_ai")
+    }
+  }
+
 
   @objc public func previewKeyboardHaptics(_ invoke: Invoke) {
     let args: PreviewKeyboardHapticsArgs

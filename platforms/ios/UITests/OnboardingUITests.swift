@@ -251,32 +251,6 @@ final class OnboardingUITests: XCTestCase {
     for _ in 0..<4 { if entry.isHittable { break }; app.swipeUp() }
   }
 
-  /// Bring `identifier` within reach, opening the full 键盘设置 page if it is not on the home one.
-  ///
-  /// The home page carries a few shortcuts of its own, so checking whether *some* settings link
-  /// exists says nothing about the one being looked for: 语音设置 and the rest live only behind
-  /// 键盘设置, and a scroll on the home page will never find them.
-  private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
-    func scrollToLink() -> Bool {
-      let link = app.buttons[identifier]
-      for _ in 0..<5 {
-        if link.isHittable { return true }
-        guard link.exists else { return false }
-        app.swipeUp()
-      }
-      return link.isHittable
-    }
-    if scrollToLink() { return }
-    // 按键, not 系统设置: the latter leaves for the iOS Settings app. This is the page whose title
-    // is 键盘设置 and where the links that are not on the home page live.
-    let entry = app.buttons["keyboardLayoutLink"]
-    for _ in 0..<5 { if entry.isHittable { break }; app.swipeUp() }
-    guard entry.isHittable else { return }
-    entry.tap()
-    _ = app.navigationBars["键盘设置"].waitForExistence(timeout: 5)
-    _ = scrollToLink()
-  }
-
   @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()

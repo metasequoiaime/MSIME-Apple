@@ -288,7 +288,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
     }
-    let selectedID = selected.sharedIdentifier
+    let selectedID = selected == .shuangpin ? "xiaohe" : selected.rawValue
     return updatePreferences { preferences in
       preferences["scheme"] = engineScheme
       if engineScheme != "japanese" {
@@ -299,7 +299,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       }
       preferences["touch_keyboard_layout"] = layout
       preferences["touch_keyboard_schemes"] = [
-        "enabled": enabled.map(\.sharedIdentifier),
+        "enabled": enabled.map { $0 == .shuangpin ? "xiaohe" : $0.rawValue },
         "selected": selectedID,
       ]
     }
@@ -483,6 +483,23 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The expanded panel lists every candidate the engine returned, not the nine on the strip, so
   /// its positions are not the visible indexes the overload above resolves. It carries the
   /// generation and global index the snapshot gave it, which is what the engine wanted all along.
+  func editCandidate(generation: UInt64, globalIndex: UInt64,
+                     action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
+    guard let indexValue = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    switch action {
+    case .promote:
+      return dispatch { msimeClientPinCandidate(handle, generation, indexValue) }
+    case .remove:
+      return dispatch { msimeClientRemoveCandidate(handle, generation, indexValue) }
+    case .fixFirst:
+      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, 1) }
+    case .clearPosition:
+      return dispatch { msimeClientClearCandidatePosition(handle, generation, indexValue) }
+    }
+  }
+
+  /// Edit a candidate identified directly by the generation and global index from an all-candidates
+  /// snapshot. The expanded panel lists the complete engine answer, not only the visible strip.
   func editCandidate(generation: UInt64, globalIndex: UInt64,
                      action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
     guard let indexValue = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }

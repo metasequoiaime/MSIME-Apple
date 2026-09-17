@@ -45,7 +45,9 @@ use msime_tauri_mobile_platform::AndroidVoicePlatform;
 #[cfg(any(target_os = "ios", test))]
 use msime_tauri_mobile_platform::IosVoiceRequestHeader;
 #[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::{IosVoiceTranscriptionRequest, MobilePlatform};
+use msime_tauri_mobile_platform::MobilePlatform;
+#[cfg(any(target_os = "ios", test))]
+use msime_tauri_mobile_platform::{IosKeyboardAiPreferences, IosVoiceTranscriptionRequest};
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
@@ -64,7 +66,7 @@ use std::fs;
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios"))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -75,6 +77,7 @@ use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+mod mobile_ai;
 mod skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 mod voice_output;
@@ -873,15 +876,32 @@ async fn load_preferences(
 async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     runtime: tauri::State<'_, RuntimeOptionsState>,
+    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
     expected_revision: u64,
     preferences: Preferences,
 ) -> Result<PreferencesSnapshot, CommandError> {
     let store = store.inner().clone();
     let runtime = runtime.inner().clone();
+    #[cfg(target_os = "ios")]
+    let platform = platform.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "ios")]
+        let previous = store.load().map_err(CommandError::from)?;
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
+        #[cfg(target_os = "ios")]
+        if let Err(_) = platform.save_keyboard_ai(&ios_keyboard_ai_preferences(
+            &snapshot.preferences.ai_assistant,
+        )) {
+            // Do not leave the canonical Rust document and the keyboard's
+            // native mirror describing different AI services. The revision
+            // returned by save() is the only revision that can safely roll
+            // back the write; a concurrent writer is reported as storage
+            // failure rather than overwritten.
+            let _ = store.save(snapshot.revision, previous.preferences);
+            return Err(CommandError { code: "ai_storage" });
+        }
         if clipboard_history_uses_preference(host_platform())
             && !snapshot.preferences.clipboard_history
         {
@@ -895,6 +915,70 @@ async fn save_preferences(
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_keyboard_ai_preferences(
+    preferences: &msime_client_core::preferences::AiAssistantPreferences,
+) -> IosKeyboardAiPreferences {
+    let provider = match preferences.provider.as_str() {
+        "everyapi" => "everyAPI",
+        "openai" => "openAI",
+        "anthropic" => "anthropic",
+        "gemini" => "gemini",
+        "deepseek" => "deepSeek",
+        "qwen" => "qwen",
+        "kimi" => "kimi",
+        "zhipu" => "zhipu",
+        "siliconflow" => "siliconFlow",
+        "openrouter" => "openRouter",
+        _ => "custom",
+    }
+    .to_owned();
+    let token = reqwest::Url::parse(preferences.endpoint.trim())
+        .ok()
+        .and_then(|url| {
+            if url.scheme() != "https"
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
+            {
+                return None;
+            }
+            let origin = format!(
+                "https://{}:{}",
+                url.host_str()?.to_ascii_lowercase(),
+                url.port().unwrap_or(443)
+            );
+            preferences
+                .tokens
+                .get(&preferences.provider)
+                .or_else(|| preferences.tokens.get(&origin))
+                .or_else(|| (!preferences.token.is_empty()).then_some(&preferences.token))
+                .cloned()
+        })
+        .unwrap_or_default();
+    let enabled = preferences.enabled
+        && !preferences.endpoint.trim().is_empty()
+        && !preferences.model.trim().is_empty()
+        && !preferences.prompt.trim().is_empty()
+        && !token.trim().is_empty();
+    IosKeyboardAiPreferences {
+        // Rust preferences may intentionally be enabled before the user has
+        // supplied a credential. Keep that draft in the canonical store, but
+        // clear the native mirror until the keyboard can actually authenticate.
+        enabled,
+        provider,
+        endpoint: preferences.endpoint.clone(),
+        model: preferences.model.clone(),
+        prompt: if preferences.prompt.trim().is_empty() {
+            "请润色以下文字，保持原意，只返回修改后的文字。".to_owned()
+        } else {
+            preferences.prompt.clone()
+        },
+        token,
+    }
 }
 
 #[cfg(any(target_os = "linux", all(test, unix)))]
@@ -1216,6 +1300,60 @@ fn dictionary_error_code(reason: &str) -> &'static str {
     }
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_personal_dictionary_action(action: &Value) -> bool {
+    matches!(
+        action.get("operation").and_then(Value::as_str),
+        Some("list" | "edit" | "import_personal" | "export" | "retry" | "dismiss_failure")
+    )
+}
+
+#[cfg(target_os = "ios")]
+fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandError> {
+    use std::ffi::CStr;
+    let bytes = serde_json::to_vec(
+        request
+            .get("action")
+            .ok_or(CommandError { code: "storage" })?,
+    )
+    .map_err(|_| CommandError { code: "storage" })?;
+    if bytes.len() > 1_200_000 {
+        return Err(CommandError { code: "storage" });
+    }
+    let pointer = unsafe { msime_ios_personal_dictionary_request(bytes.as_ptr(), bytes.len()) };
+    if pointer.is_null() {
+        return Err(CommandError { code: "storage" });
+    }
+    let response = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
+    unsafe { msime_ios_personal_dictionary_string_free(pointer) };
+    let envelope: Value =
+        serde_json::from_slice(&response).map_err(|_| CommandError { code: "storage" })?;
+    if envelope.get("ok") == Some(&Value::Bool(true)) {
+        return envelope
+            .get("value")
+            .cloned()
+            .ok_or(CommandError { code: "storage" });
+    }
+    let code = match envelope.get("error").and_then(Value::as_str) {
+        Some("dictionary_busy") => "dictionary_busy",
+        Some("dictionary_conflict") => "dictionary_conflict",
+        Some("dictionary_too_many") => "dictionary_too_many",
+        Some("dictionary_unavailable") => "dictionary_unavailable",
+        Some("dictionary_import_rejected") => "dictionary_import_rejected",
+        _ => "storage",
+    };
+    Err(CommandError { code })
+}
+
+#[cfg(target_os = "ios")]
+unsafe extern "C" {
+    fn msime_ios_personal_dictionary_request(
+        request: *const u8,
+        length: usize,
+    ) -> *mut std::ffi::c_char;
+    fn msime_ios_personal_dictionary_string_free(value: *mut std::ffi::c_char);
+}
+
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
@@ -1225,6 +1363,10 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
+        #[cfg(target_os = "ios")]
+        if ios_personal_dictionary_action(&request["action"]) {
+            return ios_personal_dictionary_request(&request);
+        }
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
@@ -3957,6 +4099,23 @@ async fn send_voice_text(
             let _ = (state, typing_statistics, store);
             Ok(())
         }
+        #[cfg(target_os = "android")]
+        {
+            let platform = app
+                .try_state::<AndroidVoicePlatform<tauri::Wry>>()
+                .ok_or(HostActionError {
+                    code: "unavailable",
+                })?
+                .inner()
+                .clone();
+            platform
+                .save_voice_text(&text)
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+            let _ = (state, typing_statistics, store);
+            Ok(())
+        }
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let _ = (app, window, state, typing_statistics, store, text);
@@ -4995,6 +5154,11 @@ fn ios_custom_skin_library_root(state_root: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|| state_root.to_path_buf())
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn ios_community_resource_library_path(state_root: &std::path::Path) -> PathBuf {
+    ios_custom_skin_library_root(state_root).join("CommunityLibrary.json")
+}
+
 #[cfg(target_os = "ios")]
 #[tauri::command]
 async fn open_system_keyboard_settings(
@@ -5154,9 +5318,20 @@ pub fn run() {
             #[cfg(not(target_os = "ios"))]
             let custom_skin_directory = directory.clone();
             app.manage(CustomSkinLibraryStore::new(custom_skin_directory));
+            #[cfg(target_os = "android")]
+            let community_resource_library_path = app
+                .path()
+                .app_data_dir()?
+                .join("files/CommunityLibrary.json");
+            // The iOS reply keyboard reads downloads directly from the App
+            // Group root. Keep the Tauri community page on that exact file;
+            // the Rust preferences and statistics remain below App Group/MSIME.
+            #[cfg(target_os = "ios")]
+            let community_resource_library_path =
+                ios_community_resource_library_path(&directory);
             #[cfg(any(target_os = "android", target_os = "ios"))]
             app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
-                app.path().app_data_dir()?.join("files/CommunityLibrary.json"),
+                community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);
             let typing_statistics = TypingStatisticsStore::new(&directory);
@@ -5509,6 +5684,10 @@ pub fn run() {
             #[cfg(target_os = "ios")]
             ios_account::account_chat,
             #[cfg(target_os = "ios")]
+            ios_account::ai_models,
+            #[cfg(target_os = "ios")]
+            ios_account::ai_test,
+            #[cfg(target_os = "ios")]
             ios_account::account_rename,
             #[cfg(target_os = "ios")]
             ios_account::account_logout,
@@ -5754,6 +5933,30 @@ mod tests {
     }
 
     #[test]
+    fn ios_routes_only_app_group_dictionary_operations() {
+        for operation in [
+            "list",
+            "edit",
+            "import_personal",
+            "export",
+            "retry",
+            "dismiss_failure",
+        ] {
+            assert!(super::ios_personal_dictionary_action(
+                &serde_json::json!({ "operation": operation })
+            ));
+        }
+        for action in [
+            serde_json::json!({ "operation": "import" }),
+            serde_json::json!({ "operation": "unknown" }),
+            serde_json::json!({}),
+            serde_json::Value::Null,
+        ] {
+            assert!(!super::ios_personal_dictionary_action(&action));
+        }
+    }
+
+    #[test]
     fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
         let document = super::ios_host_options_document(
             None,
@@ -5773,6 +5976,16 @@ mod tests {
         assert_eq!(
             msime_client_core::custom_skin_library::CustomSkinLibraryStore::new(root).path(),
             std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
+        );
+    }
+
+    #[test]
+    fn ios_community_reply_library_shares_the_keyboard_app_group_file() {
+        assert_eq!(
+            super::ios_community_resource_library_path(std::path::Path::new(
+                "/fixture/app-group/MSIME"
+            )),
+            std::path::Path::new("/fixture/app-group/CommunityLibrary.json")
         );
     }
 
@@ -5829,6 +6042,28 @@ mod tests {
         assert_eq!(configuration.model, "fixture-model");
         assert_eq!(configuration.token, "synthetic-slot");
         assert!(configuration.headers.is_empty());
+    }
+
+    #[test]
+    fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_drafts() {
+        let mut preferences = msime_client_core::preferences::Preferences::default();
+        preferences.ai_assistant.enabled = true;
+        preferences.ai_assistant.provider = "deepseek".into();
+        preferences.ai_assistant.endpoint =
+            "https://API.Example.invalid/v1/chat/completions".into();
+        preferences.ai_assistant.model = "fixture-model".into();
+        preferences.ai_assistant.prompt = "只返回结果".into();
+        preferences.ai_assistant.tokens.insert(
+            "https://api.example.invalid:443".into(),
+            "fixture-origin-token".into(),
+        );
+        let native = super::ios_keyboard_ai_preferences(&preferences.ai_assistant);
+        assert!(native.enabled);
+        assert_eq!(native.provider, "deepSeek");
+        assert_eq!(native.token, "fixture-origin-token");
+
+        preferences.ai_assistant.tokens.clear();
+        assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
     }
 
     #[test]

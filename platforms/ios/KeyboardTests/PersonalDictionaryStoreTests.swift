@@ -11,7 +11,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(try host.read().pendingCount, 1)
     XCTAssertTrue(try host.read().entries.isEmpty)
     XCTAssertThrowsError(try host.enqueue(previous: nil, replacement: word))
-    var calls = [UUID]()
+    var calls = [String]()
     try keyboard.synchronize(apply: { calls.append($0.id) }, page: { _ in .init(entries: [word], hasMore: true) })
     XCTAssertEqual(calls, [id])
     XCTAssertEqual(try host.read().requests.first?.status, .applied)
@@ -52,11 +52,11 @@ final class PersonalDictionaryStoreTests: XCTestCase {
       try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
     }
     // Simulate a committed edit followed by process interruption before its shared acknowledgement.
-    try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: id.uuidString)
+    try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: id)
     func synchronize() throws {
       try keyboard.synchronize(apply: {
         try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue,
-                                          requestID: $0.id.uuidString)
+                                          requestID: $0.id)
       }, page: {
         let result = try session.personalEntries(atOffset: UInt($0))
         let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
@@ -144,7 +144,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     let store = PersonalDictionaryStore(directory: root)
     try store.enqueueImport((0..<9).map { .init(kind: .quickPhrase, key: "batch\($0)", value: "fixture") })
     let ids = try store.read().requests.map(\.id)
-    var applied = [UUID]()
+    var applied = [String]()
     try store.synchronize(apply: { applied.append($0.id) }, page: { _ in .init(entries: [], hasMore: false) })
     XCTAssertEqual(applied, Array(ids.prefix(4)))
     XCTAssertEqual(try store.read().pendingCount, 5)
@@ -191,5 +191,23 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try store.enqueue(previous: nil, replacement: .init(key: "ni", value: "拟")))
     XCTAssertEqual(try Data(contentsOf: file), original)
     XCTAssertThrowsError(try PersonalDictionaryStore(directory: nil).read())
+  }
+
+  func testStateUsesRustCompatibleRefreshKeys() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = PersonalDictionaryStore(directory: root)
+    _ = try store.enqueue(previous: nil, replacement: .init(key: "ni", value: "拟"))
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    XCTAssertNotNil(object["refreshId"])
+    XCTAssertNil(object["refreshID"])
+    let fixture = try JSONSerialization.data(withJSONObject: [
+      "version": 1, "requests": [], "entries": [], "hasMore": false,
+      "pageOffset": 0, "requestedPageOffset": 0,
+      "refreshId": UUID().uuidString, "completedRefreshId": NSNull()
+    ])
+    try fixture.write(to: file, options: .atomic)
+    XCTAssertNoThrow(try store.read())
   }
 }

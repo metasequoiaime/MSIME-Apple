@@ -70,12 +70,12 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
       <span className="home-card-action">⌨ 试用键盘 <span aria-hidden="true">→</span></span>
     </button>
     <div className="home-quick-grid">
-      <button type="button" onClick={() => onOpenPage("skin")}><span aria-hidden="true">◈</span><strong>皮肤</strong><small>{skinTitle}</small></button>
-      <button type="button" onClick={() => onOpenPage("input")}><span aria-hidden="true">⌨</span><strong>输入方案</strong><small>{schemeTitle(preferences)}</small></button>
-      <button type="button" onClick={() => onOpenPage("screen-keyboard")}><span aria-hidden="true">⌗</span><strong>按键</strong><small>间距与语音</small></button>
-      <button type="button" onClick={() => onOpenPage("dictionary")}><span aria-hidden="true">▤</span><strong>词库</strong><small>个人词与同步</small></button>
-      <button type="button" onClick={() => onOpenPage("ai")}><span aria-hidden="true">✦</span><strong>AI</strong><small>回复与润色</small></button>
-      <button type="button" onClick={() => actions?.openSystemKeyboardSettings ? invokeAction(actions.openSystemKeyboardSettings) : onOpenPage("screen-keyboard")}><span aria-hidden="true">⚙</span><strong>系统设置</strong><small>启用与完全访问</small></button>
+      <button type="button" onClick={() => onOpenPage("skin")}><span className="home-quick-icon home-quick-icon-skin" aria-hidden="true">◈</span><strong>皮肤</strong><small>{skinTitle}</small></button>
+      <button type="button" onClick={() => onOpenPage("input")}><span className="home-quick-icon home-quick-icon-input" aria-hidden="true">⌨</span><strong>输入方案</strong><small>{schemeTitle(preferences)}</small></button>
+      <button type="button" onClick={() => onOpenPage("screen-keyboard")}><span className="home-quick-icon home-quick-icon-keyboard" aria-hidden="true">⌗</span><strong>按键</strong><small>间距与语音</small></button>
+      <button type="button" onClick={() => onOpenPage("dictionary")}><span className="home-quick-icon home-quick-icon-dictionary" aria-hidden="true">▤</span><strong>词库</strong><small>个人词与同步</small></button>
+      <button type="button" onClick={() => onOpenPage("ai")}><span className="home-quick-icon home-quick-icon-ai" aria-hidden="true">✦</span><strong>AI</strong><small>回复与润色</small></button>
+      <button type="button" onClick={() => actions?.openSystemKeyboardSettings ? invokeAction(actions.openSystemKeyboardSettings) : onOpenPage("screen-keyboard")}><span className="home-quick-icon home-quick-icon-system" aria-hidden="true">⚙</span><strong>系统设置</strong><small>启用与完全访问</small></button>
     </div>
     <button type="button" className="home-feature-card" onClick={() => { onSelectScheme?.("thoughtful_reply"); onOpenPage("input"); }}>
       <span className="home-feature-icon" aria-hidden="true">✦</span>

@@ -25,15 +25,32 @@ struct PersonalWord: Codable, Hashable, Sendable, Identifiable {
 
 struct PersonalWordRequest: Codable, Identifiable, Sendable {
   enum Status: String, Codable, Sendable { case pending, applied, failed }
-  var id = UUID()
+  // Keep this as a string because the Rust host queue accepts caller-owned
+  // receipts (for example, an import prefix plus row index). Native Swift
+  // callers still use UUID strings by default.
+  var id = UUID().uuidString
   var previous: PersonalWord?
   var replacement: PersonalWord?
   var status: Status = .pending
   var error: String?
-  var createdAt = Date()
+  var createdAt: Date? = Date()
 }
 
 struct PersonalDictionaryState: Codable, Sendable {
+  // The Rust queue uses serde's camelCase conversion (`refreshId`), while
+  // Swift's conventional acronym spelling would otherwise encode `refreshID`.
+  // Keep the on-disk contract explicit so the Tauri host and keyboard can
+  // acknowledge the same refresh cycle instead of silently resetting it.
+  enum CodingKeys: String, CodingKey {
+    case version, requests, entries, hasMore, snapshotDate, snapshotError
+    case pageOffset, requestedPageOffset
+    case refreshID = "refreshId"
+    case completedRefreshID = "completedRefreshId"
+  }
+  private enum LegacyCodingKeys: String, CodingKey {
+    case refreshID = "refreshID"
+    case completedRefreshID = "completedRefreshID"
+  }
   var version = 1
   var requests: [PersonalWordRequest] = []
   var entries: [PersonalWord] = []
@@ -45,6 +62,25 @@ struct PersonalDictionaryState: Codable, Sendable {
   var refreshID = UUID()
   var completedRefreshID: UUID?
   var pendingCount: Int { requests.filter { $0.status == .pending }.count }
+
+  init() {}
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+    version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
+    requests = try values.decodeIfPresent([PersonalWordRequest].self, forKey: .requests) ?? []
+    entries = try values.decodeIfPresent([PersonalWord].self, forKey: .entries) ?? []
+    hasMore = try values.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
+    snapshotDate = try values.decodeIfPresent(Date.self, forKey: .snapshotDate)
+    snapshotError = try values.decodeIfPresent(String.self, forKey: .snapshotError)
+    pageOffset = try values.decodeIfPresent(Int.self, forKey: .pageOffset) ?? 0
+    requestedPageOffset = try values.decodeIfPresent(Int.self, forKey: .requestedPageOffset) ?? 0
+    refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID)
+      ?? legacy.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
+    completedRefreshID = try values.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
+      ?? legacy.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
+  }
 }
 
 struct PersonalWordPage: Sendable {
@@ -72,6 +108,34 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   private static let processLock = NSLock()
   private let maximumBytes = 8 * 1024 * 1024
 
+  private static func decoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    // Rust serializes queue timestamps as RFC3339 strings. Older native iOS
+    // builds wrote Foundation's reference-date number, so accept both forms
+    // while converging writes on the cross-platform string contract.
+    decoder.dateDecodingStrategy = .custom { decoder in
+      let value = try decoder.singleValueContainer()
+      if let string = try? value.decode(String.self) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: string) { return date }
+      }
+      if let seconds = try? value.decode(Double.self) {
+        return Date(timeIntervalSinceReferenceDate: seconds)
+      }
+      throw DecodingError.dataCorruptedError(in: value, debugDescription: "invalid queue timestamp")
+    }
+    return decoder
+  }
+
+  private static func encoder() -> JSONEncoder {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    return encoder
+  }
+
   init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
     self.directory = directory?.appendingPathComponent("PersonalDictionary", isDirectory: true)
   }
@@ -87,7 +151,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard size <= maximumBytes else { throw StoreError.invalidState }
     let data = try Data(contentsOf: file)
     guard data.count <= maximumBytes,
-          let state = try? JSONDecoder().decode(PersonalDictionaryState.self, from: data),
+          let state = try? Self.decoder().decode(PersonalDictionaryState.self, from: data),
           state.version == 1, state.requests.count <= 160, state.entries.count <= 100,
           state.pageOffset >= 0, state.pageOffset <= 1_000_000,
           state.requestedPageOffset >= 0, state.requestedPageOffset <= 1_000_000,
@@ -109,17 +173,27 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     let file = directory.appendingPathComponent("sync.json")
     var state = try readFile(at: file)
     try action(&state)
-    let data = try JSONEncoder().encode(state)
+    let data = try Self.encoder().encode(state)
     guard data.count <= maximumBytes else { throw StoreError.invalidState }
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
 
+  private static func validRequestID(_ id: String) -> Bool {
+    !id.isEmpty && id.utf8.count <= 120 && id.utf8.allSatisfy {
+      ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) ||
+        ($0 >= 97 && $0 <= 122) || $0 == 45 || $0 == 95
+    }
+  }
+
   @discardableResult
-  func enqueue(previous: PersonalWord?, replacement: PersonalWord?) throws -> UUID {
-    let request = PersonalWordRequest(previous: previous, replacement: replacement)
+  func enqueue(previous: PersonalWord?, replacement: PersonalWord?, requestID: String? = nil) throws -> String {
+    let id = requestID ?? UUID().uuidString
+    guard Self.validRequestID(id) else { throw StoreError.invalidState }
+    let request = PersonalWordRequest(id: id, previous: previous, replacement: replacement)
     try update { state in
       guard previous != nil || replacement != nil else { throw StoreError.invalidState }
       guard state.requests.filter({ $0.status != .applied }).count < 128 else { throw StoreError.tooManyRequests }
+      guard !state.requests.contains(where: { $0.id == id }) else { throw StoreError.conflict }
       let identities = Set([previous?.id, replacement?.id].compactMap { $0 })
       guard !state.requests.contains(where: {
         $0.status == .pending && !identities.isDisjoint(with: [$0.previous?.id, $0.replacement?.id].compactMap { $0 })
@@ -134,25 +208,31 @@ final class PersonalDictionaryStore: @unchecked Sendable {
 
   // Queue the entire validated import in one file replacement. Dictionary edits are later
   // acknowledged individually by the Engine, so failed entries remain independently retryable.
-  func enqueueImport(_ words: [PersonalWord]) throws {
+  func enqueueImport(_ words: [PersonalWord], requestID: String? = nil) throws {
     let validated = try words.map { try $0.validated() }
     guard !validated.isEmpty, validated.count <= 128,
           Set(validated.map(\.id)).count == validated.count else { throw StoreError.invalidState }
+    let baseID = requestID ?? UUID().uuidString
+    guard Self.validRequestID(baseID), baseID.utf8.count <= 116 else { throw StoreError.invalidState }
     try update { state in
       guard state.requests.filter({ $0.status != .applied }).count + validated.count <= 128
       else { throw StoreError.tooManyRequests }
+      let requestIDs = Set(validated.indices.map { "\(baseID)-\($0)" })
+      guard state.requests.allSatisfy({ !requestIDs.contains($0.id) }) else { throw StoreError.conflict }
       let identities = Set(validated.map(\.id))
       guard !state.requests.contains(where: {
         $0.status != .applied && !identities.isDisjoint(with: [$0.previous?.id, $0.replacement?.id].compactMap { $0 })
       }) else { throw StoreError.conflict }
       let finished = Set(state.requests.filter { $0.status == .applied }.suffix(31).map(\.id))
       state.requests.removeAll { $0.status == .applied && !finished.contains($0.id) }
-      state.requests.append(contentsOf: validated.map { PersonalWordRequest(replacement: $0) })
+      state.requests.append(contentsOf: validated.enumerated().map { index, word in
+        PersonalWordRequest(id: "\(baseID)-\(index)", replacement: word)
+      })
       state.refreshID = UUID()
     }
   }
 
-  func retry(_ id: UUID) throws {
+  func retry(_ id: String) throws {
     try update { state in
       guard let index = state.requests.firstIndex(where: { $0.id == id && $0.status == .failed }) else { return }
       let request = state.requests[index]
@@ -166,7 +246,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     }
   }
 
-  func dismissFailure(_ id: UUID) throws {
+  func dismissFailure(_ id: String) throws {
     try update { $0.requests.removeAll { $0.id == id && $0.status == .failed } }
   }
 

@@ -1316,6 +1316,23 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 /// Persisted recognition provider identifiers. Hosts expose only the providers
 /// they implement: `system` is the macOS Speech adapter, not a cloud profile.
 pub const ASR_PROVIDERS: [&str; 5] = ["doubao", "siliconflow", "openai", "groq", "system"];
+/// OpenAI-compatible AI services exposed by the Apple settings surface and
+/// shared by every host. Providers that need special request fields are still
+/// handled in `ai.rs`; the rest use the common Chat Completions shape.
+pub const AI_PROVIDERS: [&str; 12] = [
+    "everyapi",
+    "openai",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "qwen",
+    "kimi",
+    "zhipu",
+    "siliconflow",
+    "groq",
+    "openrouter",
+    "custom",
+];
 /// Polishing additionally supports DeepSeek, which offers no recognition.
 pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
 
@@ -1396,10 +1413,7 @@ impl Preferences {
             return Err(PreferencesError::InvalidCustomTranslation);
         }
         if !(1..=10).contains(&self.ai_assistant.candidate_limit)
-            || !matches!(
-                self.ai_assistant.provider.as_str(),
-                "deepseek" | "openai" | "siliconflow" | "groq"
-            )
+            || !AI_PROVIDERS.contains(&self.ai_assistant.provider.as_str())
         {
             return Err(PreferencesError::InvalidAiAssistant);
         }
@@ -3154,6 +3168,13 @@ mod tests {
     #[test]
     fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
         let mut preferences = Preferences::default();
+        for provider in AI_PROVIDERS {
+            preferences.ai_assistant.provider = provider.into();
+            assert!(
+                preferences.validate().is_ok(),
+                "{provider} should be accepted"
+            );
+        }
         preferences.ai_assistant.provider = "unknown".into();
         assert!(matches!(
             preferences.validate(),

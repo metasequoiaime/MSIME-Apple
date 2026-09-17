@@ -120,6 +120,16 @@ test("iOS Apple sign-in stays behind the native account client boundary", async 
   expect(screen.queryByText(/token|nonce/i)).toBeNull();
 });
 
+test("mobile profile card opens a back-stack page with account actions", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="android" />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "退出登录" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "‹ 返回" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "编辑个人资料" })).not.toBeNull());
+});
 test("account deletion requires its destructive confirmation", async () => {
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} />);
@@ -193,6 +203,22 @@ test("mobile accounts can replay the onboarding flow without account state", asy
   expect(replayOnboarding).toHaveBeenCalledTimes(1);
 });
 
+test("mobile accounts group published and saved community resources", async () => {
+  const openCommunity = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="ios" onOpenCommunity={openCommunity} />);
+  expect(await screen.findByRole("heading", { name: "我发布的" })).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "我收藏的" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  expect(openCommunity.mock.calls).toEqual([
+    ["published-skins"], ["published-dictionary"], ["published-reply"],
+    ["saved-dictionary"], ["saved-reply"],
+  ]);
+});
 test("local designs remain available without an account", async () => {
   const openLocalDesigns = vi.fn();
   render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);

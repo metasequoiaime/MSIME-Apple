@@ -42,6 +42,8 @@ final class JapaneseNineKeyView: UIStackView {
   private var rows: [UIStackView] = []
   private var keyButtons: [UIButton] = []
   private var variantsKey: UIButton?
+  private var scriptKeyOneRow: NSLayoutConstraint?
+  private var scriptKeyTwoRows: NSLayoutConstraint?
   private var showsDigits = false
   private var isComposing = false
   private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
@@ -57,13 +59,31 @@ final class JapaneseNineKeyView: UIStackView {
     accessibilityIdentifier = "japaneseNineKey"
     if !modeKeys.isEmpty {
       let modes = UIStackView()
-      modes.axis = .vertical; modes.distribution = .fillEqually; modes.spacing = 7
+      modes.axis = .vertical; modes.distribution = .fill; modes.spacing = 7
       modes.accessibilityIdentifier = "japaneseModeColumn"
       for key in modeKeys { modes.addArrangedSubview(key) }
       addArrangedSubview(modes)
       // The width constraint relates two views, so it can only be activated once both share an
       // ancestor. Activating it before the column joins the stack aborts the whole extension.
       modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
+
+      // The mode column fills the four-row kana grid. ABC spans two rows when the system draws
+      // its own globe key below the keyboard; when the globe belongs to us, all four keys use one
+      // row each. These constraints reference only this column so UIStackView cannot stretch a
+      // sibling kana row to the whole panel.
+      let pin = { (key: UIButton, span: CGFloat) -> NSLayoutConstraint in
+        let constraint = key.heightAnchor.constraint(
+          equalTo: modes.heightAnchor, multiplier: span / 4,
+          constant: span == 2 ? -3.5 : -5.25)
+        constraint.priority = .required - 1
+        return constraint
+      }
+      for (index, key) in modeKeys.enumerated() where index != 2 {
+        pin(key, 1).isActive = true
+      }
+      scriptKeyOneRow = modeKeys.indices.contains(2) ? pin(modeKeys[2], 1) : nil
+      scriptKeyTwoRows = modeKeys.indices.contains(2) ? pin(modeKeys[2], 2) : nil
+      scriptKeyTwoRows?.isActive = true
     }
     let grid = UIStackView()
     grid.axis = .vertical; grid.distribution = .fillEqually; grid.spacing = 7
@@ -196,6 +216,14 @@ final class JapaneseNineKeyView: UIStackView {
     isComposing = composing
     variantsKey?.isEnabled = showsDigits || composing
   }
+
+  /// The system-owned globe key is rendered below the extension. Without it, ABC spans two rows
+  /// to fill the empty space; with it, the mode column has four one-row keys.
+  func setModeColumnFull(_ full: Bool) {
+    scriptKeyTwoRows?.isActive = !full
+    scriptKeyOneRow?.isActive = full
+  }
+
   func applyLayout() {
     let layout = KeyboardLayoutPreference.geometry
     spacing = layout.keySpacing

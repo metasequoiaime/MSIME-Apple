@@ -199,6 +199,7 @@ public final class MSIMEInputService extends InputMethodService {
     private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
     private final SpaceCursorMovement cursorMovement = new SpaceCursorMovement();
     private Button layerButton;
+    private Button symbolPanelButton;
     private Button quickPunctuationButton;
     private Button shiftButton;
     private Button languageButton;
@@ -285,6 +286,7 @@ public final class MSIMEInputService extends InputMethodService {
     private java.util.List<String> emojiRecents = java.util.List.of();
     private java.util.List<EmojiCatalogModel.Item> emojiItems = java.util.List.of();
     private String emojiResources = "";
+    private SymbolPanelView symbolPanel;
     private int emojiSelectedCategory = Integer.MIN_VALUE;
     private int emojiNextOffset;
     private boolean emojiComplete;
@@ -616,6 +618,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeMoreTools();
         closeEmojiPicker();
+        closeSymbolPanel();
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
@@ -2063,6 +2066,11 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
     }
 
+    private void closeSymbolPanel() {
+        if (symbolPanel != null) symbolPanel.setVisibility(View.GONE);
+        synchronizeReplyKeyboard();
+    }
+
     private java.util.List<String> loadEmojiRecents() {
         if (emojiPreferences == null) return java.util.List.of();
         String document = emojiPreferences.getString(EMOJI_RECENTS_KEY, "[]");
@@ -2273,6 +2281,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeSchemePicker();
         closeLayoutSettings();
         closeMoreTools();
+        closeSymbolPanel();
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
@@ -2280,6 +2289,27 @@ public final class MSIMEInputService extends InputMethodService {
         emojiPanel.setVisibility(View.VISIBLE);
         emojiPanel.requestFocus();
         selectEmojiCategory(emojiRecents.isEmpty() ? 0 : -1);
+    }
+
+    private void showSymbolPanel() {
+        if (session == 0 || connection == null || symbolPanel == null) {
+            Toast.makeText(this, "符号面板尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        command(2);
+        if (session == 0 || connection == null) return;
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeMoreTools();
+        closeEmojiPicker();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        symbolPanel.resetForPresentation();
+        symbolPanel.setVisibility(View.VISIBLE);
+        symbolPanel.requestFocus();
     }
 
     private void closeVoiceResult() {
@@ -2361,6 +2391,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY) return;
         replySuppressed = false;
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -2497,6 +2528,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showSkinMenu(Button anchor) {
         if (anchor == null || !canSaveKeyboardSkin() || skinScroll == null) return;
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -2940,6 +2972,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -3133,6 +3166,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         captureVoiceTarget();
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -3252,6 +3286,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -3390,6 +3425,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeLayoutSettings();
@@ -3684,6 +3720,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showClipboardHistory() {
         if (!clipboardHistoryEnabled || clipboardScroll == null) return;
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeSchemePicker();
         closeLayoutSettings();
@@ -3736,6 +3773,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showFeedbackMenu() {
         if (moreButton == null || moreToolsPanel == null || moreToolsScroll == null) return;
         closeEmojiPicker();
+        closeSymbolPanel();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -5253,6 +5291,8 @@ public final class MSIMEInputService extends InputMethodService {
             render();
         });
         layerButton.setContentDescription("切换符号键盘");
+        symbolPanelButton = button(controls, "符", this::showSymbolPanel);
+        symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = button(controls, ",", this::insertQuickPunctuation);
         quickPunctuationButton.setOnLongClickListener(ignored -> {
             showQuickPunctuationMenu();
@@ -5503,6 +5543,34 @@ public final class MSIMEInputService extends InputMethodService {
         emojiPanel.setVisibility(View.GONE);
         keyboardRoot.addView(emojiPanel, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        symbolPanel = new SymbolPanelView(this,
+            (title, description, action, actionStyle) -> {
+                Button button = new KeyboardPressButton(this);
+                button.setAllCaps(false);
+                button.setText(title);
+                button.setContentDescription(actionStyle ? description : "按键 " + description);
+                styleButton(button, actionStyle);
+                button.setOnClickListener(ignored -> {
+                    playFeedback(button);
+                    action.run();
+                });
+                return button;
+            },
+            new SymbolPanelView.Listener() {
+                @Override public void insert(String text) {
+                    if (connection != null) commitText(text, TypingSource.LOCAL);
+                }
+
+                @Override public void delete() {
+                    if (connection != null && !command(0))
+                        connection.deleteSurroundingTextInCodePoints(1, 0);
+                }
+
+                @Override public void close() { closeSymbolPanel(); }
+            });
+        symbolPanel.setVisibility(View.GONE);
+        keyboardRoot.addView(symbolPanel, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
         synchronizeReplyKeyboard();
@@ -5649,6 +5717,11 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? "切换符号键盘" : "切换字母键盘");
+        }
+        if (symbolPanelButton != null) {
+            symbolPanelButton.setEnabled(session != 0 && connection != null
+                && keyboardLayer == KeyboardLayout.Layer.LETTERS);
+            symbolPanelButton.setContentDescription("打开符号面板");
         }
         updateReturnKey();
         if (shiftButton != null) {

@@ -1,0 +1,326 @@
+//! Bounded HTTP transport for the user-configured mobile AI settings.
+//!
+//! The webview owns the form, but never performs provider requests itself. Keeping
+//! this transport in the Rust host gives iOS the same credential and response
+//! boundaries as the Android native implementation without exposing secrets to
+//! JavaScript logs or browser extensions.
+
+use serde::Deserialize;
+use serde_json::Value;
+use std::collections::BTreeSet;
+use std::io::Read;
+use std::time::Duration;
+
+const MAX_ENDPOINT_LENGTH: usize = 2_048;
+const MAX_TOKEN_LENGTH: usize = 4_096;
+const MAX_MODEL_LENGTH: usize = 512;
+const MAX_MODEL_ID_LENGTH: usize = 256;
+const MAX_PROMPT_LENGTH: usize = 16 * 1_024;
+const MAX_TEXT_CODE_POINTS: usize = 10_000;
+const MAX_RESPONSE_BYTES: usize = 1_024 * 1_024;
+const MAX_MODELS: usize = 5_000;
+const MAX_PAGES: usize = 10;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Error {
+    Invalid,
+    Unavailable,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelPage {
+    data: Vec<ModelEntry>,
+    has_more: Option<bool>,
+    last_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelEntry {
+    id: String,
+    supported_endpoint_types: Option<Vec<String>>,
+    chat_completions_bridge: Option<bool>,
+    active: Option<bool>,
+}
+
+fn has_disallowed_control(value: &str, allow_whitespace: bool) -> bool {
+    value.chars().any(|character| {
+        character.is_control() && !(allow_whitespace && matches!(character, '\n' | '\r' | '\t'))
+    })
+}
+
+fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
+    let value = endpoint.trim();
+    if value.is_empty() || value.len() > MAX_ENDPOINT_LENGTH || has_disallowed_control(value, false)
+    {
+        return Err(Error::Invalid);
+    }
+    let url = reqwest::Url::parse(value).map_err(|_| Error::Invalid)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || url.username() != ""
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(url)
+}
+
+fn valid_token(token: &str) -> Result<String, Error> {
+    let value = token.trim();
+    if value.len() > MAX_TOKEN_LENGTH || has_disallowed_control(value, false) {
+        return Err(Error::Invalid);
+    }
+    Ok(value.to_owned())
+}
+
+fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
+    let mut url = valid_endpoint(endpoint)?;
+    let mut path = url.path().trim_end_matches('/').to_owned();
+    for suffix in ["/chat/completions", "/audio/transcriptions"] {
+        if let Some(prefix) = path.strip_suffix(suffix) {
+            path = prefix.to_owned();
+            break;
+        }
+    }
+    if !path.ends_with('/') {
+        path.push('/');
+    }
+    path.push_str("models");
+    url.set_path(&path);
+    Ok(url)
+}
+
+fn bounded_response(response: reqwest::blocking::Response) -> Result<Vec<u8>, Error> {
+    let mut limited = response.take((MAX_RESPONSE_BYTES + 1) as u64);
+    let mut bytes = Vec::new();
+    limited
+        .read_to_end(&mut bytes)
+        .map_err(|_| Error::Unavailable)?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(Error::Invalid);
+    }
+    Ok(bytes)
+}
+
+fn parse_models(page: ModelPage, models: &mut BTreeSet<String>) -> Result<(), Error> {
+    for model in page.data {
+        if model.active == Some(false) {
+            continue;
+        }
+        let id = model.id.trim();
+        if id.is_empty() || id.chars().count() > MAX_MODEL_ID_LENGTH {
+            continue;
+        }
+        if let Some(endpoints) = model
+            .supported_endpoint_types
+            .as_deref()
+            .filter(|endpoints| !endpoints.is_empty())
+        {
+            let supported = endpoints.iter().any(|endpoint| endpoint == "openai")
+                || model.chat_completions_bridge == Some(true);
+            if !supported {
+                continue;
+            }
+        }
+        models.insert(id.to_owned());
+        if models.len() > MAX_MODELS {
+            return Err(Error::Invalid);
+        }
+    }
+    Ok(())
+}
+
+/// Fetch the OpenAI-compatible chat models supported by a configured service.
+/// Anthropic's model directory is the one supported paginated exception.
+pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
+    let token = valid_token(token)?;
+    if token.is_empty() {
+        return Err(Error::Invalid);
+    }
+    let base_url = models_url(endpoint)?;
+    let anthropic = base_url
+        .host_str()
+        .is_some_and(|host| host.eq_ignore_ascii_case("api.anthropic.com"));
+    let client = reqwest::blocking::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| Error::Unavailable)?;
+    let mut models = BTreeSet::new();
+    let mut cursor: Option<String> = None;
+    let mut cursors = BTreeSet::new();
+
+    for _ in 0..MAX_PAGES {
+        let mut url = base_url.clone();
+        if anthropic {
+            let query = url
+                .query_pairs()
+                .filter(|(name, _)| name != "limit" && name != "after_id")
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect::<Vec<_>>();
+            url.set_query(None);
+            {
+                let mut pairs = url.query_pairs_mut();
+                for (name, value) in query {
+                    pairs.append_pair(&name, &value);
+                }
+                pairs.append_pair("limit", "1000");
+                if let Some(cursor) = cursor.as_deref() {
+                    pairs.append_pair("after_id", cursor);
+                }
+            }
+        }
+        let mut request = client.get(url).header("Accept", "application/json");
+        if anthropic {
+            request = request
+                .header("x-api-key", &token)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            request = request.bearer_auth(&token);
+        }
+        let response = request.send().map_err(|_| Error::Unavailable)?;
+        if !response.status().is_success() {
+            return Err(Error::Unavailable);
+        }
+        let body = bounded_response(response)?;
+        let page: ModelPage = serde_json::from_slice(&body).map_err(|_| Error::Invalid)?;
+        let has_more = page.has_more == Some(true);
+        let next = page.last_id.clone();
+        parse_models(page, &mut models)?;
+        if !has_more {
+            if models.is_empty() {
+                return Err(Error::Invalid);
+            }
+            return Ok(models.into_iter().collect());
+        }
+        if !anthropic {
+            return Err(Error::Invalid);
+        }
+        let next = next
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or(Error::Invalid)?;
+        if !cursors.insert(next.to_owned()) {
+            return Err(Error::Invalid);
+        }
+        cursor = Some(next.to_owned());
+    }
+    Err(Error::Invalid)
+}
+
+fn valid_text(value: &str, maximum: usize, require_non_empty: bool) -> bool {
+    (!require_non_empty || !value.trim().is_empty())
+        && value.chars().count() <= maximum
+        && !has_disallowed_control(value, true)
+}
+
+fn parse_completion(body: &[u8]) -> Result<String, Error> {
+    let document: Value = serde_json::from_slice(body).map_err(|_| Error::Invalid)?;
+    let content = document
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .ok_or(Error::Invalid)?;
+    if !valid_text(content, MAX_TEXT_CODE_POINTS, true) {
+        return Err(Error::Invalid);
+    }
+    Ok(content.to_owned())
+}
+
+/// Send one non-streaming OpenAI-compatible chat completion for the settings test.
+pub fn polish(
+    endpoint: &str,
+    model: &str,
+    prompt: &str,
+    token: &str,
+    text: &str,
+) -> Result<String, Error> {
+    let endpoint = valid_endpoint(endpoint)?;
+    let model = model.trim();
+    let prompt = prompt.trim();
+    let token = valid_token(token)?;
+    if model.is_empty()
+        || model.chars().count() > MAX_MODEL_LENGTH
+        || has_disallowed_control(model, false)
+        || prompt.is_empty()
+        || prompt.chars().count() > MAX_PROMPT_LENGTH
+        || has_disallowed_control(prompt, true)
+        || !valid_text(text, MAX_TEXT_CODE_POINTS, true)
+    {
+        return Err(Error::Invalid);
+    }
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": text}
+        ],
+        "stream": false
+    });
+    let client = reqwest::blocking::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|_| Error::Unavailable)?;
+    let mut request = client
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .json(&body);
+    if !token.is_empty() {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().map_err(|_| Error::Unavailable)?;
+    if !response.status().is_success() {
+        return Err(Error::Unavailable);
+    }
+    parse_completion(&bounded_response(response)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{models_url, parse_completion, valid_endpoint, valid_text};
+
+    #[test]
+    fn model_directory_replaces_known_chat_suffix() {
+        assert_eq!(
+            models_url("https://fixture.invalid/v1/chat/completions")
+                .unwrap()
+                .as_str(),
+            "https://fixture.invalid/v1/models"
+        );
+        assert_eq!(
+            models_url("https://fixture.invalid/v1/").unwrap().as_str(),
+            "https://fixture.invalid/v1/models"
+        );
+    }
+
+    #[test]
+    fn endpoint_and_text_boundaries_match_the_mobile_contract() {
+        assert!(valid_endpoint("https://fixture.invalid/api").is_ok());
+        assert!(valid_endpoint("http://fixture.invalid/api").is_err());
+        assert!(valid_endpoint("https://user:pass@fixture.invalid/api").is_err());
+        assert!(valid_text("合成文本", 10_000, true));
+        assert!(!valid_text("\u{0000}", 10_000, true));
+        assert!(!valid_text("x".repeat(10_001).as_str(), 10_000, true));
+    }
+
+    #[test]
+    fn completion_parser_exposes_only_message_content() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "choices": [{"message": {"content": "合成结果"}}]
+        }))
+        .unwrap();
+        assert_eq!(parse_completion(&body).unwrap(), "合成结果");
+        assert!(parse_completion(br#"{"error":"private detail"}"#).is_err());
+    }
+}

@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
 
 afterEach(cleanup);
@@ -519,6 +519,29 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   });
 });
 
+test("mobile AI settings expose the Apple provider catalog and preserve custom edits", async () => {
+  expect(AI_PROVIDER_OPTIONS.map(option => option.id)).toEqual([
+    "everyapi", "openai", "anthropic", "gemini", "deepseek", "qwen", "kimi", "zhipu",
+    "siliconflow", "groq", "openrouter", "custom",
+  ]);
+  const base: AiAssistantPreferences = {
+    enabled: true, provider: "deepseek", model: "deepseek-v4-flash",
+    endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3,
+    prompt: "保持原意", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "",
+  };
+  expect(aiProviderUpdate("anthropic", base)).toMatchObject({
+    provider: "anthropic", endpoint: "https://api.anthropic.com/v1/chat/completions",
+    model: "claude-sonnet-4-6",
+  });
+  expect(aiProviderUpdate("openai", {
+    ...base,
+    endpoint: "https://private.invalid/v1/chat/completions",
+    model: "private-model",
+  })).toMatchObject({
+    provider: "openai", endpoint: "https://private.invalid/v1/chat/completions", model: "private-model",
+  });
+});
+
 test("Android AI settings fetch models and run a native-hosted polish test", async () => {
   const fetchModels = vi.fn().mockResolvedValue(["fixture-model", "fixture-fast"]);
   const testAi = vi.fn().mockResolvedValue("fixture-polished");
@@ -533,6 +556,15 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
   await screen.findByText("fixture-polished");
   expect(fetchModels).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", token: "fixture-token" });
   expect(testAi).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", model: "fixture-fast", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", token: "fixture-token", text: "fixture input" });
+});
+
+test("AI settings explain the platform-specific keyboard surface", async () => {
+  const client = { load: async () => initial, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  render(<SettingsPage initialPage="ai" client={client} />);
+  expect(await screen.findByText("为键盘 AI 联想、回复与润色提供共享配置")).toBeTruthy();
+  cleanup();
+  render(<SettingsPage initialPage="ai" client={{ ...client, host: { platform: "android" } as HostCapabilities }} />);
+  expect(await screen.findByText("为拼音联想和 Android 选中文字润色提供共享配置")).toBeTruthy();
 });
 
 test("input parity controls persist cloud, translation and punctuation settings", async () => {

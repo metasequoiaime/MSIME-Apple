@@ -29,6 +29,13 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
   expect(screen.getByText("高情商回复")).toBeTruthy();
 });
 
+test("home shortcuts expose a distinct visual tile for each function", () => {
+  const { container } = render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);
+  const icons = [...container.querySelectorAll<HTMLElement>(".home-quick-icon")];
+  expect(icons).toHaveLength(6);
+  expect(new Set(icons.map(icon => icon.className)).size).toBe(6);
+});
+
 test("routes home shortcuts to the shared settings pages", () => {
   const onOpenPage = vi.fn();
   render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} />);

@@ -1,5 +1,6 @@
 import json
 import plistlib
+import re
 import unittest
 from pathlib import Path
 
@@ -131,6 +132,27 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
+    def test_tauri_keyboard_extension_registers_all_shipping_swift_dependencies(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+
+        # The checked-in XcodeGen output is the shipping project used by Tauri. Keep the
+        # generated target in lockstep with project.yml so a newly added keyboard dependency
+        # cannot silently compile only in the legacy native project.
+        self.assertIn("../../../../../platforms/ios/KeyboardExtension/Sources", project)
+        self.assertIn("../../../../../platforms/ios/SharedUI", project)
+        sources = [
+            "KeyboardSymbolPanelView.swift",
+            "CandidateTranslationStore.swift",
+            "CandidateTranslationPreference.swift",
+            "BackendChatClient.swift",
+            "BackendAccountSession.swift",
+            "BackendAnonymousAccount.swift",
+            "BackendLocalStore.swift",
+        ]
+        for source in sources:
+            self.assertIn(f"{source} in Sources", generated)
+
     def test_tauri_app_packages_and_registers_ios_alternate_icons(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         generated_project = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
@@ -228,7 +250,8 @@ class IOSProjectConfigTests(unittest.TestCase):
             self.assertIn(f"pub async fn {command}", account)
         self.assertIn("BackendAccountSession::new", account)
         self.assertIn("IosAccountStorage(platform.clone())", account)
-        self.assertIn('account: { ...basicAccount, settingsSync: accountSettingsSync }', desktop_entry)
+        self.assertIn("accountSettingsSync", desktop_entry)
+        self.assertIn("account: { ...basicAccount", desktop_entry)
         self.assertIn('invoke("account_chat_models")', desktop_entry)
         self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', desktop_entry)
 
@@ -279,15 +302,18 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("UIPasteboard.general.string = args.text", swift)
         self.assertEqual(
             desktop_entry.count(
-                'openCloudClipboard: async () => setMobilePanel("cloud-clipboard")'
+                'openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard")'
             ),
             2,
         )
 
-    def test_ios_cloud_dictionary_uses_shared_account_without_snapshot_state(self):
+    def test_ios_cloud_dictionary_uses_shared_account_and_snapshot_queue(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift").read_text()
 
         self.assertIn("ios_account::cloud_dictionary_request(state, action).await", rust_entry)
         self.assertIn("pub async fn cloud_dictionary_request", account)
@@ -304,10 +330,36 @@ class IOSProjectConfigTests(unittest.TestCase):
         ]:
             self.assertIn(method, account)
         self.assertIn(
-            'openCloudDictionary: async () => setMobilePanel("cloud-dictionary")',
+            'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',
             desktop_entry,
         )
-        self.assertIn('code: "invalid_cloud_dictionary"', account)
+        for operation in [
+            "dictionary_snapshot_preview(state).await",
+            "dictionary_snapshot_export(state).await",
+            "dictionary_snapshot_restore_preview(state, text).await",
+            "dictionary_snapshot_restore(state, text, expected_sha256, revision).await",
+            "dictionary_snapshot_enqueue(state, token).await",
+            "dictionary_snapshot_status(state).await",
+            "dictionary_snapshot_cancel(state).await",
+        ]:
+            self.assertIn(operation, account)
+        for path in [
+            "../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift",
+            "../../../../../shared/backend/BackendSnapshotClient.swift",
+            "../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift",
+        ]:
+            self.assertIn(path, project)
+        for source in [
+            "BackendSnapshotClient.swift in Sources",
+            "DictionarySnapshotQueue.swift in Sources",
+            "TauriDictionarySnapshotBridge.swift in Sources",
+        ]:
+            self.assertIn(source, generated)
+        self.assertIn("DictionarySnapshotQueue()", bridge)
+        self.assertIn("BackendPreparedSnapshot(copying: url)", bridge)
+        self.assertIn('@_cdecl("msime_ios_dictionary_snapshot_request")', bridge)
+        self.assertIn("snapshot: /\\b(Android|iPhone|iPad)\\b/i", desktop_entry)
+        self.assertIn("snapshotNative: /\\bMacintosh\\b/i", desktop_entry)
 
     def test_ios_community_services_use_shared_backend_and_tauri_ui(self):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
@@ -344,6 +396,53 @@ class IOSProjectConfigTests(unittest.TestCase):
         build_script = (TAURI_ROOT / "build.rs").read_text()
         self.assertIn("CONFIGURATION_BUILD_DIR", build_script)
         self.assertIn("cargo:rustc-link-lib=static=MSIMESwiftRsRuntimeExports", build_script)
+
+    def test_ios_tauri_dictionary_edits_use_the_app_group_queue(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        store = (TAURI_ROOT / "../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift").read_text()
+
+        for path in [
+            "../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift",
+            "../../../../../platforms/ios/SharedUI/PersonalDictionaryImport.swift",
+            "../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift",
+            "../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift",
+        ]:
+            self.assertIn(path, project)
+        target = re.search(
+            r"/\* msime-desktop_iOS \*/ = \{.*?buildPhases = \((.*?)\);",
+            generated,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(target)
+        source_phase = re.search(r"([A-F0-9]{24}) /\* Sources \*/", target.group(1))
+        self.assertIsNotNone(source_phase)
+        phase = re.search(
+            rf"{source_phase.group(1)} /\* Sources \*/ = \{{.*?files = \((.*?)\);",
+            generated,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(phase)
+        for source in [
+            "PersonalDictionaryBridge.swift",
+            "PersonalDictionaryImport.swift",
+            "PersonalDictionaryStore.swift",
+            "PersonalWordBridge.swift",
+            "TauriPersonalDictionaryBridge.swift",
+        ]:
+            self.assertIn(f"{source} in Sources", phase.group(1))
+        self.assertIn("ios_personal_dictionary_action", rust_entry)
+        self.assertIn("msime_ios_personal_dictionary_request", rust_entry)
+        self.assertIn('case "import_personal":', bridge)
+        self.assertIn('case "edit":', bridge)
+        self.assertIn("requestID: requestID", bridge)
+        self.assertIn("PersonalDictionaryStore", bridge)
+        self.assertIn("var id = UUID().uuidString", store)
+        self.assertIn("decoder.dateDecodingStrategy = .custom", store)
+        self.assertIn("Date(timeIntervalSinceReferenceDate: seconds)", store)
+        self.assertIn("encoder.dateEncodingStrategy = .iso8601", store)
 
 
 if __name__ == "__main__":

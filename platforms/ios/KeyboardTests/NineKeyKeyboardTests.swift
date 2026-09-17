@@ -524,14 +524,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
     let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
-    // Height is a drag on the grip now. A pan cannot be synthesised here, so this goes through the
-    // accessibility increment the grip exposes for exactly the same reason -- it is a real path,
-    // not a test-only one, and it moves in the same steps.
-    let grip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
-    XCTAssertTrue(grip.accessibilityTraits.contains(.adjustable))
+    let height = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" } as? UISlider)
     controller.view.layoutIfNeeded()
     let initialHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    for _ in 0..<12 { grip.accessibilityIncrement() }
+    height.value = 24
+    height.sendActions(for: .valueChanged)
     controller.view.layoutIfNeeded()
     let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
@@ -568,7 +565,7 @@ final class NineKeyKeyboardTests: XCTestCase {
                 KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
       XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
     }
-    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" })
   }
 
   func testTouchGeometryWritesAndResetsCanonicalPreferences() throws {
@@ -1090,6 +1087,46 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSymbolKeyOpensAPanelInsteadOfAMenu() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    let key = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityLabel == "符号" } as? UIButton)
+    XCTAssertNil(key.menu, "这颗键不再弹菜单")
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+
+    key.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    XCTAssertEqual(panel.bounds.size, controller.view.bounds.size, "面板整块盖住键盘区")
+    let last = KeyboardSymbolPanelView.categories.count - 1
+    for identifier in ["symbolCategory_0", "symbolCategory_\(last)", "closeSymbolPanel", "symbolLockKey", "symbolDeleteKey"] {
+      XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    let grid = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "symbolGrid" } as? UIScrollView)
+    XCTAssertGreaterThan(grid.contentSize.height, grid.bounds.height, "符号多到一屏放不下时要能往下滚")
+
+    let network = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolCategory_\(last)" } as? UIButton)
+    network.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_http://" })
+
+    let symbol = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_@" } as? UIButton)
+    symbol.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+  }
+
   func testKeyLayoutsKeepNineKeyHeight() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -1107,13 +1144,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           controller.view.layoutIfNeeded()
-          // The kana layout hides the shared action row and carries its own Space/Return column at
-          // the fixed kana row height, so only the other schemes share the action row's geometry.
-          if scheme == .japaneseNineKey {
-            XCTAssertFalse(try button("japaneseReturn", in: controller).isHidden)
-          } else {
-            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
-          }
+          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
