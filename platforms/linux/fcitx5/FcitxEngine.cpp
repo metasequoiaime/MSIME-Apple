@@ -430,6 +430,25 @@ public:
     render();
     return true;
   }
+  bool toggleAiCandidates() {
+    if (!session_) return false;
+    auto &assistant = preferences_["ai_assistant"];
+    const bool enabled = !assistant.value("enabled", false);
+    assistant["enabled"] = enabled;
+    if (!enabled && !online_query_.empty()) {
+      const auto empty = std::string("[]");
+      view_ = response(msime_client_apply_online_candidates(
+          session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
+          reinterpret_cast<const uint8_t *>(empty.data()), empty.size(), 1)).at("view");
+      ++online_epoch_;
+      online_query_.clear();
+      online_slots_[0].query.clear();
+      online_slots_[1].query.clear();
+    }
+    saveNestedBooleanPreference("ai_assistant", "enabled", enabled);
+    render();
+    return true;
+  }
   bool selectEdge(uint8_t edge) {
     if (!session_ || view_.value("candidates", Json::array()).empty()) return false;
     for (const auto &candidate : view_.at("candidates")) {
@@ -1405,6 +1424,37 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxAiCandidatesAction : public fcitx::Action {
+public:
+  explicit FcitxAiCandidatesAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "AI 联想"; }
+  std::string icon(fcitx::InputContext *) const override { return "applications-science"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("ai_assistant", Json::object())
+        .value("enabled", false);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure()) {
+        state->toggleAiCandidates();
+        update(ic);
+      }
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxMaintenanceAction : public fcitx::SimpleAction {
 public:
   FcitxMaintenanceAction(fcitx::FactoryFor<FcitxState> *factory, int operation,
@@ -1687,6 +1737,7 @@ public:
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
     cloud_candidates_action_.registerAction("msime-cloud-candidates", &instance->userInterfaceManager());
+    ai_candidates_action_.registerAction("msime-ai-candidates", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -1774,6 +1825,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_candidates_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &ai_candidates_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1793,6 +1845,7 @@ public:
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
     event.inputContext()->statusArea().removeAction(&cloud_candidates_action_);
+    event.inputContext()->statusArea().removeAction(&ai_candidates_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1832,6 +1885,7 @@ public:
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
   FcitxCloudCandidatesAction cloud_candidates_action_{&factory_};
+  FcitxAiCandidatesAction ai_candidates_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

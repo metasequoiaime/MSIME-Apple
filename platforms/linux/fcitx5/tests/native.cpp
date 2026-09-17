@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 15,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 16,
             "native status actions attached");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
@@ -207,6 +207,18 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 16,
+            "AI status action attached");
+    const bool aiEnabled = state->preferences_.value("ai_assistant", Json::object())
+                               .value("enabled", false);
+    require(engine.ai_candidates_action_.isChecked(&ic) == aiEnabled,
+            "AI status action reflects preference");
+    engine.ai_candidates_action_.activate(&ic);
+    require(state->preferences_.value("ai_assistant", Json::object()).value("enabled", false) != aiEnabled,
+            "AI status action toggles live mode");
+    engine.ai_candidates_action_.activate(&ic);
+    require(state->preferences_.value("ai_assistant", Json::object()).value("enabled", false) == aiEnabled,
+            "AI status action restores live mode");
     require(engine.translation_language_action_.shortText(&ic) == "翻译：英语",
             "translation language action starts in English");
     engine.translation_language_action_.activate(&ic);
