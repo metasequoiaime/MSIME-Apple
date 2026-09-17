@@ -2647,6 +2647,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     return true;
   }
   if (event.isRelease()) return false;
+  if ((sym == FcitxKey_k || sym == FcitxKey_K) &&
+      states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
+      states.test(fcitx::KeyState::Super) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Hyper}) &&
+      ic_.hasFocus() && !restricted() && !privateInput())
+    return launchDesktopPanel("keyboard");
   if (voice_hotkey_rctrl_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       (rightControlKey || rightAltKey) &&
       states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}) &&
