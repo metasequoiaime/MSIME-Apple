@@ -69,15 +69,18 @@ class SolitaryShiftTracker
     double pressedAt_ = 0;
 };
 
-// A tap during a composition ends it as the letters that were typed, rather than switching modes:
-// it is how a word the dictionary does not carry -- a name, a command, an acronym -- gets out in
-// the middle of Chinese input without losing what was already typed. With nothing composing there
-// is nothing to convert, so the tap means the mode switch. Both sides answer to the one preference,
-// since someone who turned the shortcut off wants Shift left alone.
+// A tap during a composition ends it as the letters that were typed -- that is how a word the dictionary does not carry
+// (a name, a command, an acronym) gets out in the middle of Chinese input without losing what was already typed -- and
+// then switches to English, because someone who reached for Shift mid-word is about to keep typing English. Committing
+// without switching did only half the job: the letters left, the next keystroke went back to being Chinese, and Shift
+// looked like it had not switched at all.
+//
+// With nothing composing there is nothing to convert, so the tap is only the mode switch. Both sides answer to the one
+// preference, since someone who turned the shortcut off wants Shift left alone.
 enum class SolitaryShiftAction
 {
     Ignore,
-    CommitComposition,
+    CommitCompositionAndToggleInputMode,
     ToggleInputMode,
 };
 
@@ -87,7 +90,7 @@ inline SolitaryShiftAction ActionForSolitaryShift(bool shortcutEnabled, bool com
     {
         return SolitaryShiftAction::Ignore;
     }
-    return composing ? SolitaryShiftAction::CommitComposition : SolitaryShiftAction::ToggleInputMode;
+    return composing ? SolitaryShiftAction::CommitCompositionAndToggleInputMode : SolitaryShiftAction::ToggleInputMode;
 }
 
 inline bool ShouldPrepareInputSession(bool englishMode)

@@ -765,6 +765,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("${METASEQUOIA_MACOS_ROOT}/scripts/uninstall.sh", cmake)
         self.assertIn("MACOSX_PACKAGE_LOCATION Resources", cmake)
         preferences_controller = (MACOS_ROOT / "src/PreferencesWindowController.mm").read_text()
+        # 卸载在进程内做,不再外调脚本。这两条挡的是往回退:一旦有人把按钮改回「在终端里打开 Uninstall.command」,就又会撞上那个脚本要 pkill 掉输入法本身、而那正是启动它的进程的矛盾。
+        self.assertNotIn('URLForResource:@"Uninstall" withExtension:@"command"', preferences_controller)
+        self.assertIn("UninstallMetasequoiaForCurrentUser", preferences_controller)
+        # 脚本本身留着 —— 那是安装包和命令行那条路,README 指向它。
+        self.assertIn("Uninstall.command", cmake)
         self.assertIn("initWithWindowNibName:(NSNibName)windowNibName owner:(id)owner", preferences_controller)
         self.assertIn("showAndActivate", preferences_controller)
         self.assertIn("showAndActivateForStandaloneLaunch", preferences_controller)

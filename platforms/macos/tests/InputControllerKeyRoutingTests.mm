@@ -380,10 +380,13 @@ int main()
         cleared.reset();
         require(!cleared.flagsChanged(0, 6.1), "A reset tracker still fired.");
 
-        // Letters on screen mean the tap converts them; nothing composing means it switches modes;
-        // the preference turns both off together.
-        require(ActionForSolitaryShift(true, true) == SolitaryShiftAction::CommitComposition,
-                "Shift during a composition did not commit what had been typed.");
+        // Letters on screen mean the tap converts them and switches to English; nothing composing
+        // means it only switches modes; the preference turns both off together.
+        //
+        // Committing without switching is the half-done version this replaced: the letters left,
+        // the next keystroke was Chinese again, and Shift read as if it had done nothing.
+        require(ActionForSolitaryShift(true, true) == SolitaryShiftAction::CommitCompositionAndToggleInputMode,
+                "Shift during a composition did not commit what had been typed and switch to English.");
         require(ActionForSolitaryShift(true, false) == SolitaryShiftAction::ToggleInputMode,
                 "Shift with nothing composing did not switch the input mode.");
         require(ActionForSolitaryShift(false, true) == SolitaryShiftAction::Ignore &&
