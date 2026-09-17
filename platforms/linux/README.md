@@ -1,5 +1,19 @@
 # Linux IBus 预览宿主
 
+## Fcitx5
+
+Linux also ships a native Fcitx5 addon. Configure the normal Linux build with
+`-DMSIME_ENABLE_FCITX5=ON` after installing the Fcitx5 development package; the
+addon links the same `msime-host-api` ABI used by the IBus host, and keeps one
+Host API session per Fcitx input context. It does not run an IBus daemon or use
+the Fcitx IBus compatibility frontend. Install the resulting addon and
+`msime.conf`/`inputmethod/msime.conf` into the Fcitx5 prefix, then select
+“MSIME” with `fcitx5-configtool`. Set `MSIME_FCITX5_OPTIONS` to an absolute
+runtime-options JSON path when the user configuration is outside the usual
+XDG location. Password, numeric and sensitive contexts stay unhandled, while
+preedit, the Engine-owned candidate page, page navigation and candidate IDs are
+forwarded through Fcitx5's native input panel.
+
 候选操作菜单通过 IBus 属性树提供固定、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 Windows 原生窗口。
 
 候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
