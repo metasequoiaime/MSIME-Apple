@@ -99,6 +99,7 @@ public:
           refreshOnline();
           refreshTranslations();
           refreshClipboard();
+          refreshCloudClipboard();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -127,6 +128,9 @@ public:
     clipboard_items_.clear();
     clipboard_loading_ = false;
     clipboard_job_ = {};
+    cloud_clipboard_socket_.clear();
+    cloud_clipboard_items_.clear();
+    cloud_clipboard_job_ = {};
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -184,6 +188,11 @@ public:
     resources_ = options.value("resources", std::string());
     clipboard_path_ = options.value("preferences_directory", std::string());
     if (clipboard_path_.empty()) clipboard_path_ = options.value("clipboard_history_path", std::string());
+    cloud_clipboard_socket_ = options.value("cloud_clipboard_provider_socket", std::string());
+    if (cloud_clipboard_socket_.empty()) {
+      if (const auto *socket = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
+        cloud_clipboard_socket_ = socket;
+    }
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
     if (translation_socket_.empty()) {
@@ -419,6 +428,34 @@ public:
     ic_.commitString(text);
     return true;
   }
+  void refreshCloudClipboard() {
+    try {
+      if (cloud_clipboard_job_.valid()) {
+        if (cloud_clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto result = cloud_clipboard_job_.get();
+        if (result.is_object()) cloud_clipboard_items_ = result.value("entries", Json::array());
+      }
+    } catch (...) { cloud_clipboard_items_.clear(); }
+  }
+  bool requestCloudClipboard() {
+    if (cloud_clipboard_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshCloudClipboard();
+    if (!cloud_clipboard_items_.empty()) {
+      const auto &item = cloud_clipboard_items_.front();
+      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+      if (!text.empty()) { ic_.commitString(text); return true; }
+    }
+    if (cloud_clipboard_job_.valid()) return false;
+    const auto socket = cloud_clipboard_socket_;
+    cloud_clipboard_job_ = std::async(std::launch::async, [socket] {
+      const auto request = Json{{"operation", "list"}, {"search", ""}}.dump();
+      auto raw = response(msime_client_cloud_clipboard_provider_request(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size(),
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+      return raw.is_object() ? raw : Json::object();
+    });
+    return false;
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -478,6 +515,9 @@ public:
   Json clipboard_items_ = Json::array();
   bool clipboard_loading_ = false;
   std::future<Json> clipboard_job_;
+  std::string cloud_clipboard_socket_;
+  Json cloud_clipboard_items_ = Json::array();
+  std::future<Json> cloud_clipboard_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
@@ -704,6 +744,20 @@ private:
   size_t index_;
 };
 
+class FcitxCloudClipboardAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCloudClipboardAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("云剪贴板");
+    setLongText("读取云剪贴板最近条目");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->requestCloudClipboard(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -713,6 +767,7 @@ public:
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
+    cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -759,6 +814,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -767,6 +823,7 @@ public:
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
+    event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -795,6 +852,7 @@ public:
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
+  FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

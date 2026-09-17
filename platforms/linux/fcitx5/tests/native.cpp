@@ -58,6 +58,15 @@ int main(int argc, char **argv) {
             "online provider bind");
     require(listen(providerServer, 1) == 0, "online provider listen");
     options["online_provider_socket"] = socketPath;
+    const auto cloudSocketPath = std::string(directory) + "/cloud-clipboard.sock";
+    const int cloudServer = socket(AF_UNIX, SOCK_STREAM, 0);
+    require(cloudServer >= 0, "cloud clipboard socket");
+    sockaddr_un cloudAddress{};
+    cloudAddress.sun_family = AF_UNIX;
+    std::strncpy(cloudAddress.sun_path, cloudSocketPath.c_str(), sizeof(cloudAddress.sun_path) - 1);
+    require(bind(cloudServer, reinterpret_cast<sockaddr *>(&cloudAddress), sizeof(cloudAddress)) == 0 &&
+            listen(cloudServer, 1) == 0, "cloud clipboard listener");
+    options["cloud_clipboard_provider_socket"] = cloudSocketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
     std::thread provider([providerServer, ai, suggestion] {
@@ -87,6 +96,19 @@ int main(int argc, char **argv) {
       close(providerServer);
     });
     struct ProviderJoiner { std::thread &thread; ~ProviderJoiner() { if (thread.joinable()) thread.join(); } } providerJoiner{provider};
+    auto cloudProvider = std::async(std::launch::async, [cloudServer] {
+      pollfd ready{cloudServer, POLLIN, 0};
+      if (poll(&ready, 1, 5000) <= 0) { close(cloudServer); return false; }
+      const int client = accept(cloudServer, nullptr, nullptr);
+      if (client < 0) { close(cloudServer); return false; }
+      char request[4096]{};
+      const auto count = read(client, request, sizeof(request) - 1);
+      const auto reply = "{\"entries\":[{\"id\":\"synthetic-1\",\"text\":\"云剪贴板测试\"}]}\n";
+      const bool valid = count > 0 && std::string(request, count).find("cloud_clipboard") != std::string::npos;
+      const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
+      close(client); close(cloudServer);
+      return valid && sent;
+    });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
     char disable[] = "--disable=all";
@@ -127,7 +149,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 4,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 5,
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
@@ -172,6 +194,15 @@ int main(int argc, char **argv) {
     const auto beforeClipboard = ic.committed;
     engine.clipboard_action_.activate(&ic);
     require(ic.committed == beforeClipboard + "剪贴板合成测试", "clipboard action commits newest history");
+    engine.cloud_clipboard_action_.activate(&ic);
+    const auto cloudDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ic.committed.find("云剪贴板测试") == std::string::npos &&
+           std::chrono::steady_clock::now() < cloudDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      engine.cloud_clipboard_action_.activate(&ic);
+    }
+    require(ic.committed.find("云剪贴板测试") != std::string::npos, "cloud clipboard action commits provider entry");
+    require(cloudProvider.get(), "cloud clipboard socket protocol");
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
