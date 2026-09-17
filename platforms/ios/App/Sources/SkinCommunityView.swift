@@ -260,7 +260,7 @@ struct CommunityDesignPreview: View {
               HStack(spacing: 4) { ForEach(row, id: \.self) { key($0) } }
             }
           }
-          VStack(spacing: 4) { key("⌫"); key("重输"); key("0") }.frame(width: 36)
+          VStack(spacing: 4) { key("⌫"); key("."); key("0") }.frame(width: 36)
         }.frame(maxHeight: .infinity)
       } else {
         ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in

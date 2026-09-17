@@ -90,6 +90,9 @@ class InputSessionAdapter
     bool set_frequency_adjustment(FrequencyAdjustmentOptions options);
     FrequencyAdjustmentOptions frequency_adjustment() const;
     void set_wubi_mixed_pinyin(bool enabled);
+    // 英文词库的前缀补全。这是一次只读查询,不经过会话:补全不该有状态,也不该让中文那一侧看见任何改动。
+    // 调用方给什么就查什么,大小写由调用方处理 —— 词库按小写存,这里照原样转小写再查。
+    std::vector<std::string> english_completions(const std::string &prefix, std::size_t limit);
     // Offers words from the packaged English dictionary alongside the Chinese candidates, so a latin
     // word can be committed without leaving the Chinese keyboard. The Engine applies this to Quanpin
     // and Shuangpin only, and only to an all-lowercase prefix. Returns false during composition,

@@ -26,6 +26,16 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 一键清空当前拼音:长按退格。原先是九宫格上的「重输」键,那个键位让给了句点。
+  /// 通过按键自己注册的 action 触发,而不是写死选择器名 —— 改个方法名不该让这条用例红。
+  private func clearComposition(in controller: KeyboardViewController) throws {
+    let delete = try button("nineKeyDelete", in: controller)
+    let begin = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchDown)?.first)
+    controller.perform(NSSelectorFromString(begin))
+    // 长按到达重复阈值的那一下:正在组字时它清空整段,而不是继续删。
+    controller.perform(NSSelectorFromString("repeatBackspace"))
+  }
+
   func testLayoutPresetsKeepKeysInBoundsAcrossBothKeyboards() throws {
     let previousLayout = KeyboardLayoutPreference.selected
     let previousScheme = InputSchemePreference.scheme
@@ -1195,7 +1205,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(chip.contains(where: \.isNumber), chip)
       XCTAssertEqual(chip, chip.trimmingCharacters(in: .whitespaces), chip)
       XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
-      try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+      try clearComposition(in: controller)
       controller.view.layoutIfNeeded()
       XCTAssertFalse(toolbar.isHidden)
       XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
@@ -1684,7 +1694,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
         } else if phase == "cleared" {
-          try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+          try clearComposition(in: controller)
           // The chips are reused rather than rebuilt, so an emptied strip hides them instead of
           // removing them. What matters is that none of them is showing.
           XCTAssertTrue(descendants(controller.view).allSatisfy {

@@ -67,6 +67,8 @@ typedef NS_ENUM(NSInteger, MetasequoiaFrequencyAdjustmentMode) {
                       triggerCount:(NSInteger)triggerCount
                         linearStep:(NSInteger)linearStep;
 - (void)setWubiMixedPinyin:(BOOL)enabled;
+/// 按前缀查英文词库,给候选栏做补全提示。只读,不动会话,也不改中文那一侧的任何状态。
+- (NSArray<NSString *> *)englishCompletionsForPrefix:(NSString *)prefix limit:(NSUInteger)limit;
 - (BOOL)setEnglishMixedCandidates:(BOOL)enabled;
 /// 打开后,每次快照都会带上候选词的英文释义。关闭时不会去碰英文词库。
 - (void)setCandidateGlossesEnabled:(BOOL)enabled;
