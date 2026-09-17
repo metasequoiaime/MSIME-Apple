@@ -14,7 +14,7 @@ XDG location. Password, numeric and sensitive contexts stay unhandled, while
 preedit, the Engine-owned candidate page, page navigation and candidate IDs are
 forwarded through Fcitx5's native input panel.
 
-候选操作菜单通过 IBus 属性树提供固定、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 Windows 原生窗口。
+Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 status action（旧版本兼容入口）提供固定、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 IBus 兼容前端或 Windows 原生窗口。
 
 候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
 
