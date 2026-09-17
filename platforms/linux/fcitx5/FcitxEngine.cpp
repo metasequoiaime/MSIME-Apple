@@ -412,6 +412,16 @@ public:
     render();
     return true;
   }
+  bool toggleClipboardHistory() {
+    if (!session_ || restricted() || privateInput()) return false;
+    const bool enabled = !preferences_.value("clipboard_history", false);
+    if (!toggleTopLevelBoolean("clipboard_history", false)) return false;
+    if (!enabled) {
+      clipboard_items_.clear();
+      clipboard_loading_ = false;
+    }
+    return true;
+  }
   bool toggleWordCharacter() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("word_character", Json::object()).value("enabled", true);
@@ -2016,6 +2026,29 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxClipboardHistoryAction : public fcitx::Action {
+public:
+  explicit FcitxClipboardHistoryAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "剪贴板历史"; }
+  std::string icon(fcitx::InputContext *) const override { return "edit-paste"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("clipboard_history", false);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->ensure() && state->toggleClipboardHistory()) update(ic);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxClipboardItemAction : public fcitx::SimpleAction {
 public:
   FcitxClipboardItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
@@ -2312,6 +2345,7 @@ public:
     number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
+    clipboard_history_action_.registerAction("msime-clipboard-history", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     emoji_search_action_.registerAction("msime-emoji-search", &instance->userInterfaceManager());
@@ -2414,6 +2448,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_history_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_search_action_);
@@ -2448,6 +2483,7 @@ public:
     event.inputContext()->statusArea().removeAction(&number_row_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
+    event.inputContext()->statusArea().removeAction(&clipboard_history_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
     event.inputContext()->statusArea().removeAction(&emoji_search_action_);
@@ -2502,6 +2538,7 @@ public:
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
+  FcitxClipboardHistoryAction clipboard_history_action_{&factory_};
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
   FcitxEmojiSearchAction emoji_search_action_{&factory_};
