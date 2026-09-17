@@ -265,6 +265,7 @@ public:
     voice_language_ = "zh-cn";
     voice_options_ = Json::object();
     voice_enabled_ = true;
+    voice_hotkey_ctrl_f9_ = true;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -623,6 +624,7 @@ public:
     }
     const auto voicePreferences = preferences_.value("voice_input", Json::object());
     voice_enabled_ = voicePreferences.value("enabled", true);
+    voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", true);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     voice_options_ = voiceProviderOptions(preferences_);
     online_socket_ = onlineSocket(options);
@@ -678,6 +680,7 @@ public:
             word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
             const auto voicePreferences = preferences_.value("voice_input", Json::object());
             voice_enabled_ = voicePreferences.value("enabled", voice_enabled_);
+            voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", voice_hotkey_ctrl_f9_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             voice_options_ = voiceProviderOptions(preferences_);
             preferences_snapshot_ = std::move(snapshot);
@@ -1312,6 +1315,7 @@ public:
   std::string voice_language_ = "zh-cn";
   Json voice_options_ = Json::object();
   bool voice_enabled_ = true;
+  bool voice_hotkey_ctrl_f9_ = true;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -2580,6 +2584,14 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
+  if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
+      voice_hotkey_ctrl_f9_ && voice_enabled_ && !restricted() && !privateInput() &&
+      ic_.hasFocus()) {
+    if (voice_loading_) stopVoice();
+    else requestVoice();
+    return true;
+  }
   if (emoji_search_mode_) {
     if (sym == FcitxKey_Escape) {
       endEmojiSearch();

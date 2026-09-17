@@ -447,7 +447,10 @@ int main(int argc, char **argv) {
     engine.cloud_clipboard_item2_.activate(&ic);
     require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
             "cloud clipboard menu commits selected provider entry");
-    engine.voice_action_.activate(&ic);
+    fcitx::KeyEvent voiceHotkey(&ic,
+        fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
+    engine.keyEvent(entry, voiceHotkey);
+    require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
     bool observedVoicePartial = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (ic.committed.find("语音测试") == std::string::npos &&
