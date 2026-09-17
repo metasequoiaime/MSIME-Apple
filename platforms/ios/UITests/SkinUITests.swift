@@ -153,7 +153,10 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.buttons["generateAISkins"].waitForExistence(timeout: 5))
     app.buttons["generateAISkins"].tap()
-    XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 3))
+    // 5 秒,和这个文件里其它每一处等待一样。3 秒是漏网的异常值,在 CI 上间歇性地不够:报出来是
+    // 「No matches found for '取消' … from input { Button, label: '完成' }」,看着像按钮不见了,
+    // 实际只是生成还没开始。这条曾经被一整片 background assertion 超时盖住,以为是基础设施问题。
+    XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 5))
     app.buttons["取消"].tap()
     let late = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.buttons["saveAISkin_AI 测试 1"])
     late.isInverted = true

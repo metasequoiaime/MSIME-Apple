@@ -54,7 +54,7 @@ final class SettingsUITests: KeyboardInterfaceTests {
     let tabs = app.segmentedControls["statisticsTab"]
     XCTAssertTrue(tabs.waitForExistence(timeout: 5))
     let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
-    XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
+    XCTAssertTrue(day.waitForExistence(timeout: 5), app.debugDescription)
     day.tap()
     XCTAssertTrue(app.buttons["返回累计"].exists)
     app.buttons["返回累计"].tap()
@@ -84,12 +84,12 @@ final class SettingsUITests: KeyboardInterfaceTests {
     add(scheme)
 
     tabs.buttons["趋势"].tap()
-    XCTAssertTrue(day.waitForExistence(timeout: 3), "切回趋势要能看到柱形")
+    XCTAssertTrue(day.waitForExistence(timeout: 5), "切回趋势要能看到柱形")
 
     // 开关、刷新、清空从每一屏底下挪进了右上角的菜单。
     XCTAssertFalse(app.switches["typingStatisticsEnabled"].exists)
     app.buttons["statisticsMenu"].tap()
-    XCTAssertTrue(app.buttons["typingStatisticsEnabled"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["typingStatisticsEnabled"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["resetTypingStatistics"].exists)
     let menu = XCTAttachment(screenshot: app.screenshot())
     menu.name = "统计菜单"
