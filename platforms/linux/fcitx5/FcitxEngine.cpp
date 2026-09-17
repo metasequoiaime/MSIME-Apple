@@ -243,6 +243,9 @@ public:
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
     emoji_job_ = {};
+    emoji_job_query_.clear();
+    emoji_search_mode_ = false;
+    emoji_search_.clear();
     emoji_category_.clear();
     emoji_group_.clear();
     emoji_groups_.clear();
@@ -981,10 +984,17 @@ public:
         if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = emoji_job_.get();
         emoji_job_ = {};
-        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
+        const auto requestQuery = emoji_job_query_;
+        emoji_job_query_.clear();
+        if (ic_.hasFocus() && !restricted() && !privateInput() &&
+            requestQuery == emoji_search_ && result.is_object()) {
           emoji_items_ = result.value("items", Json::array());
           emoji_next_offset_ = result.value("next_offset", emoji_offset_ + emoji_items_.size());
           emoji_complete_ = result.value("complete", true);
+        } else if (emoji_search_mode_ && requestQuery != emoji_search_ && ic_.hasFocus() &&
+                   !restricted() && !privateInput()) {
+          emoji_items_.clear();
+          requestEmojiPage(0);
         }
       }
     } catch (...) { emoji_items_.clear(); }
@@ -994,16 +1004,38 @@ public:
     const auto resources = resources_;
     const auto category = emoji_category_;
     const auto group = emoji_group_;
+    const auto search = emoji_search_;
     emoji_offset_ = offset;
-    emoji_job_ = std::async(std::launch::async, [resources, category, group, offset] {
+    emoji_job_query_ = search;
+    emoji_job_ = std::async(std::launch::async, [resources, category, group, search, offset] {
       const auto query = Json{{"limit", 5}, {"offset", offset}, {"cursor", true},
-                              {"category", category}, {"group", group}}.dump();
+                              {"category", category}, {"group", group}, {"search", search}}.dump();
       auto result = response(msime_client_emoji_catalog_request(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
       return result.is_object() ? result : Json::object();
     }).share();
     return true;
+  }
+  bool beginEmojiSearch() {
+    if (restricted() || privateInput() || !ic_.hasFocus() || resources_.empty()) return false;
+    emoji_search_mode_ = true;
+    emoji_search_.clear();
+    emoji_items_.clear();
+    emoji_offset_ = 0;
+    emoji_next_offset_ = 0;
+    emoji_complete_ = false;
+    emoji_previous_offsets_.clear();
+    if (!emoji_job_.valid()) requestEmojiPage(0);
+    render();
+    return true;
+  }
+  void endEmojiSearch() {
+    if (!emoji_search_mode_) return;
+    emoji_search_mode_ = false;
+    emoji_search_.clear();
+    emoji_items_.clear();
+    render();
   }
   bool insertEmoji(size_t index = 0) {
     if (restricted() || privateInput() || !ic_.hasFocus()) return false;
@@ -1264,6 +1296,9 @@ public:
   std::shared_future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
   std::shared_future<Json> emoji_job_;
+  std::string emoji_job_query_;
+  bool emoji_search_mode_ = false;
+  std::string emoji_search_;
   std::string emoji_category_;
   std::string emoji_group_;
   std::vector<std::string> emoji_groups_;
@@ -2054,6 +2089,23 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxEmojiSearchAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxEmojiSearchAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("搜索 Emoji");
+    setLongText("在本地 Emoji、颜文字和符号目录中搜索");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->ensure()) state->beginEmojiSearch();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxEmojiCategoryAction : public fcitx::SimpleAction {
 public:
   explicit FcitxEmojiCategoryAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -2222,6 +2274,7 @@ public:
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
+    emoji_search_action_.registerAction("msime-emoji-search", &instance->userInterfaceManager());
     emoji_category_action_.registerAction("msime-emoji-category", &instance->userInterfaceManager());
     emoji_group_action_.registerAction("msime-emoji-group", &instance->userInterfaceManager());
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
@@ -2323,6 +2376,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_search_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_category_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_group_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
@@ -2356,6 +2410,7 @@ public:
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
+    event.inputContext()->statusArea().removeAction(&emoji_search_action_);
     event.inputContext()->statusArea().removeAction(&emoji_category_action_);
     event.inputContext()->statusArea().removeAction(&emoji_group_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
@@ -2409,6 +2464,7 @@ public:
   FcitxClipboardAction clipboard_action_{&factory_};
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
+  FcitxEmojiSearchAction emoji_search_action_{&factory_};
   FcitxEmojiCategoryAction emoji_category_action_{&factory_};
   FcitxEmojiGroupAction emoji_group_action_{&factory_};
   FcitxVoiceAction voice_action_{&factory_};
@@ -2486,6 +2542,8 @@ void FcitxState::render() {
     ic_.inputPanel().setAuxDown(fcitx::Text(std::to_string(view_.at("page").get<int>() + 1) +
         "/" + std::to_string(view_.at("page_count").get<int>())));
   }
+  if (emoji_search_mode_)
+    ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -2522,6 +2580,51 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
+  if (emoji_search_mode_) {
+    if (sym == FcitxKey_Escape) {
+      endEmojiSearch();
+      return true;
+    }
+    if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper}))
+      return true;
+    if (sym == FcitxKey_BackSpace) {
+      if (!emoji_search_.empty()) emoji_search_.pop_back();
+      emoji_items_.clear();
+      emoji_offset_ = 0;
+      emoji_next_offset_ = 0;
+      emoji_complete_ = false;
+      emoji_previous_offsets_.clear();
+      if (!emoji_job_.valid()) requestEmojiPage(0);
+      render();
+      return true;
+    }
+    if (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) {
+      refreshEmoji();
+      if (!emoji_items_.empty()) {
+        const auto &item = emoji_items_.front();
+        const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+        if (!text.empty()) ic_.commitString(text);
+      }
+      endEmojiSearch();
+      return true;
+    }
+    const auto searchText = fcitx::Key::keySymToUTF8(sym);
+    if (!shift && searchText.size() == 1 &&
+        ((searchText[0] >= 'a' && searchText[0] <= 'z') ||
+         (searchText[0] >= '0' && searchText[0] <= '9') || searchText == " ")) {
+      if (emoji_search_.size() < 256) emoji_search_.append(searchText);
+      emoji_items_.clear();
+      emoji_offset_ = 0;
+      emoji_next_offset_ = 0;
+      emoji_complete_ = false;
+      emoji_previous_offsets_.clear();
+      if (!emoji_job_.valid()) requestEmojiPage(0);
+      render();
+      return true;
+    }
+    return true;
+  }
   if (sym == FcitxKey_Escape && voice_loading_) {
     cancelVoice();
     return composing ? command(MSIME_CANCEL) : true;

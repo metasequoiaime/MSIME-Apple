@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 29,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 30,
             "native status actions attached");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 29,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 30,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -340,6 +340,25 @@ int main(int argc, char **argv) {
     const auto beforeEmoji = ic.committed;
     engine.emoji_item1_.activate(&ic);
     require(ic.committed != beforeEmoji, "emoji menu item commits selected text");
+    engine.emoji_search_action_.activate(&ic);
+    require(state->emoji_search_mode_, "emoji search action enters native search mode");
+    auto searchKey = [&](fcitx::KeySym sym) {
+      fcitx::KeyEvent event(&ic, fcitx::Key(sym));
+      engine.keyEvent(entry, event);
+      return event.accepted();
+    };
+    require(searchKey(FcitxKey_g), "emoji search accepts ASCII query input");
+    const auto searchDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_items_.empty() && std::chrono::steady_clock::now() < searchDeadline) {
+      state->refreshEmoji();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(!state->emoji_items_.empty() && state->emoji_search_ == "g",
+            "emoji search returns filtered catalog entries");
+    const auto beforeSearchCommit = ic.committed;
+    require(searchKey(FcitxKey_Return), "emoji search accepts selection key");
+    require(ic.committed != beforeSearchCommit && !state->emoji_search_mode_,
+            "emoji search commits the first result and exits");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);
