@@ -119,6 +119,28 @@ std::string onlineSocket(const Json &options) {
   return {};
 }
 
+Json voiceProviderOptions(const Json &preferences) {
+  const auto voice = preferences.value("voice_input", Json::object());
+  Json options = Json::object();
+  for (const auto *key : {"sound_enabled", "start_sound", "end_sound",
+                          "mute_system_audio", "polish_enabled", "polish_text",
+                          "doubao_enable_itn", "doubao_enable_punc", "doubao_enable_ddc",
+                          "stream_inline_preedit"}) {
+    if (voice.contains(key) && voice.at(key).is_boolean()) options[key] = voice.at(key);
+  }
+  for (const auto *key : {"capture_backend", "capture_device", "commit_mode", "asr_provider",
+                          "asr_model", "asr_resource_id", "doubao_auth_mode",
+                          "polish_provider", "polish_model", "doubao_boosting_table_id",
+                          "polish_prompt_id"}) {
+    if (!voice.contains(key) || !voice.at(key).is_string()) continue;
+    auto value = voice.at(key).get<std::string>();
+    if (std::strcmp(key, "doubao_auth_mode") == 0 && value != "api_key" && value != "legacy") continue;
+    if (value.size() > 512) value.resize(512);
+    options[key] = std::move(value);
+  }
+  return options;
+}
+
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -207,6 +229,9 @@ public:
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
     }
     voice_socket_.clear();
+    voice_language_ = "zh-cn";
+    voice_options_ = Json::object();
+    voice_enabled_ = true;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -279,6 +304,10 @@ public:
     if (voice_socket_.empty()) {
       if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) voice_socket_ = socket;
     }
+    const auto voicePreferences = preferences_.value("voice_input", Json::object());
+    voice_enabled_ = voicePreferences.value("enabled", true);
+    voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
+    voice_options_ = voiceProviderOptions(preferences_);
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
     if (translation_socket_.empty()) {
@@ -326,6 +355,10 @@ public:
             const auto wordCharacter = preferences_.value("word_character", Json::object());
             word_character_enabled_ = wordCharacter.value("enabled", true);
             word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
+            const auto voicePreferences = preferences_.value("voice_input", Json::object());
+            voice_enabled_ = voicePreferences.value("enabled", voice_enabled_);
+            voice_language_ = voicePreferences.value("language", voice_language_);
+            voice_options_ = voiceProviderOptions(preferences_);
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -700,19 +733,21 @@ public:
     return false;
   }
   bool requestVoice() {
-    if (voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
+    if (!voice_enabled_ || voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
     if (refreshVoice()) return true;
     if (voice_loading_) return false;
     voice_loading_ = true;
     const auto socket = voice_socket_;
     const auto generation = view_.value("generation", uint64_t{});
+    const auto language = voice_language_;
+    const auto options = voice_options_;
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
     voice_partial_seen_ = false;
     const auto mailbox = voice_mailbox_;
-    voice_job_ = std::async(std::launch::async, [socket, generation, mailbox] {
-      const auto query = Json{{"language", "zh-cn"}, {"generation", generation},
-                              {"stream", true}}.dump();
+    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
+      const auto query = Json{{"language", language}, {"generation", generation},
+                              {"options", options}, {"stream", true}}.dump();
       auto result = response(msime_client_voice_provider_stream(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
@@ -841,6 +876,9 @@ public:
   bool emoji_complete_ = false;
   std::vector<size_t> emoji_previous_offsets_;
   std::string voice_socket_;
+  std::string voice_language_ = "zh-cn";
+  Json voice_options_ = Json::object();
+  bool voice_enabled_ = true;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
