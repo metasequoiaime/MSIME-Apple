@@ -133,16 +133,24 @@ int main(int argc, char **argv) {
       } catch (...) {}
       const auto partial = Json{{"type", "partial"}, {"generation", generation},
                                 {"text", "语音中"}}.dump() + "\n";
+      const auto status = Json{{"type", "status"}, {"generation", generation},
+                               {"phase", "recognizing"}}.dump() + "\n";
+      const auto level = Json{{"type", "level"}, {"generation", generation},
+                              {"level", 0.7}}.dump() + "\n";
       const auto final = Json{{"type", "final"}, {"generation", generation},
                               {"text", "语音测试"}}.dump() + "\n";
       const bool valid = count > 0 && std::string(request, count).find("voice") != std::string::npos;
       const bool partialSent = send(client, partial.data(), partial.size(), MSG_NOSIGNAL) ==
                                static_cast<ssize_t>(partial.size());
+      const bool statusSent = send(client, status.data(), status.size(), MSG_NOSIGNAL) ==
+                              static_cast<ssize_t>(status.size());
+      const bool levelSent = send(client, level.data(), level.size(), MSG_NOSIGNAL) ==
+                             static_cast<ssize_t>(level.size());
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       const bool finalSent = send(client, final.data(), final.size(), MSG_NOSIGNAL) ==
                              static_cast<ssize_t>(final.size());
       close(client); close(voiceServer);
-      return valid && partialSent && finalSent;
+      return valid && partialSent && statusSent && levelSent && finalSent;
     });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
@@ -329,6 +337,8 @@ int main(int argc, char **argv) {
       state->refreshVoice();
     }
     require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
+    require(state->voice_phase_seen_ && state->voice_level_seen_,
+            "voice action receives provider status and level");
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
     require(voiceProvider.get(), "voice socket protocol");
     if (ai) {

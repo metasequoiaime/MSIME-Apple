@@ -261,6 +261,8 @@ public:
     voice_mailbox_.reset();
     voice_generation_ = 0;
     voice_partial_seen_ = false;
+    voice_phase_seen_ = false;
+    voice_level_seen_ = false;
     voice_loading_ = false;
   }
   void clearPanel() {
@@ -740,6 +742,8 @@ public:
         }
         if (!partial.empty() || phaseSeen || levelSeen) {
           voice_partial_seen_ = true;
+          voice_phase_seen_ = voice_phase_seen_ || phaseSeen;
+          voice_level_seen_ = voice_level_seen_ || levelSeen;
           const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
           std::string status = phaseSeen ? phaseLabel[std::min<size_t>(phase, 2)] : "录音中";
           if (levelSeen) status += " " + std::string(level, '#');
@@ -779,6 +783,8 @@ public:
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
     voice_partial_seen_ = false;
+    voice_phase_seen_ = false;
+    voice_level_seen_ = false;
     const auto mailbox = voice_mailbox_;
     voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
       const auto query = Json{{"language", language}, {"generation", generation},
@@ -809,6 +815,8 @@ public:
     voice_mailbox_.reset();
     voice_loading_ = false;
     voice_partial_seen_ = false;
+    voice_phase_seen_ = false;
+    voice_level_seen_ = false;
     ic_.inputPanel().setAuxUp(fcitx::Text());
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     return true;
@@ -918,6 +926,8 @@ public:
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
   bool voice_partial_seen_ = false;
+  bool voice_phase_seen_ = false;
+  bool voice_level_seen_ = false;
   bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
