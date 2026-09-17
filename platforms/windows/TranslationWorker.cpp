@@ -1,4 +1,5 @@
 #include "TranslationWorker.h"
+#include "TranslationDisplay.h"
 
 #include "msime_client.h"
 
@@ -404,8 +405,9 @@ TranslationWorker::translate(const Request &request,
               merged.push_back({{"text", text}, {"translation", translation}});
             else
               merged.at(it->second)["translation"] =
-                  merged.at(it->second).at("translation").get<std::string>() +
-                  "\n" + translation;
+                  append_translation_display(
+                      merged.at(it->second).at("translation").get<std::string>(),
+                      translation);
           }
         } catch (...) {
           continue;
@@ -519,7 +521,8 @@ TranslationWorker::translate(const Request &request,
     };
     std::vector<nlohmann::json> pending;
     for (const auto &item : *plan) {
-      if (translated_texts.contains(item.at("text").get<std::string>()))
+      if (translated_texts.find(item.at("text").get<std::string>()) !=
+          translated_texts.end())
         continue;
       const auto cache_id = item_cache_id(item);
       if (const auto cached = translation_cache_.find(cache_id);
