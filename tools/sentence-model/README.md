@@ -17,6 +17,20 @@ So the model is gated: it reranks only when the engine's leading candidate is de
 
 The second rule the evaluation depends on is that only candidates covering the whole key are comparable. The engine also returns prefixes, and a summed log-probability is larger for fewer characters, so scoring a mixed-length list puts the shortest candidate first every time.
 
+## What the pipeline produces
+
+The `keyboard` preset trained for 50,000 steps on 520 million characters of Wikipedia and LCCC, 66 minutes on an M-series GPU, reaching validation perplexity 49.0:
+
+| | cases | engine top-1 | reranked top-1 |
+|---|---|---|---|
+| Sentences | 26 | 0.615 | **0.769** |
+| Words, decoder-assembled leader | 14 | 0.000 | **0.500** |
+| Words, dictionary leader | 2065 | 0.747 | 0.747 |
+
+The corpus mix matters in the direction the split predicts. Trained on LCCC dialogue alone the model reached the same sentence accuracy but only 0.286 on decoder-assembled words, whose vocabulary is written register — 火力发电, 保护国, 畅销品. Adding Wikipedia moved that bucket to 0.500 and left sentences where they were.
+
+Quantization is free here. The int8 and float16 exports disagree on no ranking decision across all 2105 cases, so the 7.1 MB file is the one to ship.
+
 ## Running it
 
 ```sh
@@ -37,7 +51,7 @@ python rerank_eval.py --model dist/sentence-v1.safetensors --cases dumps/sentenc
 
 | Preset | Layers | Width | Context | Vocabulary | Parameters | int8 | f16 |
 |---|---|---|---|---|---|---|---|
-| `keyboard` | 6 | 256 | 64 | 8192 | ~6.8M | ~6 MB | ~12 MB |
+| `keyboard` | 6 | 256 | 64 | 8192 | 6.8M | 7.1 MB | 13.9 MB |
 | `desktop` | 8 | 448 | 128 | 12288 | ~24M | ~24 MB | ~48 MB |
 
 `keyboard` is sized to load inside an iOS keyboard extension, which shares a memory budget with the engine and its dictionaries.
