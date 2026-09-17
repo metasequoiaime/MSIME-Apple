@@ -121,6 +121,16 @@ public:
     render();
     return true;
   }
+  bool selectEdge(uint8_t edge) {
+    if (!session_ || view_.value("candidates", Json::array()).empty()) return false;
+    for (const auto &candidate : view_.at("candidates")) {
+      if (!candidate.value("highlighted", false)) continue;
+      const auto &id = candidate.at("id");
+      return apply(msime_client_select_edge(session_, id.at("generation"),
+                                             id.at("index"), edge));
+    }
+    return false;
+  }
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
@@ -129,6 +139,9 @@ public:
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     navigation_ = preferences_.value("navigation", Json::object());
+    const auto wordCharacter = preferences_.value("word_character", Json::object());
+    word_character_enabled_ = wordCharacter.value("enabled", true);
+    word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
     if (private_) {
       preferences_["learning"] = false;
@@ -160,6 +173,9 @@ public:
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
             preferences_ = snapshot.at("preferences");
             navigation_ = preferences_.value("navigation", Json::object());
+            const auto wordCharacter = preferences_.value("word_character", Json::object());
+            word_character_enabled_ = wordCharacter.value("enabled", true);
+            word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -216,6 +232,8 @@ public:
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
   bool private_ = false;
+  bool word_character_enabled_ = true;
+  bool word_character_minus_equal_ = false;
 };
 
 class FcitxCandidate : public fcitx::CandidateWord {
@@ -495,6 +513,14 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (composing) {
     const bool japanese = view_.value("scheme", 0u) == 3;
     if (!shift && !view_.at("candidates").empty()) {
+      if (word_character_enabled_ && !japanese &&
+          ((word_character_minus_equal_ && sym == FcitxKey_minus) ||
+           (!word_character_minus_equal_ && sym == FcitxKey_bracketleft)))
+        return selectEdge(MSIME_FIRST_HAN);
+      if (word_character_enabled_ && !japanese &&
+          ((word_character_minus_equal_ && sym == FcitxKey_equal) ||
+           (!word_character_minus_equal_ && sym == FcitxKey_bracketright)))
+        return selectEdge(MSIME_LAST_HAN);
       if ((sym == FcitxKey_minus && !japanese && navigation_.value("minus_equal", true)) ||
           (sym == FcitxKey_comma && navigation_.value("comma_period", true)) ||
           (sym == FcitxKey_bracketleft && navigation_.value("brackets", false)))

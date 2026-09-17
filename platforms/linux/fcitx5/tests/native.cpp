@@ -73,6 +73,10 @@ int main(int argc, char **argv) {
     page->candidate(0).select(&ic);
     require(!ic.committed.empty(), "native candidate selection");
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
+    const auto beforeWordCharacter = ic.committed;
+    require(key(FcitxKey_bracketleft), "configured word-to-character binding");
+    require(ic.committed != beforeWordCharacter, "word-to-character commits selected edge");
+    require(key(FcitxKey_n) && key(FcitxKey_i), "third composition keys");
     require(key(FcitxKey_minus), "configured minus previous-page binding");
     require(key(FcitxKey_equal), "configured equal next-page binding");
     require(key(FcitxKey_Escape), "cancel after navigation");
