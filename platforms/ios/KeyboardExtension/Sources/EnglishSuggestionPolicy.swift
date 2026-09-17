@@ -12,6 +12,14 @@ enum EnglishSuggestionPolicy {
     let insert: String
   }
 
+  /// 光标前正在敲的那个英文词。从文档现读,不记状态 —— 光标被点到别处、宿主自动更正过,读出来都还是对的。
+  ///
+  /// 只认 ASCII 字母。Character.isLetter 把汉字也算进来,于是「我用iph」会被整条当成前缀,而英文词库只
+  /// 接受 a-z、一个字符不合就整条拒掉:中文后面不空格直接打英文,候选一条都不出,而那正是最常写的句子。
+  static func currentWord(before context: String) -> String {
+    String(context.reversed().prefix { $0.isASCII && $0.isLetter }.reversed())
+  }
+
   /// typed 是已敲进文档的那一截,candidate 是引擎给的词(引擎按小写前缀查,所以它总是小写)。
   /// startedCapitalized 记的是这个词的第一个字母敲下去时是不是大写。
   static func replacement(typed: String, candidate: String, startedCapitalized: Bool) -> Replacement? {

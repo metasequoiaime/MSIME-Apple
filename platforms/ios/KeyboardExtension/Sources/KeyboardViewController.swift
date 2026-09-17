@@ -1326,8 +1326,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // 记录和文档走散,而走散之后候选是错的却不会报错。每次重新读就没有这个问题。
   private var englishWordBeforeCursor: String {
     guard !isChineseMode, EnglishSuggestionsPreference.isEnabled else { return "" }
-    let before = textDocumentProxy.documentContextBeforeInput ?? ""
-    return String(before.reversed().prefix { $0.isLetter }.reversed())
+    return EnglishSuggestionPolicy.currentWord(before: textDocumentProxy.documentContextBeforeInput ?? "")
   }
 
   // 英文的候选只有候选,没有 preedit —— 字母已经在文档里了,再画一遍 preedit 就成了重影。
